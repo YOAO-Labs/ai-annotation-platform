@@ -11,7 +11,7 @@ const states: Record<string, string> = {
   scanning: "扫描中",
   preflighting: "预检中",
   awaiting_review: "等待核对差异",
-  registering: "等待人工登记结束",
+  registering: "登记中",
   blocked: "已阻断，需重新核对授权或配置",
 };
 const errors: Record<string, string> = {
@@ -38,9 +38,19 @@ function scheduleError(error: unknown): string {
   return verifiedContentError(error);
 }
 
-export function DirectorySyncSchedule({ sourceId, owner }: { sourceId: string; owner: string }) {
+export function DirectorySyncSchedule({
+  sourceId,
+  owner,
+  datasetId,
+}: {
+  sourceId: string;
+  owner: string;
+  datasetId: string;
+}) {
   const client = useQueryClient();
   const capture = useSessionGuard();
+  const [policyDraft, setPolicyDraft] = useState<"manual" | "pure_additions" | null>(null);
+  const [timezoneDraft, setTimezoneDraft] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -51,15 +61,27 @@ export function DirectorySyncSchedule({ sourceId, owner }: { sourceId: string; o
     refetchInterval: (q) => (q.state.data?.enabled ? 5000 : false),
   });
   const row = query.data;
+  const policy = policyDraft ?? row?.new_file_policy ?? "manual";
+  const timezone = timezoneDraft ?? row?.timezone ?? "UTC";
+  const displayTime = (date: string) => {
+    try {
+      return new Date(date).toLocaleString(undefined, { timeZone: row?.timezone ?? "UTC" });
+    } catch {
+      return `${new Date(date).toISOString()}（UTC，本机不支持已选时区）`;
+    }
+  };
   const interval = draft ?? String(row?.interval_minutes ?? 60);
   useEffect(() => {
     setReviewed(false);
   }, [row?.scan_id, row?.revision]);
   useEffect(() => {
     if (!row?.scan_id) return;
+    void client.invalidateQueries({ queryKey: ["dataset-items", datasetId] });
+    void client.invalidateQueries({ queryKey: ["datasets"] });
+    void client.invalidateQueries({ queryKey: ["dataset", datasetId] });
     void client.invalidateQueries({ queryKey: ["dataset-scans", owner, sourceId] });
     void client.invalidateQueries({ queryKey: ["directory-registration", owner, row.scan_id] });
-  }, [client, owner, sourceId, row?.scan_id, row?.state]);
+  }, [client, owner, sourceId, datasetId, row?.scan_id, row?.state]);
   const act = async (work: () => Promise<unknown>) => {
     const current = capture();
     setBusy(true);
@@ -68,6 +90,8 @@ export function DirectorySyncSchedule({ sourceId, owner }: { sourceId: string; o
       await work();
       if (current()) {
         setDraft(null);
+        setPolicyDraft(null);
+        setTimezoneDraft(null);
         setReviewed(false);
       }
     } catch (e) {
@@ -83,7 +107,7 @@ export function DirectorySyncSchedule({ sourceId, owner }: { sourceId: string; o
     <section aria-label="周期扫描计划" className="mt-3 rounded-md border border-border p-3">
       <h5 className="text-sm font-semibold">周期扫描与预检</h5>
       <p className="mt-1 text-muted-foreground">
-        按本次启用账号的当前权限自动扫描、预检，不自动登记。发现差异后等待核对；无变化时继续下一周期。暂停停止后续触发，当前任务可在任务面板单独取消。
+        按本次启用账号的当前权限自动扫描、预检。默认人工登记；可选择仅在整轮均为新增或未变化、且无错误时自动登记新增。其他差异整轮等待核对。暂停停止后续触发，已确认的任务可在任务面板单独取消。
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <label>
@@ -96,6 +120,28 @@ export function DirectorySyncSchedule({ sourceId, owner }: { sourceId: string; o
             className="w-24 rounded-md border border-input bg-background px-2 py-1"
             value={interval}
             onChange={(e) => setDraft(e.target.value)}
+          />
+        </label>
+        <label>
+          新增接纳策略{" "}
+          <select
+            aria-label="新增接纳策略"
+            className="rounded-md border border-input bg-background px-2 py-1"
+            value={policy}
+            onChange={(e) => setPolicyDraft(e.target.value as typeof policy)}
+          >
+            <option value="manual">人工确认（默认）</option>
+            <option value="pure_additions">纯新增轮次自动登记</option>
+          </select>
+        </label>
+        <label>
+          显示时区{" "}
+          <input
+            aria-label="周期计划时区"
+            className="w-40 rounded-md border border-input bg-background px-2 py-1"
+            value={timezone}
+            onChange={(e) => setTimezoneDraft(e.target.value)}
+            placeholder="Asia/Shanghai"
           />
         </label>
         <Button
@@ -114,6 +160,8 @@ export function DirectorySyncSchedule({ sourceId, owner }: { sourceId: string; o
                 expected_revision: row?.revision ?? 0,
                 enabled: true,
                 interval_minutes: Number(interval),
+                new_file_policy: policy,
+                timezone,
               }),
             )
           }
@@ -130,6 +178,8 @@ export function DirectorySyncSchedule({ sourceId, owner }: { sourceId: string; o
                   expected_revision: row.revision,
                   enabled: false,
                   interval_minutes: row.interval_minutes,
+                  new_file_policy: row.new_file_policy,
+                  timezone: row.timezone,
                 }),
               )
             }
@@ -144,12 +194,9 @@ export function DirectorySyncSchedule({ sourceId, owner }: { sourceId: string; o
       {row && (
         <p role="status" className="mt-2">
           {row.enabled || row.state === "blocked" ? states[row.state] : "周期计划已暂停"}
-          {row.next_run_at && row.enabled
-            ? ` · 下次计划 ${new Date(row.next_run_at).toLocaleString()}`
-            : ""}
-          {row.last_checked_at
-            ? ` · 最近检查 ${new Date(row.last_checked_at).toLocaleString()}`
-            : ""}
+          {row.next_run_at && row.enabled ? ` · 下次计划 ${displayTime(row.next_run_at)}` : ""}
+          {` · 时区 ${row.timezone}`}
+          {row.last_checked_at ? ` · 最近检查 ${displayTime(row.last_checked_at)}` : ""}
         </p>
       )}
       {row?.last_error && (
@@ -189,7 +236,8 @@ export function DirectorySyncSchedule({ sourceId, owner }: { sourceId: string; o
         </p>
       )}
       <p className="mt-1 text-muted-foreground">
-        间隔范围15–10080分钟；由后台调度器按分钟检查，节点繁忙或离线时可能延后，不补跑错过的周期。权限或配置变化后需重新启用。
+        使用 IANA
+        时区名称；间隔按实际分钟计算（1440分钟为24小时），不按本地日历调整夏令时。策略变更只影响新轮次，已开始的人工轮次仍需人工核对。间隔范围15–10080分钟；由后台调度器按分钟检查，节点繁忙或离线时可能延后，不补跑错过的周期。权限或配置变化后需重新启用。
       </p>
     </section>
   );

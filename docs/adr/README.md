@@ -156,3 +156,5 @@
 - [0102](0102-explicit-directory-content-revisions.md) — 内容修订追加业务身份并推进来源路径头
 - [0103](0103-explicit-same-content-revalidation.md) — 同内容重新核验追加读取凭据并保留业务身份
 - [0104](0104-explicit-source-relocations.md) — 来源内移动通过明确接纳的新定位保留原业务身份
+
+- [0105](0105-opt-in-pure-addition-sync.md) — 周期计划按明确策略自动接纳纯新增轮次

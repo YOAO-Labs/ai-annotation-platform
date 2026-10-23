@@ -419,6 +419,12 @@ class DatasetSourceSyncSchedule(Base):
     revision: Mapped[int] = mapped_column(default=1)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     interval_minutes: Mapped[int] = mapped_column(default=60)
+    new_file_policy: Mapped[str] = mapped_column(
+        String(30), default="manual", server_default="manual"
+    )
+    timezone: Mapped[str] = mapped_column(
+        String(64), default="UTC", server_default="UTC"
+    )
     actor_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT")
     )
@@ -446,6 +452,10 @@ class DatasetSourceSyncSchedule(Base):
     __table_args__ = (
         CheckConstraint(
             "interval_minutes BETWEEN 15 AND 10080", name="ck_source_sync_interval"
+        ),
+        CheckConstraint(
+            "new_file_policy IN ('manual','pure_additions')",
+            name="ck_source_sync_new_file_policy",
         ),
         CheckConstraint(
             "state IN ('idle','scanning','preflighting','awaiting_review','registering','blocked')",

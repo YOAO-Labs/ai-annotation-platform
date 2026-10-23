@@ -390,7 +390,12 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
         />
       )}
       {source?.enabled && !source.unregistered_at && (
-        <DirectorySyncSchedule key={source.id} sourceId={source.id} owner={owner} />
+        <DirectorySyncSchedule
+          key={source.id}
+          sourceId={source.id}
+          owner={owner}
+          datasetId={datasetId}
+        />
       )}
       {run?.complete && source?.enabled && !source.unregistered_at && (
         <DirectoryRegistrationProgress

@@ -3,8 +3,9 @@
 from datetime import datetime
 import uuid
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class DatasetSourceCreate(BaseModel):
@@ -251,6 +252,19 @@ class SourceSyncScheduleUpdate(BaseModel):
     expected_revision: int = Field(ge=0)
     enabled: bool
     interval_minutes: int = Field(default=60, ge=15, le=10080)
+    new_file_policy: Literal["manual", "pure_additions"] = "manual"
+    timezone: str = Field(default="UTC", min_length=1, max_length=64)
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value):
+        if value in {"localtime", "Factory"} or value.startswith(("posix/", "right/")):
+            raise ValueError("Use an IANA timezone such as Asia/Shanghai")
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("Use an IANA timezone such as Asia/Shanghai") from None
+        return value
 
 
 class SourceSyncScheduleContinue(BaseModel):
@@ -265,6 +279,8 @@ class SourceSyncScheduleOut(BaseModel):
     revision: int
     enabled: bool
     interval_minutes: int
+    new_file_policy: Literal["manual", "pure_additions"]
+    timezone: str
     actor_id: uuid.UUID
     state: Literal[
         "idle", "scanning", "preflighting", "awaiting_review", "registering", "blocked"

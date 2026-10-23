@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 from app.schemas.dataset_source import SourceSyncScheduleUpdate
 from app.services.dataset_source_sync import configure
+from tests.migration_helpers import without_later_migrations
 from tests.test_dataset_content import content_world as content_world
 
 
@@ -29,13 +30,16 @@ async def test_empty_schedule_schema_roundtrip(db_session, monkeypatch):
         monkeypatch.setattr(
             migration, "op", Operations(MigrationContext.configure(sync.connection()))
         )
-        migration.downgrade()
-        assert (
-            sync.scalar(text("SELECT to_regclass('dataset_source_sync_schedules')"))
-            is None
-        )
-        migration.upgrade()
-        assert sync.scalar(text("SELECT to_regclass('dataset_source_sync_schedules')"))
+        with without_later_migrations(sync, monkeypatch, "0202"):
+            migration.downgrade()
+            assert (
+                sync.scalar(text("SELECT to_regclass('dataset_source_sync_schedules')"))
+                is None
+            )
+            migration.upgrade()
+            assert sync.scalar(
+                text("SELECT to_regclass('dataset_source_sync_schedules')")
+            )
 
     await db_session.run_sync(verify)
 

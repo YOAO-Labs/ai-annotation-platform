@@ -127,6 +127,7 @@ async def configure(db, source_id, payload, actor, key_id=None):
         row.last_error = None
     row.revision += 1
     row.enabled, row.interval_minutes = payload.enabled, payload.interval_minutes
+    row.new_file_policy, row.timezone = payload.new_file_policy, payload.timezone
     row.dispatch_token = row.dispatch_expires_at = None
     row.next_check_at = stamp
     await db.flush()
@@ -329,13 +330,19 @@ async def choose_action(db, source, row):
             return "resume_scan"
     else:
         run = await db.get(Registration, row.registration_id, populate_existing=True)
-        # Formal registration belongs to the human who confirmed it. Its existing
-        # recovery task preserves that authority; the schedule only observes it.
+        # Only an explicitly automatic run under this exact delegation is ours
+        # to recover. Human confirmation remains observation-only.
         if run.phase == "registering":
             if run.status in {"completed", "cancelled", "failed"}:
                 finish_cycle(row, stamp, run.error_code)
             else:
                 row.state = "registering"
+                if run.snapshot.get("sync_auto_ingestion") and owns_run(run, row):
+                    await require_run_authority(db, run, row)
+                    if run.status == "pending":
+                        return "dispatch_registration"
+                    if run.lease_expires_at and run.lease_expires_at <= stamp:
+                        return "resume_registration"
             return None
         if row.state == "awaiting_review" and run.status == "completed":
             return None
@@ -346,6 +353,8 @@ async def choose_action(db, source, row):
             if run.phase == "registering":
                 finish_cycle(row, stamp)
             elif row.state != "awaiting_review":
+                if await pure_additions(db, run, row):
+                    return "confirm_additions"
                 attention = await db.scalar(
                     select(func.count())
                     .select_from(Change)
@@ -360,6 +369,31 @@ async def choose_action(db, source, row):
         elif run.lease_expires_at and run.lease_expires_at <= stamp:
             return "resume_registration"
     return None
+
+
+def owns_run(run, row):
+    snapshot = run.snapshot
+    return (
+        snapshot.get("sync_actor_id") == str(row.actor_id)
+        and snapshot.get("api_key_id")
+        == (str(row.api_key_id) if row.api_key_id else None)
+        and snapshot.get("key_proof") == row.key_proof
+        and snapshot.get("sync_source_id") == str(row.source_id)
+    )
+
+
+async def pure_additions(db, run, row):
+    if (
+        row.new_file_policy != "pure_additions"
+        or run.snapshot.get("sync_new_file_policy") != "pure_additions"
+        or not run.comparison_complete
+        or run.counts.get("error_count", 0)
+    ):
+        return False
+    kinds = set(
+        await db.scalars(select(Change.kind).where(Change.run_id == run.id).distinct())
+    )
+    return "added" in kinds and kinds <= {"added", "unchanged"}
 
 
 async def process(db, source_id, revision, token, node):
@@ -400,6 +434,7 @@ async def process(db, source_id, revision, token, node):
                 **run.snapshot,
                 "sync_source_id": str(source.id),
                 "sync_actor_id": str(row.actor_id),
+                "sync_new_file_policy": row.new_file_policy,
             }
             row.scan_id, row.registration_id = run.id, None
             row.state, row.last_started_at = "scanning", await scans.now(db)
@@ -408,6 +443,8 @@ async def process(db, source_id, revision, token, node):
                 db, row.scan_id, actor, api_key_id=row.api_key_id
             )
         elif operation == "start_preflight":
+            scan = await db.get(Scan, row.scan_id)
+            pinned_policy = scan.snapshot.get("sync_new_file_policy", "manual")
             run, created = await registrations.start_preflight(
                 db, row.scan_id, actor, api_key_id=row.api_key_id, worker_node=node
             )
@@ -417,8 +454,35 @@ async def process(db, source_id, revision, token, node):
                 **run.snapshot,
                 "sync_source_id": str(source.id),
                 "sync_actor_id": str(row.actor_id),
+                "sync_new_file_policy": pinned_policy,
             }
             row.registration_id, row.state = run.id, "preflighting"
+        elif operation == "confirm_additions":
+
+            async def guard(current_db):
+                _, _, current, _ = await fenced(
+                    current_db, source_id, revision, token, node
+                )
+                current_run = await current_db.get(
+                    Registration, current.registration_id, populate_existing=True
+                )
+                await require_run_authority(current_db, current_run, current)
+                if not await pure_additions(current_db, current_run, current):
+                    raise LostWakeup()
+
+            run, created = await registrations.confirm(
+                db,
+                row.registration_id,
+                actor,
+                api_key_id=row.api_key_id,
+                scope="additions_only",
+                worker_node=node,
+                before_commit=guard,
+            )
+            if not created:
+                raise LostWakeup()
+            run.snapshot = {**run.snapshot, "sync_auto_ingestion": True}
+            row.state = "registering"
         elif operation == "resume_registration":
             run = await registrations.resume(
                 db, row.registration_id, actor, api_key_id=row.api_key_id
@@ -451,6 +515,7 @@ async def process(db, source_id, revision, token, node):
         "start_preflight",
         "resume_registration",
         "dispatch_registration",
+        "confirm_additions",
     }:
         from app.workers.dataset_registration import dispatch
 

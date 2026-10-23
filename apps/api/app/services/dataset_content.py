@@ -106,6 +106,7 @@ async def scan_snapshot(
     api_key_id=None,
     node_id=None,
     before_commit=None,
+    before_io=None,
     refresh_unverified=False,
 ):
     location, source, run, entry, node, anchor = await scan_context(
@@ -150,6 +151,8 @@ async def scan_snapshot(
         entry.relative_path,
     )
     revision = (source.config_revision, location.config_revision)
+    if before_io is not None:
+        await before_io(db)
     await db.commit()  # No database locks span filesystem I/O.
     snapshot = await snapshots.capture(
         lambda: reference_storage.content_file(

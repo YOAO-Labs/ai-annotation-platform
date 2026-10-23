@@ -520,7 +520,16 @@ async def ensure_source_available(db, location, source, node):
         raise fs.FilesystemStorageError("source_unavailable") from None
 
 
-async def confirm(db, run_id, actor, *, api_key_id=None, scope="all_safe"):
+async def confirm(
+    db,
+    run_id,
+    actor,
+    *,
+    api_key_id=None,
+    scope="all_safe",
+    worker_node=None,
+    before_commit=None,
+):
     from app.services.dataset_content import scan_snapshot
     from app.services.content_snapshot import ContentError
 
@@ -530,6 +539,8 @@ async def confirm(db, run_id, actor, *, api_key_id=None, scope="all_safe"):
 
     async def authorize_request(current_db):
         await request_authority(current_db, actor, api_key_id, key_proof, source)
+        if before_commit is not None:
+            await before_commit(current_db)
 
     async def authorize(current_db):
         await authorize_request(current_db)
@@ -545,6 +556,13 @@ async def confirm(db, run_id, actor, *, api_key_id=None, scope="all_safe"):
     deadline = time.monotonic() + 10
     for _ in range(32):
         location, source, run, _ = await context(db, run_id)
+        if worker_node is not None and worker_node != source.config["node_id"]:
+            raise HTTPException(409, detail={"code": "wrong_worker_node"})
+        node_id = (
+            f"worker:{worker_node}"
+            if worker_node is not None
+            else locations.api_node_id()
+        )
         await authorize(db)
         await scans.validate_context(db, location, source, snapshot=run.snapshot)
         await other_active(db, run)
@@ -587,16 +605,18 @@ async def confirm(db, run_id, actor, *, api_key_id=None, scope="all_safe"):
             sample.path_digest,
             observed.verified_content["sha256"],
         )
-        proof = await locations.perform_probe(
-            db, location, locations.api_node_id(), None
-        )
+        proof = await locations.perform_probe(db, location, node_id, None)
         await authorize(db)
-        await locations.store_probe(
-            db, location, locations.api_node_id(), proof, await scans.now(db)
-        )
+        await locations.store_probe(db, location, node_id, proof, await scans.now(db))
         if not proof["ok"]:
             raise HTTPException(
-                409, detail={"code": "api_source_unavailable", "reason": proof["code"]}
+                409,
+                detail={
+                    "code": "source_unavailable"
+                    if worker_node
+                    else "api_source_unavailable",
+                    "reason": proof["code"],
+                },
             )
         await db.commit()
         try:
@@ -609,7 +629,8 @@ async def confirm(db, run_id, actor, *, api_key_id=None, scope="all_safe"):
                 api_key_id=api_key_id,
                 verify=True,
                 before_commit=authorize_request,
-                node_id=locations.api_node_id(),
+                before_io=authorize_request,
+                node_id=node_id,
             )
             snapshot.close()
         except (ContentError, fs.FilesystemStorageError) as exc:
@@ -619,9 +640,7 @@ async def confirm(db, run_id, actor, *, api_key_id=None, scope="all_safe"):
             location, source, run, _ = await context(db, run_id)
             await authorize(db)
             if exc.code in PATH_ERRORS:
-                await ensure_source_available(
-                    db, location, source, locations.api_node_id()
-                )
+                await ensure_source_available(db, location, source, node_id)
                 _, _, run, _ = await context(db, run_id)
                 await authorize(db)
             if run.phase != "preflight" or run.status != "completed":
@@ -630,7 +649,12 @@ async def confirm(db, run_id, actor, *, api_key_id=None, scope="all_safe"):
                 ) from None
             sample = await db.get(Entry, (run.id, digest), populate_existing=True)
             if sample.state == "ready":
-                transition(run, sample, "error", error_code=f"api_{exc.code}"[:60])
+                transition(
+                    run,
+                    sample,
+                    "error",
+                    error_code=f"{'worker' if worker_node else 'api'}_{exc.code}"[:60],
+                )
             await db.commit()
             if time.monotonic() >= deadline:
                 raise HTTPException(

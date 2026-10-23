@@ -26,6 +26,7 @@ async def test_empty_scan_ledger_roundtrip_and_retention_guard(db_session, monke
             "0202_dataset_source_sync_schedules.py",
             "0203_dataset_source_revisions.py",
             "0204_dataset_source_relocation_order.py",
+            "0205_source_sync_ingestion_policy.py",
         ):
             dependent_spec = importlib.util.spec_from_file_location(
                 filename[:-3], Path(__file__).parents[1] / "alembic/versions" / filename

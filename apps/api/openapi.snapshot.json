@@ -40370,6 +40370,14 @@
             ],
             "title": "Last Started At"
           },
+          "new_file_policy": {
+            "enum": [
+              "manual",
+              "pure_additions"
+            ],
+            "title": "New File Policy",
+            "type": "string"
+          },
           "next_run_at": {
             "anyOf": [
               {
@@ -40426,6 +40434,10 @@
             ],
             "title": "State",
             "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
           }
         },
         "required": [
@@ -40433,6 +40445,8 @@
           "revision",
           "enabled",
           "interval_minutes",
+          "new_file_policy",
+          "timezone",
           "actor_id",
           "state",
           "scan_id",
@@ -40463,6 +40477,22 @@
             "minimum": 15.0,
             "title": "Interval Minutes",
             "type": "integer"
+          },
+          "new_file_policy": {
+            "default": "manual",
+            "enum": [
+              "manual",
+              "pure_additions"
+            ],
+            "title": "New File Policy",
+            "type": "string"
+          },
+          "timezone": {
+            "default": "UTC",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Timezone",
+            "type": "string"
           }
         },
         "required": [
