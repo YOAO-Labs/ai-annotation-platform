@@ -142,11 +142,15 @@ async def test_tracker_owners_keep_private_rows_and_cross_owner_reads_narrow(
 
 
 async def test_labeling_table_grants_are_scoped_to_its_native_receipts(db_session):
+    # Native video publication owns status/channel facts; Celery identifiers stay private.
     for column, privilege, expected in (
         ("id", "UPDATE", True),
         ("status", "SELECT", True),
-        ("status", "UPDATE", False),
-        ("event_channel", "SELECT", False),
+        ("status", "UPDATE", True),
+        ("event_channel", "SELECT", True),
+        ("celery_task_id", "SELECT", False),
+        ("celery_task_id", "UPDATE", False),
+        ("created_by", "UPDATE", False),
     ):
         assert (
             await db_session.scalar(

@@ -1472,4 +1472,6 @@ Docker 工件或本地切换证据。它不是本仓库的 API／数据库逻辑
 本机授权前置条件已完成，抓包进程及所有已完成探针的自有容器、网络和监听器均已
 清理。最新证据为 `.worktree/runtime-host-forwarding-host-trace-diagnosis.json`，SHA-256
 `4472b6f773e9f27edafb1ec961eee4c5806f600552897d4c0c29e3b978a8091d`。
-日常主环境、20 项 editable 绑定、4 个共享链接和 4 个共享容器保持原状；Go 实验未变。
+该次抓包保持了当时的日常主环境、20 项 editable 绑定、4 个共享链接和 4 个共享容器；Go 实验未变。后续 Identity 源码采用与运行刷新另按上文记录，不覆盖旧收据的时间点。
+
+另对[官方发布说明](https://docs.docker.com/desktop/release-notes/)中的 Apple silicon 候选 Docker Desktop 4.96.3 做了只读工件检查。官方 DMG 的 SHA-256 匹配，嵌入后端仍声明与当前 4.96.0 相同的 gVisor `6520f0ab6e7a`，没有报告 replacement；未找到可确认包含上游修复的构建。供应方构建标记为 `+dirty`，其私有源码无法核对，因此元数据不能排除未记录的内部回移，也不能代替转发行为验收。记录为 `.worktree/runtime-docker-desktop-candidate-4.96.3-arm64.json`，SHA-256 为 `93c3a6f2641a996e1becf363a9495b97849b1cf15298d4afa0c62ffb02b8b847`。候选从未执行或安装，只读挂载与下载文件已清理，活跃 Docker 未重启／改配置。
