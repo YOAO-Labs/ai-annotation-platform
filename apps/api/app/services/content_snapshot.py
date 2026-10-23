@@ -226,8 +226,10 @@ async def capture_from_location(
             expected_revision=expected_revision,
             node_id=node_id,
         ):
-            snapshot = await _capture_bounded(
-                factory, expected_sha256, inspect_quality=inspect_quality
+            snapshot = await (
+                capture_for_quality(factory, expected_sha256)
+                if inspect_quality
+                else capture(factory, expected_sha256)
             )
         return snapshot
     except BaseException as exc:
