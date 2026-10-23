@@ -7646,3 +7646,53 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   images, non-editable installation and actual S3 execution are the next gate;
   no complete Workspace, primary cutover, production or foreign-language provider
   qualification is claimed at this source checkpoint.
+
+- Implementation a1a17f2a2b9ed2eacf3af61b89084c7d7c23cc08 passed normal
+  hooks, including OpenAPI export. The first commit attempt only reformatted two
+  new JSON schemas; both parsed values remain identical and the second normal
+  hook pass succeeded. Source Workspace suite passes 488. API architecture checks
+  pass 358 with 150 existing deferred rules; do not count skips as qualified gates.
+- Current non-editable Workspace image
+  sha256:8299b47a8ce170ac289d6a2151801336ff22560284b547fa366f75bcb0a4c81e
+  matches 292 installed files in 12 namespaces; forbidden API/ORM/ML dependencies
+  remain absent. Current API image
+  sha256:ca74251106d1b38e7495568164c05cf5ef2008aa9b95604b3c5166065b270987
+  matches 1326 files (770 app, 524 installed package, 32 CLI) in 34 namespaces. Both
+  installed new resource schemas equal actual runtime generation. Images build
+  in 6.147/34.058 seconds; unchanged Inference and Assets images are reused.
+- Cold acceptance passes in 57.878 seconds: six installed-image commands form one
+  integrated case. Revoking create prevents Project/Dataset commit and object
+  upload, then the same flow recovers after grant restoration. Four actual media
+  workflows/graphs, replay IDs/counts, custom COCO bindings and four S3 object
+  hashes match their readonly fixtures. Two original screenshot reconcile/backend
+  none/finalize sequences validate Project/member metadata through the private
+  fence in the same cold image. This is DB fixture qualification, not a complete
+  screenshot recording or ML inference. All 0308/frozen-SQL and registered cleanup
+  pass. Original production and fixture failures remain immutable.
+- Three clean source worker checkouts are bundle/cache archived, integration
+  differences checked (verified SQL correction, JSON formatting, grants and Root
+  screenshot test extensions), then removed. Their branches remain retained;
+  receipts are indexed by .worktree/workspace-media-workers.json.
+- A final read-only Workspace audit found further executable consumers beyond the
+  old ledger: guarded E2E Project/member/template fixtures plus worktree_filtering,
+  seed_scale Project/membership and Labeling counters, two screenshot support
+  readers, and the explicitly privileged pre-0173 read-only role audit. The sole
+  module ledger now lists these separately. Next delivery is the coherent guarded
+  E2E fixture/CLI boundary; export/cross-frame/video-tracker cold qualification and
+  legacy video retirement proof also remain. No overall Workspace completion or
+  primary/production cutover is claimed.
+
+- Final preservation passes with twenty unchanged editable bindings, protected
+  clean primary HEAD 856fa79c87ef2668d0ed74eb570df0a3e529d49f and four unchanged
+  shared containers. All 138 known owned PostgreSQL containers are absent; no
+  Root runtime remains. All five current image COPY input sets and hashes match,
+  including detection of newly added source files, and eight earlier/current
+  worker archive receipts and retained branches are unchanged. Documentation
+  build passes in 16.944 seconds.
+- Aggregate `.worktree/workspace-media-seed-qualification.json` SHA256 is
+  1853ab13cfde10b471f481385a98842325fac029b78704d842182cf196ad111c.
+  It records the 68-case Native union with exact receipts, source/architecture
+  counts and deferred skips, original baselines, retained failures and smallest
+  reproducers, non-editable artifact hashes, all six cold command results and
+  actual DB/S3 state, migrations, cleanup and preservation. This closes this
+  bounded Workspace consumer group locally; the full goal remains active.

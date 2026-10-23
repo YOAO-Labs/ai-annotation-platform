@@ -2782,7 +2782,10 @@ AAP_WORKSPACE_MEDIA_SEED_LIVE=1 apps/api/.venv/bin/python \
 PostgreSQL／Redis／S3 夹具。实际媒体入口使用只读小夹具与原始视频副本，检查权限
 撤销后的回滚、恢复、重跑和对象哈希；不下载完整数据集，也不调用真实 ML 模型。
 截图定向检查覆盖两种 autoflush、成员时间、项目计数和中间 flush 的后端字段，固定
-夹具通过既有删除 owner 清理。本组定向检查已通过，冷工件与安装验收尚待完成。
+夹具通过既有删除 owner 清理。本组 68 项去重 Native／消费者检查和一个冷组合案例已
+通过。非 editable Workspace／API 工件分别核对 292／1326 个文件；六次冷命令包含
+权限撤销与恢复、媒体重跑／哈希、截图元数据／成员及最终时间固定。完整截图录制与
+其他领域资格继续见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
 ### 主种子冷运行验收
 
