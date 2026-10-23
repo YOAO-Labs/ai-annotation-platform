@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.db.models.prediction_input import PredictionInputLease
 from app.services import prediction_inputs as service
 from app.services.content_snapshot import ContentError, capture
+from app.services.ml_client import PredictionResult
 from app.workers import tasks
 
 
@@ -497,7 +498,7 @@ async def test_real_pipeline_cleans_owned_crop_after_each_outcome(
             if outcome == "root-failure":
                 raise RuntimeError("synthetic root failure")
             return [
-                SimpleNamespace(
+                PredictionResult(
                     task_id=str(world.task_id),
                     result=[
                         {
@@ -529,7 +530,9 @@ async def test_real_pipeline_cleans_owned_crop_after_each_outcome(
             if outcome == "cancelled":
                 raise asyncio.CancelledError()
             return [
-                SimpleNamespace(task_id="0", result=[{"attributes": {"color": "blue"}}])
+                PredictionResult(
+                    task_id="0", result=[{"attributes": {"color": "blue"}}]
+                )
             ]
 
     async def run():

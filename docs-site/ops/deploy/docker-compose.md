@@ -839,6 +839,8 @@ services:
 
 严格图片读取使用请求内临时文件，每个 API 进程最多4份、每份64MiB，临时字节上限256MiB并另有图片解码内存。给系统临时目录预留空间，多进程按进程数累加；不将临时目录放进只读业务源。异常或断连清理快照，源原图保持只读。完整合同见[内容核验与严格读取](/api/guides/verified-content)。
 
+完整原图缓存已具备内部配额、读租约和持久恢复服务，公开策略与读图入口尚未开放。部署迁移后，保持 beat 和消费 `cleanup` 队列的 worker 运行，确认注册 `app.workers.original_cache.maintain_original_cache`；每分钟最多核对五十条记录。`original_cache_entries` 不随来源或业务样本删除而消失，需随数据库备份，不能仅因业务对象不存在就手动删账本。`storage_cleanup_failed` 保留占用等待重试；`storage_identity_changed` 表示当前 endpoint/桶和记录不同，应恢复原目的配置后再核对，不能把清理请求转发给新服务器。缓存对象不需备份为原件；完整迁移或回退须保留清理记录。资源层参数与边界见[存储架构](/dev/concepts/storage-connections#完整原图缓存的资源归属)。
+
 ## 只读 SFTP 引用
 
 持续引用只接受部署者实际核验的专用只读 jail。整个账号可读命名空间都是平台位置的授权范围；平台来源的子目录只是筛选，不能拿 base_path 或前后 lstat 当作服务器隔离。普通协议探测无法证明 jail。先在测试目录验证以下部署，再给业务位置声明资格。

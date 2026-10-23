@@ -1,4 +1,5 @@
 from app.db.models.storage_usage import StorageUsageInventory, StorageUsageSnapshot
+from app.db.models.original_cache import OriginalCacheEntry, OriginalCacheReadLease
 from app.db.models.dataset_quality_review import (
     DatasetQualityReviewBatch,
     DatasetQualityReviewMember,
@@ -290,3 +291,4 @@ __all__ += ["DatasetQualityReviewBatch", "DatasetQualityReviewMember"]
 
 
 __all__ += ["StorageUsageInventory", "StorageUsageSnapshot"]
+__all__ += ["OriginalCacheEntry", "OriginalCacheReadLease"]
