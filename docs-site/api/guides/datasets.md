@@ -36,7 +36,7 @@ last_reviewed: 2026-10-23
 
 以下 GET 均要求登录及 `datasets:read`。`GET /datasets` 新增 `location_id`，仅可见该位置的管理员可用；使用现有来源管理授权，`total` 按唯一数据集计数。未获授权的位置返回404。原 search/data_type/has_scenes 与分页可组合。
 
-- `GET /{id}/items`：`limit` 1–200、`offset`，可组合 `search`（文件名，最多200字符）、`source_id`、`availability`、`media_type`、`extension`、`dimension_state` 与 `min_width/max_width/min_height/max_height`。来源 ID 必须属于该数据集且当前账号可管理，否则404。
+- `GET /{id}/items`：`limit` 1–200、`offset`，可组合 `search`（文件名，最多200字符）、`source_id`、`scene_id`、`availability`、`media_type`、`extension`、`dimension_state` 与 `min_width/max_width/min_height/max_height`。来源 ID 必须属于该数据集且当前账号可管理，否则404。
 - `GET /{id}/items/{item_id}`：直接读取单个样本及同一可用性合同；父子不匹配返回404。
 - `GET /{id}/items/{item_id}/preview`：管理员的鉴权图片流，复用来源预览读取的绑定、策略和实时授权检查；`Cache-Control: no-store`，不支持 Range。不会读取外部原图；源文件缺失时仍可交付获授权的独立派生。
 - `GET /{id}/workbench`：可用性分类计数、当前可管理来源和可见关联项目。项目统计仅包含该数据集的任务；`can_manage` 复用项目权限。旧 `/projects` 也按项目可见范围裁剪。
@@ -45,6 +45,12 @@ last_reviewed: 2026-10-23
 每个 item 增加 `availability`：state（verified/missing/changed/preview_only/unavailable/unverified）、reason_code、observed_at、preview_available、脱敏 source_id/source_name/location_id 和 allowed_actions。动作值为 read_original/read_preview/manage_source/view_location；来源信息和管理动作只提供给当前获授权的来源管理者。旧托管 file_url 继续原合同，不能凭其存在推断已核验。
 
 分类来自已保存的内容/位置绑定、接纳记录和**完整预检**差异，不同步探测或逐张读取原图。变化待确认和完整扫描未见保留原身份；预览与原图独立。verified 仅指已保存的核验观测，实际读取与编辑必须经过既有严格读取层；不能用该字段绕过任务权限。停用/注销来源、停用位置或禁用缓存策略会阻止预览动作。
+
+## Scene 选项与样本范围
+
+`GET /{id}/scene-options` 要求登录和 `datasets:read`，沿用数据集读取权限。`limit` 默认20、范围1–100，`offset` 非负，`search` 按 Scene 名称匹配、最多200字符；可传 `selected_id` 保留不在当前页或搜索结果中的选中项。响应为 `{items:[{id,display_id,name}], total, selected}`，selected 为同样的轻量对象或 null，不返回 source_metadata。此接口只读数据库，不遍历存储；旧 Scene 全量接口保持兼容，不用于新筛选器。
+
+`items` 的可选 `scene_id` 与其他筛选在计数和分页之前组合，直接按 `DatasetItem.scene_id` 限定业务成员，包含同场景的摄像头、点云和 frame_index 为空的校准文件；不使用 Task 主帧或邻居范围。非法 UUID 为422；已删除、不存在或属于其他数据集的 Scene 均为404，`selected_id` 与视图写入采用相同归属验证。失效 Scene 条件不能被忽略后查询全部。
 
 ## 组合筛选与个人动态视图
 

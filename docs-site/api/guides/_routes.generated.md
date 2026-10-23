@@ -335,6 +335,7 @@
 | PUT | `/{dataset_id}` |
 | POST | `/{dataset_id}/sniff-axis-convention` |
 | DELETE | `/{dataset_id}` |
+| GET | `/{dataset_id}/scene-options` |
 | GET | `/{dataset_id}/items` |
 | GET | `/{dataset_id}/items/{item_id}` |
 | GET | `/{dataset_id}/items/{item_id}/preview` |
@@ -1001,4 +1002,4 @@
 
 ---
 
-_共 89 模块 / 579 路由_
+_共 89 模块 / 580 路由_

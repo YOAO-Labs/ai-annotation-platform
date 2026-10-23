@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { DatasetItemFilters as Filters } from "@/api/datasets";
 import { Button } from "@/components/ui/Button";
+import { DatasetSceneFilter } from "./DatasetSceneFilter";
 import { availabilityLabels } from "./datasetsUrlState";
 
 const control =
@@ -11,10 +12,14 @@ const moreKeys = ["media_type", "extension", "dimension_state", ...rangeKeys] as
 
 export function DatasetItemFilters({
   filters,
+  datasetId,
+  hasScenes,
   sources,
   onChange,
 }: {
   filters: Filters;
+  datasetId: string;
+  hasScenes: boolean;
   sources: { id: string; name: string }[];
   onChange: (filters: Filters) => void;
 }) {
@@ -79,6 +84,13 @@ export function DatasetItemFilters({
           </select>
         </label>
       </div>
+      {(hasScenes || filters.scene_id) && (
+        <DatasetSceneFilter
+          datasetId={datasetId}
+          sceneId={filters.scene_id}
+          onChange={(scene_id) => onChange({ ...filters, scene_id })}
+        />
+      )}
       <details
         open={active > 0 || undefined}
         className="rounded-md border border-border bg-muted/20"
@@ -211,6 +223,7 @@ export function DatasetItemFilters({
                 onChange({
                   search: filters.search,
                   source_id: filters.source_id,
+                  scene_id: filters.scene_id,
                   availability: filters.availability,
                 });
               }}

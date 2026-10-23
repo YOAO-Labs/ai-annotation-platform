@@ -74,6 +74,7 @@ export const parseDatasetsUrl = (search: string | URLSearchParams) =>
 export const DATASET_ITEM_FILTER_KEYS = [
   "search",
   "source_id",
+  "scene_id",
   "availability",
   "media_type",
   "extension",

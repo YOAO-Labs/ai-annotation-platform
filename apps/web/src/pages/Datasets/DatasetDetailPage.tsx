@@ -409,6 +409,8 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
                 state.filters.max_height,
               ])}
               filters={state.filters}
+              datasetId={ds.id}
+              hasScenes={!!ds.has_scenes}
               sources={sources}
               onChange={(filters) => patch({ ...datasetFilterPatch(filters), page: undefined })}
             />

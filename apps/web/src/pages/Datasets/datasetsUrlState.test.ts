@@ -113,3 +113,14 @@ it("recognizes the quality tab without consuming item filter context", () => {
   expect(state.query).toBe("car");
   expect(state.page).toBe(2);
 });
+
+it("round-trips Scene identity and keeps invalid Scene URL conditions for server validation", () => {
+  const params = new URLSearchParams("scene_id=scene-a&extension=png&saved_view=view&view_query=1");
+  const state = parseDatasetDetailUrl(params);
+  expect(state.filters.scene_id).toBe("scene-a");
+  expect(datasetFilterPatch(state.filters).scene_id).toBe("scene-a");
+  expect(datasetItemFilters(new URLSearchParams("scene_id=invalid")).scene_id).toBe("invalid");
+  expect(datasetFilterSignature({ scene_id: "scene-b" })).not.toBe(
+    datasetFilterSignature({ scene_id: "scene-a" }),
+  );
+});

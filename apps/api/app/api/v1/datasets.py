@@ -41,6 +41,7 @@ from app.schemas.dataset import (
     DatasetOut,
     DatasetListResponse,
     DatasetItemListResponse,
+    DatasetSceneOptions,
     DatasetLinkRequest,
     DatasetUploadInitRequest,
     DatasetUploadInitResponse,
@@ -254,6 +255,32 @@ async def delete_dataset(
 
 
 # ── Items ───────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/{dataset_id}/scene-options",
+    response_model=DatasetSceneOptions,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def dataset_scene_options(
+    dataset_id: uuid.UUID,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    search: str | None = Query(None, max_length=200),
+    selected_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    from app.services.dataset_workbench import scene_options
+
+    return await scene_options(
+        db,
+        dataset_id,
+        limit=limit,
+        offset=offset,
+        search=search,
+        selected_id=selected_id,
+    )
 
 
 @router.get(

@@ -1,6 +1,6 @@
 # EPIC-08：数据集工作台与质量管理
 
-> 状态：E08-A complete；E08-B1 complete；E08-B2 complete；E08-B3 complete；筛选视图冻结等剩余范围待协同复核；未分配发布版本。
+> 状态：E08-A complete；E08-B1–B4 complete；筛选视图冻结等剩余范围待协同复核；未分配发布版本。
 > 转入日期：2026-10-22；A 切片验收：2026-10-23；初始调研基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -11,6 +11,26 @@
 | 依赖     | EPIC-01/02/03/05 的身份、来源、接入与读取；EPIC-11 的权限切片      |
 | 协同     | EPIC-04 提供同步；EPIC-09 统一页面边界；EPIC-10 提供冻结版本       |
 | 交付阶段 | M1 最小工作台；M2 质量、视图与批量管理；近似重复能力按实际需求后置 |
+
+## E08-B4 晋升复核与实施合同
+
+2026-10-23 用户授权整套 Epic 实施，复核基线 `a61c9a4e6`，工作树干净。E08-S04 仍缺 Scene 过滤；本轮先补完整条件，再推进 E08-B5/E10-B1 选择冻结。不增加迁移、依赖或后台任务，不重建镜像。
+
+```text
+Scene option page (safe fields, bounded) -> selected Scene ID
+URL / personal view -> DatasetItemFilters -> dataset-scoped Scene validation
+                                         -> Item.scene_id predicate -> count/page
+```
+
+合同：Scene 以当前数据集内的 UUID 标识，直接按 DatasetItem.scene_id 过滤，包含同 Scene 的多模态和 frame_index 为空的校准成员；不转为 Task 或主帧邻居范围。与原有条件先组合再计数/分页。非法 UUID 422；已删除、不存在、跨数据集 Scene 一律404，不悄悄扩大为全部。视图保存验证归属，旧 schema 1 可选扩展，旧视图行为保留。
+
+新增 `GET /datasets/{dataset_id}/scene-options`，datasets:read 和现有数据集读取语义，limit 默认20/最多100、offset、名称 search（最多200）及可选 selected_id。响应 items/total/selected；只返回 id/display_id/name，selected 独立于选项页且仍检查归属，不暴露 source_metadata，不使用旧全量 scenes 接口。GET 无源 I/O。
+
+UI 复用原筛选 owner；Scene 的选项查询有界并可搜索/翻页。选中项不在当前页、选项加载失败、删除 Scene 或 URL 无效时保留筛选，不回退全部。切换登录身份和数据集隔离迟到响应；标签在控件上、提示在下方 muted，保持紧凑字号与明暗/窄屏布局。清除更多格式/尺寸条件仍保留主条件 Scene；切换质量页后返回保留 URL。质量批量复核使用固定质量运行，不将可变 Scene 条件偷偷加入历史批次范围。
+
+本轮超过8文件，跨 API/Web/合同/文档。准确范围：API `schemas/{dataset_view,dataset}.py`、`services/dataset_workbench.py`、`api/v1/{datasets,dataset_views}.py`、新增 `tests/test_dataset_scene_filters.py` 及相关现有测试；Web `api/datasets.ts` 及测试、`pages/Datasets/{datasetsUrlState.ts,DatasetItemFilters.tsx,DatasetDetailPage.tsx}`、新增 `DatasetSceneFilter.tsx` 及测试，URL/详情回归；OpenAPI、生成 types、API index、SDK coverage 及合同；数据集 API/用户指南、README、CHANGELOG、本计划和整套队列/路线。没有训练或质量 Worker 改动。
+
+验证：可丢弃 test DB；两 Scene/未分组/多模态/校准、组合与分页、视图动态成员、删除/跨数据集/非法 ID、选项页边界/安全字段/权限。Web 检查条件序列化、选项分页不改范围、名称加载失败保持选中、会话切换、返回和更多条件清除。OpenAPI/SDK、tsc/lint/css、文档及 diff 检查；3100/8100 人工环境保持运行；独立 e2e 环境准备任务自有 Scene 数据，在真实浏览器验证明暗/窄屏、选择/搜索/分页/视图及错误不扩张、网络/控制台。验收后销毁 e2e 资源，保留已有人工数据和冻结版本。回退应用提交即可；已保存的新 Scene 条件须先导出/移除后才降级到不认识该字段的版本，禁止静默忽略条件。
 
 ## E08-B3 晋升复核与实施合同
 
@@ -278,7 +298,7 @@ source/job summary <------------------- source + sanitized item status
 - [x] 完成项目上下文统计，验证不重复计算跨项目标注。
 - [x] B1：实现个人动态视图与组合筛选合同、查询修订和权限检查。
 - [x] B2：实现质量结果的最小数据合同、内容修订与规则版本检查。
-- [ ] 将批量操作接入影响预览和统一任务模型。
+- [x] B3：将质量批量复核接入固定影响预览和统一任务模型。
 - [x] A：完成独立工作台验收与迁移回归，更新用户说明及接口文档；B 范围另行验收。
 
 完成定义：M1 核心故事可以演示端到端目录闭环；M2 增量故事分别验收。所有 UI 状态有后端语义支撑，不以假统计、静态状态或只隐藏按钮完成验收。
@@ -302,7 +322,7 @@ source/job summary <------------------- source + sanitized item status
 
 ## Outcome
 
-E08-A 独立工作台、E08-B1 组合筛选/个人动态视图、E08-B2 图片质量与 E08-B3 固定范围批量复核已完成。筛选视图冻结衔接及完整故事/验收矩阵仍需与 E10 协同复核，本计划保留在活动目录，未宣称完整 Epic 完成。
+E08-A 独立工作台、E08-B1 组合筛选/个人动态视图、E08-B2 图片质量、E08-B3 固定范围批量复核与 E08-B4 Scene 筛选已完成。筛选视图冻结衔接及完整故事/验收矩阵仍需与 E10 协同复核，本计划保留在活动目录，未宣称完整 Epic 完成。
 
 - 提交：`e2fe33d5f` 晋升复核，`525f79026` 查询/权限/训练范围合同，`36248a30c` 存储页面，`a683a824f` 数据集页面，`55d0c3051` 实际验收发现的观测刷新和预览并发修复。未分配发布版本。
 - 后端：既有 129 项及最终新增 13 项共 142 个不同用例通过。首次组合运行 135 项；审查补充后 workbench 13 项全部通过，重复用例不累计。覆盖两来源共享成员、可见来源选择、旧差异不复活、扫描观测排序、并发删除、权限撤销、唯一位置计数、分项目进度、真实 MinIO 预览、数据集限定冻结和项目任务分页。
@@ -350,3 +370,15 @@ E08-A 独立工作台、E08-B1 组合筛选/个人动态视图、E08-B2 图片�
 正式说明同步至 `docs-site/user-guide/datasets/index.md`、`docs-site/api/guides/datasets.md`、`docs-site/dev/concepts/storage-connections.md`、README及CHANGELOG Unreleased；OpenAPI、本地TS合同、SDK覆盖清单和生成路由同步。临时未执行预览已精确清理，已完成的演示批次保留供人工查看；一次性test库、Redis及九用途桶按owner校验销毁，独立浏览器关闭，截图、测试报告、缓存及类型中间产物在提交后清理。未推送、发布或分配版本。
 
 剩余范围：筛选视图到训练冻结的成员衔接仍由E10-B/C协同，不把动态个人视图当作冻结版本；近似重复、未核验旧图片身份升级和共享视图不在本切片。后续候选是E12可信用量采样与E09-B运维视图，须先复核现有计量、过期状态和任务合同。
+
+### E08-B4：Scene 筛选与视图范围
+
+2026-10-23 完成，实现与本节记录同提交。Scene 作为主条件贯穿 URL、服务端组合筛选和个人动态视图，按当前数据集的 Item.scene_id 过滤，包含多模态与校准成员；与其他条件先组合再计数分页。新增轻量、有界、可搜索的 Scene 选项，独立保留当前选中项。失效、删除或跨数据集的 Scene 明确404，非法 UUID 为422；不会悄悄移除条件。清除更多格式/尺寸条件保留 Scene。此切片补齐 E08-S04 的场景条件，不改变质量批次或训练范围。
+
+本地验证：API/DB 25项、Web 45项、SDK 合同4项，共74个不同用例通过。覆盖多模态/校准/未分组、组合/count/分页、选中项跨页/搜索、轻量字段、非法/跨数据集/删除 Scene、动态成员和视图保留，以及会话迟到响应和撤权隐藏名称。OpenAPI、本地生成类型、SDK 覆盖、Ruff、Web TypeScript、ESLint/CSS tokens、文档 frontmatter196/导航198和 diff 检查通过；原有4条 ESLint warning 与2条无关层级建议保留。未运行远程 CI。
+
+真实浏览器使用独立3200/8200 e2e 环境，无 mock：23个 Scene、5个样本，其中选中 Scene 的3项含点云、摄像头和 frame_index 为空的校准成员。选项翻页、名称查找不改变当前3项，保存个人视图并仅凭视图ID恢复、切换质量页再返回均保留同一范围。无效 Scene URL 保留条件并显示错误，列表0项；只有显式选“全部 Scene”后才恢复5项。1440×1000与390×900明暗截图检查通过，窄屏选项和提示正确换行，无页面横向溢出；流程无控制台错误或非预期失败请求，故障用例的两类404为预期。
+
+当前3100/8100人工环境、普通/维护 Worker、既有来源/质量/复核/冻结记录保持；doctor 确认 API/Web 和 Worker 健康。本切片没有迁移、Worker 改动或镜像重建。正式用户/API指南、README、CHANGELOG、OpenAPI、SDK清单及路线索引同步。一次性 test/e2e 数据库、Redis、九用途桶和任务自有23个 Scene/个人视图随模式销毁；专用浏览器已关闭，截图、日志、测试报告及缓存清理。未推送或发布。
+
+下一切片为 E08-B5/E10-B1：从当前筛选视图固定训练成员，复用训练预检、成员摘要、标注快照和现有版本，不将动态查询当成已冻结集合。完整 E08 继续保留活动状态。

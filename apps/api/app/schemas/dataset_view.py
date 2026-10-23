@@ -14,6 +14,7 @@ class DatasetItemFilters(BaseModel):
 
     search: str | None = Field(None, max_length=200)
     source_id: UUID | None = None
+    scene_id: UUID | None = None
     availability: DatasetAvailabilityState | None = None
     media_type: Literal["image", "video", "point_cloud", "other"] | None = None
     extension: str | None = Field(None, max_length=20, pattern=r"^\.?[a-zA-Z0-9]+$")

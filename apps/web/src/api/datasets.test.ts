@@ -45,6 +45,28 @@ describe("datasetsApi · endpoint 契约", () => {
     expect(del).toHaveBeenCalledWith("/datasets/ds/saved-views/v");
   });
 
+  it("sends Scene identity in item filters and bounded option selection independently", () => {
+    const signal = new AbortController().signal;
+    datasetsApi.listItems(
+      "ds",
+      { scene_id: "scene-a", source_id: "src", extension: "png" },
+      { signal },
+    );
+    expect(get).toHaveBeenCalledWith(
+      "/datasets/ds/items?source_id=src&scene_id=scene-a&extension=png",
+      { signal },
+    );
+    datasetsApi.sceneOptions(
+      "ds",
+      { limit: 20, offset: 20, search: "街道 A", selected_id: "scene-a" },
+      { signal },
+    );
+    expect(get).toHaveBeenCalledWith(
+      "/datasets/ds/scene-options?limit=20&offset=20&search=%E8%A1%97%E9%81%93+A&selected_id=scene-a",
+      { signal },
+    );
+  });
+
   it("limits paged training task choices to the selected dataset on the server", () => {
     const signal = new AbortController().signal;
     tasksApi.listByProject(

@@ -3,7 +3,7 @@
 from fastapi import HTTPException
 from sqlalchemy import and_, case, cast, func, literal, or_, select, String
 
-from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.dataset_asset import (
     DatasetAsset,
     DatasetAssetLocation,
@@ -37,6 +37,46 @@ async def require_dataset(db, dataset_id):
     if dataset is None:
         raise HTTPException(404, "Dataset not found")
     return dataset
+
+
+async def require_filter_scene(db, dataset_id, scene_id):
+    row = (
+        (
+            await db.execute(
+                select(Scene.id, Scene.display_id, Scene.name).where(
+                    Scene.id == scene_id, Scene.dataset_id == dataset_id
+                )
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        raise HTTPException(404, "Scene 不存在或不属于当前数据集")
+    return dict(row)
+
+
+async def scene_options(db, dataset_id, *, limit, offset, search, selected_id):
+    await require_dataset(db, dataset_id)
+    selected = (
+        await require_filter_scene(db, dataset_id, selected_id)
+        if selected_id is not None
+        else None
+    )
+    query = select(Scene.id, Scene.display_id, Scene.name).where(
+        Scene.dataset_id == dataset_id
+    )
+    if search and search.strip():
+        query = query.where(Scene.name.ilike(f"%{search.strip()}%"))
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = await db.execute(
+        query.order_by(Scene.name, Scene.id).limit(limit).offset(offset)
+    )
+    return {
+        "items": [dict(row) for row in rows.mappings()],
+        "total": total,
+        "selected": selected,
+    }
 
 
 def location_dataset_scope(location_id, actor):
@@ -331,6 +371,9 @@ async def item_page(
         )
     if filters is not None:
         predicates = []
+        if filters.scene_id is not None:
+            await require_filter_scene(db, dataset_id, filters.scene_id)
+            predicates.append(DatasetItem.scene_id == filters.scene_id)
         if filters.media_type:
             predicates.append(DatasetItem.file_type == filters.media_type)
         if filters.extension:

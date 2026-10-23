@@ -12,6 +12,7 @@ const { toast } = vi.hoisted(() => ({ toast: vi.fn() }));
 vi.mock("@/api/datasets", () => ({
   datasetsApi: {
     get: vi.fn(),
+    sceneOptions: vi.fn().mockResolvedValue({ items: [], total: 0, selected: null }),
     savedViews: vi.fn().mockResolvedValue({ items: [] }),
     saveView: vi.fn(),
     deleteView: vi.fn(),
@@ -572,4 +573,23 @@ describe("Dataset detail workbench", () => {
     mount();
     expect(await screen.findByText("坐标系选择")).toBeVisible();
   });
+});
+
+it("keeps Scene identity through advanced-filter clearing", async () => {
+  vi.mocked(datasetsApi.sceneOptions).mockResolvedValue({
+    items: [{ id: "scene-a", display_id: "S1", name: "街道 A" }],
+    total: 1,
+    selected: { id: "scene-a", display_id: "S1", name: "街道 A" },
+  });
+  mount("/datasets/dataset-one?scene_id=scene-a&extension=png");
+  await screen.findByRole("option", { name: "街道 A" });
+  expect(datasetsApi.listItems).toHaveBeenCalledWith(
+    "dataset-one",
+    expect.objectContaining({ scene_id: "scene-a", extension: "png" }),
+    expect.anything(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "清除更多条件" }));
+  await waitFor(() => expect(screen.getByTestId("location")).not.toHaveTextContent("extension="));
+  expect(screen.getByTestId("location")).toHaveTextContent("scene_id=scene-a");
+  expect(screen.getByRole("combobox", { name: "Scene 筛选" })).toHaveValue("scene-a");
 });

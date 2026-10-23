@@ -44,6 +44,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/datasets/{dataset_id}/items" = { status = "covered" }
 "GET /api/v1/datasets/{dataset_id}/items/{item_id}" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/datasets/{dataset_id}/items/{item_id}/preview" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/scene-options" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/datasets/{dataset_id}/workbench" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/datasets/{dataset_id}/training-versions" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/datasets/{dataset_id}/link/{project_id}/preview-unlink" = { status = "covered" }

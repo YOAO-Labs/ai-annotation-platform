@@ -16,7 +16,11 @@ from app.schemas.dataset_view import (
     DatasetSavedViewOut,
     DatasetSavedViewWrite,
 )
-from app.services.dataset_workbench import require_dataset, require_filter_source
+from app.services.dataset_workbench import (
+    require_dataset,
+    require_filter_source,
+    require_filter_scene,
+)
 
 router = APIRouter(
     prefix="/datasets/{dataset_id}/saved-views",
@@ -41,6 +45,8 @@ async def owned_view(db, dataset_id, view_id, actor):
 async def save(db, row, payload, actor):
     if payload.query.source_id:
         await require_filter_source(db, row.dataset_id, payload.query.source_id, actor)
+    if payload.query.scene_id is not None:
+        await require_filter_scene(db, row.dataset_id, payload.query.scene_id)
     row.name = payload.name
     row.query = payload.query.model_dump(mode="json", exclude_none=True)
     row.query_schema_version = payload.query_schema_version

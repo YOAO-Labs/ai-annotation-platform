@@ -48,6 +48,18 @@ DatasetAvailabilityState = Literal[
 ]
 
 
+class DatasetSceneOption(BaseModel):
+    id: UUID
+    display_id: str
+    name: str
+
+
+class DatasetSceneOptions(BaseModel):
+    items: list[DatasetSceneOption]
+    total: int
+    selected: DatasetSceneOption | None
+
+
 class DatasetItemAvailability(BaseModel):
     state: DatasetAvailabilityState = "unverified"
     reason_code: str = "not_verified"

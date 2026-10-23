@@ -1,5 +1,10 @@
 import { apiClient } from "./client";
-import type { DatasetOut, DatasetSavedViewOut, DatasetSavedViewWrite } from "./generated/types.gen";
+import type {
+  DatasetOut,
+  DatasetSavedViewOut,
+  DatasetSavedViewWrite,
+  DatasetSceneOptions,
+} from "./generated/types.gen";
 import type { LidarAxisConvention } from "@/types";
 
 function datasetGet<T>(path: string, init?: RequestInit): Promise<T> {
@@ -66,6 +71,7 @@ export type DatasetSavedViewPayload = DatasetSavedViewWrite;
 export interface DatasetItemFilters {
   search?: string;
   source_id?: string;
+  scene_id?: string;
   availability?: DatasetAvailabilityState;
   media_type?: "image" | "video" | "point_cloud" | "other";
   extension?: string;
@@ -176,6 +182,19 @@ export const datasetsApi = {
   get: (id: string, init?: RequestInit) => datasetGet<DatasetResponse>(`/datasets/${id}`, init),
   workbench: (id: string, init?: RequestInit) =>
     datasetGet<DatasetWorkbench>(`/datasets/${id}/workbench`, init),
+  sceneOptions: (
+    id: string,
+    params: { limit: number; offset: number; search?: string; selected_id?: string },
+    init?: RequestInit,
+  ) => {
+    const query = new URLSearchParams({
+      limit: String(params.limit),
+      offset: String(params.offset),
+    });
+    if (params.search) query.set("search", params.search);
+    if (params.selected_id) query.set("selected_id", params.selected_id);
+    return datasetGet<DatasetSceneOptions>(`/datasets/${id}/scene-options?${query}`, init);
+  },
   item: (id: string, itemId: string, init?: RequestInit) =>
     datasetGet<DatasetItemResponse>(`/datasets/${id}/items/${itemId}`, init),
   trainingVersions: (id: string, params: { limit: number; offset: number }, init?: RequestInit) =>
@@ -209,6 +228,7 @@ export const datasetsApi = {
     if (params?.offset) q.set("offset", String(params.offset));
     if (params?.search) q.set("search", params.search);
     if (params?.source_id) q.set("source_id", params.source_id);
+    if (params?.scene_id) q.set("scene_id", params.scene_id);
     if (params?.availability) q.set("availability", params.availability);
     (
       [
