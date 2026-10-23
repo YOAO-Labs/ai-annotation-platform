@@ -1,7 +1,7 @@
 # EPIC-08：数据集工作台与质量管理
 
-> 状态：approved；A 切片实施中，后续切片仍待晋升；未分配发布版本。
-> 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
+> 状态：E08-A complete；后续 B 切片仍待独立晋升；未分配发布版本。
+> 转入日期：2026-10-22；A 切片验收：2026-10-23；初始调研基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 属性     | 草案约定                                                           |
@@ -18,10 +18,11 @@
 
 ### 准确文件范围
 
-- E08：`apps/web/src/pages/Datasets/{DatasetsPage,DatasetDetailPage,datasetsUrlState}.tsx`（URL helper 为 `.ts`）及同名测试；`apps/web/src/App.tsx`、`apps/web/src/{api/datasets,hooks/useDatasets}.ts`；`apps/web/src/pages/Projects/ProjectLearningPage.tsx` 及测试。保留原展开详情上传、扫描、元数据、Scene、坐标系、关联/解绑全部业务；独立详情、服务端分页/来源/可用性过滤、网格和检查器、分项目进度、关联版本与复用冻结入口。
-- E09：`apps/web/src/pages/Storage/StoragePage.tsx` 及测试；`apps/web/src/components/connections/{FilesystemLocationsPanel,StorageConnectionsPanel,StorageLocationSourceSummary}.tsx` 及相应测试；`apps/web/src/components/datasets/{ImportDatasetWizard,DirectoryReferencePanel}.tsx` 及测试；`apps/web/src/{api/datasetSources,api/storage,hooks/useStorage}.ts`。统一配置 owner、位置 URL、九用途、未知指标、安全返回导入草稿，保留视频维护及 E04 来源/任务分页。
-- 后端：`apps/api/app/{api/v1/datasets,schemas/dataset,services/dataset}.py`、新增 `services/dataset_workbench.py` 和 `apps/api/tests/test_dataset_workbench.py`。如需探测历史，扩展 `api/v1/storage_locations.py`、`schemas/storage_location.py`、`tests/test_storage_locations_api.py`。生成 OpenAPI/前端类型和适用 SDK manifest。
-- 文档：`docs-site/user-guide/datasets/`、`docs-site/api/` 相关指南、`docs-site/dev/reference/storage-buckets.md`、`README.md`、`CHANGELOG.md`，本计划及草案索引。
+- E08 页面：`apps/web/src/pages/Datasets/{DatasetsPage,DatasetDetailPage}.tsx`、`datasetsUrlState.ts` 及同名测试；`apps/web/src/App.tsx`、`apps/web/src/api/{datasets,tasks}.ts`、`api/datasets.test.ts`、`hooks/useDatasets.ts`、`hooks/useFilterListCancellation.test.tsx`；`pages/Projects/ProjectLearningPage.tsx` 及测试、`pages/Training/trainingDatasetDraftStorage.ts` 及测试。独立详情保留上传、扫描、元数据、Scene、坐标系、关联/解绑，接入真实分页、来源/可用性、检查器、分项目进度和共用训练入口。
+- E09 页面：`apps/web/src/pages/Storage/StoragePage.tsx` 及测试；`components/connections/{FilesystemLocationsPanel,StorageConnectionsPanel,StorageLocationSourceSummary,StorageLocationsConsole}.tsx`、适用测试和 `storageQueryState.ts`；`components/datasets/{ImportDatasetWizard,DirectoryReferencePanel}.tsx` 及测试、`DirectoryScanHistory.test.tsx`、`storageNavigation.ts` 及测试；`api/{datasetSources,storage,storageConnections}.ts`、`hooks/{useStorage,useStorageConnections}.ts` 及 `useStorageConnections.test.tsx`。统一位置配置、九用途和安全返回，保留 E04 来源/任务分页与视频维护。
+- 集成修复：`apps/web/src/hooks/useVerifiedImage.ts` 及测试、`components/datasets/DirectoryRegistrationProgress.tsx` 及测试、`DirectorySyncSchedule.tsx`，连同上述 `DirectoryReferencePanel.tsx`。预览受控排队及容量繁忙有限重试；预检、生命周期与周期变化同步刷新工作台和单项检查器。
+- 后端：`apps/api/app/api/v1/{datasets,tasks/list}.py`、`schemas/{dataset,storage_location,training_dataset}.py`、`services/{dataset,dataset_workbench,storage_location,storage_source_summary,training_datasets}.py`、新增 `apps/api/tests/test_dataset_workbench.py`；`apps/api/openapi.snapshot.json`、`packages/python-sdk/api-coverage.toml` 及生成的本地前端合同。沿用已有探测历史 API，不新增表或迁移。
+- 文档：`docs-site/user-guide/datasets/{index,import-images,storage-connections}.md`、`docs-site/api/guides/{datasets,storage-locations,training-datasets,_routes.generated}.md`、`docs-site/dev/reference/storage-buckets.md`、`README.md`、`CHANGELOG.md`；E08/E09/E10 计划、backlog 索引/路线/基线/信息架构。交付状态、验证及剩余切片记入 Outcome。
 
 ### 数据流、权限和兼容
 
@@ -201,13 +202,13 @@ source/job summary <------------------- source + sanitized item status
 
 ## 11. 工程任务与完成定义
 
-- [ ] 完成列表/详情/样本检查器/接入向导设计，覆盖所有异常与权限状态。
-- [ ] 复用现有 URL 过滤工具，增加详情路由和旧入口兼容。
-- [ ] 接入来源与可用性摘要接口，移除数据集页 MinIO 固定文案。
-- [ ] 完成项目上下文统计，验证不重复计算跨项目标注。
+- [x] A：完成独立详情、样本检查器和既有接入向导迁移，覆盖本切片的异常与权限状态。
+- [x] 复用现有 URL 过滤工具，增加详情路由和旧入口兼容。
+- [x] 接入来源与可用性摘要接口，移除数据集页 MinIO 固定文案。
+- [x] 完成项目上下文统计，验证不重复计算跨项目标注。
 - [ ] 实现保存视图与质量结果的最小数据合同、版本与权限检查。
 - [ ] 将批量操作接入影响预览和统一任务模型。
-- [ ] 完成上述验收标准与迁移回归，更新用户说明及接口文档。
+- [x] A：完成独立工作台验收与迁移回归，更新用户说明及接口文档；B 范围另行验收。
 
 完成定义：M1 核心故事可以演示端到端目录闭环；M2 增量故事分别验收。所有 UI 状态有后端语义支撑，不以假统计、静态状态或只隐藏按钮完成验收。
 
@@ -227,3 +228,17 @@ source/job summary <------------------- source + sanitized item status
 实现时同步：[index.md](../../docs-site/user-guide/datasets/index.md)、[import-images.md](../../docs-site/user-guide/datasets/import-images.md)、[data-versions.md](../../docs-site/user-guide/online-learning/data-versions.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
 完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+
+## Outcome
+
+E08-A 独立工作台与最小目录体验完成，E08-B 保留在本计划，未宣称完整 Epic 完成。
+
+- 提交：`e2fe33d5f` 晋升复核，`525f79026` 查询/权限/训练范围合同，`36248a30c` 存储页面，`a683a824f` 数据集页面，`55d0c3051` 实际验收发现的观测刷新和预览并发修复。未分配发布版本。
+- 后端：既有 129 项及最终新增 13 项共 142 个不同用例通过。首次组合运行 135 项；审查补充后 workbench 13 项全部通过，重复用例不累计。覆盖两来源共享成员、可见来源选择、旧差异不复活、扫描观测排序、并发删除、权限撤销、唯一位置计数、分项目进度、真实 MinIO 预览、数据集限定冻结和项目任务分页。
+- 前端：集成分支 16 文件 160 项通过；观测/预览修复 5 文件 28 项通过；预览有限重试补充后该 hook 8 项通过。去重合计 20 文件 188 个不同用例。typecheck、受影响 ESLint、CSS token lint、完整 pre-commit 和 `git diff --check` 通过；CSS lint 仅保留既有训练比较页两处 z-10 建议。没有宣称全量 Web 或远程 CI 验收。
+- 合同与文档：OpenAPI 一致性和本地 TS 生成通过，SDK OpenAPI 合同 4 项通过；新增 Web 专用接口在 coverage manifest 明确排除。文档 frontmatter 196 文件、navigation 198 页面通过。用户说明位于 `docs-site/user-guide/datasets/{index,import-images,storage-connections}.md`，接口说明位于 `docs-site/api/guides/{datasets,storage-locations,training-datasets}.md`；`README.md`、`docs-site/dev/reference/storage-buckets.md` 和 `CHANGELOG.md` Unreleased 同步。
+- 实际浏览器：当前工作树 3100/8100，无 mock。列表名称筛选返回、旧 dataset/source/scan 链接直接跳详情、独立四页签、网格和单项检查器、来源↔位置保留扫描/列表上下文、按位置过滤数据集、关联训练版本深链、深浅主题截图和检查器 Escape 焦点恢复通过。独立存储页面网络没有数据集全量目录或 `/storage/buckets` 请求；真实节点探测成功，九用途和未知容量显示正确。导入向导往返后路径/匹配规则/递归选项恢复，未创建测试连接或数据集。
+- 真实数据观测：D-7 专用来源只读扫描和完整预检显示 1 项已核验、1 项缺失、1 项内容变化，三个原成员/任务/标注保留；预检完成后工作台和检查器刷新，三张旧内容预览正常，异常项没有原图读取动作。训练入口预选 D-7，明确确认后实际 `/tasks` 请求带 dataset_id；单项预检报告 5,959 字节并正确阻断不足两张合格图片的创建。原 ready 版本的三张原图、标签和 ZIP 摘要再次校验不变，未新建模型训练。
+- 清理：仅销毁经 owner/零客户端核对的 `1822b025369a33f4:test` 资源；测试日志、报告、缓存、截图和专用浏览器会话清理。两份任务工作树在干净且补丁等价已验证后由 Orca 删除；人工 dev 环境、九用途桶、演示来源、已有冻结版本和 `.worktree/manual` 保留。未重建后端镜像、未推送、未发布。
+
+- 剩余范围：保存动态视图、尺寸/格式等更丰富组合过滤、质量任务与规则修订、可信精确重复治理、全部筛选结果固定批量范围属于 E08-B。当前训练入口限定整个所选数据集，再在项目内选择批次/任务/标注范围，不自动冻结当前页面的全部筛选结果。旧托管训练版本只能按现存任务推导数据集关联，任务删除或解绑后的历史血缘展示仍有限；已冻结快照和媒体不改写。

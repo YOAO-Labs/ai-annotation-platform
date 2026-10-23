@@ -251,11 +251,11 @@ M1 必须让一个已关联项目的原地图片目录，通过统一 resolver �
 
 ## Outcome
 
-- E10-A 完成；提交以本文件 Git 历史中的 `feat(training): freeze verified reference originals into training versions` 为准。E10-B 多来源视图/增强血缘、E10-C 节点缓存仍待评审，本计划保留在根目录。
+- E10-A 完成；提交 `74bd04c12`（`feat(training): freeze verified reference originals into training versions`）。E10-B 多来源视图/增强血缘、E10-C 节点缓存仍待评审，本计划保留在根目录。
 - 实现：项目级固定快照接入现有严格 resolver，固定 Item/Asset/SHA/字节；真实 Worker 节点读取证明；独立训练原图与 ZIP；失败/取消同快照重试，优先验证保留副本；预检展示预计持久复制量。新来源使用独立嵌套 schema，旧合同和摘要不回写，无迁移或依赖变更。
 - 后端证据：既有训练/桥接/分析/删除/版本流/托管冻结不变性/RLE/引用读取共 171 项通过；新增引用冻结 18 项通过。新增矩阵覆盖检测、多边形、真实栅格 RLE、实际 MinIO 外部 S3 来源、源覆盖/离线/未核验节点、固定标注、两项目隔离、失败/取消重试、伪造保留媒体、读取中账号/API Key 撤权、保留副本重试撤权。随后扩展的 3 个合同用例再次通过训练执行器 `validate_dataset`，并验证解除关联/删除活跃数据集后冻结媒体不变。
 - Web：准备版本页 53 项通过，typecheck、受影响 ESLint、CSS tokens、Python Ruff check/format、OpenAPI 一致性、SDK 合同 4 项、文档 frontmatter/navigation 及 `git diff --check` 通过。未宣称全量 Web 或远程 CI 验收。
 - 实际浏览器：当前工作树 3100/8100，刷新真实 general/export Worker 后，从项目负责人确认 3 个引用任务，预检显示 17,778 字节，创建版本后实际任务 ready；浏览冻结样本和标注、点击下载、现有新建训练入口可用。版本 `da621d70-54af-47d4-aa8a-7795a56d63f5`。随后专用来源覆盖 vehicle-1、移除 vehicle-2；浏览器仍显示原 vehicle-1 与固定框，API 校验全部 3 张原图、标签和 ZIP SHA 不变，2 个实时源读取明确拒绝，原标注保留。浏览器错误为空；未启动原生模型训练。
 - 正式文档：`docs-site/user-guide/online-learning/data-versions.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/dev/concepts/training-datasets.md`、`docs-site/api/guides/training-datasets.md`、`README.md`；`CHANGELOG.md` Unreleased 已更新。
 - 人工环境与专用演示数据继续保留，说明及固定摘要在忽略的 `.worktree/manual/README.md` / `training-fixture.json`。测试资源、报告、截图、专属浏览器会话按验证流程清理；不重建镜像、不推送、不分配发布版本。
-- 后续按用户顺序推进 E08-A/E09-A 页面整合：独立数据集详情、真实来源/可用性、项目/训练衔接与统一存储位置配置；动态质量视图、节点缓存、运维统计仍遵守各自独立范围。
+- 用户指定的后续 E08-A/E09-A 页面整合已完成，记录见 [E08 Outcome](1792661016_dataset-workbench-quality.md#outcome) 和 [E09 Outcome](1792661016_dataset-storage-console-boundaries.md#outcome)；动态质量视图、节点缓存、运维统计仍遵守各自独立范围。
