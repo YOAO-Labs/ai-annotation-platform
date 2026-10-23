@@ -286,7 +286,7 @@ async def test_revoked_authority_or_configuration_blocks_without_io(
     work = await sync.claim_due(db, row.source_id)
     await db.commit()
 
-    async def no_io(*args):
+    async def no_io(*args, **kwargs):
         pytest.fail("revoked schedule performed I/O")
 
     monkeypatch.setattr(locations, "perform_probe", no_io)
@@ -506,8 +506,8 @@ async def test_pause_during_probe_prevents_creating_run(
     row = await enable(db, world)
     original = locations.perform_probe
 
-    async def pause(*args):
-        result = await original(*args)
+    async def pause(*args, **kwargs):
+        result = await original(*args, **kwargs)
         await sync.configure(
             db,
             row.source_id,

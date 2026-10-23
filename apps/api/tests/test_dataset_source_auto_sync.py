@@ -56,9 +56,9 @@ async def test_pure_additions_automatic_and_pending_publish_recovery(
     calls = []
     original = locations.perform_probe
 
-    async def probe(db, location, node, path):
+    async def probe(db, location, node, path, **kwargs):
         calls.append(node)
-        return await original(db, location, node, path)
+        return await original(db, location, node, path, **kwargs)
 
     monkeypatch.setattr(locations, "perform_probe", probe)
     await wake(db, row)
