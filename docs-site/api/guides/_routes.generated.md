@@ -916,6 +916,7 @@
 | GET | `/{version_id}` |
 | POST | `/{version_id}/retry` |
 | GET | `/{version_id}/download` |
+| POST | `/{version_id}/storage-pin` |
 | DELETE | `/{version_id}` |
 
 ## `training_hub.py`
@@ -1033,4 +1034,4 @@
 
 ---
 
-_共 93 模块 / 596 路由_
+_共 93 模块 / 597 路由_

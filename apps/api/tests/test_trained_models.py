@@ -50,6 +50,10 @@ async def seed_source(db, owner, *, project=None):
     )
     db.add(dataset)
     await db.flush()
+    from app.services.training_dataset_storage import allocate
+
+    ref = await allocate(db, dataset)
+    dataset.package_key = ref["prefix"] + "dataset.zip"
     run = TrainingRun(
         project_id=project.id,
         creator_id=owner.id,

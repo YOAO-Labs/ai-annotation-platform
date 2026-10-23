@@ -369,6 +369,9 @@ async def version(
     )
     db.add(value)
     await db.flush()
+    from app.services.training_dataset_storage import allocate
+
+    await allocate(db, value)
     return project, value
 
 
@@ -647,6 +650,13 @@ class Body(io.BytesIO):
 
 class FrozenStore:
     def __init__(self, payload, digest, snapshot_digest):
+        from types import SimpleNamespace
+
+        from app.config import settings
+
+        self.meta = SimpleNamespace(
+            endpoint_url=f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+        )
         self.payload, self.digest, self.snapshot_digest = (
             payload,
             digest,

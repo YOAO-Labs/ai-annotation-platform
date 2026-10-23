@@ -35,6 +35,25 @@ MAPPED_COLUMNS = {
 }
 
 
+def protected_row(table, row):
+    """Exclude only permitted physical fields, retaining nested owner evidence."""
+    result = {
+        key: value
+        for key, value in row.items()
+        if key not in MAPPED_COLUMNS.get(table, set())
+    }
+    if (
+        table in {"training_dataset_versions", "training_storage_deletions"}
+        and result.get("storage_ref") is not None
+    ):
+        result["storage_ref"] = {
+            key: value
+            for key, value in result["storage_ref"].items()
+            if key not in {"bucket", "storage_identity"}
+        }
+    return result
+
+
 def digest(value):
     return hashlib.sha256(
         json.dumps(
@@ -70,11 +89,7 @@ async def database_facts(db, *, protected=False):
             if len(rows) >= 10000:
                 raise WorktreeError("演练数据库单表超过10000行预算")
             if protected:
-                row = {
-                    key: value
-                    for key, value in row.items()
-                    if key not in MAPPED_COLUMNS.get(table, set())
-                }
+                row = protected_row(table, row)
             rows.append(digest(row))
         facts[table] = {"count": len(rows), "sha256": digest(sorted(rows))}
     return facts
@@ -244,6 +259,9 @@ async def seed(db, external: Path):
             )
             db.add(version)
             await db.flush()
+            from app.services.training_dataset_storage import allocate
+
+            await allocate(db, version)
             await project_task_dataset.ensure_membership(db, version)
             await datasets.enqueue_dataset(db, version)
             await db.commit()
@@ -466,14 +484,22 @@ async def seed(db, external: Path):
             Body=red,
             ContentType="image/png",
         )
+        from app.services.training_dataset_storage import prefix_for
+
+        deletion_ref = {
+            **ready.storage_ref,
+            "prefix": prefix_for(project.id, uuid.uuid4()),
+        }
         db.add(
             TrainingStorageDeletion(
-                bucket=storage.training_bucket, prefix="recovery/pending-deletion/"
+                bucket=deletion_ref["bucket"],
+                prefix=deletion_ref["prefix"],
+                storage_ref=deletion_ref,
             )
         )
         storage.client.put_object(
             Bucket=storage.training_bucket,
-            Key="recovery/pending-deletion/probe",
+            Key=deletion_ref["prefix"] + f"attempts/{uuid.uuid4()}/dataset.zip",
             Body=b"retained until reviewed",
         )
         db.add(
@@ -701,12 +727,28 @@ async def verify_application(db, external: Path):
         else:
             content.close()
             raise WorktreeError("同名不同内容被错误恢复为原件")
+    from app.db.models.training_storage_deletion import TrainingStorageDeletion
+    from app.services.training_dataset_storage import resolve_ref
+
+    deletion_count = 0
+    for intent in await db.scalars(select(TrainingStorageDeletion)):
+        owner = resolve_ref(intent.storage_ref, expected_prefix=intent.prefix)
+        assert intent.bucket == owner.bucket == storage.training_bucket
+        objects = storage.client.list_objects_v2(
+            Bucket=owner.bucket, Prefix=owner.prefix
+        )
+        assert len(objects.get("Contents", [])) == 1
+        deletion_count += 1
+    assert deletion_count == 1
     ready_count, partial_count, media_count = 0, 0, 0
     sys.path.insert(0, str(ROOT / "apps/training-executor"))
     from training_executor.adapters import validate_dataset
+    from app.services.training_dataset_storage import resolve
 
     for version in await db.scalars(select(TrainingDatasetVersion)):
         assert content_digest(version.snapshot) == version.snapshot_digest
+        owner = resolve(version)
+        assert owner.bucket == storage.training_bucket
         if version.status != "ready":
             assert (
                 version.status == "running"
@@ -714,7 +756,7 @@ async def verify_application(db, external: Path):
                 and not version.manifest
             )
             head = storage.client.head_object(
-                Bucket=storage.training_bucket,
+                Bucket=owner.bucket,
                 Key=f"projects/{version.project_id}/datasets/{version.id}/media/{next(s for s in version.snapshot['samples'] if s.get('asset_reference'))['task_id']}",
             )
             assert head["Metadata"]["snapshot-digest"] == version.snapshot_digest
@@ -732,7 +774,7 @@ async def verify_application(db, external: Path):
             == manifest["content_digest"]
         )
         response = storage.client.get_object(
-            Bucket=storage.training_bucket, Key=version.package_key
+            Bucket=owner.bucket, Key=version.package_key
         )
         try:
             package = response["Body"].read(64 * 1024 * 1024 + 1)
@@ -783,6 +825,8 @@ async def verify_application(db, external: Path):
     assert (ready_count, partial_count, unavailable, media_count) == (1, 1, 2, 3)
     assert replacements_rejected == 2
     return {
+        "pinned_training_versions": ready_count + partial_count,
+        "pinned_training_deletions": deletion_count,
         "ready_versions": ready_count,
         "interrupted_versions": partial_count,
         "unavailable_external_originals": unavailable,

@@ -136,6 +136,10 @@ async def test_storage_failure_keeps_intent_for_existing_maintenance_owner(
         assert await db.get(type(world.record), world.record.id) is None
         intent = await db.scalar(select(TrainingStorageDeletion))
         assert (intent.prefix, intent.bucket) == (world.prefix, original_bucket)
+        if world.kind == "datasets":
+            assert intent.storage_ref == world.record.storage_ref
+        else:
+            assert intent.storage_ref is None
         assert intent.last_attempted_at is not None
         intent_id = intent.id
     warning.assert_called_once_with(
@@ -201,3 +205,36 @@ async def test_cleanup_commit_failure_keeps_retryable_intent(
     assert purge.call_count == (1 if failed_commit == 2 else 2)
     async with world.factory() as db:
         assert not await db.scalar(select(TrainingStorageDeletion.id))
+
+
+@pytest.mark.parametrize(
+    "unresolved", [False, True], ids=["endpoint-changed", "legacy"]
+)
+async def test_unknown_training_owner_retains_intent_without_physical_delete(
+    db_session, super_admin, monkeypatch, unresolved
+):
+    from copy import deepcopy
+    from app.services.training_dataset_bridge import TrainingDatasetError
+    from app.services.training_dataset_storage import allocate
+    from tests.test_training_runs import ready_dataset
+
+    owner, _ = super_admin
+    project, version = await ready_dataset(db_session, owner)
+    await allocate(db_session, version)
+    ref = deepcopy(version.storage_ref)
+    if not unresolved:
+        ref["endpoint_url"] = "http://unverified.invalid:9000"
+    intent = TrainingStorageDeletion(
+        bucket=ref["bucket"],
+        prefix=ref["prefix"],
+        storage_ref=None if unresolved else ref,
+    )
+    db_session.add(intent)
+    await db_session.flush()
+    purge = Mock()
+    monkeypatch.setattr(storage_service, "delete_prefix", purge)
+    with pytest.raises(TrainingDatasetError):
+        await cleanup.purge_requested(db_session, intent.id)
+    purge.assert_not_called()
+    assert await db_session.get(TrainingStorageDeletion, intent.id) is intent
+    assert intent.last_attempted_at is not None

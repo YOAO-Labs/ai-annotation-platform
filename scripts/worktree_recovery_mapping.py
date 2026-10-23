@@ -44,7 +44,7 @@ async def remap_storage(
     db, source: dict, target: dict, endpoint_url: str
 ) -> list[dict]:
     """Validate every supported row before modifying this caller's transaction."""
-    from sqlalchemy import select
+    from sqlalchemy import select, text
     from app.services.dataset_assets import (
         LEGACY_LOCATION_ID,
         PURPOSE_BUCKET_ATTRIBUTES,
@@ -59,6 +59,8 @@ async def remap_storage(
     from app.db.models.managed_original_retirement import ManagedOriginalRetirement
     from app.db.models.prediction_input import PredictionInputLease
     from app.db.models.training_storage_deletion import TrainingStorageDeletion
+    from app.db.models.training_dataset import TrainingDatasetVersion
+    from app.services.training_dataset_storage import prefix_for, resolve_ref
 
     mapping = bucket_mapping(source, target)
     planned = []
@@ -138,8 +140,39 @@ async def remap_storage(
                 table,
                 str(row.id),
             )
-    for row in await db.scalars(select(TrainingStorageDeletion)):
-        remap(row, "training_storage_deletions", str(row.id))
+    for model in (TrainingDatasetVersion, TrainingStorageDeletion):
+        for row in await db.scalars(select(model)):
+            ref = row.storage_ref
+            if ref is not None:
+                expected = (
+                    prefix_for(row.project_id, row.id)
+                    if model is TrainingDatasetVersion
+                    else row.prefix
+                )
+                try:
+                    owner = resolve_ref(ref, expected_prefix=expected)
+                except ValueError:
+                    raise WorktreeError("训练版本或清理意图含未知归属") from None
+                if (
+                    ref["endpoint_url"] != endpoint_url.rstrip("/")
+                    or owner.bucket != source["MINIO_TRAINING_BUCKET"]
+                    or (model is TrainingStorageDeletion and row.bucket != owner.bucket)
+                ):
+                    raise WorktreeError("训练版本归属与备份源不一致")
+                bucket = target["MINIO_TRAINING_BUCKET"]
+                change(
+                    row,
+                    "storage_ref",
+                    {
+                        **ref,
+                        "bucket": bucket,
+                        "storage_identity": identity(endpoint_url, bucket),
+                    },
+                    model.__tablename__,
+                    str(row.id),
+                )
+            if model is TrainingStorageDeletion:
+                remap(row, "training_storage_deletions", str(row.id))
     for row in await db.scalars(select(ManagedOriginalRetirement)):
         if (
             row.location_id != LEGACY_LOCATION_ID
@@ -161,9 +194,13 @@ async def remap_storage(
             table,
             str(row.id),
         )
+    # Only the table owner may opt into the narrowly scoped JSON physical map.
+    # Any failure rolls back the caller's complete offline mapping transaction.
+    await db.execute(text("SET LOCAL aap.restore_training_storage = 'on'"))
     for row, field, value in planned:
         setattr(row, field, value)
     await db.flush()
+    await db.execute(text("SET LOCAL aap.restore_training_storage = 'off'"))
     return ledger
 
 

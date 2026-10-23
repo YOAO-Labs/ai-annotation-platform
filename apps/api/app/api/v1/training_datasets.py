@@ -1,6 +1,9 @@
 """Project-manager API for immutable training datasets."""
 
 import asyncio
+from copy import deepcopy
+from datetime import datetime, timezone
+import threading
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -26,6 +29,7 @@ from app.schemas.training_dataset import (
 from app.services import training_datasets as service
 from app.services import project_task_dataset as task_datasets
 from app.services import training_storage_cleanup as cleanup
+from app.services import training_dataset_storage as storage_owners
 from app.services.training_list_filters import (
     ISODate,
     created_date_bounds,
@@ -41,6 +45,8 @@ router = APIRouter(
     prefix="/projects/{project_id}/training-datasets",
     dependencies=[Depends(require_scopes("annotations:read", "datasets:read"))],
 )
+
+_adoption_capacity = threading.BoundedSemaphore(1)
 
 
 def fail(exc: TrainingDatasetError):
@@ -150,6 +156,7 @@ async def create_version(
         )
         db.add(version)
         await db.flush()
+        await storage_owners.allocate(db, version)
         await task_datasets.ensure_membership(db, version, project_locked=True)
         await service.enqueue_dataset(db, version)
         await db.commit()
@@ -281,6 +288,7 @@ async def retry_version(
         raise HTTPException(status_code=409, detail="仅失败或已取消的版本可重试")
     try:
         await service.assert_dataset_authority(db, version)
+        storage_owners.resolve(version)
     except TrainingDatasetError as exc:
         fail(exc)
     await service.enqueue_dataset(db, version)
@@ -301,18 +309,181 @@ async def download_version(
     version = await load_version(db, project, version_id)
     if version.status != "ready" or not version.package_key:
         raise HTTPException(status_code=409, detail="训练数据版本尚未就绪")
+    try:
+        owner = storage_owners.resolve(version)
+        owner.contains(version.package_key)
+    except TrainingDatasetError as exc:
+        fail(exc)
     if not await asyncio.to_thread(
         storage_service.verify_upload,
         version.package_key,
-        bucket=storage_service.training_bucket,
+        bucket=owner.bucket,
     ):
         raise HTTPException(
             status_code=409, detail="训练包不可用，请联系管理员检查持久存储"
         )
     url = storage_service.generate_download_url(
-        version.package_key, bucket=storage_service.training_bucket, expires_in=600
+        version.package_key, bucket=owner.bucket, expires_in=600
     )
     return {"url": url, "sha256": version.package_sha256}
+
+
+def _adoption_state(version):
+    return {
+        **{
+            name: deepcopy(getattr(version, name))
+            for name in [
+                "status",
+                "snapshot",
+                "manifest",
+                "snapshot_digest",
+                "package_key",
+                "package_sha256",
+                "size_bytes",
+            ]
+        },
+        **{
+            name: str(getattr(version, name))
+            for name in ["id", "project_id", "creator_id", "attempt_id", "async_job_id"]
+        },
+    }
+
+
+def _verify_retained_operation(owner, state):
+    from app.services.managed_original_creation import create_client
+    from app.services.training_storage_adoption import reject, verify
+
+    client = create_client()
+    try:
+        return verify(client, owner, state)
+    finally:
+        try:
+            client.close()
+        except BaseException:
+            reject("legacy_storage_close_unsettled", 503)
+
+
+@router.post(
+    "/{version_id}/storage-pin",
+    response_model=TrainingDatasetOut,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def pin_legacy_storage(
+    version_id: uuid.UUID,
+    request: Request,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.db.models.api_key import ApiKey
+    from app.db.models.dataset_asset import StorageBinding, StorageLocation
+    from app.services import storage_access
+    from app.services.content_snapshot import ContentError
+    from app.services.dataset_content import key_authority
+
+    await lock_owner(db, user, project)
+    key_id = getattr(request.state, "api_key_id", None)
+
+    async def proof():
+        return [
+            await key_authority(db, user, key_id, scope)
+            for scope in ["annotations:read", "datasets:read", "datasets:write"]
+        ]
+
+    initial_authority = await proof()
+    try:
+        await service.lock_dataset_execution(db, version_id)
+        version = await load_version(db, project, version_id)
+        if version.storage_ref is not None:
+            storage_owners.resolve(version)
+            return await task_datasets.attach_read_metadata(db, version)
+        if version.status not in {"ready", "failed", "cancelled"}:
+            raise TrainingDatasetError(
+                "legacy_storage_version_active",
+                "请先取消旧构建并等待读取写入收尾",
+                status_code=409,
+            )
+        candidate = await storage_owners.adoption_candidate(db, version)
+        owner = storage_owners.resolve_ref(candidate)
+        state = _adoption_state(version)
+        if not _adoption_capacity.acquire(blocking=False):
+            raise TrainingDatasetError(
+                "legacy_storage_verification_busy",
+                "本节点已有旧副本核验，请稍后重试",
+                status_code=429,
+            )
+        acquired_revision = None
+
+        async def acquired(permit):
+            nonlocal acquired_revision
+            acquired_revision = permit.revision
+
+        unsettled = False
+        try:
+            evidence = await storage_access.run(
+                db,
+                uuid.UUID(candidate["location_id"]),
+                "training_storage_adoption",
+                _verify_retained_operation,
+                owner,
+                state,
+                on_acquired=acquired,
+            )
+        except BaseException as exc:
+            unsettled = getattr(exc, "storage_operation_unsettled", False)
+            raise
+        finally:
+            if not unsettled:
+                _adoption_capacity.release()
+        await lock_owner(db, user, project)
+        if key_id is not None:
+            await db.execute(
+                select(ApiKey.id).where(ApiKey.id == key_id).with_for_update(read=True)
+            )
+        if await proof() != initial_authority:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        await db.execute(
+            select(StorageLocation.id)
+            .where(StorageLocation.id == uuid.UUID(candidate["location_id"]))
+            .with_for_update(read=True)
+        )
+        await db.execute(
+            select(StorageBinding.purpose)
+            .where(StorageBinding.purpose == "training")
+            .with_for_update(read=True)
+        )
+        version = await load_version(db, project, version_id, lock=True)
+        if (
+            version.storage_ref is not None
+            or content_digest(_adoption_state(version)) != content_digest(state)
+            or candidate != await storage_owners.adoption_candidate(db, version)
+        ):
+            raise TrainingDatasetError(
+                "legacy_storage_context_changed",
+                "版本或绑定已变化，请重新核验",
+                status_code=409,
+            )
+        await storage_access.check(
+            db,
+            uuid.UUID(candidate["location_id"]),
+            expected_revision=acquired_revision,
+            lock=True,
+        )
+        version.storage_ref = {
+            **candidate,
+            "evidence": {
+                **evidence,
+                "verified_at": datetime.now(timezone.utc).isoformat(),
+                "actor_id": str(user.id),
+                "api_key_id": str(key_id) if key_id else None,
+            },
+        }
+        await db.commit()
+        return await task_datasets.attach_read_metadata(db, version)
+    except TrainingDatasetError as exc:
+        fail(exc)
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
 
 
 @router.delete(
@@ -394,6 +565,9 @@ async def delete_version(
             status_code=409,
             detail="运行中或被后续版本、训练实验、未清理增强预览引用的数据版本不能删除",
         )
-    await cleanup.delete_record(
-        db, version, f"projects/{project.id}/datasets/{version.id}/"
-    )
+    try:
+        await cleanup.delete_record(
+            db, version, f"projects/{project.id}/datasets/{version.id}/"
+        )
+    except TrainingDatasetError as exc:
+        fail(exc)

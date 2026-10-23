@@ -95,6 +95,12 @@ async def preview(db, client, owner, *, boxes=1, create=True):
 
 class Objects:
     def __init__(self):
+        from app.config import settings
+
+        scheme = "https" if settings.minio_use_ssl else "http"
+        self.meta = SimpleNamespace(
+            endpoint_url=f"{scheme}://{settings.minio_endpoint}"
+        )
         self.objects = {}
         self.reads = 0
 

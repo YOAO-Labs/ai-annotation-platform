@@ -501,6 +501,9 @@ async def check_policy(db, policy_id, *, force=False):
     )
     db.add(version)
     await db.flush()
+    from app.services.training_dataset_storage import allocate
+
+    await allocate(db, version)
     await task_datasets.ensure_membership(db, version, project_locked=True)
     await datasets.enqueue_dataset(db, version)
     db.add(

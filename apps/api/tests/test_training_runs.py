@@ -52,7 +52,9 @@ def training_config(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        service, "internal_download", lambda key: "http://owned-storage/" + key
+        service,
+        "internal_download",
+        lambda key, **kwargs: "http://owned-storage/" + key,
     )
 
 
@@ -78,6 +80,10 @@ async def ready_dataset(db, owner):
     )
     db.add(dataset)
     await db.flush()
+    from app.services.training_dataset_storage import allocate
+
+    ref = await allocate(db, dataset)
+    dataset.package_key = ref["prefix"] + "dataset.zip"
     return project, dataset
 
 

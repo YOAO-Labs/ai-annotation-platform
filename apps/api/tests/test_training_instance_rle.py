@@ -189,7 +189,29 @@ def test_frozen_mask_reader_uses_independent_training_object_and_digest(
     snapshot, media, masks = frozen
     payload = instance_rle_payload(snapshot["samples"][0], ["shape"], 4, 3)
     encoded = instance_rle_text(payload).encode()
-    project, version = uuid.uuid4(), SimpleNamespace(id=uuid.uuid4())
+    from app.config import settings
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from app.services.managed_original_retirement import managed_storage_identity
+    from app.services.training_dataset_storage import prefix_for
+
+    project = uuid.uuid4()
+    version = SimpleNamespace(id=uuid.uuid4(), project_id=project)
+    endpoint = (
+        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+    )
+    version.storage_ref = {
+        "schema": 1,
+        "purpose": "training-dataset",
+        "location_id": str(LEGACY_LOCATION_ID),
+        "config_revision": 1,
+        "binding_generation": 1,
+        "endpoint_url": endpoint,
+        "bucket": "retained-mask-bucket",
+        "prefix": prefix_for(project, version.id),
+        "storage_identity": managed_storage_identity(endpoint, "retained-mask-bucket"),
+        "origin": "new",
+        "evidence": None,
+    }
     source = snapshot["samples"][0]
     sample = SimpleNamespace(
         included=True,
@@ -210,6 +232,7 @@ def test_frozen_mask_reader_uses_independent_training_object_and_digest(
     )
     assert result["rle"] == masks[0]
     assert observed["Key"].endswith(f"/masks/{sample.task_id}.json")
+    assert observed["Bucket"] == "retained-mask-bucket"
     sample.label_sha256 = "0" * 64
     with pytest.raises(TrainingDatasetError, match="校验"):
         read_instance_mask(
@@ -308,7 +331,11 @@ def test_worker_materializes_independent_bitmap_object_without_source_storage_pa
         "classes": ["shape"],
     }
     result = worker.materialize_image(
-        sample, "projects/frozen/datasets/version", "snapshot", tmp_path
+        sample,
+        "projects/frozen/datasets/version",
+        "snapshot",
+        tmp_path,
+        bucket="retained-training",
     )
     assert result["width"] == 4 and result["height"] == 3
     key = f"projects/frozen/datasets/version/masks/{source['task_id']}.json"

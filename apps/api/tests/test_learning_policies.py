@@ -255,7 +255,7 @@ async def build_candidate(db, policy, value=None):
     data.status, data.package_sha256, data.package_key = (
         "ready",
         "e" * 64,
-        "owned/data.zip",
+        data.storage_ref["prefix"] + "dataset.zip",
     )
     data.manifest = value or manifest()
     await db.flush()

@@ -138,7 +138,17 @@ def fixture(
     expected=None,
     source_buckets=None,
 ):
-    environment = application_environment(backend.environment())
+    scoped = backend.environment()
+    environment = application_environment(scoped)
+    if action == "verify":
+        # The offline target mapper alone may update guarded physical locator
+        # fields. This owner connection is never passed to API/worker processes.
+        from sqlalchemy.engine import make_url
+
+        owner_url = scoped["MIGRATION_DATABASE_URL"]
+        if make_url(owner_url).database != backend.resources["database"]:
+            raise WorktreeError("恢复映射连接不属于目标数据库")
+        environment["DATABASE_URL"] = owner_url
     environment.update(
         DEBUG="false",
         LOG_LEVEL="WARNING",

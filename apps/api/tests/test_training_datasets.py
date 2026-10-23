@@ -340,6 +340,9 @@ async def make_version(db, owner, project):
     )
     db.add(version)
     await db.flush()
+    from app.services.training_dataset_storage import allocate
+
+    await allocate(db, version)
     await service.enqueue_dataset(db, version)
     await db.commit()
     return version
@@ -482,6 +485,9 @@ async def test_real_storage_materialization_retry_preserves_originals(
         )
         db_session.add(version)
         await db_session.flush()
+        from app.services.training_dataset_storage import allocate
+
+        await allocate(db_session, version)
         await service.enqueue_dataset(db_session, version)
         await db_session.commit()
 
@@ -592,7 +598,13 @@ def test_changed_source_is_rejected_before_preserving_media(tmp_path):
         sample["media"] = service.capture_source_media(sample)
         storage_service.put_bytes(key, b"changed", content_type="image/png")
         with pytest.raises(TrainingDatasetError) as error:
-            materialize_image(sample, prefix.rstrip("/"), "frozen", tmp_path)
+            materialize_image(
+                sample,
+                prefix.rstrip("/"),
+                "frozen",
+                tmp_path,
+                bucket=storage_service.training_bucket,
+            )
         assert error.value.code == "source_media_changed"
         assert (
             storage_service.list_objects(prefix, bucket=storage_service.training_bucket)
