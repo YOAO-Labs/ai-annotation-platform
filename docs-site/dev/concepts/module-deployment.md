@@ -183,6 +183,8 @@ Notifications 源码 `0b6beeb28` 将 durable delivery 的协议、PostgreSQL 客
 
 新工件的定向门槛代码为 `37bfd87e8`、`0fd430d26` 与 `e0145db27`：绑定不可变镜像／网络身份，只在独占、无待处理 outbox 的自有测试库运行，复用真实 Identity 事件生产并使用受限 Redis ACL；覆盖拒绝发布后重试、稳定 ID、空批次重启与领取后进程死亡的租约接管。14 项纯夹具检查通过；原接线缺陷和后续修正分别保留。当前仅接线及纯检查通过，真实容器案例仍待执行，不把握手阻塞说成已发送 PUBLISH。
 
+后续 Workspace／API 工件分别核对 332／2,008 项文件，四个镜像的依赖检查均通过；规范说明 `.worktree/delivery-four-images-4d844a3-qualification.json` SHA-256 为 `55c4b09672a2140fcaab1f2de5653bd7b1698398be5726f3d7c91a4567fe0cf6`。首轮真实用例在发布器启动前失败：Docker 创建态只有不可变 NetworkMode，运行态 endpoint ID 尚为空，夹具误判并中断清理。原失败收据 `7671de537345a69d4cbc0d86c84b8a7a69bccc41d10df03e7b3733d399c31628` 保持失败；迁移、授权和 Node 通过阶段单独保留。精确自有残留已核对并清理，恢复收据 `bb4edd85d6ba6403aa5f22e0acc06caf2e131cc09965392d2c973af68d8b0e59`；不带数据库或凭据的 Docker 最小复现 `d32cbe0d290c03efb75e9afcab3abc565f7ccada558d5770e29a33dbb60a801f` 确认三种生命周期状态。`2d2048645` 仅修正宿主机测试夹具的创建／快速退出检查、完整 ID 和清理异常传播，19 项定向检查通过，真实投递门槛待重验。四个运行工件的应用／安装包输入不变，后续三项宿主机测试文件以独立哈希绑定，不能将旧 COPY 全集声明为这些新测试字节。
+
 Audit 源码 `4f762fb91` 将月报原始尾段、DuckDB Audit 同步、项目绩效的 ORM／原始 SQL 事件读取迁到既有公开关系；没有新增迁移、grant、提交或 flush。真实 PostgreSQL／API 26 项通过，DuckDB 目标数据检查 8 项与相关纯检查 15 项分别保存，不相加。`99589119a` 为受既有读取 helper 影响的 `MissingAudit` 测试替身显式补上 `autoflush=False`，生产 helper 未放宽；该失败案例单独补验通过，原失败 JUnit 保留。21 项证据／源码快照归档清单 SHA-256 为 `cfacebe42f905881df07bf39829fdd23475758f1d264b8abad9a43f516a6d695`；精确自有环境已销毁，收据 SHA-256 为 `fec3b1fd7c4b0f36c5b943f85ae8f82daccfa1e8232ce14400148206f0a2d8e8`。
 
 父线合并源码后，117 项包／兼容／API 边界／绩效及 DuckDB 目标检查通过，零失败／错误／跳过；它们包含上述部分案例，不与子线计数叠加。月报 MV、主动学习及分区／归档仍保留原有读取与维护路径，不能统一撤销 Audit 私表读取。当前改动不代表完整 Audit／Notifications、冷进程真实消费或主工作树采用；训练与 Assets 数据集／存储继续待最新功能合并。

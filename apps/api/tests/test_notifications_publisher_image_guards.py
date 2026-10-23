@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.engine import make_url
@@ -47,6 +48,43 @@ def _image(**labels):
                 **labels,
             },
         },
+    }
+
+
+def _container_record(
+    *,
+    run_id,
+    container_name,
+    test_case,
+    network_id,
+    state,
+    networks,
+):
+    return {
+        "Id": "container-id",
+        "Name": f"/{container_name}",
+        "Image": IMAGE_ID,
+        "Config": {
+            "Labels": {
+                "org.aap.acceptance": "notifications-delivery-live",
+                "org.aap.acceptance-id": run_id,
+                "org.aap.test-case": test_case,
+            },
+            "User": "10004:10004",
+            "Env": [],
+        },
+        "HostConfig": {
+            "ReadonlyRootfs": True,
+            "CapDrop": ["ALL"],
+            "SecurityOpt": ["no-new-privileges:true"],
+            "Memory": 268435456,
+            "NanoCpus": 1000000000,
+            "PidsLimit": 64,
+            "NetworkMode": network_id,
+        },
+        "Mounts": [],
+        "NetworkSettings": {"Networks": networks},
+        "State": state,
     }
 
 
@@ -209,7 +247,11 @@ def test_private_network_mutations_use_inspected_network_id(monkeypatch):
     network_id = "f" * 64
     dependency_id = "d" * 64
     run_id = "e" * 24
-    endpoint = {"NetworkID": network_id, "Aliases": ["notifications-postgres"]}
+    endpoint = {
+        "NetworkID": network_id,
+        "EndpointID": "endpoint-id",
+        "Aliases": ["notifications-postgres"],
+    }
     endpoint_results = [endpoint, endpoint, None]
     calls = []
 
@@ -258,30 +300,14 @@ def test_private_network_mutations_use_inspected_network_id(monkeypatch):
 
 def test_container_endpoint_must_match_the_immutable_network_id(monkeypatch):
     network_name = "aap-notify-live-owned"
-    observed = {
-        "Id": "container-id",
-        "Image": IMAGE_ID,
-        "Config": {
-            "Labels": {
-                "org.aap.acceptance": "notifications-delivery-live",
-                "org.aap.acceptance-id": ACCEPTANCE_ID,
-            },
-            "User": "10004:10004",
-            "Env": [],
-        },
-        "HostConfig": {
-            "ReadonlyRootfs": True,
-            "CapDrop": ["ALL"],
-            "SecurityOpt": ["no-new-privileges:true"],
-            "Memory": 268435456,
-            "NanoCpus": 1000000000,
-            "PidsLimit": 64,
-        },
-        "Mounts": [],
-        "NetworkSettings": {
-            "Networks": {network_name: {"NetworkID": "wrong-network-id"}}
-        },
-    }
+    observed = _container_record(
+        run_id=ACCEPTANCE_ID,
+        container_name="aap-notify-83334c1367-cold-publisher",
+        test_case="cold-publisher",
+        network_id=NETWORK_ID,
+        state={"Status": "running", "Running": True, "Pid": 123},
+        networks={network_name: {"NetworkID": "wrong-network-id"}},
+    )
     monkeypatch.setattr(acceptance, "inspect_docker", lambda *_args: observed)
 
     with pytest.raises(pytest.fail.Exception):
@@ -291,7 +317,78 @@ def test_container_endpoint_must_match_the_immutable_network_id(monkeypatch):
             image_id=IMAGE_ID,
             network_name=network_name,
             network_id=NETWORK_ID,
+            phase="running",
         )
+
+
+def test_created_docker_container_uses_network_mode_before_endpoint_exists(monkeypatch):
+    network_name = "aap-notify-live-owned"
+    container_name = f"aap-notify-{ACCEPTANCE_ID[:10]}-cold-publisher"
+    record = _container_record(
+        run_id=ACCEPTANCE_ID,
+        container_name=container_name,
+        test_case="cold-publisher",
+        network_id=NETWORK_ID,
+        state={"Status": "created", "Running": False, "Pid": 0},
+        networks={network_name: {"NetworkID": "", "EndpointID": ""}},
+    )
+    commands = []
+    monkeypatch.setattr(acceptance, "inspect_docker", lambda *_args: record)
+    monkeypatch.setattr(
+        acceptance,
+        "_docker",
+        lambda *arguments, **_kwargs: commands.append(arguments) or "",
+    )
+
+    acceptance.verify_live_container(
+        "container-id",
+        run_id=ACCEPTANCE_ID,
+        image_id=IMAGE_ID,
+        network_name=network_name,
+        network_id=NETWORK_ID,
+        phase="created",
+        container_name=container_name,
+        test_case="cold-publisher",
+        secret_destinations=(),
+    )
+    acceptance.remove_owned_container(
+        "container-id",
+        run_id=ACCEPTANCE_ID,
+        network_name=network_name,
+        network_id=NETWORK_ID,
+    )
+
+    assert commands == [("rm", "container-id")]
+
+
+@pytest.mark.parametrize("phase", ["started", "stopped"])
+def test_exited_container_keeps_network_id_without_endpoint_id(monkeypatch, phase):
+    network_name = "aap-notify-live-owned"
+    container_name = f"aap-notify-{ACCEPTANCE_ID[:10]}-cold-publisher"
+    record = _container_record(
+        run_id=ACCEPTANCE_ID,
+        container_name=container_name,
+        test_case="cold-publisher",
+        network_id=NETWORK_ID,
+        state={"Status": "exited", "Running": False, "Pid": 0},
+        networks={network_name: {"NetworkID": NETWORK_ID, "EndpointID": ""}},
+    )
+    monkeypatch.setattr(acceptance, "inspect_docker", lambda *_args: record)
+
+    result = acceptance.verify_live_container(
+        "container-id",
+        run_id=ACCEPTANCE_ID,
+        image_id=IMAGE_ID,
+        network_name=network_name,
+        network_id=NETWORK_ID,
+        phase=phase,
+        container_name=container_name,
+        test_case="cold-publisher",
+    )
+
+    assert (
+        result["NetworkSettings"]["Networks"][network_name]["NetworkID"] == NETWORK_ID
+    )
 
 
 def test_network_create_timeout_cleans_only_exact_owned_partial(monkeypatch):
@@ -378,17 +475,14 @@ def test_container_create_timeout_cleans_exact_owned_partial(monkeypatch):
     monkeypatch.setattr(
         acceptance,
         "inspect_docker",
-        lambda *_args: {
-            "Name": f"/{name}",
-            "Id": "container-id",
-            "Config": {
-                "Labels": {
-                    "org.aap.acceptance": "notifications-delivery-live",
-                    "org.aap.acceptance-id": run_id,
-                }
-            },
-            "State": {"Running": False},
-        },
+        lambda *_args: _container_record(
+            run_id=run_id,
+            container_name=name,
+            test_case="partial",
+            network_id=NETWORK_ID,
+            state={"Status": "created", "Running": False, "Pid": 0},
+            networks={"aap-notify-live-test": {"NetworkID": "", "EndpointID": ""}},
+        ),
     )
     monkeypatch.setattr(
         acceptance,
@@ -431,17 +525,14 @@ def test_partial_container_cleanup_failure_is_not_swallowed(monkeypatch):
     monkeypatch.setattr(
         acceptance,
         "inspect_docker",
-        lambda *_args: {
-            "Name": f"/{name}",
-            "Id": "container-id",
-            "Config": {
-                "Labels": {
-                    "org.aap.acceptance": "notifications-delivery-live",
-                    "org.aap.acceptance-id": run_id,
-                }
-            },
-            "State": {"Running": False},
-        },
+        lambda *_args: _container_record(
+            run_id=run_id,
+            container_name=name,
+            test_case="partial",
+            network_id=NETWORK_ID,
+            state={"Status": "created", "Running": False, "Pid": 0},
+            networks={"aap-notify-live-test": {"NetworkID": "", "EndpointID": ""}},
+        ),
     )
     cleanup_error = RuntimeError("owned container cleanup failed")
     monkeypatch.setattr(
@@ -471,3 +562,51 @@ def test_partial_secret_files_are_unlinked_from_the_exact_private_directory(tmp_
 
     assert not database_url.exists()
     assert not secret_directory.exists()
+
+
+def test_owned_container_audit_requests_full_docker_ids(monkeypatch):
+    run_id = "a" * 24
+    full_id = "f" * 64
+    labels = {
+        "org.aap.acceptance": "notifications-delivery-live",
+        "org.aap.acceptance-id": run_id,
+    }
+    commands = []
+
+    def docker(arguments, **_kwargs):
+        commands.append(arguments)
+        listed_id = full_id if "--no-trunc" in arguments else full_id[:12]
+        return SimpleNamespace(returncode=0, stdout=listed_id + "\n", stderr="")
+
+    monkeypatch.setattr(acceptance.subprocess, "run", docker)
+    monkeypatch.setattr(
+        acceptance,
+        "inspect_docker",
+        lambda *_args: {
+            "Id": full_id,
+            "Config": {"Labels": labels},
+        },
+    )
+
+    with pytest.raises(pytest.fail.Exception, match="left an owned container"):
+        acceptance.assert_no_owned_containers(run_id)
+
+    assert "--no-trunc" in commands[0]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_failure_is_captured_so_later_owned_cleanup_runs():
+    completed = []
+
+    async def rejected_cleanup():
+        pytest.fail("owned cleanup rejected")
+
+    async def next_cleanup():
+        completed.append(True)
+
+    failure = await acceptance.run_owned_cleanup_step(rejected_cleanup)
+    next_failure = await acceptance.run_owned_cleanup_step(next_cleanup)
+
+    assert isinstance(failure, pytest.fail.Exception)
+    assert next_failure is None
+    assert completed == [True]

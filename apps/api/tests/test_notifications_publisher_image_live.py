@@ -8,6 +8,7 @@ import json
 import os
 import secrets
 import subprocess
+import sys
 import time
 import uuid
 
@@ -35,6 +36,7 @@ from tests.notifications_publisher_acceptance_helpers import (
     remove_owned_network,
     remove_secret_files,
     run_once_container,
+    run_owned_cleanup_step,
     verify_live_container,
     wait_for_container_log,
 )
@@ -422,6 +424,8 @@ async def test_standalone_publisher_acl_retry_restart_and_cold_lease_takeover(
                     network_name=network,
                     network_id=network_id,
                     secrets_to_hide=(database_value, redis_url, private_reason),
+                    container_name=f"aap-notify-{run_id[:10]}-{case}",
+                    test_case=case,
                 )
 
             def assert_messages(messages, expected_ids, reason):
@@ -554,17 +558,6 @@ async def test_standalone_publisher_acl_retry_restart_and_cold_lease_takeover(
                 command=("-c", _BLACKHOLE_SERVER),
             )
             containers.append(listener)
-            listener_state = verify_live_container(
-                listener,
-                run_id=run_id,
-                image_id=image_id,
-                network_name=network,
-                network_id=network_id,
-            )
-            assert (
-                "notifications-blackhole"
-                in listener_state["NetworkSettings"]["Networks"][network]["Aliases"]
-            )
             subprocess.run(
                 ["docker", "start", listener],
                 check=True,
@@ -579,6 +572,20 @@ async def test_standalone_publisher_acl_retry_restart_and_cold_lease_takeover(
                 network_name=network,
                 network_id=network_id,
                 marker="listening",
+            )
+            listener_state = verify_live_container(
+                listener,
+                run_id=run_id,
+                image_id=image_id,
+                network_name=network,
+                network_id=network_id,
+                phase="running",
+                container_name=f"aap-notify-{run_id[:10]}-parked-redis",
+                test_case="parked-redis",
+            )
+            assert (
+                "notifications-blackhole"
+                in listener_state["NetworkSettings"]["Networks"][network]["Aliases"]
             )
 
             blocked_container = create_live_container(
@@ -613,6 +620,9 @@ async def test_standalone_publisher_acl_retry_restart_and_cold_lease_takeover(
                 image_id=image_id,
                 network_name=network,
                 network_id=network_id,
+                phase="running",
+                container_name=f"aap-notify-{run_id[:10]}-cold-publisher",
+                test_case="cold-publisher",
                 secret_destinations=(
                     "/run/secrets/database-url",
                     "/run/secrets/redis-url",
@@ -644,6 +654,9 @@ async def test_standalone_publisher_acl_retry_restart_and_cold_lease_takeover(
                 image_id=image_id,
                 network_name=network,
                 network_id=network_id,
+                phase="stopped",
+                container_name=f"aap-notify-{run_id[:10]}-cold-publisher",
+                test_case="cold-publisher",
                 secret_destinations=(
                     "/run/secrets/database-url",
                     "/run/secrets/redis-url",
@@ -697,69 +710,92 @@ async def test_standalone_publisher_acl_retry_restart_and_cold_lease_takeover(
                 postgres_container_id,
             )
     finally:
+        primary_error = sys.exception()
         cleanup_errors = []
+        cleanup_interrupts = []
+
+        async def attempt_cleanup(label, operation):
+            try:
+                error = await run_owned_cleanup_step(operation)
+            except BaseException as caught:
+                error = caught
+            if error is None:
+                return True
+            if isinstance(
+                error,
+                (asyncio.CancelledError, KeyboardInterrupt, SystemExit),
+            ):
+                cleanup_interrupts.append(error)
+            else:
+                cleanup_errors.append(label)
+            return False
+
         if pubsub is not None:
-            try:
-                await pubsub.unsubscribe()
-                await pubsub.aclose()
-            except Exception:
-                cleanup_errors.append("Redis subscription")
+            await attempt_cleanup("Redis unsubscribe", pubsub.unsubscribe)
+            await attempt_cleanup("Redis subscription close", pubsub.aclose)
         if redis_owner is not None:
-            try:
-                await redis_owner.aclose()
-            except Exception:
-                cleanup_errors.append("Redis owner client")
+            await attempt_cleanup("Redis owner client", redis_owner.aclose)
         if identity is not None:
-            try:
-                identity.stop()
-            except Exception:
-                cleanup_errors.append("Identity producer")
+            await attempt_cleanup("Identity producer", identity.stop)
         containers_clean = True
         for container_id in reversed(containers):
-            try:
-                remove_owned_container(
+            if not await attempt_cleanup(
+                "owned container",
+                lambda container_id=container_id: remove_owned_container(
                     container_id,
                     run_id=run_id,
                     network_name=network,
                     network_id=network_id,
-                )
-            except Exception:
-                cleanup_errors.append("owned container")
+                ),
+            ):
                 containers_clean = False
         if containers_clean:
-            try:
-                assert_no_owned_containers(run_id)
-            except Exception:
-                cleanup_errors.append("partially created owned container")
+            if not await attempt_cleanup(
+                "partially created owned container",
+                lambda: assert_no_owned_containers(run_id),
+            ):
                 containers_clean = False
         if containers_clean:
             for secret_directory in reversed(secret_directories):
-                try:
-                    remove_secret_files(tmp_path, secret_directory)
-                except Exception:
-                    cleanup_errors.append("publisher secret files")
+                await attempt_cleanup(
+                    "publisher secret files",
+                    lambda secret_directory=secret_directory: remove_secret_files(
+                        tmp_path, secret_directory
+                    ),
+                )
         elif secret_directories:
             cleanup_errors.append(
                 "publisher secrets retained because containers remain"
             )
         if network is not None and network_id is not None:
             for dependency_id in reversed(connected_dependencies):
-                try:
-                    disconnect_owned_dependency(network, network_id, dependency_id)
-                except Exception:
-                    cleanup_errors.append("dependency network attachment")
-            try:
-                remove_owned_network(network, network_id, run_id)
-            except Exception:
-                cleanup_errors.append("private network")
+                await attempt_cleanup(
+                    "dependency network attachment",
+                    lambda dependency_id=dependency_id: disconnect_owned_dependency(
+                        network, network_id, dependency_id
+                    ),
+                )
+            await attempt_cleanup(
+                "private network",
+                lambda: remove_owned_network(network, network_id, run_id),
+            )
         if actor_ids or operation_ids:
-            try:
-                await _cleanup_deactivation(
+            await attempt_cleanup(
+                "committed producer fixture",
+                lambda: _cleanup_deactivation(
                     maker,
                     actor_ids=actor_ids,
                     user_operation_ids=operation_ids,
+                ),
+            )
+        if primary_error is not None:
+            for label in cleanup_errors:
+                primary_error.add_note(f"Notifications cleanup failed: {label}")
+            for error in cleanup_interrupts:
+                primary_error.add_note(
+                    f"Notifications cleanup interrupted: {type(error).__name__}"
                 )
-            except Exception:
-                cleanup_errors.append("committed producer fixture")
-        if cleanup_errors:
+        elif cleanup_interrupts:
+            raise cleanup_interrupts[0]
+        elif cleanup_errors:
             pytest.fail("Notifications acceptance could not complete owned cleanup")

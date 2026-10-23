@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 from pathlib import Path
 import re
 import subprocess
@@ -57,6 +58,17 @@ def _docker(*arguments: str, timeout: int = 30) -> str:
     if result.returncode != 0:
         pytest.fail("owned Notifications Docker operation failed")
     return result.stdout.strip()
+
+
+async def run_owned_cleanup_step(operation):
+    """Capture one owned cleanup failure so later steps can still run."""
+    try:
+        result = operation()
+        if inspect.isawaitable(result):
+            await result
+    except BaseException as error:
+        return error
+    return None
 
 
 def inspect_docker(kind: str, target: str) -> dict:
@@ -154,6 +166,9 @@ def verify_live_container(
     image_id: str,
     network_name: str,
     network_id: str,
+    phase: str = "running",
+    container_name: str | None = None,
+    test_case: str | None = None,
     secret_destinations: tuple[str, ...] = (),
 ) -> dict:
     observed = inspect_docker("container", container_id)
@@ -170,6 +185,8 @@ def verify_live_container(
         and observed.get("Image") == image_id
         and labels.get("org.aap.acceptance") == _CONTAINER_ACCEPTANCE
         and labels.get("org.aap.acceptance-id") == run_id
+        and (test_case is None or labels.get("org.aap.test-case") == test_case)
+        and (container_name is None or observed.get("Name") == f"/{container_name}")
         and config.get("User") == "10004:10004"
         and host.get("ReadonlyRootfs") is True
         and host.get("CapDrop") == ["ALL"]
@@ -177,11 +194,7 @@ def verify_live_container(
         and host.get("Memory") == 268435456
         and host.get("NanoCpus") == 1000000000
         and host.get("PidsLimit") == 64
-        and set(networks) == {network_name}
-        and networks[network_name].get("NetworkID") == network_id
-        and all(
-            endpoint.get("NetworkID") == network_id for endpoint in networks.values()
-        )
+        and host.get("NetworkMode") == network_id
         and set(observed_mounts) == set(secret_destinations)
         and all(mount.get("RW") is False for mount in observed_mounts.values())
     ):
@@ -203,6 +216,59 @@ def verify_live_container(
         value.startswith("NOTIFICATION_PUBLISH_") for value in (config.get("Env") or ())
     ):
         pytest.fail("Notifications listener received publisher credentials")
+
+    state = observed.get("State", {})
+    if phase == "created":
+        if not (
+            state.get("Status") == "created"
+            and state.get("Running") is False
+            and state.get("Pid") == 0
+            and (
+                not networks
+                or (
+                    set(networks) == {network_name}
+                    and networks[network_name].get("NetworkID") in (None, "")
+                    and networks[network_name].get("EndpointID") in (None, "")
+                )
+            )
+        ):
+            pytest.fail(
+                "Notifications container did not remain in verified created state"
+            )
+    elif phase == "running" or (
+        phase == "started" and state.get("Status") == "running"
+    ):
+        if not (
+            state.get("Status") == "running"
+            and state.get("Running") is True
+            and state.get("Pid", 0) > 0
+            and set(networks) == {network_name}
+            and networks[network_name].get("NetworkID") == network_id
+            and networks[network_name].get("EndpointID")
+            and all(
+                endpoint.get("NetworkID") == network_id
+                for endpoint in networks.values()
+            )
+        ):
+            pytest.fail(
+                "Notifications runtime endpoint did not match its private network"
+            )
+    elif phase in {"started", "stopped"}:
+        if not (
+            state.get("Status") == "exited"
+            and state.get("Running") is False
+            and state.get("Pid") == 0
+            and set(networks) == {network_name}
+            and networks[network_name].get("NetworkID") == network_id
+            and networks[network_name].get("EndpointID") == ""
+            and all(
+                endpoint.get("NetworkID") == network_id
+                for endpoint in networks.values()
+            )
+        ):
+            pytest.fail("Exited Notifications runtime identity did not match")
+    else:
+        raise ValueError("Unsupported Notifications container lifecycle phase")
     return observed
 
 
@@ -263,6 +329,9 @@ def _cleanup_partial_named_object(
     *,
     network_name: str | None = None,
     network_id: str | None = None,
+    image_id: str | None = None,
+    test_case: str | None = None,
+    secret_destinations: tuple[str, ...] = (),
 ) -> None:
     if not _named_object_exists(kind, name):
         return
@@ -285,8 +354,19 @@ def _cleanup_partial_named_object(
             "Refusing to clean a partially created foreign Notifications resource"
         )
     if kind == "container":
-        if not network_name or not network_id:
-            pytest.fail("Partial publisher container has no expected network identity")
+        if not network_name or not network_id or not image_id or not test_case:
+            pytest.fail("Partial publisher container has incomplete expected identity")
+        verify_live_container(
+            observed["Id"],
+            run_id=run_id,
+            image_id=image_id,
+            network_name=network_name,
+            network_id=network_id,
+            phase="created",
+            container_name=name,
+            test_case=test_case,
+            secret_destinations=secret_destinations,
+        )
         remove_owned_container(
             observed["Id"],
             run_id=run_id,
@@ -322,6 +402,7 @@ def connect_owned_dependency(
         network.get("Id") == network_id
         and network.get("Name") == network_name
         and endpoint.get("NetworkID") == network_id
+        and endpoint.get("EndpointID")
         and alias in (endpoint.get("Aliases") or [])
     ):
         pytest.fail("Owned dependency was not attached to the private network")
@@ -339,6 +420,8 @@ def disconnect_owned_dependency(
     if endpoint:
         if endpoint.get("NetworkID") != network_id:
             pytest.fail("Refusing to detach an unexpected dependency network")
+        if not endpoint.get("EndpointID"):
+            pytest.fail("Refusing to detach a dependency without a live endpoint")
         _docker("network", "disconnect", network_id, container_id)
         after = inspect_docker("container", container_id)
         if network_name in (after.get("NetworkSettings", {}).get("Networks") or {}):
@@ -483,6 +566,9 @@ def create_live_container(
             image_id=image_id,
             network_name=network_name,
             network_id=network_id,
+            phase="created",
+            container_name=name,
+            test_case=case,
             secret_destinations=destinations,
         )
         return container_id
@@ -493,6 +579,9 @@ def create_live_container(
             run_id,
             network_name=network_name,
             network_id=network_id,
+            image_id=image_id,
+            test_case=case,
+            secret_destinations=destinations,
         )
         raise
 
@@ -504,6 +593,8 @@ def run_once_container(
     image_id: str,
     network_name: str,
     network_id: str,
+    container_name: str,
+    test_case: str,
     secrets_to_hide: tuple[str, ...],
 ) -> dict[str, int]:
     verify_live_container(
@@ -512,12 +603,29 @@ def run_once_container(
         image_id=image_id,
         network_name=network_name,
         network_id=network_id,
+        phase="created",
+        container_name=container_name,
+        test_case=test_case,
         secret_destinations=(
             "/run/secrets/database-url",
             "/run/secrets/redis-url",
         ),
     )
     _docker("start", container_id)
+    verify_live_container(
+        container_id,
+        run_id=run_id,
+        image_id=image_id,
+        network_name=network_name,
+        network_id=network_id,
+        phase="started",
+        container_name=container_name,
+        test_case=test_case,
+        secret_destinations=(
+            "/run/secrets/database-url",
+            "/run/secrets/redis-url",
+        ),
+    )
     exit_code = _docker("wait", container_id, timeout=45)
     observed = verify_live_container(
         container_id,
@@ -525,6 +633,9 @@ def run_once_container(
         image_id=image_id,
         network_name=network_name,
         network_id=network_id,
+        phase="stopped",
+        container_name=container_name,
+        test_case=test_case,
         secret_destinations=(
             "/run/secrets/database-url",
             "/run/secrets/redis-url",
@@ -584,6 +695,7 @@ def wait_for_container_log(
             and observed.get("State", {}).get("Running") is True
             and set(networks) == {network_name}
             and networks[network_name].get("NetworkID") == network_id
+            and networks[network_name].get("EndpointID")
             and all(
                 endpoint.get("NetworkID") == network_id
                 for endpoint in networks.values()
@@ -605,30 +717,68 @@ def remove_owned_container(
 ) -> None:
     observed = inspect_docker("container", container_id)
     labels = observed.get("Config", {}).get("Labels") or {}
+    container_name = f"aap-notify-{run_id[:10]}-{labels.get('org.aap.test-case', '')}"
+    host = observed.get("HostConfig", {})
+    state = observed.get("State", {})
     networks = observed.get("NetworkSettings", {}).get("Networks", {})
     if not (
         observed.get("Id") == container_id
+        and observed.get("Name") == f"/{container_name}"
         and labels.get("org.aap.acceptance") == _CONTAINER_ACCEPTANCE
         and labels.get("org.aap.acceptance-id") == run_id
-        and set(networks) == {network_name}
-        and networks[network_name].get("NetworkID") == network_id
-        and all(
-            endpoint.get("NetworkID") == network_id for endpoint in networks.values()
-        )
+        and labels.get("org.aap.test-case")
+        and host.get("NetworkMode") == network_id
     ):
         pytest.fail("Refusing to remove a container outside this acceptance")
-    if observed.get("State", {}).get("Running") is True:
+
+    if state.get("Status") == "created":
+        if not (
+            state.get("Running") is False
+            and state.get("Pid") == 0
+            and (
+                not networks
+                or (
+                    set(networks) == {network_name}
+                    and networks[network_name].get("NetworkID") in (None, "")
+                    and networks[network_name].get("EndpointID") in (None, "")
+                )
+            )
+        ):
+            pytest.fail("Refusing to remove an unverified created container")
+        _docker("rm", container_id, timeout=15)
+        return
+    if state.get("Status") == "running":
+        if not (
+            state.get("Running") is True
+            and state.get("Pid", 0) > 0
+            and set(networks) == {network_name}
+            and networks[network_name].get("NetworkID") == network_id
+            and networks[network_name].get("EndpointID")
+            and all(
+                endpoint.get("NetworkID") == network_id
+                for endpoint in networks.values()
+            )
+        ):
+            pytest.fail("Refusing to stop a container outside the private network")
         _docker("stop", "--time", "2", container_id, timeout=15)
     stopped = inspect_docker("container", container_id)
     stopped_labels = stopped.get("Config", {}).get("Labels") or {}
+    stopped_state = stopped.get("State", {})
+    stopped_host = stopped.get("HostConfig", {})
     stopped_networks = stopped.get("NetworkSettings", {}).get("Networks", {})
     if not (
         stopped.get("Id") == container_id
+        and stopped.get("Name") == f"/{container_name}"
         and stopped_labels.get("org.aap.acceptance") == _CONTAINER_ACCEPTANCE
         and stopped_labels.get("org.aap.acceptance-id") == run_id
-        and stopped.get("State", {}).get("Running") is False
+        and stopped_labels.get("org.aap.test-case") == labels.get("org.aap.test-case")
+        and stopped_host.get("NetworkMode") == network_id
+        and stopped_state.get("Status") == "exited"
+        and stopped_state.get("Running") is False
+        and stopped_state.get("Pid") == 0
         and set(stopped_networks) == {network_name}
         and stopped_networks[network_name].get("NetworkID") == network_id
+        and stopped_networks[network_name].get("EndpointID") == ""
         and all(
             endpoint.get("NetworkID") == network_id
             for endpoint in stopped_networks.values()
@@ -644,6 +794,7 @@ def assert_no_owned_containers(run_id: str) -> None:
             "docker",
             "ps",
             "--all",
+            "--no-trunc",
             "--filter",
             f"label=org.aap.acceptance={_CONTAINER_ACCEPTANCE}",
             "--filter",
