@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.db.models.dataset_source import (
-    DatasetSourceItem,
+    DatasetSourceRevision,
     DatasetSourcePreview,
     DatasetScanRun,
     DatasetRegistrationRun,
@@ -21,8 +21,9 @@ from app.services.dataset_content import key_authority
 
 async def impact(db, source, actor):
     await scans.require_actor(db, actor.id, source)
-    items = select(DatasetSourceItem.dataset_item_id).where(
-        DatasetSourceItem.source_id == source.id
+    items = select(DatasetSourceRevision.dataset_item_id).where(
+        DatasetSourceRevision.source_id == source.id,
+        DatasetSourceRevision.dataset_item_id.is_not(None),
     )
     tasks = select(Task.id).where(Task.dataset_item_id.in_(items))
 

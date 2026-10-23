@@ -12757,6 +12757,30 @@
       },
       "DatasetSourceChangeOut": {
         "properties": {
+          "accepted_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Item Id"
+          },
+          "accepted_revision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Revision Id"
+          },
           "before_item_id": {
             "anyOf": [
               {
@@ -12769,6 +12793,18 @@
             ],
             "title": "Before Item Id"
           },
+          "before_revision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Revision Id"
+          },
           "before_sha256": {
             "anyOf": [
               {
@@ -12779,6 +12815,10 @@
               }
             ],
             "title": "Before Sha256"
+          },
+          "can_accept_revision": {
+            "title": "Can Accept Revision",
+            "type": "boolean"
           },
           "candidate_sha256": {
             "anyOf": [
@@ -12851,6 +12891,10 @@
           "kind",
           "reason",
           "before_item_id",
+          "before_revision_id",
+          "accepted_revision_id",
+          "accepted_item_id",
+          "can_accept_revision",
           "before_sha256",
           "candidate_sha256",
           "registration_state",
@@ -39957,6 +40001,205 @@
         "title": "SourceLifecycleImpact",
         "type": "object"
       },
+      "SourceRevisionAccept": {
+        "additionalProperties": false,
+        "properties": {
+          "before_revision_id": {
+            "format": "uuid",
+            "title": "Before Revision Id",
+            "type": "string"
+          },
+          "candidate_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Candidate Sha256",
+            "type": "string"
+          },
+          "expected_generation": {
+            "minimum": 0.0,
+            "title": "Expected Generation",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_generation",
+          "before_revision_id",
+          "candidate_sha256"
+        ],
+        "title": "SourceRevisionAccept",
+        "type": "object"
+      },
+      "SourceRevisionList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRevisionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "items"
+        ],
+        "title": "SourceRevisionList",
+        "type": "object"
+      },
+      "SourceRevisionOut": {
+        "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "accepted_by_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted By Id"
+          },
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "item_available": {
+            "title": "Item Available",
+            "type": "boolean"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "path_digest": {
+            "title": "Path Digest",
+            "type": "string"
+          },
+          "previous_revision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Revision Id"
+          },
+          "registration_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registration Id"
+          },
+          "revision_id": {
+            "format": "uuid",
+            "title": "Revision Id",
+            "type": "string"
+          },
+          "revision_number": {
+            "title": "Revision Number",
+            "type": "integer"
+          },
+          "scan_run_id": {
+            "format": "uuid",
+            "title": "Scan Run Id",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "previous_revision_id",
+          "revision_number",
+          "item_id",
+          "sha256",
+          "created",
+          "path_digest",
+          "scan_run_id",
+          "registration_id",
+          "accepted_by_id",
+          "accepted_at",
+          "item_available"
+        ],
+        "title": "SourceRevisionOut",
+        "type": "object"
+      },
+      "SourceRevisionResult": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "previous_revision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Revision Id"
+          },
+          "revision_id": {
+            "format": "uuid",
+            "title": "Revision Id",
+            "type": "string"
+          },
+          "revision_number": {
+            "title": "Revision Number",
+            "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "previous_revision_id",
+          "revision_number",
+          "item_id",
+          "sha256",
+          "created"
+        ],
+        "title": "SourceRevisionResult",
+        "type": "object"
+      },
       "SourceSyncScheduleContinue": {
         "additionalProperties": false,
         "properties": {
@@ -60943,6 +61186,73 @@
         ]
       }
     },
+    "/api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/accept-revision": {
+      "post": {
+        "operationId": "accept_content_revision_api_v1_dataset_registrations__registration_id__changes__path_digest__accept_revision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "path_digest",
+            "required": true,
+            "schema": {
+              "title": "Path Digest",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRevisionAccept"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRevisionResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Accept Content Revision",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
     "/api/v1/dataset-registrations/{registration_id}/confirm": {
       "post": {
         "operationId": "confirm_registration_api_v1_dataset_registrations__registration_id__confirm_post",
@@ -62067,6 +62377,94 @@
           }
         ],
         "summary": "Lifecycle Impact",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-sources/{source_id}/revisions": {
+      "get": {
+        "operationId": "source_revision_history_api_v1_dataset_sources__source_id__revisions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path_digest",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Path Digest"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRevisionList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Source Revision History",
         "tags": [
           "dataset-sources"
         ]

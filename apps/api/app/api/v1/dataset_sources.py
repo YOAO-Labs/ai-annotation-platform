@@ -13,6 +13,7 @@ from app.db.models.dataset_source import (
     DatasetScanRun,
     DatasetScanEntry,
     DatasetSourceItem,
+    DatasetSourceRevision,
     DatasetSourcePreview,
     DatasetRegistrationRun,
     DatasetRegistrationEntry,
@@ -33,6 +34,9 @@ from app.schemas.dataset_source import (
     DatasetRegistrationEntryList,
     DatasetRegistrationConfirm,
     DatasetSourceChangeList,
+    SourceRevisionAccept,
+    SourceRevisionResult,
+    SourceRevisionList,
     SourceLifecycleImpact,
     SourceLifecycleChange,
     SourceSyncScheduleOut,
@@ -278,13 +282,59 @@ async def list_entries(
         )
     )
     registered = {
-        r.path_digest: r.dataset_item_id
+        r.path_digest: r
         for r in await db.scalars(
             select(DatasetSourceItem).where(
                 DatasetSourceItem.source_id == run.source_id,
                 DatasetSourceItem.path_digest.in_([row.path_digest for row in rows]),
             )
         )
+    }
+    baseline_observations = {
+        e.path_digest: (
+            e.verified_content["observation"] if e.verified_content else None,
+            scan.snapshot["anchor"],
+        )
+        for e, scan in await db.execute(
+            select(DatasetScanEntry, DatasetScanRun)
+            .join(DatasetScanRun, DatasetScanRun.id == DatasetScanEntry.run_id)
+            .join(
+                DatasetSourceItem,
+                (DatasetSourceItem.run_id == DatasetScanEntry.run_id)
+                & (DatasetSourceItem.path_digest == DatasetScanEntry.path_digest),
+            )
+            .where(
+                DatasetSourceItem.source_id == run.source_id,
+                DatasetSourceItem.path_digest.in_([row.path_digest for row in rows]),
+            )
+        )
+    }
+    historical = {
+        r.path_digest: r.dataset_item_id
+        for r in await db.scalars(
+            select(DatasetSourceRevision).where(
+                DatasetSourceRevision.source_id == run.source_id,
+                DatasetSourceRevision.run_id == run.id,
+                DatasetSourceRevision.path_digest.in_(
+                    [row.path_digest for row in rows]
+                ),
+            )
+        )
+    }
+    accepted = {
+        row.path_digest: historical[row.path_digest]
+        if row.path_digest in historical
+        else (
+            registered[row.path_digest].dataset_item_id
+            if row.verified_content
+            and row.path_digest in registered
+            and registered[row.path_digest].content_sha256
+            == row.verified_content["sha256"]
+            and baseline_observations.get(row.path_digest)
+            == (row.verified_content["observation"], run.snapshot["anchor"])
+            else None
+        )
+        for row in rows
     }
     previews = {
         p.path_digest: p
@@ -304,12 +354,22 @@ async def list_entries(
                 "state": row.state,
                 "size_bytes": row.observed.get("size"),
                 "content_verified": row.verified_content is not None,
-                "registered_item_id": registered.get(row.path_digest),
+                "registered_item_id": accepted.get(row.path_digest),
                 "preview_state": previews[row.path_digest].state
-                if row.path_digest in previews
+                if (
+                    row.path_digest in previews
+                    and row.path_digest in registered
+                    and accepted.get(row.path_digest)
+                    == registered[row.path_digest].dataset_item_id
+                )
                 else None,
                 "preview_bytes": previews[row.path_digest].size_bytes
-                if row.path_digest in previews
+                if (
+                    row.path_digest in previews
+                    and row.path_digest in registered
+                    and accepted.get(row.path_digest)
+                    == registered[row.path_digest].dataset_item_id
+                )
                 else None,
                 "verified_content": {
                     k: row.verified_content[k]
@@ -749,3 +809,47 @@ async def continue_sync_schedule(
     await audit(db, actor, request, "dataset_source.sync_schedule.continue", source_id)
     await db.commit()
     return row
+
+
+@router.post(
+    "/dataset-registrations/{registration_id}/changes/{path_digest}/accept-revision",
+    response_model=SourceRevisionResult,
+)
+async def accept_content_revision(
+    registration_id: uuid.UUID,
+    path_digest: str,
+    payload: SourceRevisionAccept,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services import dataset_source_revisions as revisions
+    from app.services.dataset_content import content_http_error
+
+    try:
+        return await revisions.accept(
+            db,
+            registration_id,
+            path_digest,
+            payload,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+        )
+    except Exception as exc:
+        await db.rollback()
+        raise content_http_error(exc) from None
+
+
+@router.get("/dataset-sources/{source_id}/revisions", response_model=SourceRevisionList)
+async def source_revision_history(
+    source_id: uuid.UUID,
+    path_digest: str | None = Query(None, pattern=r"^[0-9a-f]{64}$"),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services import dataset_source_revisions as revisions
+
+    await access.require_source(db, source_id, actor)
+    return await revisions.history(db, source_id, path_digest, limit, offset)

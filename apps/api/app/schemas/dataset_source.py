@@ -139,10 +139,44 @@ class DatasetSourceChangeOut(BaseModel):
     kind: Literal["added", "unchanged", "changed", "not_seen", "excluded", "unreadable"]
     reason: str | None
     before_item_id: uuid.UUID | None
+    before_revision_id: uuid.UUID | None
+    accepted_revision_id: uuid.UUID | None
+    accepted_item_id: uuid.UUID | None
+    can_accept_revision: bool
     before_sha256: str | None
     candidate_sha256: str | None
     registration_state: str | None
     error_code: str | None
+
+
+class SourceRevisionAccept(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=0)
+    before_revision_id: uuid.UUID
+    candidate_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class SourceRevisionResult(BaseModel):
+    revision_id: uuid.UUID
+    previous_revision_id: uuid.UUID | None
+    revision_number: int
+    item_id: uuid.UUID
+    sha256: str
+    created: bool
+
+
+class SourceRevisionOut(SourceRevisionResult):
+    path_digest: str
+    scan_run_id: uuid.UUID
+    registration_id: uuid.UUID | None
+    accepted_by_id: uuid.UUID | None
+    accepted_at: datetime | None
+    item_available: bool
+
+
+class SourceRevisionList(BaseModel):
+    total: int
+    items: list[SourceRevisionOut]
 
 
 class DatasetSourceChangeList(BaseModel):

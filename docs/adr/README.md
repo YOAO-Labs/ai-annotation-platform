@@ -153,3 +153,4 @@
 - [0099](0099-qualified-sftp-references.md) — SFTP 持续引用以部署核验的只读 jail 和固定主机公钥为准入边界
 - [0100](0100-preflight-owned-source-differences.md) — 增量差异固定已接纳基线，接纳范围贯穿恢复
 - [0101](0101-periodic-source-coordination.md) — 周期来源协调沿用领域运行和人工接纳
+- [0102](0102-explicit-directory-content-revisions.md) — 内容修订追加业务身份并推进来源路径头

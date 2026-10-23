@@ -136,7 +136,12 @@ from app.db.models.dataset_asset import (
     StorageLocationProbe,
 )
 
-from app.db.models.dataset_source import DatasetSource, DatasetScanRun, DatasetScanEntry
+from app.db.models.dataset_source import (
+    DatasetSource,
+    DatasetScanRun,
+    DatasetScanEntry,
+    DatasetSourceRevision,
+)
 
 __all__ = [
     "PredictionExecutionSnapshot",
@@ -262,4 +267,9 @@ __all__ += [
 ]
 
 
-__all__ += ["DatasetSource", "DatasetScanRun", "DatasetScanEntry"]
+__all__ += [
+    "DatasetSource",
+    "DatasetScanRun",
+    "DatasetScanEntry",
+    "DatasetSourceRevision",
+]

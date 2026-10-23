@@ -292,6 +292,8 @@
 | GET | `/dataset-sources/{source_id}/sync-schedule` |
 | PUT | `/dataset-sources/{source_id}/sync-schedule` |
 | POST | `/dataset-sources/{source_id}/sync-schedule/continue` |
+| POST | `/dataset-registrations/{registration_id}/changes/{path_digest}/accept-revision` |
+| GET | `/dataset-sources/{source_id}/revisions` |
 
 ## `datasets.py`
 
@@ -961,4 +963,4 @@
 
 ---
 
-_共 86 模块 / 554 路由_
+_共 86 模块 / 556 路由_

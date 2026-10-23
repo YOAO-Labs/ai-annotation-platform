@@ -144,7 +144,9 @@ class DatasetReference(Base):
             ["dataset_scan_entries.run_id", "dataset_scan_entries.path_digest"],
             ondelete="RESTRICT",
         ),
-        UniqueConstraint("source_id", "path_digest", name="uq_reference_source_path"),
+        UniqueConstraint(
+            "source_id", "path_digest", "run_id", name="uq_reference_source_observation"
+        ),
     )
 
 
@@ -241,10 +243,71 @@ class DatasetRegistrationEntry(Base):
     )
 
 
+class DatasetSourceRevision(Base):
+    """Append-only accepted identities, independent of business deletion."""
+
+    __tablename__ = "dataset_source_revisions"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_sources.id", ondelete="RESTRICT"), index=True
+    )
+    path_digest: Mapped[str] = mapped_column(String(64))
+    run_id: Mapped[uuid.UUID] = mapped_column()
+    revision_number: Mapped[int] = mapped_column()
+    item_id_at_accept: Mapped[uuid.UUID] = mapped_column()
+    asset_id_at_accept: Mapped[uuid.UUID] = mapped_column()
+    dataset_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_items.id", ondelete="SET NULL"), index=True
+    )
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_assets.id", ondelete="SET NULL")
+    )
+    content_sha256: Mapped[str] = mapped_column(String(64))
+    ownership_mode: Mapped[str] = mapped_column(String(20))
+    owns_item: Mapped[bool] = mapped_column(Boolean)
+    previous_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_source_revisions.id", ondelete="RESTRICT")
+    )
+    registration_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_registration_runs.id", ondelete="RESTRICT")
+    )
+    accepted_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["run_id", "path_digest"],
+            ["dataset_scan_entries.run_id", "dataset_scan_entries.path_digest"],
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "source_id",
+            "path_digest",
+            "revision_number",
+            name="uq_source_revision_number",
+        ),
+        UniqueConstraint(
+            "source_id", "path_digest", "run_id", name="uq_source_revision_observation"
+        ),
+        UniqueConstraint(
+            "registration_id", "path_digest", name="uq_source_revision_resolution"
+        ),
+        CheckConstraint("revision_number > 0", name="ck_source_revision_number"),
+        CheckConstraint(
+            "ownership_mode IN ('reference','managed_copy')",
+            name="ck_source_revision_ownership",
+        ),
+    )
+
+
 class DatasetSourceItem(Base):
-    """Immutable source path identity, also for independently managed copies."""
+    """Current accepted path head; immutable revisions retain previous identities."""
 
     __tablename__ = "dataset_source_items"
+    current_revision_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_source_revisions.id", ondelete="RESTRICT")
+    )
     source_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("dataset_sources.id", ondelete="RESTRICT"), primary_key=True
     )
@@ -323,6 +386,9 @@ class DatasetSourceChange(Base):
     )
     # Historical IDs survive explicit business item deletion.
     before_item_id: Mapped[uuid.UUID | None] = mapped_column()
+    before_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_source_revisions.id", ondelete="RESTRICT")
+    )
     before_sha256: Mapped[str | None] = mapped_column(String(64))
     before_observation: Mapped[dict | None] = mapped_column(JSONB)
     before_anchor: Mapped[dict | None] = mapped_column(JSONB)

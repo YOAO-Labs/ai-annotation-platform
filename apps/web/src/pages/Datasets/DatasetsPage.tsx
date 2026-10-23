@@ -399,6 +399,14 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                                 height={32}
                               />
                               <span className="max-w-[240px] truncate">{item.file_name}</span>
+                              {typeof item.metadata?.source_revision_number === "number" && (
+                                <span
+                                  className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+                                  title={`前驱样本：${String(item.metadata.previous_source_item_id ?? "")}`}
+                                >
+                                  修订 {item.metadata.source_revision_number}
+                                </span>
+                              )}
                               {canManageDirectory && item.metadata.storage_mode === "reference" && (
                                 <ReferenceItemPreview filePath={item.file_path} />
                               )}

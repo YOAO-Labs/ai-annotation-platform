@@ -8,6 +8,7 @@ from sqlalchemy.orm import aliased
 from app.db.models.dataset_source import (
     DatasetSourceChange as Change,
     DatasetSourceItem,
+    DatasetSourceRevision as Revision,
     DatasetScanEntry,
     DatasetScanRun,
     DatasetRegistrationEntry as Entry,
@@ -34,6 +35,7 @@ async def initialize(db, run):
                 "relative_path",
                 "baseline_run_id",
                 "before_item_id",
+                "before_revision_id",
                 "before_sha256",
                 "before_observation",
                 "before_anchor",
@@ -46,6 +48,7 @@ async def initialize(db, run):
                 old.relative_path,
                 DatasetSourceItem.run_id,
                 DatasetSourceItem.dataset_item_id,
+                DatasetSourceItem.current_revision_id,
                 DatasetSourceItem.content_sha256,
                 old.verified_content["observation"],
                 DatasetScanRun.snapshot["anchor"],
@@ -143,10 +146,15 @@ async def page(db, run, kind, limit, offset):
     counts = dict.fromkeys(KINDS, 0)
     counts.update(dict(rows))
     stmt = (
-        select(Change, Entry)
+        select(Change, Entry, Revision)
         .outerjoin(
             Entry,
             (Entry.run_id == Change.run_id) & (Entry.path_digest == Change.path_digest),
+        )
+        .outerjoin(
+            Revision,
+            (Revision.registration_id == Change.run_id)
+            & (Revision.path_digest == Change.path_digest),
         )
         .where(Change.run_id == run.id)
     )
@@ -168,12 +176,23 @@ async def page(db, run, kind, limit, offset):
                 kind=c.kind,
                 reason=c.reason,
                 before_item_id=c.before_item_id,
+                before_revision_id=c.before_revision_id,
+                accepted_revision_id=r.id if r else None,
+                accepted_item_id=r.item_id_at_accept if r else None,
+                can_accept_revision=(
+                    r is None
+                    and run.phase == "preflight"
+                    and run.status == "completed"
+                    and c.kind == "changed"
+                    and c.reason == "content_changed"
+                    and c.before_revision_id is not None
+                ),
                 before_sha256=c.before_sha256,
                 candidate_sha256=c.candidate_sha256,
                 registration_state=e.state if e else None,
                 error_code=e.error_code if e else None,
             )
-            for c, e in entries
+            for c, e, r in entries
         ],
     }
 

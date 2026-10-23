@@ -13,6 +13,7 @@ from app.db.models.dataset_source import (
     DatasetScanRun,
     DatasetScanEntry,
     DatasetSourceItem,
+    DatasetSourceRevision,
 )
 from app.db.models.task import Task
 from app.db.models.project import Project
@@ -34,6 +35,7 @@ async def register_entry(
     node_id=None,
     before_apply=None,
     on_result=None,
+    revision_context=None,
 ):
     from app.services.dataset_content import scan_snapshot, scan_context, key_authority
     from app.services.project_kind import dataset_has_scenes
@@ -108,7 +110,33 @@ async def register_entry(
     committing = False
     try:
         mapping = await db.get(DatasetSourceItem, (source.id, path_digest))
-        if mapping:
+        observed_revision = await db.scalar(
+            select(DatasetSourceRevision)
+            .where(
+                DatasetSourceRevision.source_id == source.id,
+                DatasetSourceRevision.path_digest == path_digest,
+                DatasetSourceRevision.run_id == run.id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        historical_replay = bool(
+            revision_context is None
+            and observed_revision
+            and (mapping is None or mapping.current_revision_id != observed_revision.id)
+        )
+        if historical_replay:
+            if observed_revision.dataset_item_id is None:
+                raise HTTPException(
+                    409, detail={"code": "accepted_revision_item_deleted"}
+                )
+            if observed_revision.content_sha256 != receipt["sha256"]:
+                raise snapshots.ContentError("reference_content_changed")
+            result = {
+                "item_id": observed_revision.dataset_item_id,
+                "created": False,
+                "sha256": observed_revision.content_sha256,
+            }
+        elif mapping and revision_context is None:
             if (
                 mapping.content_sha256 != receipt["sha256"]
                 or mapping.ownership_mode != source.ownership_mode
@@ -122,7 +150,14 @@ async def register_entry(
         else:
             if source.ownership_mode == "managed_copy":
                 result = await apply_copy(
-                    db, source, entry, dataset, final, binding, uploaded
+                    db,
+                    source,
+                    entry,
+                    dataset,
+                    final,
+                    binding,
+                    uploaded,
+                    force_new=revision_context is not None,
                 )
             else:
                 result = await apply_reference(db, source, run, entry, dataset, actor)
@@ -131,20 +166,68 @@ async def register_entry(
                     DatasetAsset.dataset_item_id == result["item_id"]
                 )
             )
-            mapping = DatasetSourceItem(
-                source_id=source.id,
-                path_digest=path_digest,
-                run_id=run.id,
-                dataset_item_id=result["item_id"],
-                asset_id=asset.id,
-                content_sha256=receipt["sha256"],
-                ownership_mode=source.ownership_mode,
-                owns_item=result["created"],
+            from app.services import dataset_source_revisions as revisions
+
+            revision = await revisions.append(
+                db,
+                source,
+                run,
+                entry,
+                result,
+                asset,
+                actor,
+                resolution=revision_context,
             )
-            db.add(mapping)
+            if mapping is None:
+                mapping = DatasetSourceItem(
+                    source_id=source.id, path_digest=path_digest
+                )
+                db.add(mapping)
+            mapping.current_revision_id = revision.id
+            mapping.run_id = run.id
+            mapping.dataset_item_id = result["item_id"]
+            mapping.asset_id = asset.id
+            mapping.content_sha256 = receipt["sha256"]
+            mapping.ownership_mode = source.ownership_mode
+            mapping.owns_item = result["created"]
+            if revision_context:
+                item = await db.get(DatasetItem, result["item_id"])
+                item.metadata_ = {
+                    **(item.metadata_ or {}),
+                    "source_revision_id": str(revision.id),
+                    "source_revision_number": revision.revision_number,
+                    "previous_source_item_id": str(
+                        (
+                            await db.get(
+                                revisions.Revision, revision.previous_revision_id
+                            )
+                        ).item_id_at_accept
+                    ),
+                }
+                from app.services.audit import AuditService
+
+                await AuditService.log(
+                    db,
+                    actor=actor,
+                    action="dataset_source.accept_revision",
+                    target_type="dataset_item",
+                    target_id=str(item.id),
+                    detail={
+                        "registration_id": str(revision.registration_id),
+                        "revision_id": str(revision.id),
+                        "previous_revision_id": str(revision.previous_revision_id),
+                    },
+                    status_code=201,
+                )
+                result.update(revisions.result_out(revision, created=True))
             await db.flush()
-        preview = await previews.generate(
-            db, location, source, mapping, final, uploaded, retired
+        # A historical replay must not republish its bytes as the current preview.
+        preview = (
+            None
+            if historical_replay
+            else await previews.generate(
+                db, location, source, mapping, final, uploaded, retired
+            )
         )
         await scans.validate_context(db, location, source, snapshot=run.snapshot)
         await scans.require_actor(db, actor.id, source)
@@ -177,7 +260,9 @@ async def register_entry(
         final.close()
 
 
-async def apply_copy(db, source, entry, dataset, snapshot, binding, uploaded):
+async def apply_copy(
+    db, source, entry, dataset, snapshot, binding, uploaded, *, force_new=False
+):
     from app.services.directory_previews import finish_io
     from app.services.dataset import DatasetService
     from app.services.dataset_assets import find_verified_content
@@ -187,7 +272,11 @@ async def apply_copy(db, source, entry, dataset, snapshot, binding, uploaded):
     from app.services.storage import storage_service
 
     service = DatasetService(db)
-    existing = await find_verified_content(db, dataset.id, snapshot.sha256)
+    existing = (
+        None
+        if force_new
+        else await find_verified_content(db, dataset.id, snapshot.sha256)
+    )
     if existing:
         try:
             stored = await snapshots.capture(
@@ -260,6 +349,7 @@ async def apply_reference(db, source, run, entry, dataset, actor):
         select(DatasetReference).where(
             DatasetReference.source_id == source.id,
             DatasetReference.path_digest == path_digest,
+            DatasetReference.run_id == run.id,
         )
     )
     if existing:

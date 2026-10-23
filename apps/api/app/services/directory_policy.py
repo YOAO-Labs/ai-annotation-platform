@@ -2,7 +2,7 @@
 
 from sqlalchemy import case, select
 
-from app.db.models.dataset_source import DatasetSourceItem
+from app.db.models.dataset_source import DatasetSourceRevision
 
 
 def effective_cache_policy(source, location):
@@ -18,10 +18,10 @@ async def owns_media(db, item_id):
     return (
         bool(
             await db.scalar(
-                select(DatasetSourceItem.source_id)
+                select(DatasetSourceRevision.source_id)
                 .where(
-                    DatasetSourceItem.dataset_item_id == item_id,
-                    DatasetSourceItem.owns_item.is_(True),
+                    DatasetSourceRevision.dataset_item_id == item_id,
+                    DatasetSourceRevision.owns_item.is_(True),
                 )
                 .limit(1)
             )
@@ -35,10 +35,10 @@ def legacy_media_column(column):
     from app.db.models.dataset import DatasetItem
 
     owned = (
-        select(DatasetSourceItem.source_id)
+        select(DatasetSourceRevision.source_id)
         .where(
-            DatasetSourceItem.dataset_item_id == DatasetItem.id,
-            DatasetSourceItem.owns_item.is_(True),
+            DatasetSourceRevision.dataset_item_id == DatasetItem.id,
+            DatasetSourceRevision.owns_item.is_(True),
         )
         .correlate(DatasetItem)
         .exists()

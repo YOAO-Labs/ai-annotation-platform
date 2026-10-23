@@ -1,4 +1,7 @@
-import type { DatasetSourceChangeList } from "@/api/generated/types.gen";
+import { useState } from "react";
+import { useSessionGuard } from "@/hooks/useSessionGuard";
+import { DirectoryRevisionConfirmation } from "./DirectoryRevisionConfirmation";
+import type { DatasetSourceChangeOut, DatasetSourceChangeList } from "@/api/generated/types.gen";
 import { Button } from "@/components/ui/Button";
 import { verifiedContentError } from "@/hooks/useVerifiedImage";
 
@@ -32,7 +35,15 @@ export function DirectorySourceChanges({
   offset,
   onKind,
   onOffset,
+  scanId,
+  busy = false,
+  actionError = "",
+  onAccept,
 }: {
+  scanId?: string;
+  busy?: boolean;
+  actionError?: string;
+  onAccept?: (entry: DatasetSourceChangeOut) => Promise<boolean>;
   complete: boolean;
   data?: DatasetSourceChangeList;
   pending: boolean;
@@ -42,6 +53,8 @@ export function DirectorySourceChanges({
   onKind: (value: string) => void;
   onOffset: (value: number) => void;
 }) {
+  const [selected, setSelected] = useState<DatasetSourceChangeOut | null>(null);
+  const capture = useSessionGuard();
   return (
     <section aria-label="本轮增量差异" className="mt-3 rounded-md border border-border p-3">
       <h6 className="text-sm font-semibold">本轮增量差异</h6>
@@ -98,17 +111,24 @@ export function DirectorySourceChanges({
                     <td className="p-2">{entry.relative_path}</td>
                     <td>{labels[entry.kind]}</td>
                     <td>
-                      {entry.reason
-                        ? (reasons[entry.reason] ?? entry.reason)
-                        : entry.registration_state === "error"
-                          ? "本轮登记异常，详见下方结果"
-                          : entry.registration_state === "registered"
-                            ? "本轮已登记"
-                            : entry.registration_state === "unchanged"
-                              ? "已有样本保留"
-                              : entry.kind === "added"
-                                ? "确认后登记为新增样本"
-                                : "保留已有样本与内容绑定"}
+                      {entry.accepted_revision_id
+                        ? `已接受为新修订 · 新样本 ${entry.accepted_item_id}`
+                        : entry.reason
+                          ? (reasons[entry.reason] ?? entry.reason)
+                          : entry.registration_state === "error"
+                            ? "本轮登记异常，详见下方结果"
+                            : entry.registration_state === "registered"
+                              ? "本轮已登记"
+                              : entry.registration_state === "unchanged"
+                                ? "已有样本保留"
+                                : entry.kind === "added"
+                                  ? "确认后登记为新增样本"
+                                  : "保留已有样本与内容绑定"}
+                      {entry.can_accept_revision && onAccept && (
+                        <Button size="sm" disabled={busy} onClick={() => setSelected({ ...entry })}>
+                          接受为新修订
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -137,6 +157,22 @@ export function DirectorySourceChanges({
             {pending && <span role="status">正在刷新差异…</span>}
           </div>
         </>
+      )}
+      {selected && scanId && onAccept && (
+        <DirectoryRevisionConfirmation
+          key={selected.path_digest}
+          entry={selected}
+          scanId={scanId}
+          busy={busy}
+          error={actionError}
+          onClose={() => setSelected(null)}
+          onConfirm={() => {
+            const current = capture();
+            void onAccept(selected).then((accepted) => {
+              if (accepted && current()) setSelected(null);
+            });
+          }}
+        />
       )}
     </section>
   );

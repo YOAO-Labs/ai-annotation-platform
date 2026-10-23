@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import text
 
 from app.services.dataset_registration import start_preflight
+from tests.migration_helpers import without_later_migrations
 from tests.test_dataset_content import content_world as content_world
 
 
@@ -27,10 +28,14 @@ async def test_empty_comparison_schema_roundtrip(db_session, monkeypatch):
         monkeypatch.setattr(
             migration, "op", Operations(MigrationContext.configure(sync.connection()))
         )
-        migration.downgrade()
-        assert sync.scalar(text("SELECT to_regclass('dataset_source_changes')")) is None
-        migration.upgrade()
-        assert sync.scalar(text("SELECT to_regclass('dataset_source_changes')"))
+        with without_later_migrations(sync, monkeypatch, "0201"):
+            migration.downgrade()
+            assert (
+                sync.scalar(text("SELECT to_regclass('dataset_source_changes')"))
+                is None
+            )
+            migration.upgrade()
+            assert sync.scalar(text("SELECT to_regclass('dataset_source_changes')"))
 
     await db_session.run_sync(verify)
 

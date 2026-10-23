@@ -1,17 +1,17 @@
 # EPIC-04：增量同步与后台任务编排
 
-> 状态：E04-A / E04-B1 / E04-B2 completed；后续内容修订与移动裁决待独立推进；用户已授权推进和提交，不分配发布版本。
+> 状态：E04-A / E04-B1 / E04-B2 / E04-B3 completed；同摘要身份变化与移动裁决待独立推进；用户已授权推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
-| 项目          | 内容                                                     |
-| ------------- | -------------------------------------------------------- |
-| 状态          | E04-A、E04-B1、E04-B2 已完成本地验收；其余范围保留草案   |
-| 日期          | 2026-10-22（Asia/Shanghai）                              |
-| 优先级 / 阶段 | P0：M1 幂等手动扫描与变化保护；P1：M2 周期同步与裁决     |
-| 负责角色      | 后端、任务系统维护者、前端、测试                         |
-| 最小依赖      | E01 身份模型、E02 位置契约、E03 来源配置                 |
-| 协作          | E05 校验与访问；E08 变化列表；E11 删除规则；E12 任务指标 |
+| 项目          | 内容                                                           |
+| ------------- | -------------------------------------------------------------- |
+| 状态          | E04-A、E04-B1、E04-B2、E04-B3 已完成本地验收；其余范围保留草案 |
+| 日期          | 2026-10-23（Asia/Shanghai）                                    |
+| 优先级 / 阶段 | P0：M1 幂等手动扫描与变化保护；P1：M2 周期同步与裁决           |
+| 负责角色      | 后端、任务系统维护者、前端、测试                               |
+| 最小依赖      | E01 身份模型、E02 位置契约、E03 来源配置                       |
+| 协作          | E05 校验与访问；E08 变化列表；E11 删除规则；E12 任务指标       |
 
 ## 本轮实施定案：E04-A
 
@@ -302,3 +302,35 @@ UI configure -> SourceSyncSchedule <- existing beat / bounded tick
 - Live acceptance: the owned dev environment ran the current API, general/maintenance workers, and a task-owned beat using the production 60-second source-sync entry. Exact worker task registration was verified. Browser operations enabled a 15-minute plan, observed automatic scanning/preflight and two added candidates with zero business items, paused and re-enabled without losing the review gate, then explicitly skipped this round: zero items and preserved differences. Subsequent human additions-only confirmation created exactly two items, with zero copied original bytes, zero preview bytes, and zero errors. The browser reported no page errors; console entries were development/restart notices. The final screen was inspected. No primary environment, shared configuration, image, or source file was modified by acceptance.
 - Cleanup: stopped the task beat/browser and owned dev/test clients; destroyed this checkout's disposable databases, Redis instances, buckets and local mode data; removed the task auth-vault entry, temporary source images, logs, screenshots, reports and generated build/cache outputs. Retained worktree identity/lock files. The API snapshot and generated API route index are intended tracked artifacts.
 - Remaining scope: changed-content acceptance as a new revision, explicit move/delete decisions, automatic ingestion policy, calendar/timezone scheduling and ledger retention/compaction remain separate work. This closes B2, not the whole E04 Epic; keep this plan active. No release version was assigned, no image was rebuilt, and no push or release was performed.
+
+## 本轮实施定案：E04-B3 逐项接纳内容新修订
+
+基线 `c6b80e026`。用户要求保留当前工作树的人工验收环境并继续实施、提交；dev 数据、原始图片与 systemd 用户服务保留，自动测试只访问独立 test 资源。不重建镜像，不修改共享环境配置。本轮只允许在已完成、差异完整的预检中，逐项接受 `changed/content_changed`；开始仅新增登记后需重新扫描，不能借普通重试扩大确认范围。移动、删除、同摘要身份变更及标注迁移继续保留草案。
+
+现有 SourceItem 兼任路径当前绑定与历史，不能直接覆盖。本轮新增不可变 SourceRevision 账本、SourceItem.current_revision_id 和 Change.before_revision_id；迁移0203把已有绑定回填为修订1，但不虚构接纳人和接纳时间。新修订保存来源、路径、观测Run、原业务身份、前驱、确认预检及真实操作者。Item/Asset删除仅清空活动外键，保留原身份。旧引用保留原ScanEntry；引用唯一性改为来源/路径/观测Run，禁止同一候选重复登记。
+
+单项 POST 固定预检generation、前驱revision ID和候选SHA；API当前权限、API Key proof、位置/来源/策略、完成状态、无活动扫描/登记均在I/O后和提交前复检。前驱ID防止内容A→B→A产生ABA误接纳。完整严格读取复用 register_entry，在Location→Source→Dataset锁内原子创建新Item/Asset、空白Task、修订账本、移动当前绑定及审计。托管复制跳过业务Item的SHA去重；存储摘要相同不能继承另一任务身份。重复同一确认返回原结果，不把后续当前绑定退回；另一预检已推进前驱则409要求重扫。历史条目删除后不复活原候选。
+
+旧Item、Asset、Task和Annotation不改写，新样本显式记录前驱关系并在列表区分。来源影响统计与目录媒体所有权必须覆盖历史修订，避免旧样本进入旧式预签名旁路。管理预览只服务当前绑定，不作为旧任务原图；旧filesystem字节已覆盖时仍严格报不可用，S3固定旧版本可继续读取。后续关联项目沿用追加语义，为旧、新样本都建任务。预检差异及原阻断记录保持冻结，另列接纳结果；周期计划仍须显式继续。
+
+```text
+完成预检 + 固定候选 -> 单项确认 -> 严格读取 + 前驱CAS
+                                      |
+                           新Item/Asset/空白Task + 修订账本
+                                      |
+                           当前绑定推进；旧业务身份保留
+```
+
+超过8文件：0203迁移、dataset_source模型及注册、schemas、dataset_source_revisions新服务、dataset_references/changes/lifecycle/policy/previews、dataset_sources路由、Web API/差异面板/样本标识、回归及迁移测试、OpenAPI/SDK覆盖声明、API/用户/开发文档、ADR0102、CHANGELOG、README和计划导航。
+
+验证包括：选择性接纳、多项目空白任务、旧标注与引用不变、copy业务去重隔离、幂等/过期generation/前驱竞争/ABA、权限撤销与来源暂停/文件再次变更、历史媒体防旁路、后续无变重扫、旧候选列表、迁移空往返/真实已有绑定回填/有账本拒绝降级。运行相关后端回归、Web组件/类型/语义色检查、OpenAPI/SDK、文档与真实浏览器验收。回退关闭接纳入口、停止任务并保留账本与已接纳业务；不执行破坏性降级。测试资源和临时产物清理，人工验收dev服务与数据继续运行。
+
+## Outcome — E04-B3
+
+- Landed changes: explicit per-item acceptance of `changed/content_changed` in a completed preflight. New business Item/Asset and blank linked-project Tasks, immutable revision lineage, exact predecessor fencing, duplicate confirmation replay, and current-head advancement commit atomically. Managed-copy SHA dedup cannot inherit another business identity. Included in the commit containing this outcome; no release milestone assigned.
+- History: migration0203 backfills existing heads without fabricated actors/timestamps. Database guards protect revision facts and head/ledger agreement. Permanent Item/Asset IDs survive business deletion; historical ownership and lifecycle impact include every revision. Old Scan pages never fall back to a newer same-SHA identity after deletion. Management previews remain current-Asset derivatives.
+- User documentation: `docs-site/user-guide/datasets/import-images.md` and `index.md`; API: `docs-site/api/guides/dataset-sources.md`, OpenAPI snapshot and SDK coverage exclusions; developer concepts: `docs-site/dev/concepts/storage-connections.md`; decision: `docs/adr/0102-explicit-directory-content-revisions.md`; README and CHANGELOG Unreleased updated.
+- Verification: 151 backend regression cases passed across incremental differences, periodic coordination, directory registration/policies/references, S3/SFTP and migration compatibility. Final 18 targeted cases passed, including independent concurrent confirmations, stale predecessors, ABA/deleted history, retained annotations, two changed paths with selective acceptance, blank Tasks in two projects, copy identity isolation, pinned S3 old/new versions, I/O actor/source/policy revocation and original API-key rotation/revocation at both read barriers. Migration coverage includes fresh upgrade, empty roundtrip, actual-head backfill, null provenance and populated rollback refusal. A final 46-case revision/reference/policy regression passed after adding historical-scan replay protection; two final S3 replay/concurrency cases passed on the final implementation. Web: 29 component cases passed; local TypeScript, ESLint, semantic CSS tokens and 4 SDK OpenAPI contract cases passed. Documentation build passed. No remote CI or release qualification is claimed.
+- Live acceptance: retained current-worktree dev stack at Web3100/API8100 with actual workers and beat. Browser confirmed candidate preview, explicit single-item confirmation, accepted-result priority and revision badge; opened the new task with the new image and zero annotations. Independent API assertions confirmed two Items/Tasks/revisions, the old annotation unchanged, old overwritten filesystem content rejected with409 and new content returned200. Browser error collection was empty.
+- Environment and cleanup: user-requested manual dev database, Redis, buckets, source fixtures and supervised services remain running; guide and restart helper are in ignored `.worktree/manual/`. Original three-image dataset remains usable; a separate revision demonstration is retained. Disposable test resources, task browser/auth entry and temporary test/build outputs are removed at completion. No backend image rebuild or shared configuration changes.
+- Remaining work: E04 remains active for same-SHA observation/qualification changes, move/rebind and missing decisions. Old external bytes are not backed up by this feature. Starting additions-only registration closes this preflight's revision action; unhandled content changes require a new scan/preflight. Frozen difference/error counts remain historical, and per-item acceptance does not automatically release the periodic review gate. New project links enumerate both retained old and new samples.

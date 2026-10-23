@@ -408,3 +408,6 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "PUT /api/v1/dataset-sources/{source_id}/sync-schedule" = { status = "excluded", reason = "separate-connector-epic" }
 
 "POST /api/v1/dataset-sources/{source_id}/sync-schedule/continue" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/accept-revision" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/dataset-sources/{source_id}/revisions" = { status = "excluded", reason = "separate-connector-epic" }

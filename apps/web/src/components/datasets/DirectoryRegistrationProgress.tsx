@@ -108,8 +108,10 @@ export function DirectoryRegistrationProgress({
     setError("");
     try {
       await work();
+      return current();
     } catch (e) {
       if (current()) setError(verifiedContentError(e));
+      return false;
     } finally {
       if (current()) {
         await Promise.all([
@@ -117,6 +119,16 @@ export function DirectoryRegistrationProgress({
           client.invalidateQueries({ queryKey: ["directory-registration-entries", owner] }),
           client.invalidateQueries({ queryKey: ["dataset-scan-entries", owner] }),
           client.invalidateQueries({ queryKey: ["directory-source-changes", owner] }),
+          client.invalidateQueries({ queryKey: ["dataset-items", datasetId] }),
+          ...[
+            "datasets",
+            "tasks",
+            "projects",
+            "project",
+            "project-datasets",
+            "project-stats",
+            "unclassified-count",
+          ].map((key) => client.invalidateQueries({ queryKey: [key] })),
         ]);
         if (current()) setBusy(false);
       }
@@ -221,6 +233,22 @@ export function DirectoryRegistrationProgress({
           </p>
           {run.comparison_available && (
             <DirectorySourceChanges
+              key={`${owner}:${run.id}:${run.generation}:${run.phase}:${run.status}`}
+              scanId={scanId}
+              busy={busy || active || stale}
+              actionError={error}
+              onAccept={
+                run.phase === "preflight" && run.status === "completed" && !stale
+                  ? (entry) =>
+                      act(() =>
+                        api.acceptRevision(run.id, entry.path_digest, {
+                          expected_generation: run.generation,
+                          before_revision_id: entry.before_revision_id!,
+                          candidate_sha256: entry.candidate_sha256!,
+                        }),
+                      )
+                  : undefined
+              }
               complete={run.comparison_complete}
               data={changes.data}
               pending={changes.isFetching}
@@ -233,6 +261,11 @@ export function DirectoryRegistrationProgress({
               }}
               onOffset={setChangeOffset}
             />
+          )}
+          {run.comparison_complete && !!changes.data?.counts.changed && (
+            <p className="mt-2 text-status-caution">
+              接纳内容变化需在预检阶段逐项确认；如还需登记新增，请先处理内容变化。开始仅新增登记后，未处理的变化需重新扫描和预检。
+            </p>
           )}
           {run.phase === "preflight" && run.status === "completed" && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -274,6 +307,9 @@ export function DirectoryRegistrationProgress({
               。已登记样本可关联项目并开始标注。
             </p>
           )}
+          <p className="mt-3 text-muted-foreground">
+            下方保留原预检与仅新增登记记录。新修订的接纳结果见上方差异表，不改写原差异和异常计数。
+          </p>
           <div className="mt-3 flex items-center gap-2">
             <label className="flex items-center gap-1">
               <input

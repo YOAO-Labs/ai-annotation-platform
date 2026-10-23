@@ -148,3 +148,23 @@ SFTP 复用逐目录检查点、取消恢复及末次目录清单核对，每目
 后台在来源指定 worker 重新探测自身可读性，再扫描和完整预检；不冒充 API 节点，也不自动登记样本。人工确认仍由真实 API 节点复读。只包含相同项的完整预检直接安排下一周期；任何其他差异等待核对。可通过原确认接口登记新增，完成后继续周期；或调用 continue，传 `{"expected_revision":当前修订,"scan_id":"当前扫描UUID"}`，显式跳过本轮，不接纳任何样本，也不修改差异证据。计划不接管手动活动扫描/预检；人工正式登记仅观察，不刷新其执行身份。
 
 权限撤销、Key 轮换/到期/降权、来源或位置配置变化、根身份或资格变化会阻断并停用计划，核对后显式重新启用。暂态探测或派发错误保留当前指针并按间隔重试。过期协调消息被拒绝；失租的本计划扫描/预检可恢复，已取消任务不自动恢复。位置或来源自身停用仍按生命周期合同撤销在途业务任务；这与仅暂停周期不同。
+
+## 接受内容为新修订
+
+`POST /dataset-registrations/{registration_id}/changes/{path_digest}/accept-revision` 逐项接纳同路径、不同 SHA 的候选。要求当前来源管理权限和 `datasets:write`；请求示例：
+
+```json
+{
+  "expected_generation": 1,
+  "before_revision_id": "旧修订UUID",
+  "candidate_sha256": "候选的64位小写SHA256"
+}
+```
+
+只能接纳 `phase=preflight/status=completed/comparison_complete=true` 中的 `changed/content_changed`。差异响应增加 before_revision_id、accepted_revision_id、accepted_item_id 和 can_accept_revision。后者仅表示候选类型与阶段允许；实际提交仍复核权限、配置、无活动扫描/登记、前驱及严格内容读取。开始仅新增登记后须重新扫描和预检，普通单项重试不能接纳内容变化。
+
+成功返回 revision_id、previous_revision_id、revision_number、item_id、sha256、created。新建独立 Item/Asset，以及关联普通图片项目中的空白 Task；旧 Item/Asset/Task/Annotation 不变。托管复制即使摘要已存在也新建业务样本。重复同一确认返回原结果、created=false，不把已前进的路径头退回。历史扫描重放仍须严格读取，只返回该观测原来接纳的样本，不推进当前绑定或重发当前预览。旧差异分类和原异常数保持冻结，接纳结果单列。周期计划仍等待明确核对/继续。
+
+409 `revision_preflight_required`、`revision_selection_changed` 或 `source_revision_changed` 要求重新扫描和预检；`source_busy` 表示来源有在途扫描或登记。已接纳的新样本被删除后返回 `accepted_revision_item_deleted`，不会复活旧候选。文件再次变化、暂停/撤权或资格变化沿用严格读取错误。数据库或对象存储提交结果未知时，先重放原确认查询结果，避免推断未提交。
+
+`GET /dataset-sources/{source_id}/revisions?path_digest=摘要&limit=20&offset=0` 按路径和修订号倒序分页，要求来源管理权限与 `datasets:read`。返回接纳人/时间、观测 scan_run_id、确认 registration_id、前驱及 item_available；删除业务对象后保留原 Item 身份。历史回填的接纳人/时间为 null。历史原地引用仍指向原观测；旧目录字节覆盖后可能不可读，不能以新图或管理预览替代。

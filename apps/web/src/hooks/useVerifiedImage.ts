@@ -28,6 +28,17 @@ export function verifiedContentError(error: unknown): string {
     ].includes(code)
   )
     return "原图暂不可读，请联系管理员检查来源、挂载和节点探测";
+  if (
+    [
+      "source_revision_changed",
+      "revision_preflight_required",
+      "revision_selection_changed",
+    ].includes(code)
+  )
+    return "候选或当前修订已变化，请重新扫描和预检后核对";
+  if (code === "source_busy") return "来源有扫描或登记正在执行，请稍后重新核对";
+  if (code === "accepted_revision_item_deleted")
+    return "已接纳的新样本已被删除；本次确认不会重新创建，请重新扫描";
   if (error instanceof ApiError && error.status === 429) return "原图读取繁忙，请稍后重试";
   if (error instanceof ApiError && [413, 415].includes(error.status))
     return "图片格式或大小超出当前原地引用支持范围";

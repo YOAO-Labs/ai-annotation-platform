@@ -28,7 +28,7 @@
 
 AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台、AI 预标注、审核、导出、后台任务与可观测性放在同一条产品链路里。它不是一个只画框的 Demo，而是一个用于持续迭代标注生产系统的全栈仓库。
 
-统一挂载的服务器目录可通过[受控存储位置 API](./docs-site/api/guides/storage-locations.md)动态登记、授权浏览并按指定 worker 探测；根内新增子目录无需重建容器。已有数据集还可通过[目录来源与观测扫描](./docs-site/api/guides/dataset-sources.md)保留可恢复的只读目录清单；扫描不创建样本。完整预检后可分页核对[增量差异](./docs-site/api/guides/dataset-sources.md#手动增量差异)，确认仅登记新增路径；变化和未见项保留旧绑定。来源还可配置[周期扫描与预检](./docs-site/api/guides/dataset-sources.md#周期扫描与预检)，发现差异等待人工核对，不自动登记。管理员可通过[内容核验与严格读取](./docs-site/api/guides/verified-content.md)核验图片并按摘要读取请求内快照，托管图片任务也有同样的严格 API。数据集 UI 支持受控目录、外部 S3 和具备部署资格的只读 SFTP 原地登记，也保留上传和连接器复制导入。
+统一挂载的服务器目录可通过[受控存储位置 API](./docs-site/api/guides/storage-locations.md)动态登记、授权浏览并按指定 worker 探测；根内新增子目录无需重建容器。已有数据集还可通过[目录来源与观测扫描](./docs-site/api/guides/dataset-sources.md)保留可恢复的只读目录清单；扫描不创建样本。完整预检后可分页核对[增量差异](./docs-site/api/guides/dataset-sources.md#手动增量差异)，确认仅登记新增路径；变化和未见项保留旧绑定；不同摘要的内容变化可[逐项接受为新修订](./docs-site/api/guides/dataset-sources.md#接受内容为新修订)，创建新样本和空白任务，保留旧标注。来源还可配置[周期扫描与预检](./docs-site/api/guides/dataset-sources.md#周期扫描与预检)，发现差异等待人工核对，不自动登记。管理员可通过[内容核验与严格读取](./docs-site/api/guides/verified-content.md)核验图片并按摘要读取请求内快照，托管图片任务也有同样的严格 API。数据集 UI 支持受控目录、外部 S3 和具备部署资格的只读 SFTP 原地登记，也保留上传和连接器复制导入。
 
 数据集上传按稳定身份隔离原图，同名不同内容保留为独立文件；改名不移动已有原图。旧数据可按真实对象键回填内容与位置映射，参见[数据集上传与扫描](./docs-site/api/guides/datasets.md)及[兼容回填](./docs-site/dev/concepts/storage-connections.md#内容身份与兼容回填)。
 

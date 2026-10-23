@@ -81,6 +81,7 @@ async def generate(db, location, source, mapping, snapshot, uploaded, retired):
     if (
         row
         and row.state == "ready"
+        and row.asset_id == mapping.asset_id
         and row.source_sha256 == snapshot.sha256
         and row.spec == SPEC
     ):
