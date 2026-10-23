@@ -7725,3 +7725,41 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Matching non-editable owner/API artifacts and installed cold HTTP qualification
   remain the next gate. The whole Workspace module and active full goal remain
   open; primary, Go experiment, production and release boundaries are unchanged.
+
+- Root implementation and documentation commit
+  7a7ba7983aa2198b8fd1eecc863143587ddaa367 passes normal hooks, including OpenAPI
+  and tracked documentation generation. API architecture passes 358 with 150
+  existing deferred rules. No skip is counted as qualified acceptance.
+- Matching non-editable Workspace artifact
+  sha256:8e4ac33820383ffc4f8258fc526129ab9a6de828dd1ec81de692e6744b6e663f
+  matches 295 files in 12 namespaces; API artifact
+  sha256:4509888aa06417a7821d3d0f8e832698fc7dae2daa5914e1c782e94de08db940
+  matches 1330 files (771 app, 527 package, 32 CLI) plus two actual runtime
+  fixtures. All three new/current resource schemas equal runtime generation.
+  The owner contains no API, SQLAlchemy, Celery, boto3 or torch runtime.
+- Cold first attempt passes in 151.569 seconds, one integrated case with ten
+  installed-process commands. Nine commands exit zero; the physical cancellation
+  command exits 137 as intended. Workspace create revocation rolls back already
+  created accounts without object upload, then restored permissions recover.
+  Actual guarded routes, peer namespace preservation, repeated cleanup and process
+  recovery run with private Identity/Workspace relations denied. Migration 0309,
+  frozen SQL roundtrip and all registered cleanup pass. This closes the bounded
+  E2E Workspace consumer group locally, not the full Workspace module.
+- The clean owner worker is integration-checked and bundle/cache archived, then
+  removed. Its branch remains retained. Root's only owner-file differences are
+  generated protocol schemas and normalized descriptor signature spacing.
+  Receipt index: .worktree/workspace-e2e-workers.json.
+
+- Final documentation build passes in 16.491 seconds. Preservation verifies twenty
+  unchanged editable bindings, the protected clean primary at
+  856fa79c87ef2668d0ed74eb570df0a3e529d49f, four unchanged shared containers,
+  all 143 known owned PostgreSQL containers absent, no Root runtime, all five
+  current image COPY input sets/hashes and nine retained worker archive receipts.
+- Aggregate .worktree/workspace-e2e-qualification.json SHA256 is
+  1a9e2b0cdd0321ae035de954a1612b9059093ec3a3817a05d733da71802e7529.
+  It records the exact 95-case union, original baseline, retained failures and
+  focused correction, source/architecture/deferred counts, ten cold commands,
+  artifact identities, migration roundtrips and cleanup/preservation. The sole
+  ledger advances the next bounded delivery to scale seed and the two remaining
+  screenshot support readers. Legacy migration audit, cold worker consumers and
+  actual old video-retirement evidence remain open; no proof is fabricated.
