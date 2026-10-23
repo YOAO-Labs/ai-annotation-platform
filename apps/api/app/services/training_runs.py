@@ -39,6 +39,7 @@ from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage
+from app.services import training_run_storage
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
@@ -555,7 +556,61 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
     return config
 
 
+def storage_owner(run):
+    """Translate a pinned run locator at HTTP-oriented service boundaries."""
+    try:
+        return training_run_storage.resolve(run)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+
+
+def attempt_storage_owner(run, attempt, key=None):
+    owner = storage_owner(run)
+    try:
+        if attempt is None or attempt.run_id != run.id:
+            raise TrainingDatasetError(
+                "training_storage_attempt_mismatch",
+                "产物不属于该训练执行",
+                status_code=409,
+            )
+        if key is not None:
+            training_run_storage.expect_attempt(owner, attempt.id, key)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+    return owner
+
+
+def artifact_key(owner, attempt_id, relative_name):
+    try:
+        key = owner.key(f"attempts/{attempt_id}/{relative_name}")
+        training_run_storage.expect_attempt(owner, attempt_id, key)
+        return key
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+
+
+async def allocate_storage(db, run):
+    """Only explicit new-run creation calls this before its first attempt."""
+    try:
+        return await training_run_storage.allocate(db, run)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+
+
 async def new_attempt(db, run, *, resume_from=None):
+    storage_owner(run)
     ordinal = (
         await db.scalar(
             select(func.max(TrainingAttempt.ordinal)).where(
@@ -739,6 +794,7 @@ def claim_token(attempt, claim_id):
 
 
 async def assignment(db, run, attempt, token):
+    run_owner = attempt_storage_owner(run, attempt)
     dataset = await db.get(TrainingDatasetVersion, run.dataset_id)
     try:
         if dataset is None or dataset.project_id != run.project_id:
@@ -767,16 +823,41 @@ async def assignment(db, run, attempt, token):
         result["native_budget"] = attempt.native_budget
     if attempt.resume_from_id:
         parent = await db.get(TrainingAttempt, attempt.resume_from_id)
+        if parent is None or parent.run_id != run.id:
+            raise HTTPException(status_code=409, detail="恢复来源不属于该训练实验")
         checkpoint = next(
-            item for item in parent.artifacts.values() if item["role"] == "checkpoint"
+            (
+                item
+                for item in parent.artifacts.values()
+                if item["role"] == "checkpoint"
+            ),
+            None,
         )
-        result["resume"] = {**checkpoint, "url": internal_download(checkpoint["key"])}
+        if checkpoint is None:
+            raise HTTPException(status_code=409, detail="恢复来源缺少已核验检查点")
+        attempt_storage_owner(run, parent, checkpoint["key"])
+        result["resume"] = {
+            **checkpoint,
+            "url": internal_download(checkpoint["key"], bucket=run_owner.bucket),
+        }
     elif run.config.get("initialization"):
         pin = run.config["initialization"]
+        source_owner = await initialization.source_storage_owner(db, pin)
+        try:
+            training_run_storage.expect_attempt(
+                source_owner, pin["attempt_id"], pin["artifact"]["key"]
+            )
+        except TrainingDatasetError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail={"code": exc.code, "message": str(exc)},
+            ) from None
         result["initialization"] = {
             **pin["artifact"],
             "source_digest": pin["source_digest"],
-            "url": internal_download(pin["artifact"]["key"]),
+            "url": internal_download(
+                pin["artifact"]["key"], bucket=source_owner.bucket
+            ),
         }
     return result
 
@@ -829,6 +910,17 @@ async def claim(db, body):
         ):
             continue
         attempt = await db.get(TrainingAttempt, run.current_attempt_id)
+        if attempt is None or attempt.run_id != run.id:
+            raise HTTPException(status_code=409, detail="执行尝试不属于当前训练实验")
+        try:
+            attempt_storage_owner(run, attempt)
+        except HTTPException as exc:
+            if exc.status_code != 409:
+                raise
+            await mark_terminal(
+                db, run, attempt, "failed", "训练产物存储归属不可用，请核验后重试"
+            )
+            continue
         try:
             await authority(db, run)
         except HTTPException as exc:
@@ -1009,6 +1101,7 @@ async def heartbeat(db, attempt_id, body):
 
 async def authorize_upload(db, attempt_id, body):
     _, run, attempt = await fenced(db, attempt_id, body)
+    owner = attempt_storage_owner(run, attempt)
     if len({item.name for item in body.artifacts}) != len(body.artifacts):
         raise HTTPException(status_code=422, detail="产物名称不能重复")
     inventory = {item.name: item.model_dump() for item in body.artifacts}
@@ -1024,12 +1117,12 @@ async def authorize_upload(db, attempt_id, body):
         )
     result = {}
     for name, spec in inventory.items():
-        key = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/{name}"
+        key = artifact_key(owner, attempt.id, name)
         metadata = {"sha256": spec["sha256"], "attempt-id": str(attempt.id)}
         url = storage.client.generate_presigned_url(
             "put_object",
             Params={
-                "Bucket": storage.training_bucket,
+                "Bucket": owner.bucket,
                 "Key": key,
                 "ContentLength": spec["size_bytes"],
                 "Metadata": metadata,
@@ -1046,8 +1139,8 @@ async def authorize_upload(db, attempt_id, body):
     return result
 
 
-def verify_artifact(key, spec, attempt_id):
-    response = storage.client.get_object(Bucket=storage.training_bucket, Key=key)
+def verify_artifact(key, spec, attempt_id, *, bucket):
+    response = storage.client.get_object(Bucket=bucket, Key=key)
     try:
         if response["ContentLength"] != spec["size_bytes"] or response.get(
             "Metadata", {}
@@ -1076,9 +1169,8 @@ def verify_native_artifact(run, attempt, artifacts):
         raise ValueError(
             "v2 success requires a bounded native configuration observation"
         )
-    response = storage.client.get_object(
-        Bucket=storage.training_bucket, Key=receipt["key"]
-    )
+    owner = attempt_storage_owner(run, attempt, receipt["key"])
+    response = storage.client.get_object(Bucket=owner.bucket, Key=receipt["key"])
     try:
         blob = json.loads(response["Body"].read(1024 * 1024 + 1))
     finally:
@@ -1138,11 +1230,29 @@ async def finish(db, attempt_id, body):
         await authority(db, run)
         # An exact fenced completion receipt can resolve a lost heartbeat after
         # an upload outage. No successor can start while this lease is retained.
-    artifacts = {}
-    for name, spec in attempt.upload_inventory.items():
-        key = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/{name}"
+    if attempt.run_id != run.id:
+        raise HTTPException(status_code=409, detail="执行尝试不属于当前训练实验")
+    owner = None
+    if status == "succeeded" or getattr(run, "storage_ref", None) is not None:
         try:
-            await asyncio.to_thread(verify_artifact, key, spec, attempt.id)
+            owner = attempt_storage_owner(run, attempt)
+        except HTTPException as exc:
+            if status == "succeeded" or exc.status_code != 409:
+                raise
+            # An exact failed/stopped receipt settles the lease without guessing
+            # where an old execution wrote. Its upload inventory remains durable.
+    artifacts = {}
+    for name, spec in attempt.upload_inventory.items() if owner else ():
+        try:
+            key = artifact_key(owner, attempt.id, name)
+        except HTTPException:
+            if status == "succeeded":
+                raise
+            continue
+        try:
+            await asyncio.to_thread(
+                verify_artifact, key, spec, attempt.id, bucket=owner.bucket
+            )
         except Exception as exc:
             if status == "succeeded":
                 raise HTTPException(

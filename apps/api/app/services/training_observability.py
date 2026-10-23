@@ -229,12 +229,13 @@ async def cleanup(db):
 
 
 def redacted_log(run, attempt, name, artifact):
-    expected = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/{name}"
+    owner = training.attempt_storage_owner(run, attempt, artifact["key"])
+    expected = training.artifact_key(owner, attempt.id, name)
     if artifact["key"] != expected or artifact["size_bytes"] > LOG_BYTES:
         raise HTTPException(
             status_code=409, detail="历史日志超出脱敏下载上限或归属不符"
         )
-    response = storage.client.get_object(Bucket=storage.training_bucket, Key=expected)
+    response = storage.client.get_object(Bucket=owner.bucket, Key=expected)
     digest = hashlib.sha256()
     total = 0
     redactor = RedactedLines((settings.training_executor_token,))
@@ -271,9 +272,11 @@ def redacted_log(run, attempt, name, artifact):
     finally:
         response["Body"].close()
     output_sha = hashlib.sha256(output).hexdigest()
-    key = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/redacted-logs/{name}.{output_sha}.log"
+    key = training.artifact_key(
+        owner, attempt.id, f"redacted-logs/{name}.{output_sha}.log"
+    )
     storage.client.put_object(
-        Bucket=storage.training_bucket,
+        Bucket=owner.bucket,
         Key=key,
         Body=bytes(output),
         ContentType="text/plain; charset=utf-8",
@@ -294,11 +297,10 @@ def redacted_log(run, attempt, name, artifact):
 
 
 def verify_summary(run, attempt, artifact):
+    owner = training.attempt_storage_owner(run, attempt, artifact["key"])
     if artifact["size_bytes"] > SUMMARY_BYTES:
         raise ValueError("Observation artifact exceeds its bound")
-    response = storage.client.get_object(
-        Bucket=storage.training_bucket, Key=artifact["key"]
-    )
+    response = storage.client.get_object(Bucket=owner.bucket, Key=artifact["key"])
     try:
         body = json_load_bounded(response["Body"].read(SUMMARY_BYTES + 1))
     finally:
@@ -322,11 +324,9 @@ def json_load_bounded(raw):
 
 def checkpoint_available(run, attempt, checkpoint):
     try:
-        prefix = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/"
-        if not checkpoint["key"].startswith(prefix):
-            return False
+        owner = training.attempt_storage_owner(run, attempt, checkpoint["key"])
         response = storage.client.head_object(
-            Bucket=storage.training_bucket, Key=checkpoint["key"]
+            Bucket=owner.bucket, Key=checkpoint["key"]
         )
         metadata = response.get("Metadata", {})
         return (

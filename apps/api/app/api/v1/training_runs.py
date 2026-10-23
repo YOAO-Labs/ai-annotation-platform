@@ -209,6 +209,7 @@ async def create_run(
     )
     db.add(run)
     await db.flush()
+    await service.allocate_storage(db, run)
     await service.new_attempt(db, run)
     await db.commit()
     return run
@@ -460,6 +461,7 @@ async def resume_run(
     lease = await service.lock_resource(db, preliminary.config["resource_id"])
     await lock_owner(db, user, project)
     run = await load_run(db, project.id, run_id, lock=True)
+    service.storage_owner(run)
     if (
         run.status not in {"failed", "cancelled"}
         or lease.attempt_id == run.current_attempt_id
@@ -530,6 +532,7 @@ async def download_artifact(
     )
     if not artifact or attempt.status not in service.TERMINAL:
         raise HTTPException(status_code=404, detail="训练产物不存在或尚未校验完成")
+    owner = service.attempt_storage_owner(run, attempt, artifact["key"])
     if artifact["role"] == "log":
         derived = await asyncio.to_thread(
             observations.redacted_log, run, attempt, name, artifact
@@ -539,20 +542,20 @@ async def download_artifact(
             "url": storage.generate_download_url(
                 derived["key"],
                 expires_in=600,
-                bucket=storage.training_bucket,
+                bucket=owner.bucket,
                 download_name=name,
                 align=False,
             ),
         }
     if not await asyncio.to_thread(
-        storage.verify_upload, artifact["key"], bucket=storage.training_bucket
+        storage.verify_upload, artifact["key"], bucket=owner.bucket
     ):
         raise HTTPException(status_code=409, detail="训练产物已不可用，请联系管理员")
     return {
         "url": storage.generate_download_url(
             artifact["key"],
             expires_in=600,
-            bucket=storage.training_bucket,
+            bucket=owner.bucket,
             download_name=name,
             align=False,
         ),

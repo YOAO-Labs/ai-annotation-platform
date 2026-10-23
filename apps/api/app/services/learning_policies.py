@@ -353,6 +353,7 @@ async def reconcile(db, policy, trigger):
     )
     db.add(run)
     await db.flush()
+    await runs.allocate_storage(db, run)
     await runs.new_attempt(db, run)
     trigger.status, policy.state = "queued", "active"
     policy.last_started_at, policy.message = (

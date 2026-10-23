@@ -335,6 +335,7 @@ async def coordinate(db, study_id):
     )
     db.add(run)
     await db.flush()
+    await runs.allocate_storage(db, run)
     attempt = await runs.new_attempt(db, run)
     reserve(attempt, run, account["remaining_seconds"])
     trial.run_id = run.id
