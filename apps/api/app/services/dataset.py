@@ -498,6 +498,11 @@ class DatasetService:
                 )
             )
         )
+        from app.services.managed_original_retirement import (
+            capture_managed_original_retirements,
+        )
+
+        await capture_managed_original_retirements(self.db, dataset_id=dataset_id)
         await self.db.delete(ds)
         await self.db.flush()
         return DatasetDeleteCleanup(
@@ -710,6 +715,13 @@ class DatasetService:
                 f"{PYRAMID_PREFIX}/{asset_id}",
                 bucket=storage_service.media_cache_bucket,
             )
+        from app.services.managed_original_retirement import (
+            capture_managed_original_retirements,
+        )
+
+        await capture_managed_original_retirements(
+            self.db, dataset_id=item.dataset_id, item_id=item.id
+        )
         await self.db.delete(item)
         await self.db.flush()
         return True
