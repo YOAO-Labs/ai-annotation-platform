@@ -504,3 +504,18 @@ async def test_history_paginates_only_its_stable_anchor(db_session, super_admin)
     )
     assert {item.id for item in first.items + second.items} == identifiers
     assert other.id not in identifiers
+
+
+async def test_active_job_status_mismatch_is_visible_and_cannot_be_redispatched(
+    db_session, super_admin
+):
+    db, actor = db_session, super_admin[0]
+    anchor, row, job = await attempt(db, actor)
+    job.status = "failed"
+    await db.flush()
+    history = await service.history(db, anchor.id, actor)
+    assert "verification_job_unavailable" in history.blockers
+    with pytest.raises(HTTPException) as error:
+        await service.start(db, anchor.id, actor)
+    assert error.value.detail["code"] == "verification_job_unavailable"
+    assert row.status == "pending"

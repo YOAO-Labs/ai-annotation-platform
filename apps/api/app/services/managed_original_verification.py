@@ -190,6 +190,7 @@ def job_matches(row, job):
         job
         and job.id == row.async_job_id
         and job.kind == KIND
+        and job.status == row.status
         and job.celery_task_id == row.task_id
         and job.user_id == row.requested_by
         and job.payload.get("verification_id") == str(row.id)
