@@ -36,6 +36,9 @@ const ReviewPage = lazy(() =>
 const AnnotatePage = lazy(() =>
   import("@/pages/Annotate/AnnotatePage").then((m) => ({ default: m.AnnotatePage })),
 );
+const DatasetDetailPage = lazy(() =>
+  import("@/pages/Datasets/DatasetDetailPage").then((m) => ({ default: m.DatasetDetailPage })),
+);
 const DatasetsPage = lazy(() =>
   import("@/pages/Datasets/DatasetsPage").then((m) => ({ default: m.DatasetsPage })),
 );
@@ -453,6 +456,14 @@ export function App() {
             element={
               <RequirePagePermission pageKey="users">
                 <UsersPage />
+              </RequirePagePermission>
+            }
+          />
+          <Route
+            path="/datasets/:datasetId"
+            element={
+              <RequirePagePermission pageKey="datasets">
+                <DatasetDetailPage />
               </RequirePagePermission>
             }
           />

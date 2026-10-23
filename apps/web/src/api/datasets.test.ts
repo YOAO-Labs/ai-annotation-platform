@@ -15,6 +15,7 @@ vi.mock("./client", () => ({
 }));
 
 import { datasetsApi } from "./datasets";
+import { tasksApi } from "./tasks";
 
 beforeEach(() => {
   get.mockClear();
@@ -24,6 +25,40 @@ beforeEach(() => {
 });
 
 describe("datasetsApi · endpoint 契约", () => {
+  it("limits paged training task choices to the selected dataset on the server", () => {
+    const signal = new AbortController().signal;
+    tasksApi.listByProject(
+      "project",
+      { dataset_id: "ds", batch_id: "batch", limit: 25, offset: 25 },
+      { signal },
+    );
+    expect(get).toHaveBeenCalledWith(
+      "/tasks?project_id=project&dataset_id=ds&batch_id=batch&limit=25&offset=25",
+      { signal },
+    );
+  });
+  it("sends workbench filters and item ownership paths with cancellation", () => {
+    const signal = new AbortController().signal;
+    datasetsApi.list({ location_id: "loc", offset: 20 });
+    expect(get).toHaveBeenCalledWith("/datasets?location_id=loc&offset=20");
+    datasetsApi.listItems(
+      "ds",
+      { limit: 20, offset: 40, search: "a b", source_id: "src", availability: "changed" },
+      { signal },
+    );
+    expect(get).toHaveBeenCalledWith(
+      "/datasets/ds/items?limit=20&offset=40&search=a+b&source_id=src&availability=changed",
+      { signal },
+    );
+    datasetsApi.item("ds", "outside", { signal });
+    expect(get).toHaveBeenCalledWith("/datasets/ds/items/outside", { signal });
+    datasetsApi.workbench("ds", { signal });
+    expect(get).toHaveBeenCalledWith("/datasets/ds/workbench", { signal });
+    datasetsApi.trainingVersions("ds", { limit: 10, offset: 20 }, { signal });
+    expect(get).toHaveBeenCalledWith("/datasets/ds/training-versions?limit=10&offset=20", {
+      signal,
+    });
+  });
   it("list 拼 query string（含 search 编码）", () => {
     datasetsApi.list({
       search: "a b",

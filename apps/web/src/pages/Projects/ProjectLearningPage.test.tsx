@@ -14,6 +14,7 @@ import { useAuthStore } from "@/stores/authStore";
 import type { MeResponse } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useProject } from "@/hooks/useProjects";
+import { useProjectDatasets } from "@/hooks/useDatasets";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { trainingDatasetDraftKey } from "../Training/trainingDatasetDraftStorage";
 
@@ -47,6 +48,8 @@ vi.mock("./ProjectTrainingPanel", () => ({
 }));
 vi.mock("./ProjectModelsPanel", () => ({ ProjectModelsPanel: () => null }));
 vi.mock("./ProjectLearningPolicyPanel", () => ({ ProjectLearningPolicyPanel: () => null }));
+
+vi.mock("@/hooks/useDatasets", () => ({ useProjectDatasets: vi.fn() }));
 
 vi.mock("@/hooks/useProjects", () => ({
   useProject: vi.fn(),
@@ -163,6 +166,7 @@ beforeEach(() => {
       },
     },
   } as never);
+  vi.mocked(useProjectDatasets).mockReturnValue({ data: [], isLoading: false } as never);
   useAuthStore.getState().setAuth("session-a", { id: "user-a" } as MeResponse);
   vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
     items: [
@@ -203,6 +207,65 @@ afterEach(() => {
 });
 
 describe("project learning data versions", () => {
+  it("requires explicit dataset scope confirmation and sends server-side dataset selection", async () => {
+    const datasetId = "11111111-2222-4333-8444-555555555555";
+    vi.mocked(useProjectDatasets).mockReturnValue({
+      data: [{ id: datasetId, name: "目录样本" }],
+      isLoading: false,
+    } as never);
+    const user = userEvent.setup();
+    mount(`/projects/project-1/learning?tab=data&dataset_id=${datasetId}`);
+    await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+    expect(screen.getByRole("combobox", { name: "限定数据集" })).toHaveValue(datasetId);
+    expect(screen.getByRole("button", { name: "检查训练数据" })).toBeDisabled();
+    await user.click(
+      screen.getByRole("checkbox", { name: "我已确认所选数据集与当前项目的冻结范围" }),
+    );
+    await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+    await waitFor(() =>
+      expect(trainingDatasetsApi.preflight).toHaveBeenCalledWith(
+        "project-1",
+        expect.objectContaining({ dataset_id: datasetId }),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+    await waitFor(() =>
+      expect(trainingDatasetsApi.create).toHaveBeenCalledWith(
+        "project-1",
+        expect.objectContaining({ dataset_id: datasetId }),
+      ),
+    );
+  });
+  it("keeps an unavailable dataset restriction instead of broadening the selection to all tasks", async () => {
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning?tab=data&dataset_id=11111111-2222-4333-8444-555555555555");
+    await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+    expect(screen.getByText(/此数据集未关联当前项目/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "检查训练数据" })).toBeDisabled();
+    expect(trainingDatasetsApi.preflight).not.toHaveBeenCalled();
+  });
+  it("paginates manager confirmation within the selected dataset on the server", async () => {
+    const datasetId = "11111111-2222-4333-8444-555555555555";
+    vi.mocked(useProjectDatasets).mockReturnValue({
+      data: [{ id: datasetId, name: "目录样本" }],
+      isLoading: false,
+    } as never);
+    const user = userEvent.setup();
+    mount(`/projects/project-1/learning?tab=data&dataset_id=${datasetId}`);
+    await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "标注纳入方式" }),
+      "manager_confirmed",
+    );
+    await waitFor(() =>
+      expect(tasksApi.listByProject).toHaveBeenCalledWith(
+        "project-1",
+        expect.objectContaining({ dataset_id: datasetId, limit: 25, offset: 0 }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+  });
+
   it("previews the retained copy size for reference originals before creation", async () => {
     vi.mocked(trainingDatasetsApi.preflight).mockResolvedValueOnce({
       ...report,

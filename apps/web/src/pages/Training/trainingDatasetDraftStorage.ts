@@ -52,6 +52,7 @@ function validBody(
           "task",
           "bridge",
           "batch_id",
+          "dataset_id",
           "parent_id",
           "mode",
           "seed",
@@ -74,7 +75,7 @@ function validBody(
     (value.bridge ?? undefined) === owner.bridge &&
     (value.bridge === undefined ||
       (owner.task === "segment" && value.bridge === instanceMaskBridge)) &&
-    ["batch_id", "parent_id"].every(
+    ["batch_id", "parent_id", "dataset_id"].every(
       (key) =>
         value[key] == null ||
         (typeof value[key] === "string" && value[key].length > 0 && value[key].length <= 100),

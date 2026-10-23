@@ -34,6 +34,14 @@ afterEach(() => {
 });
 
 describe("training dataset pending request storage", () => {
+  it("retains an explicit dataset restriction in an idempotent pending request", () => {
+    const scoped = { ...body, dataset_id: "11111111-2222-4333-8444-555555555555" };
+    expect(saveTrainingDatasetDraft(owner, scoped)).toBeNull();
+    expect(readTrainingDatasetDraft(owner)).toEqual({ body: scoped, error: null });
+    expect(saveTrainingDatasetDraft(owner, { ...scoped, dataset_id: null })).toContain(
+      "另一个页面",
+    );
+  });
   it("keeps the original body, rejects another pending request and only removes a matching request", () => {
     expect(saveTrainingDatasetDraft(owner, body)).toBeNull();
     expect(readTrainingDatasetDraft(owner)).toEqual({ body, error: null });
