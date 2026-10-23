@@ -156,12 +156,14 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
         execute=AsyncMock(return_value=_ScalarResult(job)),
     )
 
-    async def get(model: object, object_id: uuid.UUID) -> object | None:
+    async def get(model: object, object_id: uuid.UUID, **_kwargs) -> object | None:
         if model is export_worker.Project:
             return project
         if model is export_worker.AsyncJob:
             return job
-        if model is export_worker.User:
+        from app.db.models.user import User
+
+        if model is User:
             return actor
         return None
 
@@ -209,6 +211,12 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
     engine.dispose.assert_awaited_once()
 
 
+@pytest.fixture(autouse=True)
+def isolate_cancel_owner(monkeypatch):
+    # Durable cancellation is exercised against real DB rows in reference media tests.
+    monkeypatch.setattr(export_worker, "check_cancelled", AsyncMock())
+
+
 @pytest.mark.parametrize("targets", [["davis", "mots"], ["kitti"], ["aap_json"]])
 @pytest.mark.asyncio
 async def test_export_worker_cache_hit_skips_packaging(
@@ -220,9 +228,10 @@ async def test_export_worker_cache_hit_skips_packaging(
     db = SimpleNamespace(
         commit=AsyncMock(),
         rollback=AsyncMock(),
+        scalar=AsyncMock(return_value=None),
         execute=AsyncMock(
             return_value=_ScalarResult(
-                SimpleNamespace(status="pending", celery_task_id=None)
+                SimpleNamespace(status="pending", celery_task_id=None, payload={})
             )
         ),
     )
@@ -377,9 +386,10 @@ async def test_export_worker_final_reauth_blocks_url_after_cache_hit(
     db = SimpleNamespace(
         commit=AsyncMock(),
         rollback=AsyncMock(),
+        scalar=AsyncMock(return_value=None),
         execute=AsyncMock(
             return_value=_ScalarResult(
-                SimpleNamespace(status="pending", celery_task_id=None)
+                SimpleNamespace(status="pending", celery_task_id=None, payload={})
             )
         ),
     )
@@ -458,9 +468,10 @@ async def test_export_worker_cache_miss_contender_retries_without_packaging(
     db = SimpleNamespace(
         commit=AsyncMock(),
         rollback=AsyncMock(),
+        scalar=AsyncMock(return_value=None),
         execute=AsyncMock(
             return_value=_ScalarResult(
-                SimpleNamespace(status="pending", celery_task_id=None)
+                SimpleNamespace(status="pending", celery_task_id=None, payload={})
             )
         ),
     )
@@ -537,9 +548,10 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
     db = SimpleNamespace(
         commit=AsyncMock(),
         rollback=AsyncMock(),
+        scalar=AsyncMock(return_value=None),
         execute=AsyncMock(
             return_value=_ScalarResult(
-                SimpleNamespace(status="pending", celery_task_id=None)
+                SimpleNamespace(status="pending", celery_task_id=None, payload={})
             )
         ),
     )
@@ -630,9 +642,10 @@ async def test_export_worker_removes_uploaded_object_when_cache_record_fails(
     db = SimpleNamespace(
         commit=AsyncMock(),
         rollback=AsyncMock(),
+        scalar=AsyncMock(return_value=None),
         execute=AsyncMock(
             return_value=_ScalarResult(
-                SimpleNamespace(status="pending", celery_task_id=None)
+                SimpleNamespace(status="pending", celery_task_id=None, payload={})
             )
         ),
     )

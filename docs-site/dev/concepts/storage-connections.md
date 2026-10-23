@@ -289,3 +289,13 @@ Worker 以 run generation、task/job ID、租约共同 fencing，逐成员事务
 计数单位是保留的业务样本，含旧内容身份，非当前路径头；原件仍使用已有持久观测六态。预览通过当前 SourceItem 的业务 Item/Asset/SHA 联结，允许显式移动后的同一身份，拒绝旧样本继承新内容预览；当前策略禁用或来源停用优先阻断。它是生成记录摘要，不执行对象存在性检查。当前内容的合法缓存复用沿用现有读取合同，不增加仅诊断端生效的策略修订条件。
 
 扫描和预检分别按来源批量查询，活动轮次优先，并独立保留最近完整成功记录。配置匹配由当前修订判断，不外露 snapshot。AsyncJob 保留期不删除领域证据。整个 GET 无源 I/O、写入或后台派发，不需要迁移或刷新 Worker。
+
+## 引用图片的后台导出
+
+`services/exporting/reference_media.py` 负责引用导出的固定选择、原请求授权证明和原图快照生命周期；`exporting/scope.py` 为大范围固定 ID 清单使用有界 SQL 参数。项目、批次与 Data Manager 在入队时封存私有 `export_authority`，包括原 API Key hash 与任务/Item/Asset/来源修订；`AsyncJobOut` 不返回该清单，幂等复投不替换它。
+
+导出按现有项目 `EXPORT_ANNOTATIONS` 能力授权；显式任务选择继续逐项检查可见性。严格 reader 的默认任务权限不变，导出通过内部 task 授权回调复用读取基座，避免冒用管理员或把整项目导出缩成个人待办范围。实际 Celery hostname 决定 `worker:<hostname>` 锚点，每份快照校验 SHA、大小和图片尺寸后再写包。
+
+manifest 暂存于独占 TemporaryFile，避免同时打开两个 ZIP 写句柄；原图按块复制，逐项关闭快照，同时执行 entry、文件数和临时磁盘预算。标签、COCO、AAP 及掩码元数据共用包内路径，引用不经过平台桶签名器。引用包采用 job 隔离 cache key 并禁用 cache hit，托管缓存保持原合同。迁移 0211 将产物的完整格式列表扩展为 Text，旧值保留；已有长列表时拒绝降级，避免静默截断。
+
+上传使用 job 独占对象键。最终短事务持有 job 取消锁、账号/项目/成员、原 Key、批次可见性、任务/样本/Asset 及来源/位置/连接 share locks，复验后原子发布 artifact、完成结果及通知。普通失败或取消清理本任务对象；存储删除失败或进程硬崩溃遗留的桶对象由导出桶生命周期兜底，本地 ZIP 的崩溃恢复清理与持久回收仍需独立治理。导出历史仍依赖当前受控 export binding，本切片没有完成存储后端迁移或历史 binding 固定。预测投递和持久原图缓存分别另行资格验证。

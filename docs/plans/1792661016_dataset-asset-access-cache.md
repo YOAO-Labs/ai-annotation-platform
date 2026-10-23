@@ -1,6 +1,6 @@
 # EPIC-05：统一文件访问、预览与缓存
 
-> 状态：E05-A 读取基座已完成本地验收；E03 消费者接入与 E05-B 仍待实施；不分配发布版本。
+> 状态：E05-A 读取基座、E03 工作台、E10 训练冻结及 E05-C1 图片导出已完成本地验收；E05-B 与预测投递仍待实施；不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -12,6 +12,38 @@
 | 负责角色      | 后端、媒体服务、前端、运维与测试                         |
 | 最小依赖      | E01 Asset/位置契约；E02 可达性；E11 授权切片             |
 | 下游          | E03 原地目录标注、E06 多站点、E08 样本浏览、E10 训练读取 |
+
+## 当前实施定案：E05-C1 引用图片导出
+
+基线 `883468e58`，工作树干净。依据当前 export worker、packaging、严格 reference reader、三个排队 API 和最终授权守卫重新审计。本切片已获“推进整个 Epic”授权；没有真实跨站点或迁移目标不阻塞本地实施。Orca 中继连接拒绝，串行修改当前 checkout；保留人工验收 3100/8100、dev 数据和 beat，不重建镜像，不改共享 `.env`、MinIO endpoint 或凭据。
+
+本轮覆盖现有所有异步图片目标（COCO、YOLO det/obb/seg、AAP JSON、Label Studio Brush、Binary/Indexed PNG）的 reference/managed 混合包。排队封存实际任务范围与绑定、发起人及原 API Key 证明；引用原件用真实 worker 节点的 strict snapshot 核验后写入唯一 ZIP 路径。包内图像、标签和格式元数据共用路径映射；托管图保留签名回源方式。同步 VOC、视频/点云、ML 消费者继续维持现有资格门；不把 C1 声称为完整 E05。
+
+涉及超过 8 个文件、超过 3 个组件：新增 `apps/api/app/services/exporting/reference_media.py`；修改 `services/dataset_references.py`、`exporting/{packaging,service,scope}.py`、`mask_formats/image_export.py`、`workers/export.py`、`api/v1/{projects,batches,data_manager,async_jobs}.py`、`schemas/async_job.py`、`apps/web/src/api/asyncJobs.ts`。测试落于 `test_export_reference_media.py`、`test_export_packaging.py`、`test_export_final_guard.py`、`test_export_cache_worker.py` 及现有导出合同/流式/掩码回归。正式文档更新 `docs-site/user-guide/reference/export-formats.md`、`docs-site/dev/concepts/storage-connections.md`、API 对应页、`CHANGELOG.md`、本计划与总执行计划；按实际 schema 变更同步 OpenAPI/SDK 合同，不增加未需要的迁移、服务或依赖。
+
+```text
+项目 / 批次 / Data Manager 导出请求
+          |
+当前导出权限 + 原 Key proof + 固定任务/内容绑定
+          |
+job 私有授权清单 -> worker 当前范围/撤权/取消复查
+          |
+strict reference_snapshot(worker:<hostname>) -> 临时快照 -> ZIP 原图
+          |                                      |
+同一映射生成标签/格式元数据 <-----------------------+
+          |
+独占导出对象 -> 最终短事务锁/复验 -> cache + ready 原子发布
+          |
+成功关闭快照；失败/取消清临时 ZIP 和未发布对象
+```
+
+真实 worker 验收修正：所有图片目标的实际 ZIP 已生成，但 `export_artifacts.format VARCHAR(20)` 无法保存完整多目标列表，暴露既有后台多格式字段预算缺口。本轮增加 `db/models/export_artifact.py`、`alembic/versions/0211_export_artifact_formats.py`，将格式摘要无损扩展为 Text；0211 升级保留旧值，降级遇到超过 20 字符的实际行明确拒绝，不能截断已有目标。test/e2e/dev 各自按 owner 应用迁移，不改共享业务库或重建镜像；补真实 DB 长目标回归与迁移检查。
+
+兼容：默认 reference reader 授权保持任务可见性；导出仅通过内部回调复用项目 EXPORT_ANNOTATIONS 能力，显式选择仍逐项可见。不借用管理员身份。引用包禁止跨 job cache 命中；托管缓存保留。历史队列缺少原证明时不得读取引用。私有清单不出现在 AsyncJob DTO，幂等复投不替换原证明。最终检查覆盖账号、项目 owner、成员、原 API Key、源/位置、Task/Item/Asset 和取消；不持 SQL 行锁等待原件 I/O。
+
+验证：先 `dev:worktree doctor --mode dev`，仅在已核验的 disposable test/e2e DB、九桶和 Redis 中运行。API 用 checkout `.venv` 执行新增内容/范围/权限/取消/资源清理回归，加现有各格式、缓存、最终守卫和流式回归；Web 取消按钮按实际控制验证，必要时运行 CSS lint/tsc。真实 worker 验收至少完成引用及混合 ZIP 的摘要、路径和失败不发布；确认实际 worker 已刷新且任务签名正确。`git diff --check`、相关 docs/OpenAPI 检查及提交 hooks 必须通过；清理 task-owned 资源并提交。
+
+回退：关闭新图片引用导出入口，保留已有托管导出、原件和内容账本；不把 opaque reference key 交给旧平台桶签名器，不删除历史业务样本。E05-B 持久缓存、Range、配额治理及 E05-C2 预测投递单独实施；E01 历史导出存储 binding 仍是明确后续项。
 
 ## 本轮实施定案：E05-A 读取基座
 
@@ -225,3 +257,15 @@ M1 严格方案：对需要与标注绑定的可变原图，读取到受限临�
 - Migration: full fresh, reversible prefix/suffix, legacy-forward and dump/restore validation passed through 0197. An empty receipt column permits downgrade; populated receipts reject it. Validation databases were removed with no owned leftovers.
 - Cleanup: task-owned worker, S3 objects, temporary fixtures and logs were removed; isolated test database, Redis and buckets were destroyed, and generated documentation/test outputs were removed. No backend image build, business mount change or shared development runtime refresh.
 - Remaining work: E03-A with E08-A/E09-A must register in-place business samples, expose the user flow, integrate authenticated browser image reads and bind annotation submissions to exact content. Workbench, ML, export and training consumers have not migrated. E05-B persistent cache, preview derivation, quota management and Range remain pending. The API foundation does not complete E03 or the full E05; this plan remains active because these contracts still constrain later slices.
+
+### E05-C1 Outcome
+
+- 落地范围：本节与实现同次提交。全部现有异步图片目标支持托管/引用混合；私有原授权与固定 Task/Item/Asset/SHA 贯穿读取、打包和最终发布。引用原图及 YOLO 配套副本在 ZIP 内核验，COCO/AAP/掩码路径一致；原 Key、任务版本、来源/位置/连接修订变化时拒绝发布。完整 E05 仍未完成，不归档。
+- 取消与发布：新增 export 取消入口及实际 UI 按钮。上传对象到 commit 前均由本任务负责清理；取消不会发 export.failed，cache、job result、ready 通知在最终授权后同事务提交。显式 reviewer 选择最终锁定批次和任务，独立连接证明并发归档被 share lock 阻止，归档完成后拒绝发布。原件 I/O 不持这些最终行锁。
+- 格式与容量：快照、manifest 和 ZIP 关闭路径及 entry/文件数/临时空间配额通过回归；大范围选择、标注、预测和样本查询使用有界参数，33,001 个真实 Task 通过。迁移 0211 无损扩展完整目标列表，旧值保留，含长列表时拒绝降级；实际短值降级、再升级通过。
+- 本地测试：最终 API 127 项、Web 33 项，共 160 个不同用例通过；涵盖所有图片目标、S3/SFTP 合同 fixture、缺失 worker、内容变化、原 Key 轮换/scope、来源停用、任务版本、上传后撤权/取消/异常、配额关闭和纯托管批次旁有引用。Ruff、Web lint/CSS token、TypeScript、OpenAPI check、196 页 frontmatter 和 198 页导航检查通过。沿用既有 4 条 ESLint warning 与 2 处语义层级建议，无新增 lint 错误；不声称远程 CI。
+- 真实验收：独立 e2e 3200/8200 的真实 API → Celery → MinIO 完成全部 8 种图片目标的混合 ZIP；1 份引用原图、1 份托管图、4 个包内引用副本，SHA、YOLO 路径及 COCO 128×96 尺寸核对通过。原始多目标字段失败的已上传对象确已移除，未留可复用缓存。实际 fetch_images.py 使用显式平台 base-url 成功校验引用并回源托管图片；明暗 1440×1000 / 390×900 截图已逐张检查、取消按钮可见，无横向溢出、浏览器异常或失败请求；窄屏实际点击取消后 API 为 cancelled 且无下载 URL。
+- 运行环境：人工环境 3100/8100 应用 0211 并刷新本 checkout 的 API、普通/维护 worker，doctor healthy；beat 保留。没有重建后端/ML 镜像，没有改共享 .env、MinIO endpoint、凭据或原件。
+- 清理：本轮独立 test/e2e 数据库、Redis 和各自九个桶已由环境所有者销毁；专用浏览器已关闭，临时验收脚本、截图、ZIP、日志与本 checkout 的测试缓存已清理。人工环境及业务数据保留。
+- 正式文档：`README.md`、`docs-site/api/guides/{export,verified-content}.md`、`docs-site/dev/concepts/storage-connections.md`、`docs-site/user-guide/reference/export-formats.md`、`docs-site/user-guide/datasets/{index,import-images,prediction-import-export}.md` 与 CHANGELOG Unreleased。公共 schema 未变，OpenAPI 快照核对一致，无 SDK 方法或版本变更。
+- 后续边界：同步 VOC、预测/采纳仍保留引用门禁；E05-C2 需独立实现投递与结果资格，E05-B 持久缓存/Range/全局配额、E01 历史 artifact binding、硬崩溃与存储删除失败的持久回收继续后续治理。导出桶七天生命周期兜底清理遗留桶对象；硬崩溃后的本地 ZIP 恢复清理仍需后续实现。已签发链接和已下载包不承诺实时撤回。S3/SFTP 为合同测试，不冒充真实远端网络资格或生产性能基准。

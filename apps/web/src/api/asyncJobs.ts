@@ -20,6 +20,7 @@ export type AsyncJobKind =
 
 /** 仅展示 worker 实际支持协作取消的作业。 */
 export const CANCELLABLE_ASYNC_JOB_KINDS = new Set<AsyncJobKind>([
+  "export",
   "training_dataset",
   "batch_predict",
   "dataset_import",

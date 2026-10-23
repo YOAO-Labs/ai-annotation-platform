@@ -1972,12 +1972,16 @@ async def export_project(
     from app.db.models.async_job import AsyncJobKind
     from app.workers.export import run_export
 
+    from app.services.exporting.reference_media import capture_export_authority
+
+    export_authority = await capture_export_authority(db, project, actor, request)
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.EXPORT.value,
         user_id=actor.id,
         project_id=project.id,
         payload={
+            **({"export_authority": export_authority} if export_authority else {}),
             "targets": targets,
             "format": ",".join(targets),
             "include_attributes": include_attributes,

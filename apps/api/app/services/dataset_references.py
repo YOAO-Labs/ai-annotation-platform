@@ -502,7 +502,9 @@ async def apply_reference(db, source, run, entry, dataset, actor):
     return {"item_id": item.id, "created": True, "sha256": receipt["sha256"]}
 
 
-async def reference_context(db, item_id, actor, *, task_id=None, node_id=None):
+async def reference_context(
+    db, item_id, actor, *, task_id=None, node_id=None, task_authorizer=None
+):
     if task_id is None:
         await scans.require_actor(db, actor.id)
     else:
@@ -511,7 +513,7 @@ async def reference_context(db, item_id, actor, *, task_id=None, node_id=None):
         task = await db.get(Task, task_id, populate_existing=True)
         if task is None or task.dataset_item_id != item_id:
             raise HTTPException(404, "Task not found")
-        await _assert_task_visible(db, task, actor)
+        await (task_authorizer or _assert_task_visible)(db, task, actor)
     ref = await db.get(DatasetReference, item_id, populate_existing=True)
     item = await db.get(DatasetItem, item_id, populate_existing=True)
     asset = await db.scalar(
@@ -660,11 +662,17 @@ async def reference_snapshot(
     api_key_id=None,
     scope="tasks:read",
     node_id=None,
+    task_authorizer=None,
 ):
     from app.services.dataset_content import key_authority
 
     context = await reference_context(
-        db, item_id, actor, task_id=task_id, node_id=node_id
+        db,
+        item_id,
+        actor,
+        task_id=task_id,
+        node_id=node_id,
+        task_authorizer=task_authorizer,
     )
     proof = await key_authority(db, actor, api_key_id, scope)
     if expected_sha256 is not None and expected_sha256 != context["sha256"]:
@@ -683,7 +691,12 @@ async def reference_snapshot(
     try:
         if (
             await reference_context(
-                db, item_id, actor, task_id=task_id, node_id=node_id
+                db,
+                item_id,
+                actor,
+                task_id=task_id,
+                node_id=node_id,
+                task_authorizer=task_authorizer,
             )
             != context
         ):

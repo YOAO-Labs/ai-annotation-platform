@@ -56,7 +56,9 @@ async def write_binary_png_export(
     prefix: str,
     project: Project,
     chunks,
+    media_paths=None,
 ) -> int:
+    media_paths = media_paths or {}
     class_ids = {
         name: index
         for index, name in enumerate(derive_classes_list(project.tool_bindings or {}))
@@ -99,7 +101,7 @@ async def write_binary_png_export(
             if instances:
                 manifest_items.append(
                     {
-                        "media_path": task.file_path,
+                        "media_path": media_paths.get(task.id, task.file_path),
                         "width": width,
                         "height": height,
                         "instances": instances,
@@ -127,7 +129,9 @@ async def write_indexed_png_export(
     project: Project,
     chunks,
     overlap_policy: str,
+    media_paths=None,
 ) -> int:
+    media_paths = media_paths or {}
     class_ids = {
         name: index
         for index, name in enumerate(derive_classes_list(project.tool_bindings or {}))
@@ -187,10 +191,12 @@ async def write_indexed_png_export(
                     "overlap_policy": overlap_policy,
                 }
                 item_losses.append(detail)
-                loss_report.append({"media_path": task.file_path, **detail})
+                loss_report.append(
+                    {"media_path": media_paths.get(task.id, task.file_path), **detail}
+                )
             manifest_items.append(
                 {
-                    "media_path": task.file_path,
+                    "media_path": media_paths.get(task.id, task.file_path),
                     "width": width,
                     "height": height,
                     "mask_path": relative_path,
@@ -225,7 +231,9 @@ async def write_label_studio_export(
     data_key: str,
     from_name: str,
     to_name: str,
+    media_paths=None,
 ) -> int:
+    media_paths = media_paths or {}
     output: list[dict[str, Any]] = []
     file_count = 0
     async for tasks, ann_by_task, dataset_items in chunks:
@@ -264,7 +272,7 @@ async def write_label_studio_export(
             output.append(
                 {
                     "id": task.display_id,
-                    "data": {data_key: task.file_path},
+                    "data": {data_key: media_paths.get(task.id, task.file_path)},
                     "annotations": [{"result": results}],
                 }
             )

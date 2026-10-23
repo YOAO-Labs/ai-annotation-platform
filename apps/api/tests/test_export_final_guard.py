@@ -10,13 +10,24 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.project_member import ProjectMember
+from app.db.models.project import Project
+from app.db.models.task import Task
+from app.db.models.task_batch import TaskBatch
+from app.db.models.user import User
 from app.workers.export import _reauthorize_export_final_write
-from tests.factory import create_membership, create_project, create_task, create_user
+from tests.factory import (
+    create_membership,
+    create_project,
+    create_task,
+    create_user,
+    create_batch,
+)
 
 
 async def _employee(db: AsyncSession) -> object:
@@ -87,3 +98,80 @@ async def test_export_final_guard_refuses_invisible_selected_task(
     # The unassigned/unbatched task is not in the reviewer's visible scope.
     with pytest.raises(ValueError):
         await _reauthorize_export_final_write(db_session, job.id, [task.id])
+
+
+async def test_final_guard_serializes_batch_archival_with_explicit_reviewer_export(
+    test_engine,
+):
+    """Independent committed connections prove the publication lock boundary."""
+    ids = {}
+    async with AsyncSession(test_engine, expire_on_commit=False) as db:
+        try:
+            owner = await create_user(
+                db, "super_admin", f"exp-owner-{uuid.uuid4()}@test.local", "Owner"
+            )
+            reviewer = await _employee(db)
+            ids["users"] = [owner.id, reviewer.id]
+            project = await create_project(db, owner_id=owner.id)
+            ids["project"] = project.id
+            await create_membership(
+                db, project_id=project.id, user_id=reviewer.id, role="reviewer"
+            )
+            batch = await create_batch(db, project_id=project.id, status="active")
+            ids["batch"] = batch.id
+            task = await create_task(db, project_id=project.id)
+            task.batch_id = batch.id
+            ids["task"] = task.id
+            job = AsyncJob(
+                kind="export",
+                project_id=project.id,
+                user_id=reviewer.id,
+                status="running",
+                payload={"task_ids": [str(task.id)]},
+                result={},
+            )
+            db.add(job)
+            await db.flush()
+            ids["job"] = job.id
+            await db.commit()
+
+            await _reauthorize_export_final_write(db, job.id, [task.id])
+            async with AsyncSession(test_engine) as contender:
+                await contender.execute(text("SET LOCAL lock_timeout = '100ms'"))
+                with pytest.raises(DBAPIError) as blocked:
+                    await contender.execute(
+                        update(TaskBatch)
+                        .where(TaskBatch.id == batch.id)
+                        .values(status="archived")
+                    )
+                assert getattr(blocked.value.orig, "sqlstate", None) == "55P03"
+                await contender.rollback()
+
+            await db.rollback()
+            async with AsyncSession(test_engine) as contender:
+                await contender.execute(
+                    update(TaskBatch)
+                    .where(TaskBatch.id == ids["batch"])
+                    .values(status="archived")
+                )
+                await contender.commit()
+            with pytest.raises(ValueError, match="visible"):
+                await _reauthorize_export_final_write(db, ids["job"], [ids["task"]])
+        finally:
+            await db.rollback()
+            if "job" in ids:
+                await db.execute(delete(AsyncJob).where(AsyncJob.id == ids["job"]))
+            if "task" in ids:
+                await db.execute(delete(Task).where(Task.id == ids["task"]))
+            if "batch" in ids:
+                await db.execute(delete(TaskBatch).where(TaskBatch.id == ids["batch"]))
+            if "project" in ids:
+                await db.execute(
+                    delete(ProjectMember).where(
+                        ProjectMember.project_id == ids["project"]
+                    )
+                )
+                await db.execute(delete(Project).where(Project.id == ids["project"]))
+            if "users" in ids:
+                await db.execute(delete(User).where(User.id.in_(ids["users"])))
+            await db.commit()

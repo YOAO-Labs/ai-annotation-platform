@@ -10,7 +10,13 @@ last_reviewed: 2026-08-27
 
 标注数据导出为下游训练可用格式。除 VOC 同步返回 blob 外，导出通过后台 job 执行：`POST` 创建 job 返回 `202 {job_id}`，产物 ZIP 生成后在任务铃用 7 天预签名 URL 下载。导出目标可多选，一个 job 产一个 ZIP。
 
-服务器目录原地引用图片尚未接入后台导出。后台任务在读取原图或复用缓存前，若本次导出范围包含引用 Task，会以 `reference_operation_not_supported` 明确失败；即使选择纯标注目标也遵循此限制，不会将引用标识当作 S3 key。普通手工标注与严格原图读取的支持范围见[引用内容合同](verified-content.md#已登记目录引用)。
+图片项目、批次和 Data Manager 显式任务导出支持原地引用与托管图片混合。含引用的任务在排队时固定实际 Task 清单、任务版本及 Item/Asset/SHA；API Key 还须具备 `tasks:read`，后台持续验证同一个 Key 的身份与权限。原图按真实 worker 节点的已核验锚点捕获严格快照，完整核对 SHA-256 后写入 ZIP；没有 worker 锚点、来源停用或内容变化均失败，不回退预览或平台桶。
+
+引用条目在 `images_manifest.json` 中包含 `storage_mode="embedded"`、`archive_path`、`archive_paths`、`asset_id`、`sha256` 和 `size_bytes`，不包含来源 URL。其包内路径为 `images/<dataset UUID>/<item UUID>/<task UUID>/<安全文件名>`；YOLO 图片与标签在对应目标目录下配对。COCO `file_name`、AAP `file_path` 及掩码 manifest 使用同一包内图片路径。托管条目保留原有预签名 URL 回源合同。`fetch_images.py` 先校验包内原图，再下载托管图片；托管 URL 过期不会跳过包内 SHA 校验。托管 URL 使用站内相对地址时，脚本需带 `--base-url https://平台地址`；显式平台 origin 不改写签名路径。
+
+引用包不跨 job 复用缓存。上传后的最终短事务重新检查原发起人、项目权限、原 Key、固定内容、显式选择的批次可见性与来源，并与取消串行；通过后才一起提交产物索引、下载链接和完成通知。失败或取消关闭快照、删除本任务临时 ZIP 及未发布对象，不返回可用部分包。对象删除自身失败会记录后台清理错误，导出桶的七天生命周期是兜底；进程硬崩溃的持久回收仍属于生命周期治理范围。已下载的包及已签发的七天 bearer URL 无法承诺随撤权立即回收。
+
+`POST /async-jobs/{job_id}/cancel` 支持 pending/running 导出；已完成任务返回 409。取消在当前有界读图或上传结束后清理本任务资源，不强杀其他任务。历史队列缺少原授权清单时，含引用的范围仍明确失败；同步 VOC 与预测入口尚未获得引用资格。严格读取合同见[已登记目录引用](verified-content.md#已登记目录引用)。
 
 ## 导出数据契约
 

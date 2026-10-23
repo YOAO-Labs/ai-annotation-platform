@@ -20,6 +20,7 @@ from typing import AsyncIterator, cast
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from sqlalchemy import select
+from app.services.exporting.scope import ids_clause
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
@@ -308,9 +309,11 @@ class ExportService:
         db: AsyncSession,
         *,
         task_ids: list[uuid.UUID] | None = None,
+        media_paths: dict[uuid.UUID, str] | None = None,
     ) -> None:
         self.db = db
         self.task_ids = task_ids
+        self.media_paths = media_paths or {}
 
     async def _load_data(
         self,
@@ -327,7 +330,7 @@ class ExportService:
         if batch_id:
             task_q = task_q.where(Task.batch_id == batch_id)
         if self.task_ids is not None:
-            task_q = task_q.where(Task.id.in_(self.task_ids))
+            task_q = task_q.where(ids_clause(Task.id, self.task_ids))
         if video_scope is not None:
             task_q = task_q.where(Task.id == video_scope.task_id)
         task_q = task_q.order_by(Task.sequence_order, Task.created_at, Task.id)
@@ -343,7 +346,7 @@ class ExportService:
             Annotation.is_active.is_(True),
             Annotation.was_cancelled.is_(False),
         )
-        ann_q = ann_q.where(Annotation.task_id.in_(task_ids))
+        ann_q = ann_q.where(ids_clause(Annotation.task_id, task_ids))
         ann_q = ann_q.order_by(Annotation.created_at, Annotation.id)
         annotations_result = await self.db.execute(ann_q)
         annotations = list(annotations_result.scalars().all())
@@ -406,7 +409,7 @@ class ExportService:
             select(Prediction)
             .where(
                 Prediction.project_id == project_id,
-                Prediction.task_id.in_(task_ids),
+                ids_clause(Prediction.task_id, task_ids),
             )
             .order_by(Prediction.created_at, Prediction.id)
         )
@@ -420,7 +423,7 @@ class ExportService:
         if not item_ids:
             return {}
         result = await self.db.execute(
-            select(DatasetItem).where(DatasetItem.id.in_(item_ids))
+            select(DatasetItem).where(ids_clause(DatasetItem.id, item_ids))
         )
         return {item.id: item for item in result.scalars().all()}
 
@@ -437,7 +440,7 @@ class ExportService:
         if not dataset_ids:
             return {}
         result = await self.db.execute(
-            select(Dataset).where(Dataset.id.in_(dataset_ids))
+            select(Dataset).where(ids_clause(Dataset.id, dataset_ids))
         )
         datasets = {ds.id: ds for ds in result.scalars().all()}
         out: dict[uuid.UUID, str | None] = {}
@@ -487,7 +490,7 @@ class ExportService:
         if batch_id:
             id_q = id_q.where(Task.batch_id == batch_id)
         if self.task_ids is not None:
-            id_q = id_q.where(Task.id.in_(self.task_ids))
+            id_q = id_q.where(ids_clause(Task.id, self.task_ids))
         if video_scope is not None:
             id_q = id_q.where(Task.id == video_scope.task_id)
         id_q = id_q.order_by(Task.sequence_order, Task.created_at, Task.id)
@@ -855,7 +858,7 @@ class ExportService:
             images.append(
                 {
                     "id": i,
-                    "file_name": t.file_name,
+                    "file_name": self.media_paths.get(t.id, t.file_name),
                     "width": w,
                     "height": h,
                 }
@@ -1021,6 +1024,10 @@ class ExportService:
         if not project:
             return b""
         _assert_image_export_supported(project, "voc")
+        from app.services.reference_keys import is_reference
+
+        if any(is_reference(task.file_path) for task in tasks):
+            raise UnsupportedExportError("reference_operation_not_supported:voc")
 
         ann_by_task: dict[uuid.UUID, list[Annotation]] = {}
         for ann in annotations:
@@ -1109,7 +1116,7 @@ class ExportService:
                 await self.db.execute(
                     select(SceneTrack, Scene.name)
                     .join(Scene, Scene.id == SceneTrack.scene_id)
-                    .where(SceneTrack.id.in_(exported_scene_track_ids))
+                    .where(ids_clause(SceneTrack.id, exported_scene_track_ids))
                     .order_by(Scene.name, SceneTrack.track_id)
                 )
             ).all()
@@ -1118,8 +1125,9 @@ class ExportService:
                     await self.db.execute(
                         select(SceneTrackInterval)
                         .where(
-                            SceneTrackInterval.scene_track_id.in_(
-                                exported_scene_track_ids
+                            ids_clause(
+                                SceneTrackInterval.scene_track_id,
+                                exported_scene_track_ids,
                             )
                         )
                         .order_by(
@@ -1263,9 +1271,10 @@ class ExportService:
                     task=available[0] if len(available) == 1 and not unmapped else None,
                     available_tasks=available,
                     task_match=AAPTaskMatch(
-                        display_id=t.display_id, file_path=t.file_path
+                        display_id=t.display_id,
+                        file_path=self.media_paths.get(t.id, t.file_path),
                     ),
-                    file_path=t.file_path,
+                    file_path=self.media_paths.get(t.id, t.file_path),
                     media_type=media_type,
                     video=video_block,
                     external_id=None,

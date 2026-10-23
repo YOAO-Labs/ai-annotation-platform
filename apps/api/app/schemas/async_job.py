@@ -33,7 +33,9 @@ class AsyncJobOut(BaseModel):
     @classmethod
     def public_payload(cls, payload):
         return {
-            key: value for key, value in payload.items() if key != "directory_authority"
+            key: value
+            for key, value in payload.items()
+            if key not in {"directory_authority", "export_authority"}
         }
 
 

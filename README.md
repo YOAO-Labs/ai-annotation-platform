@@ -48,6 +48,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 受控模型分别记录原始训练版本与每个部署的实际推理版本；旧权重升级推理环境后需重新加载试用，新建评估和预标任务冻结核验后的推理身份。操作见[模型回流与默认预标](./docs-site/user-guide/online-learning/models.md#训练版本与推理版本)。
 
+原地引用图片支持[后台图片导出](./docs-site/api/guides/export.md)：固定任务和内容，核验后将原图放入 ZIP，可取消且失败不发布部分包。
+
 原地引用图片也可从关联项目创建训练版本，预检展示预计原图复制体量，后台严格核验并保留独立训练副本；源目录后续变化不改变已就绪版本。
 
 项目负责人可通过[在线学习数据版本](./docs-site/user-guide/online-learning/data-versions.md)按检测或分割任务浏览项目派生的冻结版本，下载包含原图、类别映射和独立训练/验证划分的 Ultralytics 数据包。检测版本提供图片／类别／划分摘要、类别频次、尺寸与框分布热力图、每图目标数及版本差异，可对照前后冻结样本，或明确采用该版本新建实验；历史数据包和训练引用保持不变。接口见[训练数据版本 API](./docs-site/api/guides/training-datasets.md)。

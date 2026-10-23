@@ -1295,6 +1295,9 @@ async def export_batch(
     project: Project = Depends(require_project_visible),
     actor: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _access=Depends(
+        require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
+    ),
 ):
     # v0.10.27 · 导出异步化：创建 async_job(kind=export) + 派发 run_export，返回 {job_id}。
     # v0.10.43 · 多目标（方案 B）。VOC 仅可单选，走同步 blob；不删避免破坏 API 契约。
@@ -1406,12 +1409,18 @@ async def export_batch(
     from app.db.models.async_job import AsyncJobKind
     from app.workers.export import run_export
 
+    from app.services.exporting.reference_media import capture_export_authority
+
+    export_authority = await capture_export_authority(
+        db, project, actor, request, batch_id=batch_id
+    )
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.EXPORT.value,
         user_id=actor.id,
         project_id=project.id,
         payload={
+            **({"export_authority": export_authority} if export_authority else {}),
             "targets": targets,
             "include_attributes": include_attributes,
             "video_frame_mode": video_frame_mode,

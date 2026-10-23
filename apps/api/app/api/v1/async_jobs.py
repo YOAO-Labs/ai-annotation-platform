@@ -39,6 +39,7 @@ log = logging.getLogger(__name__)
 
 # v0.10.51 · batch_predict 支持协作取消；其它长任务保持软取消。
 CANCELLABLE_KINDS = {
+    "export",
     "sample_evaluation",
     "training_dataset",
     "batch_predict",
@@ -363,6 +364,22 @@ async def cancel_async_job(
 
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
+
+    if job.kind == "export":
+        # Match the worker's final publication lock: a cancelled job cannot publish.
+        job = await db.scalar(
+            select(AsyncJob)
+            .where(AsyncJob.id == job_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if job.status not in {"pending", "running"}:
+            raise HTTPException(409, detail="export is no longer cancellable")
+        if not await _can_access_job(db, job=job, user=current_user):
+            raise HTTPException(403, detail="not your job")
+        await async_job_svc.mark_cancelled(db, job.id)
+        await db.commit()
+        return {"status": "cancelled", "id": str(job.id)}
 
     if job.kind == "storage_usage":
         assert_request_scopes(request, "*")

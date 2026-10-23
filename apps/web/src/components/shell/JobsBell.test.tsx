@@ -13,6 +13,7 @@ const mockCancel = vi.fn();
 const mockGet = vi.fn();
 vi.mock("@/api/asyncJobs", () => ({
   CANCELLABLE_ASYNC_JOB_KINDS: new Set([
+    "export",
     "batch_predict",
     "dataset_import",
     "mask_qc",
@@ -191,7 +192,8 @@ describe("JobsBell", () => {
     fireEvent.click(await screen.findByTestId("jobs-bell-trigger"));
     fireEvent.click(await screen.findByTestId("job-cancel-j1"));
     await waitFor(() => expect(mockCancel).toHaveBeenCalledWith("j1"));
-    expect(screen.queryByTestId("job-cancel-j2")).toBeNull();
+    fireEvent.click(screen.getByTestId("job-cancel-j2"));
+    await waitFor(() => expect(mockCancel).toHaveBeenCalledWith("j2"));
     expect(screen.queryByTestId("job-cancel-j3")).toBeNull();
     expect(screen.queryByTestId("job-cancel-j4")).toBeNull();
   });

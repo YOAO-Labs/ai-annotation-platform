@@ -32,6 +32,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from posixpath import splitext
 from typing import Any, AsyncIterator
+from collections.abc import Awaitable, Callable
 
 import numpy as np
 from sqlalchemy import select, tuple_
@@ -210,69 +211,99 @@ def relative_path_from_file_path(
 
 
 _FETCH_IMAGES_TEMPLATE = '''#!/usr/bin/env python3
-"""按 images_manifest.json 的预签名 URL 把图片回源到 images/<相对路径>，与 labels/ 平行。
-
-纯标准库，无需配置 MinIO 密钥（URL 已带 7 天签名）。本地已有数据集则无需运行本脚本。
-"""
+"""Verify embedded originals, then fetch managed images using expiring URLs."""
+import argparse
+import hashlib
 import json
 import os
 import sys
 import urllib.request
+from urllib.parse import urljoin, urlsplit
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def destination(relative):
+    parts = relative.replace(chr(92), "/").split("/")
+    if not relative or any(part in ("", ".", "..") for part in parts):
+        raise ValueError("invalid_archive_path")
+    path = os.path.realpath(os.path.join(HERE, *parts))
+    if os.path.commonpath((HERE, path)) != HERE:
+        raise ValueError("invalid_archive_path")
+    return path
+
+
+def verify_embedded(item):
+    paths = item.get("archive_paths") or [item["archive_path"]]
+    for relative in paths:
+        path = destination(relative)
+        digest, size = hashlib.sha256(), 0
+        with open(path, "rb") as stream:
+            while chunk := stream.read(256 * 1024):
+                size += len(chunk)
+                digest.update(chunk)
+        if size != item["size_bytes"] or digest.hexdigest() != item["sha256"]:
+            raise ValueError("embedded_content_mismatch")
+
+
 def main() -> int:
-    manifest_path = os.path.join(HERE, "images_manifest.json")
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        manifest = json.load(f)
-
-    items = manifest.get("images", [])
-    # 过期校验：取最早 expires_at 提示。
-    soonest = None
-    for it in items:
-        exp = it.get("expires_at")
-        if exp:
-            try:
-                dt = datetime.fromisoformat(exp)
-            except ValueError:
-                continue
-            if soonest is None or dt < soonest:
-                soonest = dt
-    if soonest is not None:
-        now = datetime.now(timezone.utc)
-        remaining = soonest - now
-        if remaining.total_seconds() <= 0:
-            print(
-                "[!] 预签名链接已于 %s 过期，请回平台重新导出。" % soonest.isoformat()
-            )
-            return 2
-        print(
-            "[i] 预签名链接将于 %s 过期（剩约 %d 天），请尽快下载。"
-            % (soonest.isoformat(), int(remaining.total_seconds() // 86400))
-        )
-
-    ok = 0
-    fail = 0
-    for it in items:
-        rel = it.get("rel_path")
-        url = it.get("presigned_url")
-        if not rel or not url:
-            continue
-        dest = os.path.join(HERE, "images", *rel.split("/"))
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        if os.path.exists(dest):
-            ok += 1
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base-url", help="Platform origin for same-origin managed URLs")
+    arguments = parser.parse_args()
+    with open(os.path.join(HERE, "images_manifest.json"), encoding="utf-8") as stream:
+        items = json.load(stream).get("images", [])
+    ok, fail, expired = 0, 0, False
+    # Embedded originals remain independently verifiable after managed URLs expire.
+    for item in items:
+        if item.get("storage_mode") != "embedded":
             continue
         try:
-            urllib.request.urlretrieve(url, dest)
+            verify_embedded(item)
             ok += 1
-        except Exception as exc:  # noqa: BLE001
-            print("[x] 下载失败 %s: %s" % (rel, exc))
+            print("[ok] embedded SHA-256: %s" % item.get("rel_path", ""))
+        except Exception as exc:
             fail += 1
-    print("[done] 成功 %d，失败 %d，输出目录 images/" % (ok, fail))
-    return 0 if fail == 0 else 1
+            print("[x] embedded verification failed: %s" % type(exc).__name__)
+    for item in items:
+        if item.get("storage_mode") == "embedded":
+            continue
+        relative, url = item.get("rel_path"), item.get("presigned_url")
+        if not relative or not url:
+            continue
+        temporary = None
+        try:
+            path = destination("images/" + relative)
+            if os.path.exists(path):
+                ok += 1
+                continue
+            expires_at = item.get("expires_at")
+            if expires_at and datetime.fromisoformat(expires_at) <= datetime.now(timezone.utc):
+                expired = True
+                fail += 1
+                print("[!] managed URL expired; export again: %s" % relative)
+                continue
+            if not urlsplit(url).scheme:
+                if not arguments.base_url:
+                    print("[x] relative managed URL requires --base-url https://your-platform")
+                    fail += 1
+                    continue
+                url = urljoin(arguments.base_url, url)
+            if urlsplit(url).scheme not in ("http", "https"):
+                raise ValueError("unsupported_download_protocol")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            temporary = path + ".part"
+            urllib.request.urlretrieve(url, temporary)
+            os.replace(temporary, path)
+            ok += 1
+        except Exception as exc:
+            fail += 1
+            print("[x] download failed: %s" % type(exc).__name__)
+        finally:
+            if temporary and os.path.exists(temporary):
+                os.unlink(temporary)
+    print("[done] success %d, failed %d; images/" % (ok, fail))
+    return 2 if expired else (1 if fail else 0)
 
 
 if __name__ == "__main__":
@@ -585,6 +616,31 @@ class _QuotaZipFile(zipfile.ZipFile):
         self._check_archive()
         return result
 
+    def write_stream(self, arcname, source, size_bytes, *, extra_temp_bytes=0):
+        self._check_entry(size_bytes)
+        self._check_temporary(extra_temp_bytes)
+        source.seek(0)
+        copied = 0
+        with self.open(arcname, "w", force_zip64=True) as destination:
+            while chunk := source.read(256 * 1024):
+                copied += len(chunk)
+                if copied > size_bytes:
+                    raise ExportQuotaError("resource_budget_exceeded:max_entry_bytes")
+                destination.write(chunk)
+                self._check_temporary(extra_temp_bytes)
+        if copied != size_bytes:
+            raise ValueError("export_snapshot_size_mismatch")
+        self._check_archive()
+
+    def _check_temporary(self, extra_temp_bytes):
+        if self.fp is not None:
+            self.fp.flush()
+        if (
+            os.path.getsize(self.filename) + extra_temp_bytes
+            > settings.mask_format_temp_quota_bytes
+        ):
+            raise ExportQuotaError("resource_budget_exceeded:temp_quota_bytes")
+
     def write(self, filename, arcname=None, compress_type=None, compresslevel=None):
         self._check_entry(os.path.getsize(filename))
         result = super().write(
@@ -627,6 +683,8 @@ async def build_export_zip(
     axis_frame: AxisFrame = "iso",
     format_options: dict | None = None,
     video_scope: VideoExportScope | None = None,
+    reference_media=None,
+    check_cancel: Callable[[], Awaitable[object]] | None = None,
 ) -> tuple[str, int, int]:
     """生成镜像目录 ZIP 到磁盘临时文件，返回 (zip 路径, label 文件数, size_bytes)。
 
@@ -639,7 +697,15 @@ async def build_export_zip(
     图像 targets ∈ {coco, yolo-det, yolo-obb, yolo-seg, aap_json}（`yolo` 兼容旧 = yolo-det）。
     VOC 走旧同步路径，不在此处。
     """
-    svc = ExportService(db, task_ids=task_ids)
+    paths = (
+        {
+            task_id: reference_media.archive_path(task_id)
+            for task_id in reference_media.paths
+        }
+        if reference_media
+        else {}
+    )
+    svc = ExportService(db, task_ids=task_ids, media_paths=paths)
     project = await svc.db.get(Project, project_id)
 
     tmp_path = _new_zip_tempfile()
@@ -732,6 +798,8 @@ async def build_export_zip(
         ).isoformat()
 
         metadata = export_contracts(project, targets)
+        if reference_media:
+            metadata["reference_media"] = {"revision": 1, "mode": "embedded-sha256"}
         with _open_export_zip(tmp_path) as zf:
             zf.writestr(
                 "data_contract.json", json.dumps(metadata, ensure_ascii=False, indent=2)
@@ -757,7 +825,13 @@ async def build_export_zip(
                         )
                         for target in yolo_targets:
                             prefix = f"{target}/" if multi else ""
-                            rel = _label_rel(t, item)
+                            if check_cancel:
+                                await check_cancel()
+                            rel = (
+                                splitext(reference_media.paths[t.id])[0]
+                                if t.id in paths
+                                else _label_rel(t, item)
+                            )
                             img_w = (
                                 int(item.width) if item and item.width else FALLBACK_W
                             )
@@ -780,7 +854,11 @@ async def build_export_zip(
                                     include_attributes=include_attributes,
                                 )
                             dataset_id = str(item.dataset_id) if item else "unknown"
-                            base = f"{prefix}{project_id}/{dataset_id}/labels/{rel}"
+                            base = (
+                                f"{prefix}labels/{rel}"
+                                if t.id in paths
+                                else f"{prefix}{project_id}/{dataset_id}/labels/{rel}"
+                            )
                             zf.writestr(f"{base}.txt", "\n".join(lines))
                             file_count += 1
                             if include_attributes and attrs_per_line:
@@ -795,10 +873,10 @@ async def build_export_zip(
                     prefix = f"{target}/" if multi else ""
                     zf.writestr(f"{prefix}data.yaml", _build_data_yaml(classes_list))
 
-            # Pass 2：流式写 images_manifest.json —— 边遍历边写 zip entry（O(1) 内存，
-            # 不把十万条 manifest dict 攒进 RAM，这是 B6「内存与 task 数解耦」的关键），
-            # 顺带计 task 数 + 累积 coco 所需 items（不需 annotation）。
-            with zf.open("images_manifest.json", "w") as mf:
+            # Spool the manifest outside ZIP: only one ZIP write handle may be open.
+            with tempfile.TemporaryFile(
+                mode="w+b", prefix="aap-export-manifest-"
+            ) as mf:
                 mf.write(
                     (
                         json.dumps(metadata, ensure_ascii=False)[:-1] + ', "images": ['
@@ -812,35 +890,93 @@ async def build_export_zip(
                     if dataset_items_all is not None:
                         dataset_items_all.update(dataset_items)
                     for t in tasks:
+                        if check_cancel:
+                            await check_cancel()
                         item = (
                             dataset_items.get(t.dataset_item_id)
                             if t.dataset_item_id
                             else None
                         )
-                        dataset_name = _dataset_name_for_task(t, item)
-                        img_rel = relative_path_from_file_path(
-                            t.file_path, dataset_name, item
-                        )
-                        presigned = storage_service.generate_download_url(
-                            t.file_path,
-                            expires_in=PRESIGN_EXPIRES_SECONDS,
-                            bucket=storage_service.datasets_bucket,
-                        )
                         entry = {
                             "task_id": str(t.id),
                             "dataset_item_id": str(item.id) if item else None,
                             "content_hash": item.content_hash if item else None,
-                            "rel_path": img_rel,
                             "dataset_id": str(item.dataset_id) if item else None,
-                            "presigned_url": presigned,
-                            "expires_at": expires_iso,
                         }
+                        if t.id in paths:
+                            from app.services.content_snapshot import MAX_BYTES
+
+                            zf._check_entry(
+                                reference_media.bindings[t.id]["reference"]["size"]
+                            )
+                            # Reserve the strict reader's full bound before allocating its file.
+                            zf._check_temporary(mf.tell() + MAX_BYTES)
+                            snapshot = await reference_media.snapshot(t)
+                            try:
+                                rel = reference_media.paths[t.id]
+                                archive_paths = sorted(
+                                    {
+                                        paths[t.id],
+                                        *(
+                                            f"{target}/images/{rel}"
+                                            for target in yolo_targets
+                                            if multi
+                                        ),
+                                    }
+                                )
+                                for archive_path in archive_paths:
+                                    zf.write_stream(
+                                        archive_path,
+                                        snapshot.file,
+                                        snapshot.size,
+                                        extra_temp_bytes=snapshot.size + mf.tell(),
+                                    )
+                                entry.update(
+                                    storage_mode="embedded",
+                                    rel_path=rel,
+                                    archive_path=paths[t.id],
+                                    archive_paths=archive_paths,
+                                    asset_id=reference_media.bindings[t.id][
+                                        "reference"
+                                    ]["asset_id"],
+                                    sha256=snapshot.sha256,
+                                    size_bytes=snapshot.size,
+                                )
+                            finally:
+                                snapshot.close()
+                        else:
+                            # The legacy gate remains even if callers bypass the worker.
+                            from app.services.reference_keys import is_reference
+
+                            if is_reference(t.file_path):
+                                raise ValueError("reference_export_authority_missing")
+                            entry.update(
+                                rel_path=relative_path_from_file_path(
+                                    t.file_path, _dataset_name_for_task(t, item), item
+                                ),
+                                presigned_url=storage_service.generate_download_url(
+                                    t.file_path,
+                                    expires_in=PRESIGN_EXPIRES_SECONDS,
+                                    bucket=storage_service.datasets_bucket,
+                                ),
+                                expires_at=expires_iso,
+                            )
                         mf.write(b"" if first else b", ")
                         mf.write(json.dumps(entry, ensure_ascii=False).encode("utf-8"))
                         first = False
-                mf.write(b'], "expires_at": ')
-                mf.write(json.dumps(expires_iso).encode("utf-8"))
-                mf.write(b"}")
+                        zf._check_entry(mf.tell())
+                        zf._check_temporary(mf.tell())
+                mf.write(
+                    b'], "expires_at": '
+                    + json.dumps(expires_iso).encode("utf-8")
+                    + b"}"
+                )
+                zf.write_stream(
+                    "images_manifest.json", mf, mf.tell(), extra_temp_bytes=mf.tell()
+                )
+
+            if check_cancel:
+                await check_cancel()
 
             # 单文档目标（coco/aap_json）：本质全量物化，svc 自加载落包根/子目录。
             for target in other_targets:
@@ -877,6 +1013,7 @@ async def build_export_zip(
                         prefix=prefix,
                         project=project,
                         chunks=chunks,
+                        media_paths=paths,
                     )
                 elif target == "indexed-png":
                     file_count += await write_indexed_png_export(
@@ -884,6 +1021,7 @@ async def build_export_zip(
                         prefix=prefix,
                         project=project,
                         chunks=chunks,
+                        media_paths=paths,
                         overlap_policy=str(
                             export_options.get("indexed_overlap_policy") or "error"
                         ),
@@ -893,6 +1031,7 @@ async def build_export_zip(
                         zf,
                         prefix=prefix,
                         chunks=chunks,
+                        media_paths=paths,
                         data_key=str(export_options.get("ls_data_key") or "image"),
                         from_name=str(export_options.get("ls_from_name") or "brush"),
                         to_name=str(export_options.get("ls_to_name") or "image"),
@@ -903,6 +1042,8 @@ async def build_export_zip(
             if not multi and not has_yolo:
                 zf.writestr("data.yaml", _build_data_yaml(classes_list))
 
+        if check_cancel:
+            await check_cancel()
         return tmp_path, file_count, _export_size(tmp_path)
     except BaseException:
         _safe_unlink(tmp_path)

@@ -7,7 +7,7 @@ cache_key → MinIO 桶内产物的映射。导出 worker 入口先按 cache_key
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,7 +31,7 @@ class ExportArtifact(Base):
     batch_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
-    format: Mapped[str] = mapped_column(String(20), nullable=False)
+    format: Mapped[str] = mapped_column(Text, nullable=False)
     object_key: Mapped[str] = mapped_column(String(500), nullable=False)
     file_count: Mapped[int] = mapped_column(Integer, nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
