@@ -7962,3 +7962,10 @@ actual recorded stages and configured runtime identity. The positive dispatch
 now invokes the gate and records sanitized PID, user, database, private client
 address, wait event and matched Workspace capability. The complete seven-delivery
 case must pass again before that observed-session claim is qualified.
+
+The wired gate reached the real restricted worker session and matching Workspace
+lock wait, then its exact-address assertion exposed PostgreSQL inet::text's /32
+suffix. Observation now uses pg_catalog.host(client_addr), retaining the exact
+worker-address predicate and every user/database/capability/wait assertion. This
+is an evidence-format correction; it does not change worker execution or ACLs.
+The failed wired-gate receipt is retained with successful resource cleanup.

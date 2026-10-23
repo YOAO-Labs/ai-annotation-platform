@@ -304,7 +304,7 @@ async def _dispatch_while_workspace_read_is_blocked(
                         (
                             await observer.execute(
                                 text(
-                                    "SELECT pid,usename,datname,client_addr::text AS client_addr,"
+                                    "SELECT pid,usename,datname,pg_catalog.host(client_addr) AS client_addr,"
                                     "wait_event_type,wait_event,query "
                                     "FROM pg_catalog.pg_stat_activity "
                                     "WHERE datname=current_database() "
