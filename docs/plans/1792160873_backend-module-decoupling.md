@@ -7559,3 +7559,29 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Docker network address. No DNS/IPv6/TLS explanation fits these observed failures.
   This extra run changes the next action from generic RPC diagnosis to local
   forwarding transport/assembly handling and the final Identity gate audit.
+
+### Final Identity consumer and local module gate
+
+- The final read-only consumer audit found one genuine remaining CLI path:
+  worktree_filtering counted private User rows under the generated ordinary E2E
+  LOGIN. Replace that count with the existing public account_profiles relation,
+  including inactive accounts. The actual seed then exposed a stale positional
+  call after seed_filtering gained a payload argument; pass db by keyword.
+- The same real CLI acceptance retains an exact old-source red result (SHA256
+  901975ed7ddbd5461f81bd6edbc48f9c85e5f516a48763c80af43d3877d35195),
+  initial fixture failures, and the signature failure. A small framework-free
+  error-handler check fixed only the copied test harness before repeating cold
+  acceptance; a separate signature probe reproduced the second defect without DB.
+  Final acceptance passes in 53.832 seconds: inactive-account refusal, full fresh
+  seed and resume preserving user changes, counts, credentials and original media.
+  Private Identity access remains denied. Migration 0306/frozen SQL and every
+  registered cleanup pass. Five existing CLI unit checks also pass.
+- Review all nine Identity operation groups against source, consumer migration,
+  independent installed artifacts, restricted credentials and recovery evidence.
+  No further private consumer gap was found. This closes the local module gate on
+  the intended private Compose database route. It does not assert another-language
+  full provider, primary cutover, production capacity or overall goal completion.
+  Central global migrations remain an explicit Runtime assembly responsibility;
+  no runtime DDL privilege is added. The proven old hairpin TCP defect remains in
+  the sole Runtime assembly ledger, without claiming individual historical 503
+  attribution or a transport repair. Next delivery: media seed Project operations.

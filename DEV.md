@@ -2139,7 +2139,7 @@ AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
 
 当前私网装配连续两轮通过真实 API／Socket、Node 重放、邮件、通知和完整备份恢复；
 非 editable 安装包 658 项、包／镜像指纹及完整五阶段迁移均通过。旧宿主机数据库端口转发
-实验的间歇性 503 根因仍未确认，不能将私网通过视为修复。固定预算和有限并发样本、
+实验已复现底层 TCP 建连故障，但历史单次业务 503 的归因仍未确认，不能将私网通过视为修复。固定预算和有限并发样本、
 精确证据及尚未覆盖的环境见[模块台账](docs-site/dev/concepts/module-deployment.md#identity-整模块独立装配)。
 日常运行环境没有切换。
 
@@ -2179,6 +2179,18 @@ AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
 堆栈帧。两项已通过，但恢复期间的就绪探测实际遇到过一次连接超时。独立传输探针
 还复现了宿主机转发的 TCP `sock_connect` 超时；这与应用 SQL 错误不同，且不能据此
 逐次归因历史三类业务 503。当前独立部署仍使用已通过验收的 Compose 私网直连。
+
+手动筛选 CLI 的 Identity 边界另用真实生成的普通 E2E LOGIN 验收：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/identity-filtering-cli.json \
+  --test-file tests/test_worktree_filtering_identity_native.py
+```
+
+同一案例实际运行 CLI，检查停用账号也会触发非空库拒绝、首次播种可完成、重复运行保留
+用户修改与数据计数，且普通账号全程不能访问 Identity 私表。该检查已通过；与旧源码的
+失败对照、调用签名修复及完整记录见 `.worktree/identity-forwarding-original-qualification.json`。
 
 ### 独立自助账户命令
 
@@ -2234,7 +2246,7 @@ Fernet key 应单独配置，不与 JWT secret 共用。轮换时保留旧 key�
 
 Producer 的直启策略名是 `IDENTITY_ALLOW_OPEN_REGISTRATION`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED` 和 `IDENTITY_FRONTEND_BASE_URL`；Compose 主机端以 `IDENTITY_RUNTIME_ALLOW_OPEN_REGISTRATION`、`IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED`、`IDENTITY_RUNTIME_FRONTEND_BASE_URL` 提供值。SMTP 环境 fallback 与主 API 现存的 `SMTP_*` SMTP 测试邮件配置分开；Settings 中的 mail policy 优先。mail worker `/health` 为 liveness，`/ready` 检查 8171 端口上的原生能力、Settings 与 key；Compose 覆盖镜像原先检查 8170 的 healthcheck，容器只读并以 UID 10003 运行。
 
-Recovery/mail、分组目录／指派、自助注销／outbox、完整 invitation lifecycle／MailV2、四项 Identity Directory reads、管理员临时密码重置、平台角色预览／变更、管理员暂停／恢复、管理员 DELETE、offboarding preview/commit 与批量 UserBrief reads 均通过各自限定的本地资格。Directory 有 38 个选定数据库／进程案例；admin-reset 有 42 个选定联合案例（含兼容路径）；platform-role 有 56 个选定 DB/process 案例，均按自己的切片统计。Suspension 有 77 个选定 DB/process 案例、零跳过（73 DB/restore 加 4 live）；管理员 DELETE 有 72 个 selected cases（71 DB/process、1 static artifact），零跳过；offboarding 有 77 个 selected cases（76 DB/process、1 static artifact），零跳过；UserBrief 有 64 个 distinct selected cases（59 DB/process、5 pure/static），零跳过。细节分别见 [ADR-0127](docs/adr/0127-independent-identity-deletion-commands.md)、[ADR-0128](docs/adr/0128-independent-identity-offboarding-commands.md) 与 [ADR-0129](docs/adr/0129-identity-batched-user-brief-reads.md)。各切片的精确哈希、样本和范围见[后端解耦计划](docs/plans/1792160873_backend-module-decoupling.md)。其他用户水合与剩余 lifecycle 仍在既有 API 流程。Identity 未完整独立，日常认证环境未切换，也没有另一语言 provider；Go 月报仍是独立实验。详见 [ADR-0119](docs/adr/0119-independent-identity-recovery-and-mail.md)、[ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md)、[ADR-0121](docs/adr/0121-identity-self-deactivation-and-notification-delivery.md)、[ADR-0122](docs/adr/0122-independent-identity-invitations-and-mail-v2.md)、[ADR-0123](docs/adr/0123-independent-identity-directory-reads.md)、[ADR-0124](docs/adr/0124-independent-identity-admin-password-reset.md)、[ADR-0125](docs/adr/0125-independent-identity-platform-role-commands.md) 与下方 [ADR-0126](docs/adr/0126-independent-identity-suspension-commands.md)。
+Recovery/mail、分组目录／指派、自助注销／outbox、完整 invitation lifecycle／MailV2、四项 Identity Directory reads、管理员临时密码重置、平台角色预览／变更、管理员暂停／恢复、管理员 DELETE、offboarding preview/commit 与批量 UserBrief reads 均通过各自限定的本地资格。Directory 有 38 个选定数据库／进程案例；admin-reset 有 42 个选定联合案例（含兼容路径）；platform-role 有 56 个选定 DB/process 案例，均按自己的切片统计。Suspension 有 77 个选定 DB/process 案例、零跳过（73 DB/restore 加 4 live）；管理员 DELETE 有 72 个 selected cases（71 DB/process、1 static artifact），零跳过；offboarding 有 77 个 selected cases（76 DB/process、1 static artifact），零跳过；UserBrief 有 64 个 distinct selected cases（59 DB/process、5 pure/static），零跳过。细节分别见 [ADR-0127](docs/adr/0127-independent-identity-deletion-commands.md)、[ADR-0128](docs/adr/0128-independent-identity-offboarding-commands.md) 与 [ADR-0129](docs/adr/0129-identity-batched-user-brief-reads.md)。各切片的精确哈希、样本和范围见[后端解耦计划](docs/plans/1792160873_backend-module-decoupling.md)。公开 API 继续聚合这些 owner 能力；Identity 的本地私网模块资格见上文，日常认证环境未切换，也没有另一语言完整 provider；Go 月报仍是独立实验。详见 [ADR-0119](docs/adr/0119-independent-identity-recovery-and-mail.md)、[ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md)、[ADR-0121](docs/adr/0121-identity-self-deactivation-and-notification-delivery.md)、[ADR-0122](docs/adr/0122-independent-identity-invitations-and-mail-v2.md)、[ADR-0123](docs/adr/0123-independent-identity-directory-reads.md)、[ADR-0124](docs/adr/0124-independent-identity-admin-password-reset.md)、[ADR-0125](docs/adr/0125-independent-identity-platform-role-commands.md) 与下方 [ADR-0126](docs/adr/0126-independent-identity-suspension-commands.md)。
 
 ### Identity 分组目录与指派
 

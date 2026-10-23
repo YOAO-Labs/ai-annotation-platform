@@ -61,10 +61,11 @@ def _backend(
     database_url=None,
     migration_url=None,
     root=None,
+    mode="test",
 ):
     owner_url = _render(test_engine.url)
     root = root or tmp_path / f"worktree-{uuid.uuid4().hex}"
-    resources = topology(root, load_identity(root, create=True), "test")
+    resources = topology(root, load_identity(root, create=True), mode)
     configured = settings.model_copy(
         update={
             "database_url": database_url or owner_url,
