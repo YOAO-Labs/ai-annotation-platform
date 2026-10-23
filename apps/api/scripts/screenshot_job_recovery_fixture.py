@@ -33,7 +33,7 @@ from app.db.models.prediction import (  # noqa: E402
     PredictionMeta,
 )
 from app.db.models.task import Task  # noqa: E402
-from app.db.models.project import Project  # noqa: E402
+from app.services.project_access import get_workspace_project  # noqa: E402
 from app.services.identity_commands import IdentityCommandService  # noqa: E402
 from app.services.prediction import PredictionService  # noqa: E402
 from app.workers.celery_app import celery_app  # noqa: E402
@@ -231,7 +231,7 @@ async def seed(
 ) -> dict[str, str]:
     await cleanup_owned(db, project_id=project_id, task_id=task_id)
     task = await db.get(Task, task_id)
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     if task is None or project is None or task.project_id != project.id:
         raise RuntimeError("screenshot OCR task or project disappeared")
     user_id = await IdentityCommandService(db).lookup_seed_account_id(user_email)

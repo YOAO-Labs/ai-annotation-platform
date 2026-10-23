@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 from sqlalchemy import text
-from tests.test_workspace_consumer_profile_native import _world, _grants
+from tests.test_workspace_consumer_profile_native import _world, _grants, _assert_closed
 from app.config import settings
 from scripts import screenshot_job_recovery_fixture as jobs
 from scripts import screenshot_review_reject_fixture as review
@@ -45,6 +45,17 @@ def replay(name, value, record_property):
             json.dumps(value, indent=2, ensure_ascii=False) + "\n"
         )
     else:
+        if value != GOLDEN[name]:
+            directory = ROOT / ".worktree/recording-replay-mismatches"
+            directory.mkdir(exist_ok=True)
+            (directory / f"{name}.json").write_text(
+                json.dumps(
+                    {"actual": value, "expected": GOLDEN[name]},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n"
+            )
         assert value == GOLDEN[name]
     record_property("identity_recording_replay", name)
 
@@ -54,13 +65,15 @@ async def recording_consumer(test_engine):
     if CAPTURE:
         yield test_engine.url, test_engine
         return
-    async with _world(test_engine, apply=False) as (_owner, consumer, role, url):
+    async with _world(test_engine) as (_owner, consumer, role, url):
         result = await _grants(
             test_engine,
             ROOT / "infra/docker/identity-recording-fixture-grants.sql",
             role,
         )
         assert result.returncode == 0, result.stderr
+        async with consumer() as db:
+            await _assert_closed(db)
         yield url, consumer.kw["bind"]
 
 
@@ -393,3 +406,42 @@ async def test_jobs_cached_email_keeps_original_id(
             {"result": canonical(result, aliases), "state": snapshot},
             record_property,
         )
+
+
+async def test_jobs_cached_project_preserves_original_pipeline_and_name(
+    test_engine, recording_consumer
+):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.services.project_access import get_workspace_project
+
+    async with recording_graph(test_engine) as ids:
+        async with async_sessionmaker(
+            recording_consumer[1], expire_on_commit=False
+        )() as db:
+            cached = await get_workspace_project(db, project_id=ids["ocr_project"])
+            original_name = cached.name
+            async with test_engine.begin() as writer:
+                await writer.execute(
+                    text(
+                        "UPDATE projects SET name='Changed externally',preannotate_pipeline='[]'::jsonb WHERE id=:id"
+                    ),
+                    {"id": ids["ocr_project"]},
+                )
+            result = await jobs.seed(
+                db,
+                project_id=ids["ocr_project"],
+                task_id=ids["ocr_task"],
+                user_email=RECORDER_EMAIL,
+            )
+            assert (
+                await get_workspace_project(db, project_id=ids["ocr_project"]) is cached
+            )
+            assert cached.name == original_name
+            await db.commit()
+        async with test_engine.connect() as owner:
+            payload = await owner.scalar(
+                text("SELECT payload FROM async_jobs WHERE id=:id"),
+                {"id": uuid.UUID(result["async_job_id"])},
+            )
+            assert payload["project_name"] == original_name
+            assert payload["ml_backend_id"] == str(ids["backend"])

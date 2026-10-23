@@ -34,8 +34,7 @@
             {
               "type": "null"
             }
-          ],
-          "title": "Error"
+          ]
         }
       },
       "required": ["schema", "marker", "project_ids", "ok", "error"],
@@ -86,8 +85,7 @@
             {
               "type": "null"
             }
-          ],
-          "title": "Error"
+          ]
         }
       },
       "required": ["schema", "dataset_id", "after_task_cleanup", "ok", "error"],
@@ -95,7 +93,14 @@
       "type": "object"
     }
   },
-  "anyOf": [{ "$ref": "#/$defs/ScaleSeedCleanup" }, { "$ref": "#/$defs/ScaleSeedSourceGuard" }],
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ScaleSeedCleanup"
+    },
+    {
+      "$ref": "#/$defs/ScaleSeedSourceGuard"
+    }
+  ],
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aap-workspace-scale-seed/v1",
   "$comment": "Fixed trusted local scale-seed capabilities. Functions accept no arbitrary SQL, table, or predicate selectors.",
@@ -118,16 +123,24 @@
           {
             "name": "p_owner_id",
             "postgres_type": "uuid",
-            "json_schema": { "format": "uuid", "type": "string" }
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           },
           {
             "name": "p_marker",
             "postgres_type": "text",
-            "json_schema": { "type": "string" }
+            "json_schema": {
+              "type": "string"
+            }
           }
         ],
         "result_postgres_type": "uuid",
-        "result_json_schema": { "type": "string", "format": "uuid" },
+        "result_json_schema": {
+          "type": "string",
+          "format": "uuid"
+        },
         "transaction_semantics": "Insert the original scale-seed Project fields while preserving all other PostgreSQL defaults. The caller owns the transaction and writes the Labeling total_tasks projection before commit."
       },
       {
@@ -138,21 +151,34 @@
           {
             "name": "p_project_id",
             "postgres_type": "uuid",
-            "json_schema": { "format": "uuid", "type": "string" }
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           },
           {
             "name": "p_annotator_id",
             "postgres_type": "uuid",
-            "json_schema": { "format": "uuid", "type": "string" }
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           },
           {
             "name": "p_owner_id",
             "postgres_type": "uuid",
-            "json_schema": { "format": "uuid", "type": "string" }
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "result_postgres_type": "integer",
-        "result_json_schema": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "result_json_schema": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
         "transaction_semantics": "Insert the original annotator membership with ON CONFLICT DO NOTHING and return the inserted row count. No account or role normalization is performed; the caller owns the transaction."
       },
       {
@@ -163,7 +189,9 @@
           {
             "name": "p_marker",
             "postgres_type": "text",
-            "json_schema": { "type": "string" }
+            "json_schema": {
+              "type": "string"
+            }
           }
         ],
         "result_postgres_type": "jsonb",
@@ -179,19 +207,27 @@
           {
             "name": "p_marker",
             "postgres_type": "text",
-            "json_schema": { "type": "string" }
+            "json_schema": {
+              "type": "string"
+            }
           },
           {
             "name": "p_project_ids",
             "postgres_type": "uuid[]",
             "json_schema": {
-              "items": { "format": "uuid", "type": "string" },
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
               "type": "array"
             }
           }
         ],
         "result_postgres_type": "integer",
-        "result_json_schema": { "type": "integer", "minimum": 0 },
+        "result_json_schema": {
+          "type": "integer",
+          "minimum": 0
+        },
         "transaction_semantics": "Delete only the supplied captured IDs whose current name still matches the marker. Recheck Learning and video-retirement guards before DML; raise SQLSTATE 23514 with a code detail when retained. The caller owns the transaction."
       },
       {
@@ -202,12 +238,17 @@
           {
             "name": "p_dataset_id",
             "postgres_type": "uuid",
-            "json_schema": { "format": "uuid", "type": "string" }
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           },
           {
             "name": "p_after_task_cleanup",
             "postgres_type": "boolean",
-            "json_schema": { "type": "boolean" }
+            "json_schema": {
+              "type": "boolean"
+            }
           }
         ],
         "result_postgres_type": "jsonb",
@@ -251,7 +292,7 @@
         "signature": "aap_labeling_v1.guard_dataset_source_deletion(uuid,uuid)"
       }
     ],
-    "authorization_boundary": "Available only through a separately granted trusted operator in a test or E2E database; these fixed functions add no application actor policy.",
+    "authorization_boundary": "Available only through a separately granted trusted operator. The CLI retains its production guard before engine creation; these fixed functions add no application actor policy.",
     "transaction_boundary": "The caller owns the encompassing transaction, all commits and rollbacks, and the lifetime of locks. No function commits or retries."
   }
 }

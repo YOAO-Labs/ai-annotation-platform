@@ -16,11 +16,6 @@ AS $function$
 DECLARE
     v_project_id uuid;
 BEGIN
-    IF pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 5) <> '_test'
-       AND pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 4) <> '_e2e' THEN
-        RAISE EXCEPTION USING ERRCODE = '42501',
-            MESSAGE = 'scale seed capabilities require a test database';
-    END IF;
     IF p_owner_id IS NULL OR p_marker IS NULL OR pg_catalog.btrim(p_marker) = '' THEN
         RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid scale seed Project';
     END IF;
@@ -61,11 +56,6 @@ AS $function$
 DECLARE
     v_row_count integer;
 BEGIN
-    IF pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 5) <> '_test'
-       AND pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 4) <> '_e2e' THEN
-        RAISE EXCEPTION USING ERRCODE = '42501',
-            MESSAGE = 'scale seed capabilities require a test database';
-    END IF;
 
     INSERT INTO public.project_members (
         id, project_id, user_id, role, assigned_by
@@ -96,11 +86,6 @@ DECLARE
     v_project_id uuid;
     v_guard jsonb;
 BEGIN
-    IF pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 5) <> '_test'
-       AND pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 4) <> '_e2e' THEN
-        RAISE EXCEPTION USING ERRCODE = '42501',
-            MESSAGE = 'scale seed capabilities require a test database';
-    END IF;
     IF p_marker IS NULL OR pg_catalog.btrim(p_marker) = '' THEN
         RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid scale seed marker';
     END IF;
@@ -142,7 +127,7 @@ BEGIN
                OR pg_catalog.jsonb_typeof(v_guard -> 'error') IS DISTINCT FROM 'object'
                OR pg_catalog.jsonb_typeof(v_guard #> '{error,code}') IS DISTINCT FROM 'string'
                OR pg_catalog.char_length(v_guard #>> '{error,code}') = 0
-               OR (v_guard -> 'error' - 'code') <> '{}'::jsonb
+               OR ((v_guard -> 'error') - 'code') <> '{}'::jsonb
                OR (v_guard - ARRAY['schema', 'ok', 'error']) <> '{}'::jsonb THEN
                 RAISE EXCEPTION USING ERRCODE = '22023',
                     MESSAGE = 'scale seed Learning guard contract mismatch';
@@ -225,11 +210,6 @@ DECLARE
     v_code text;
     v_row_count integer;
 BEGIN
-    IF pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 5) <> '_test'
-       AND pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 4) <> '_e2e' THEN
-        RAISE EXCEPTION USING ERRCODE = '42501',
-            MESSAGE = 'scale seed capabilities require a test database';
-    END IF;
     IF p_marker IS NULL OR pg_catalog.btrim(p_marker) = ''
        OR p_project_ids IS NULL THEN
         RAISE EXCEPTION USING ERRCODE = '22023',
@@ -295,7 +275,7 @@ BEGIN
                OR pg_catalog.jsonb_typeof(v_guard -> 'error') IS DISTINCT FROM 'object'
                OR pg_catalog.jsonb_typeof(v_guard #> '{error,code}') IS DISTINCT FROM 'string'
                OR pg_catalog.char_length(v_guard #>> '{error,code}') = 0
-               OR (v_guard -> 'error' - 'code') <> '{}'::jsonb
+               OR ((v_guard -> 'error') - 'code') <> '{}'::jsonb
                OR (v_guard - ARRAY['schema', 'ok', 'error']) <> '{}'::jsonb THEN
                 RAISE EXCEPTION USING ERRCODE = '22023',
                     MESSAGE = 'scale seed Learning guard contract mismatch';
@@ -365,11 +345,6 @@ DECLARE
     v_scope jsonb;
     v_guard jsonb;
 BEGIN
-    IF pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 5) <> '_test'
-       AND pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 4) <> '_e2e' THEN
-        RAISE EXCEPTION USING ERRCODE = '42501',
-            MESSAGE = 'scale seed capabilities require a test database';
-    END IF;
     IF p_dataset_id IS NULL OR p_after_task_cleanup IS NULL THEN
         RAISE EXCEPTION USING ERRCODE = '22023',
             MESSAGE = 'invalid scale seed Dataset cleanup scope';
@@ -387,7 +362,7 @@ BEGIN
            OR v_scope -> 'ok' IS DISTINCT FROM 'false'::jsonb
            OR pg_catalog.jsonb_typeof(v_scope #> '{error,code}') IS DISTINCT FROM 'string'
            OR pg_catalog.char_length(v_scope #>> '{error,code}') = 0
-           OR (v_scope -> 'error' - 'code') <> '{}'::jsonb
+           OR ((v_scope -> 'error') - 'code') <> '{}'::jsonb
            OR (v_scope - ARRAY['schema', 'ok', 'error']) <> '{}'::jsonb THEN
             RAISE EXCEPTION USING ERRCODE = '22023',
                 MESSAGE = 'scale seed Dataset lock contract mismatch';
@@ -405,7 +380,7 @@ BEGIN
     IF v_scope ->> 'schema' IS DISTINCT FROM 'aap-dataset-source-delete-scope/v1'
        OR v_scope #> '{data,pending_upload}' IS DISTINCT FROM 'false'::jsonb
        OR (v_scope - ARRAY['schema', 'ok', 'data']) <> '{}'::jsonb
-       OR (v_scope -> 'data' - 'pending_upload') <> '{}'::jsonb THEN
+       OR ((v_scope -> 'data') - 'pending_upload') <> '{}'::jsonb THEN
         RAISE EXCEPTION USING ERRCODE = '22023',
             MESSAGE = 'scale seed Dataset lock contract mismatch';
     END IF;
@@ -420,7 +395,7 @@ BEGIN
         IF v_guard -> 'ok' IS DISTINCT FROM 'false'::jsonb
            OR pg_catalog.jsonb_typeof(v_guard #> '{error,code}') IS DISTINCT FROM 'string'
            OR pg_catalog.char_length(v_guard #>> '{error,code}') = 0
-           OR (v_guard -> 'error' - 'code') <> '{}'::jsonb
+           OR ((v_guard -> 'error') - 'code') <> '{}'::jsonb
            OR (v_guard - ARRAY['schema', 'ok', 'error']) <> '{}'::jsonb THEN
             RAISE EXCEPTION USING ERRCODE = '22023',
                 MESSAGE = 'scale seed Jobs source guard contract mismatch';
@@ -451,7 +426,7 @@ BEGIN
         IF v_guard -> 'ok' IS DISTINCT FROM 'false'::jsonb
            OR pg_catalog.jsonb_typeof(v_guard #> '{error,code}') IS DISTINCT FROM 'string'
            OR pg_catalog.char_length(v_guard #>> '{error,code}') = 0
-           OR (v_guard -> 'error' - 'code') <> '{}'::jsonb
+           OR ((v_guard -> 'error') - 'code') <> '{}'::jsonb
            OR (v_guard - ARRAY['schema', 'ok', 'error']) <> '{}'::jsonb THEN
             RAISE EXCEPTION USING ERRCODE = '22023',
                 MESSAGE = 'scale seed Learning source guard contract mismatch';
@@ -484,7 +459,7 @@ BEGIN
         IF v_guard -> 'ok' IS DISTINCT FROM 'false'::jsonb
            OR pg_catalog.jsonb_typeof(v_guard #> '{error,code}') IS DISTINCT FROM 'string'
            OR pg_catalog.char_length(v_guard #>> '{error,code}') = 0
-           OR (v_guard -> 'error' - 'code') <> '{}'::jsonb
+           OR ((v_guard -> 'error') - 'code') <> '{}'::jsonb
            OR (v_guard - ARRAY['schema', 'ok', 'error']) <> '{}'::jsonb THEN
             RAISE EXCEPTION USING ERRCODE = '22023',
                 MESSAGE = 'scale seed Assets source guard contract mismatch';
@@ -518,7 +493,7 @@ BEGIN
             IF v_guard -> 'ok' IS DISTINCT FROM 'false'::jsonb
                OR pg_catalog.jsonb_typeof(v_guard #> '{error,code}') IS DISTINCT FROM 'string'
                OR pg_catalog.char_length(v_guard #>> '{error,code}') = 0
-               OR (v_guard -> 'error' - 'code') <> '{}'::jsonb
+               OR ((v_guard -> 'error') - 'code') <> '{}'::jsonb
                OR (v_guard - ARRAY['schema', 'ok', 'error']) <> '{}'::jsonb THEN
                 RAISE EXCEPTION USING ERRCODE = '22023',
                     MESSAGE = 'scale seed Labeling source guard contract mismatch';

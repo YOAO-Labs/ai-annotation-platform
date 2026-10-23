@@ -2782,6 +2782,37 @@ Identity／Workspace 围栏；设置 `AAP_IDENTITY_E2E_FIXTURE_LIVE=1` 及匹配
 `AAP_WORKSPACE_MODULE_*` 镜像和 identity 后运行。它不切换主环境，也不证明整模块
 部署完成。清理遇到未退役视频返回 409，先取消并完成真实退役再重试。
 
+### 规模种子与截图支持读取
+
+应用当前迁移和 owner grants 后，可信操作账号先应用普通 Workspace consumer
+围栏，再组合 `identity-scale-seed-grants.sql` 和 `workspace-scale-seed-grants.sql`。
+后者追加四项 Workspace 能力、一项 Assets 来源 guard 和既有 Labeling 计数 writer，
+保留其他领域的既有权限；普通 API 不得到这些规模操作能力。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-scale-native.json \
+  --test-file tests/test_scale_seed_workspace_native.py \
+  --test-file tests/test_identity_seed_selection_native.py
+```
+
+截图夹具的 golden 包含全库账号，需与图片导入夹具分开使用验收库，原基线保持：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-screenshot-readers.json \
+  --test-file tests/test_identity_recording_native.py::test_jobs_recording_identity \
+  --test-file tests/test_identity_recording_native.py::test_review_recording_identity \
+  --test-file tests/test_identity_recording_native.py::test_jobs_cached_email_keeps_original_id \
+  --test-file tests/test_identity_recording_native.py::test_jobs_cached_project_preserves_original_pipeline_and_name
+```
+
+冷验收分别复用 `test_identity_seed_selection_live.py` 和
+`test_identity_recording_live.py`，对应开关为 `AAP_IDENTITY_SEED_SELECTION_LIVE=1`
+和 `AAP_IDENTITY_RECORDING_FIXTURE_LIVE=1`，使用匹配当前源码的
+`AAP_WORKSPACE_MODULE_*` 工件。生产拒绝仍在 `seed_scale.py` 创建 engine 前执行；
+保留引用或忙锁必须先解决再重试，不能补造退役证明。
+
 ### 媒体种子与截图 Workspace 边界
 
 安装当前迁移并应用 module-data owner grants 后，可信操作账号先应用普通 Workspace

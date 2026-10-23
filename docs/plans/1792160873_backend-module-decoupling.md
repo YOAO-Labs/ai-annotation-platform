@@ -7763,3 +7763,37 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   ledger advances the next bounded delivery to scale seed and the two remaining
   screenshot support readers. Legacy migration audit, cold worker consumers and
   actual old video-retirement evidence remain open; no proof is fabricated.
+
+### Workspace scale seed and screenshot support readers
+
+- Owner source 78a794341b0ae07efd4d8eea85c196aa8d9e98b3 integrates as
+  50c551347a2f0e74cf92637c0b5c233973cfc977. Migration 0310 adds four fixed
+  Workspace scale operations plus one necessary Assets guard-only prerequisite.
+  The latter owns the private Dataset/Scene/Item lock and existing Jobs, Learning,
+  Assets and post-task Labeling retention calls; no private helper is granted.
+- Root preserves raw PostgreSQL defaults, display sequences, ON CONFLICT DO NOTHING,
+  exact marker scopes and the four original commits. Labeling owns total_tasks.
+  The two screenshot support readers reuse Session.get-compatible Workspace reads.
+  Production refusal precedes owner binding imports and engine creation.
+- Five original full-field/staging cases were captured at 560f701ca on 0309. The
+  migrated consumer matches all five; thirteen new scale cases pass including
+  unretired video, Learning policy, camera link/chapter retention, Dataset/Project
+  busy refusal, exact rollback, Node's five capabilities and sequence/conflict
+  behavior. Fourteen existing selection/import cases and twenty-three screenshot
+  reader cases plus the production guard pass: fifty-one distinct consumer cases.
+- Root removes the worker's unrequested test-database suffix restriction and
+  exclusive-role policy, retains additive profile composition, corrects eight SQL
+  JSON operator groupings, and preserves ordinary Workspace denial including the
+  cross-owner scale guard. Original failures remain immutable under
+  .worktree/workspace-scale-\*. A repeated unmodified attempt was interrupted during
+  cleanup; its exact scoped users/policies and database/container were recovered
+  and independently verified, with receipt workspace-scale-interrupted-recovery.json.
+- The screenshot happy case passed alone but failed after an image-import case.
+  Full field comparison proves the only difference is one unrelated retained User;
+  separate verifier-owned fixture databases pass all twenty-three screenshot cases.
+  No golden was changed. The owner suite has 504 distinct passing cases after
+  removing a free-text wording assertion; its contract and sidecars still match.
+  API architecture passes 358 with 150 existing deferred rules.
+- Matching cold artifacts and actual installed CLI acceptance are the next gate.
+  This is the Workspace consumer boundary; raw other-domain bulk DML, full module
+  closure, primary cutover, production, release and Go expansion are not claimed.

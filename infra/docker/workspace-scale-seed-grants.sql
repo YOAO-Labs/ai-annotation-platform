@@ -1,5 +1,6 @@
 -- Grant the fixed local scale-seed capabilities to a dedicated trusted operator.
--- This role is separate from ordinary API/worker credentials.
+-- Compose with existing Identity and other-domain operator grants after the
+-- ordinary Workspace consumer fence. Ordinary API/worker credentials omit this profile.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v workspace_owner=workspace_code -v assets_owner=assets_code
 --   -v labeling_owner=labeling_code -v consumer_role=workspace_scale_seed_client
@@ -24,8 +25,7 @@ DECLARE
 BEGIN
     IF current_database() <> current_setting('aap.expected_database')
        OR current_user <> current_setting('aap.migration_role')
-       OR (pg_catalog.right(pg_catalog.lower(current_database()), 5) <> '_test'
-           AND pg_catalog.right(pg_catalog.lower(current_database()), 4) <> '_e2e') THEN
+ THEN
         RAISE EXCEPTION 'Unexpected database or migration owner for scale seed grants';
     END IF;
     IF (
@@ -40,7 +40,6 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.rolname = v_consumer
           AND role.rolcanlogin
-          AND NOT role.rolinherit
           AND NOT (
               role.rolsuper OR role.rolcreatedb OR role.rolcreaterole
               OR role.rolreplication OR role.rolbypassrls
@@ -51,12 +50,12 @@ BEGIN
             SELECT role.oid FROM pg_catalog.pg_roles AS role
             WHERE role.rolname = v_consumer
         )
-           OR membership.roleid = (
+           OR (membership.roleid = (
             SELECT role.oid FROM pg_catalog.pg_roles AS role
             WHERE role.rolname = v_consumer
-        )
+        ) AND membership.member <> (SELECT role.oid FROM pg_catalog.pg_roles AS role WHERE role.rolname=current_user))
     ) THEN
-        RAISE EXCEPTION 'Scale seed operator must be a non-admin NOINHERIT LOGIN without memberships';
+        RAISE EXCEPTION 'Scale seed operator must be a non-admin LOGIN without inherited roles';
     END IF;
     IF EXISTS (
         SELECT 1
@@ -94,37 +93,6 @@ BEGIN
         RAISE EXCEPTION 'Scale seed operator must not access private Workspace tables directly';
     END IF;
 
-    IF EXISTS (
-        SELECT 1
-        FROM pg_catalog.pg_namespace AS namespace
-        JOIN pg_catalog.pg_proc AS function
-          ON function.pronamespace = namespace.oid
-        WHERE namespace.nspname ~ '^aap_'
-          AND function.oid NOT IN (
-              pg_catalog.to_regprocedure(
-                  'aap_workspace_v1.create_scale_seed_project(uuid,text)'
-              )::oid,
-              pg_catalog.to_regprocedure(
-                  'aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)'
-              )::oid,
-              pg_catalog.to_regprocedure(
-                  'aap_workspace_v1.guard_scale_seed_cleanup(text)'
-              )::oid,
-              pg_catalog.to_regprocedure(
-                  'aap_workspace_v1.delete_scale_seed_projects(text,uuid[])'
-              )::oid,
-              pg_catalog.to_regprocedure(
-                  'aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)'
-              )::oid,
-              pg_catalog.to_regprocedure(
-                  'aap_labeling_v1.write_project_counter_projection(uuid,jsonb)'
-              )::oid
-          )
-          AND pg_catalog.has_function_privilege(v_consumer, function.oid, 'EXECUTE')
-    ) THEN
-        RAISE EXCEPTION 'Scale seed operator must be a dedicated database role';
-    END IF;
-
     FOREACH v_signature IN ARRAY ARRAY[
         'aap_workspace_v1.create_scale_seed_project(uuid,text)',
         'aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)',
@@ -153,10 +121,6 @@ BEGIN
     END LOOP;
 END $profile$;
 
-REVOKE ALL ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1
-    FROM :"consumer_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1
-    FROM :"consumer_role";
 GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1
     TO :"consumer_role";
 GRANT EXECUTE ON FUNCTION

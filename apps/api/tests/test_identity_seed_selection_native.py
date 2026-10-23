@@ -42,7 +42,7 @@ def _replay(name, value, record_property):
 
 @pytest.fixture
 async def selection_world(test_engine):
-    async with _world(test_engine, apply=False) as (owner, consumer, role, _url):
+    async with _world(test_engine) as (owner, consumer, role, _url):
         # Match the existing worktree CLI's two Assets capabilities used here;
         # the LAN application profile intentionally does not include them.
         async with test_engine.begin() as db:
@@ -55,6 +55,14 @@ async def selection_world(test_engine):
             )
         result = await _grants(
             test_engine, ROOT / "infra/docker/identity-scale-seed-grants.sql", role
+        )
+        assert result.returncode == 0, result.stderr
+        result = await _grants(
+            test_engine,
+            ROOT / "infra/docker/workspace-scale-seed-grants.sql",
+            role,
+            assets_owner="assets_code",
+            labeling_owner="labeling_code",
         )
         assert result.returncode == 0, result.stderr
         async with consumer() as db:

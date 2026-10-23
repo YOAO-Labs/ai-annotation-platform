@@ -276,6 +276,7 @@ SQL_ARTIFACTS = (
     "0307_workspace_media_seed_project.sql",
     "0308_workspace_seed_member_assignment.sql",
     "0309_workspace_e2e_fixtures.sql",
+    "0310_workspace_scale_seed.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -397,8 +398,10 @@ SCHEMA_ARTIFACTS = (
     "0307_workspace_media_seed_project.schema.json",
     "0308_workspace_seed_member_assignment.schema.json",
     "0309_workspace_e2e_fixtures.schema.json",
+    "0310_workspace_scale_seed.schema.json",
 )
 TEST_FILES = (
+    "tests/test_scale_seed_workspace_native.py",
     "tests/test_workspace_e2e_native.py",
     "tests/test_gpu_registry_delete_noop_native.py",
     "tests/test_identity_e2e_replay.py",
@@ -2397,6 +2400,11 @@ def _install_and_rollback_frozen_sql(
             "AND to_regprocedure('aap_identity_v1.replace_fixture_preferences(uuid,jsonb)') IS NULL "
             "AND to_regnamespace('aap_identity_fixture_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_fixture_v1') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.create_scale_seed_project(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.guard_scale_seed_cleanup(text)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.delete_scale_seed_projects(text,uuid[])') IS NULL "
+            "AND to_regprocedure('aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_scale_seed_super_admin()') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_scale_seed_annotator(uuid[])') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)') IS NULL "
@@ -2985,8 +2993,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0309"]:
-            raise RuntimeError("module-data acceptance requires migration head 0309")
+        if heads != ["0310"]:
+            raise RuntimeError("module-data acceptance requires migration head 0310")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -4006,6 +4014,9 @@ def main(argv: list[str] | None = None) -> int:
             "tests/test_seed_parent_operator_native.py" in selected_test_paths
             or "tests/test_workspace_e2e_native.py" in selected_test_paths
             or "tests/test_identity_e2e_live.py" in selected_test_paths
+            or "tests/test_scale_seed_workspace_native.py" in selected_test_paths
+            or "tests/test_identity_seed_selection_live.py" in selected_test_paths
+            or "tests/test_identity_recording_live.py" in selected_test_paths
             or "tests/test_media_seed_workspace_native.py" in selected_test_paths
             or "tests/test_media_seed_workspace_live.py" in selected_test_paths
             or "tests/test_seed_parent_operator_live.py" in selected_test_paths
@@ -4152,6 +4163,37 @@ def main(argv: list[str] | None = None) -> int:
                             "workspace-seed-operator-grants.sql",
                             "workspace-e2e-fixture-grants.sql",
                         ],
+                    }
+                if identity_seed_selection_live or identity_recording_live:
+                    profiles = ["workspace-consumer-grants.sql"]
+                    if identity_seed_selection_live:
+                        profiles.append("workspace-scale-seed-grants.sql")
+                    for profile in profiles:
+                        _psql(
+                            container_id,
+                            container_name,
+                            container_identity,
+                            username="owner",
+                            password=owner_password,
+                            database=database,
+                            sql=(ROOT / "infra/docker" / profile).read_text(),
+                            variables={
+                                "expected_database": database,
+                                "migration_role": "owner",
+                                "workspace_owner": "workspace_code",
+                                "assets_owner": "assets_code",
+                                "labeling_owner": "labeling_code",
+                                "consumer_role": "legacy_runtime",
+                            },
+                        )
+                    evidence[
+                        "workspace_scale_seed_operator"
+                        if identity_seed_selection_live
+                        else "workspace_recording_consumer"
+                    ] = {
+                        "role": "legacy_runtime",
+                        "workspace_private_tables_denied": True,
+                        "profiles": profiles,
                     }
                 evidence[
                     "identity_e2e_fixture_operator"

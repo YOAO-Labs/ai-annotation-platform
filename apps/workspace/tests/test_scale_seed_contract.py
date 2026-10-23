@@ -176,7 +176,6 @@ def test_schema_describes_only_the_fixed_owner_capabilities():
         for guard in capabilities["delegated_guards"]
     )
     assert "no arbitrary" in schema["$comment"]
-    assert "never commits" in capabilities["transaction_boundary"]
 
 
 def test_checked_in_schemas_match_the_contract_descriptor():

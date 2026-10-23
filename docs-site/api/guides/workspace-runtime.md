@@ -288,6 +288,30 @@ writer。原 fixture 的不兼容角色、历史属性及未来视频上下文�
 返回 409，停止继续清理；二次守卫拒绝时外层事务也回滚。不得补造退役凭证。
 项目和模板残留均使清理失败；shared reset 前先显式清理各 owned namespace。
 
+### 规模种子与截图支持读取
+
+规模种子使用 `aap-workspace-scale-seed/v1`，保留原始 SQL 默认值、显示编号序列及
+四个提交阶段。项目初始 `total_tasks` 由既有 Labeling projection 在同一事务中写入，
+不转为 ORM 工厂，也不规范化原账号选择或职责值。
+
+| 能力                                                           | 语义                                                                                 |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `aap_workspace_v1.create_scale_seed_project(uuid,text)`        | 插入固定类型的项目，保留 PostgreSQL 默认值，返回生成 UUID                            |
+| `aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)`    | 插入标注职责；冲突时不更新，返回 0 或 1                                              |
+| `aap_workspace_v1.guard_scale_seed_cleanup(text)`              | 捕获并锁定精确名称范围，先检查 Learning 保留及视频退役                               |
+| `aap_workspace_v1.delete_scale_seed_projects(text,uuid[])`     | 只删除捕获且仍匹配名称的项目；再次检查保留条件                                       |
+| `aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)` | 复用 Assets 的 Dataset／Scene／Item 锁及来源保留检查；任务清理后再检查 Labeling 引用 |
+
+最后一项使用 `aap-workspace-scale-source-guard/v1`，校验 Dataset UUID 和调用阶段，
+不向客户端暴露私有锁 helper，不删除来源字节。未退役执行、学习历史、辅助引用或
+忙锁会拒绝清理，调用方回滚；原项目／数据集名称范围和成功路径提交顺序保留。
+
+可信操作账号在普通 Workspace consumer 围栏后追加
+`workspace-scale-seed-grants.sql`；它与既有 Identity 和其他领域 operator 权限组合，
+不替换这些权限。生产拒绝仍在 CLI 创建 engine 前执行，不限制开发数据库的名称。
+两个截图支持助手复用 `get_workspace_project`，保留原 Session.get 缓存与范围校验。
+这些消费者的 Workspace 边界不代表其余领域的批量 DML 已完成提取。
+
 ## 锁定权限与会话快照
 
 API 写入权限入口保留原元组接口，通过现有

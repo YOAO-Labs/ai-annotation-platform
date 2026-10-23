@@ -1758,6 +1758,10 @@ ALTER FUNCTION aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,te
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.write_seed_project_projection(uuid,jsonb)
     OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.create_scale_seed_project(uuid,text) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.guard_scale_seed_cleanup(text) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.delete_scale_seed_projects(text,uuid[]) OWNER TO :"workspace_owner";
 
 GRANT CREATE ON SCHEMA aap_inference_backend_probe_v1 TO :"inference_owner";
 ALTER SCHEMA aap_inference_backend_probe_v1 OWNER TO :"inference_owner";
@@ -2188,6 +2192,7 @@ ALTER FUNCTION aap_assets_v1.dataset_item_scene_references(uuid, uuid)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.guard_dataset_source_auxiliary_retention(uuid, uuid)
     OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.dataset_scene_references(uuid)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.remove_dataset_association(uuid, uuid, uuid)

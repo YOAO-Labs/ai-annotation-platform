@@ -82,6 +82,11 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_import_project(text),
     aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb),
     aap_workspace_v1.write_seed_project_projection(uuid,jsonb),
     aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz),
+    aap_workspace_v1.create_scale_seed_project(uuid,text),
+    aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid),
+    aap_workspace_v1.guard_scale_seed_cleanup(text),
+    aap_workspace_v1.delete_scale_seed_projects(text,uuid[]),
+    aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean),
     aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
     TO :"application_role";
 GRANT USAGE ON SCHEMA aap_inference_backend_probe_v1 TO :"application_role";

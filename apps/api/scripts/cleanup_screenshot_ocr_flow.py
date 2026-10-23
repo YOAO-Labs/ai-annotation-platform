@@ -27,7 +27,7 @@ from app.config import settings  # noqa: E402
 from app.db.models.async_job import AsyncJob  # noqa: E402
 from app.db.models.annotation import Annotation  # noqa: E402
 from app.db.models.dataset import Dataset, ProjectDataset  # noqa: E402
-from app.db.models.project import Project  # noqa: E402
+from app.services.project_access import get_workspace_project  # noqa: E402
 from app.db.models.prediction import Prediction, PredictionMeta  # noqa: E402
 from app.db.models.task import Task  # noqa: E402
 from app.db.models.video_tracker_job import VideoTrackerJob  # noqa: E402
@@ -64,7 +64,7 @@ async def assert_screenshot_scope(
     project_id: uuid.UUID,
     task_id: uuid.UUID,
 ) -> str:
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     expected_display_id = PROJECT_SPECS[project_key].display_id
     if project is None or project.display_id != expected_display_id:
         raise RuntimeError(

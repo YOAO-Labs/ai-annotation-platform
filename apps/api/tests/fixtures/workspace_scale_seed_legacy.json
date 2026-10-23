@@ -1,0 +1,409 @@
+{
+  "source_commit": "560f701ca2486993110c95c06f9a85a2043d61a5",
+  "capture_evidence": ".worktree/workspace-scale-baseline-first.json",
+  "snapshots": {
+    "normal": {
+      "project": {
+        "name": "<marker>",
+        "status": "in_progress",
+        "due_date": null,
+        "owner_id": "admin",
+        "sampling": "sequence",
+        "type_key": "image_detection",
+        "data_type": "image",
+        "ai_enabled": false,
+        "scene_mode": false,
+        "type_label": "图像检测",
+        "total_tasks": 4,
+        "guide_assets": [],
+        "label_config": {},
+        "review_tasks": 0,
+        "batch_summary": {},
+        "box_threshold": 0.35,
+        "model_version": null,
+        "tool_bindings": {},
+        "mask_qc_config": {},
+        "text_threshold": 0.25,
+        "video_sampling": {},
+        "completed_tasks": 0,
+        "organization_id": null,
+        "annotation_guide": null,
+        "default_variants": {},
+        "rendering_config": {},
+        "in_progress_tasks": 0,
+        "ml_backend_pool_id": null,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "maximum_annotations": 1,
+        "video_collaboration": {},
+        "preannotate_pipeline": null,
+        "task_lock_ttl_seconds": 300,
+        "ai_interactive_enabled": true,
+        "point_cloud_quality_config": {},
+        "scene_continuation_window_min": 30,
+        "prefer_same_scene_continuation": false,
+        "raster_mask_native_editing_enabled": true
+      },
+      "members": [
+        {
+          "user_id": "annotator",
+          "role": "annotator",
+          "assigned_by": "admin",
+          "version": 1,
+          "weekly_target": null
+        }
+      ],
+      "counts": {
+        "tasks": 4,
+        "task_batches": 2,
+        "annotations": 1
+      },
+      "tasks": [
+        {
+          "file_name": "img_0.jpg",
+          "file_path": "/seed/0.jpg",
+          "file_type": "image",
+          "status": "pending",
+          "sequence_order": 0,
+          "is_labeled": false,
+          "total_annotations": 0,
+          "total_predictions": 0
+        },
+        {
+          "file_name": "img_1.jpg",
+          "file_path": "/seed/1.jpg",
+          "file_type": "image",
+          "status": "pending",
+          "sequence_order": 1,
+          "is_labeled": false,
+          "total_annotations": 0,
+          "total_predictions": 0
+        },
+        {
+          "file_name": "img_2.jpg",
+          "file_path": "/seed/2.jpg",
+          "file_type": "image",
+          "status": "pending",
+          "sequence_order": 2,
+          "is_labeled": false,
+          "total_annotations": 0,
+          "total_predictions": 0
+        },
+        {
+          "file_name": "img_3.jpg",
+          "file_path": "/seed/3.jpg",
+          "file_type": "image",
+          "status": "pending",
+          "sequence_order": 3,
+          "is_labeled": false,
+          "total_annotations": 0,
+          "total_predictions": 0
+        }
+      ],
+      "batches": [
+        {
+          "name": "batch 1",
+          "status": "active"
+        },
+        {
+          "name": "batch 2",
+          "status": "active"
+        }
+      ],
+      "annotations": [
+        {
+          "class_name": "seed",
+          "geometry": {
+            "h": 1,
+            "w": 1,
+            "x": 0,
+            "y": 0,
+            "type": "bbox"
+          },
+          "is_active": true
+        }
+      ],
+      "datasets": 1,
+      "items": 4,
+      "commits": 4,
+      "disposed": 1,
+      "outcome": "completed",
+      "printed_done": true
+    },
+    "zero": {
+      "project": {
+        "name": "<marker>",
+        "status": "in_progress",
+        "due_date": null,
+        "owner_id": "admin",
+        "sampling": "sequence",
+        "type_key": "image_detection",
+        "data_type": "image",
+        "ai_enabled": false,
+        "scene_mode": false,
+        "type_label": "图像检测",
+        "total_tasks": 0,
+        "guide_assets": [],
+        "label_config": {},
+        "review_tasks": 0,
+        "batch_summary": {},
+        "box_threshold": 0.35,
+        "model_version": null,
+        "tool_bindings": {},
+        "mask_qc_config": {},
+        "text_threshold": 0.25,
+        "video_sampling": {},
+        "completed_tasks": 0,
+        "organization_id": null,
+        "annotation_guide": null,
+        "default_variants": {},
+        "rendering_config": {},
+        "in_progress_tasks": 0,
+        "ml_backend_pool_id": null,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "maximum_annotations": 1,
+        "video_collaboration": {},
+        "preannotate_pipeline": null,
+        "task_lock_ttl_seconds": 300,
+        "ai_interactive_enabled": true,
+        "point_cloud_quality_config": {},
+        "scene_continuation_window_min": 30,
+        "prefer_same_scene_continuation": false,
+        "raster_mask_native_editing_enabled": true
+      },
+      "members": [
+        {
+          "user_id": "annotator",
+          "role": "annotator",
+          "assigned_by": "admin",
+          "version": 1,
+          "weekly_target": null
+        }
+      ],
+      "counts": {
+        "tasks": 0,
+        "task_batches": 2,
+        "annotations": 0
+      },
+      "tasks": [],
+      "batches": [
+        {
+          "name": "batch 1",
+          "status": "active"
+        },
+        {
+          "name": "batch 2",
+          "status": "active"
+        }
+      ],
+      "annotations": [],
+      "datasets": 1,
+      "items": 0,
+      "commits": 4,
+      "disposed": 1,
+      "outcome": "completed",
+      "printed_done": true
+    },
+    "tasks_fail": {
+      "project": {
+        "name": "<marker>",
+        "status": "in_progress",
+        "due_date": null,
+        "owner_id": "admin",
+        "sampling": "sequence",
+        "type_key": "image_detection",
+        "data_type": "image",
+        "ai_enabled": false,
+        "scene_mode": false,
+        "type_label": "图像检测",
+        "total_tasks": 4,
+        "guide_assets": [],
+        "label_config": {},
+        "review_tasks": 0,
+        "batch_summary": {},
+        "box_threshold": 0.35,
+        "model_version": null,
+        "tool_bindings": {},
+        "mask_qc_config": {},
+        "text_threshold": 0.25,
+        "video_sampling": {},
+        "completed_tasks": 0,
+        "organization_id": null,
+        "annotation_guide": null,
+        "default_variants": {},
+        "rendering_config": {},
+        "in_progress_tasks": 0,
+        "ml_backend_pool_id": null,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "maximum_annotations": 1,
+        "video_collaboration": {},
+        "preannotate_pipeline": null,
+        "task_lock_ttl_seconds": 300,
+        "ai_interactive_enabled": true,
+        "point_cloud_quality_config": {},
+        "scene_continuation_window_min": 30,
+        "prefer_same_scene_continuation": false,
+        "raster_mask_native_editing_enabled": true
+      },
+      "members": [
+        {
+          "user_id": "annotator",
+          "role": "annotator",
+          "assigned_by": "admin",
+          "version": 1,
+          "weekly_target": null
+        }
+      ],
+      "counts": {
+        "tasks": 0,
+        "task_batches": 2,
+        "annotations": 0
+      },
+      "tasks": [],
+      "batches": [
+        {
+          "name": "batch 1",
+          "status": "active"
+        },
+        {
+          "name": "batch 2",
+          "status": "active"
+        }
+      ],
+      "annotations": [],
+      "datasets": 1,
+      "items": 4,
+      "commits": 2,
+      "disposed": 0,
+      "outcome": "controlled scale stage failure",
+      "printed_done": false
+    },
+    "annotations_fail": {
+      "project": {
+        "name": "<marker>",
+        "status": "in_progress",
+        "due_date": null,
+        "owner_id": "admin",
+        "sampling": "sequence",
+        "type_key": "image_detection",
+        "data_type": "image",
+        "ai_enabled": false,
+        "scene_mode": false,
+        "type_label": "图像检测",
+        "total_tasks": 4,
+        "guide_assets": [],
+        "label_config": {},
+        "review_tasks": 0,
+        "batch_summary": {},
+        "box_threshold": 0.35,
+        "model_version": null,
+        "tool_bindings": {},
+        "mask_qc_config": {},
+        "text_threshold": 0.25,
+        "video_sampling": {},
+        "completed_tasks": 0,
+        "organization_id": null,
+        "annotation_guide": null,
+        "default_variants": {},
+        "rendering_config": {},
+        "in_progress_tasks": 0,
+        "ml_backend_pool_id": null,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "maximum_annotations": 1,
+        "video_collaboration": {},
+        "preannotate_pipeline": null,
+        "task_lock_ttl_seconds": 300,
+        "ai_interactive_enabled": true,
+        "point_cloud_quality_config": {},
+        "scene_continuation_window_min": 30,
+        "prefer_same_scene_continuation": false,
+        "raster_mask_native_editing_enabled": true
+      },
+      "members": [
+        {
+          "user_id": "annotator",
+          "role": "annotator",
+          "assigned_by": "admin",
+          "version": 1,
+          "weekly_target": null
+        }
+      ],
+      "counts": {
+        "tasks": 4,
+        "task_batches": 2,
+        "annotations": 0
+      },
+      "tasks": [
+        {
+          "file_name": "img_0.jpg",
+          "file_path": "/seed/0.jpg",
+          "file_type": "image",
+          "status": "pending",
+          "sequence_order": 0,
+          "is_labeled": false,
+          "total_annotations": 0,
+          "total_predictions": 0
+        },
+        {
+          "file_name": "img_1.jpg",
+          "file_path": "/seed/1.jpg",
+          "file_type": "image",
+          "status": "pending",
+          "sequence_order": 1,
+          "is_labeled": false,
+          "total_annotations": 0,
+          "total_predictions": 0
+        },
+        {
+          "file_name": "img_2.jpg",
+          "file_path": "/seed/2.jpg",
+          "file_type": "image",
+          "status": "pending",
+          "sequence_order": 2,
+          "is_labeled": false,
+          "total_annotations": 0,
+          "total_predictions": 0
+        },
+        {
+          "file_name": "img_3.jpg",
+          "file_path": "/seed/3.jpg",
+          "file_type": "image",
+          "status": "pending",
+          "sequence_order": 3,
+          "is_labeled": false,
+          "total_annotations": 0,
+          "total_predictions": 0
+        }
+      ],
+      "batches": [
+        {
+          "name": "batch 1",
+          "status": "active"
+        },
+        {
+          "name": "batch 2",
+          "status": "active"
+        }
+      ],
+      "annotations": [],
+      "datasets": 1,
+      "items": 4,
+      "commits": 3,
+      "disposed": 0,
+      "outcome": "controlled scale stage failure",
+      "printed_done": false
+    },
+    "no_admin": {
+      "project": null,
+      "commits": 1,
+      "disposed": 0,
+      "outcome": {
+        "exit": 1
+      },
+      "printed_done": false
+    }
+  }
+}

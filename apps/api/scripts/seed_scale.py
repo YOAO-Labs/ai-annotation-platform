@@ -28,6 +28,14 @@ if settings.environment == "production":
     print("[seed_scale] refusing to run with environment=production", file=sys.stderr)
     raise SystemExit(2)
 
+from app.services.workspace_scale_seed_data import (  # noqa: E402
+    create_scale_seed_project,
+    delete_scale_seed_projects,
+    ensure_scale_seed_member,
+    guard_scale_seed_sources,
+    prepare_scale_seed_cleanup,
+)
+
 MARKER = "scale-seed"
 
 engine = create_async_engine(settings.database_url, echo=False)
@@ -35,37 +43,33 @@ Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False
 
 
 async def _purge(db: AsyncSession) -> None:
+    project_ids, dataset_ids = await prepare_scale_seed_cleanup(db, MARKER)
     await db.execute(
         text(
-            "DELETE FROM annotations WHERE task_id IN "
-            "(SELECT t.id FROM tasks t JOIN projects p ON p.id = t.project_id "
-            " WHERE p.name = :m)"
+            "DELETE FROM annotations WHERE task_id IN (SELECT id FROM tasks WHERE project_id=ANY(CAST(:ids AS uuid[])))"
         ),
-        {"m": MARKER},
+        {"ids": project_ids},
+    )
+    await db.execute(
+        text("DELETE FROM tasks WHERE project_id=ANY(CAST(:ids AS uuid[]))"),
+        {"ids": project_ids},
+    )
+    await db.execute(
+        text("DELETE FROM task_batches WHERE project_id=ANY(CAST(:ids AS uuid[]))"),
+        {"ids": project_ids},
+    )
+    await guard_scale_seed_sources(db, dataset_ids, after_task_cleanup=True)
+    await db.execute(
+        text("DELETE FROM dataset_items WHERE dataset_id=ANY(CAST(:ids AS uuid[]))"),
+        {"ids": dataset_ids},
     )
     await db.execute(
         text(
-            "DELETE FROM tasks WHERE project_id IN "
-            "(SELECT id FROM projects WHERE name = :m)"
+            "DELETE FROM datasets WHERE id=ANY(CAST(:ids AS uuid[])) AND name=:marker"
         ),
-        {"m": MARKER},
+        {"ids": dataset_ids, "marker": MARKER},
     )
-    await db.execute(
-        text(
-            "DELETE FROM task_batches WHERE project_id IN "
-            "(SELECT id FROM projects WHERE name = :m)"
-        ),
-        {"m": MARKER},
-    )
-    await db.execute(
-        text(
-            "DELETE FROM dataset_items WHERE dataset_id IN "
-            "(SELECT id FROM datasets WHERE name = :m)"
-        ),
-        {"m": MARKER},
-    )
-    await db.execute(text("DELETE FROM datasets WHERE name = :m"), {"m": MARKER})
-    await db.execute(text("DELETE FROM projects WHERE name = :m"), {"m": MARKER})
+    await delete_scale_seed_projects(db, marker=MARKER, project_ids=project_ids)
     await db.commit()
 
 
@@ -85,26 +89,11 @@ async def seed(n_tasks: int, n_batches: int, n_annotated: int) -> None:
             )
             raise SystemExit(1)
 
-        project_id = (
-            await db.execute(
-                text(
-                    "INSERT INTO projects (id, display_id, name, type_label, type_key, owner_id, total_tasks) "
-                    "VALUES (gen_random_uuid(), 'P-'||nextval('display_seq_projects'), :m, "
-                    "'图像检测', 'image_detection', :owner, :n) RETURNING id"
-                ),
-                {"m": MARKER, "owner": owner_id, "n": n_tasks},
-            )
-        ).scalar()
-
-        # Explicit project duty so the stress project is actually reachable by
-        # the annotator under the project-scoped access model.
-        await db.execute(
-            text(
-                "INSERT INTO project_members (id, project_id, user_id, role, assigned_by) "
-                "VALUES (gen_random_uuid(), :proj, :anno, 'annotator', :owner) "
-                "ON CONFLICT (project_id, user_id) DO NOTHING"
-            ),
-            {"proj": project_id, "anno": annotator_id, "owner": owner_id},
+        project_id = await create_scale_seed_project(
+            db, owner_id=owner_id, marker=MARKER, total_tasks=n_tasks
+        )
+        await ensure_scale_seed_member(
+            db, project_id=project_id, annotator_id=annotator_id, owner_id=owner_id
         )
 
         dataset_id = (

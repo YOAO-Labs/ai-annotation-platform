@@ -326,8 +326,9 @@ def scale_seed_schema() -> dict[str, Any]:
             },
         ],
         "authorization_boundary": (
-            "Available only through a separately granted trusted operator in a test "
-            "or E2E database; these fixed functions add no application actor policy."
+            "Available only through a separately granted trusted operator. The CLI "
+            "retains its production guard before engine creation; these fixed "
+            "functions add no application actor policy."
         ),
         "transaction_boundary": (
             "The caller owns the encompassing transaction, all commits and rollbacks, "
