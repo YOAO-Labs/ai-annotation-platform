@@ -72,6 +72,9 @@ async def authority(db, inventory):
 
 async def read_usage(db):
     scope = configured_scope()
+    # Read the task state before its observations: a terminal state must never
+    # be paired with pre-completion rows and stop the client polling too early.
+    inventory = await db.get(Inventory, "platform", populate_existing=True)
     rows = {
         r.scope_key: r
         for r in await db.scalars(
@@ -103,7 +106,6 @@ async def read_usage(db):
             )
         )
     count = sum(i.measured_at is not None for i in items)
-    inventory = await db.get(Inventory, "platform", populate_existing=True)
     return BucketsResponse(
         items=items,
         total_object_count=sum(i.object_count for i in items)

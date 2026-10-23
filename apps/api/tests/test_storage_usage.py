@@ -525,3 +525,26 @@ async def test_process_loss_signal_fences_old_delivery_and_recovers_checkpoint(r
     await run_all(db, job)
     assert job.status == "completed"
     assert (await svc.read_usage(db)).items[0].total_size_bytes == 5
+
+
+async def test_completed_response_reads_snapshots_after_terminal_inventory_state(
+    ready, monkeypatch
+):
+    db, actor = ready
+    job, _ = await svc.start(db, actor)
+    await db.commit()
+    original_get = db.get
+    raced = False
+
+    async def completed_between_queries(model, identity, **kwargs):
+        nonlocal raced
+        if model is Inventory and not raced:
+            raced = True
+            await run_all(db, job)
+        return await original_get(model, identity, **kwargs)
+
+    monkeypatch.setattr(db, "get", completed_between_queries)
+    response = await svc.read_usage(db)
+    assert response.inventory_status == "completed"
+    assert response.measured_bucket_count == response.bucket_count == 9
+    assert response.total_size_bytes == 0

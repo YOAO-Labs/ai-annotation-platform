@@ -1,6 +1,6 @@
 # EPIC-12：运维观测、容量口径与备份恢复
 
-> 状态：approved；2026-10-23 按用户“继续推进下一阶段”授权实施 E12-A1 / E09-B1；其余切片仍待独立复核，不分配发布版本。
+> 状态：approved；2026-10-23 按用户“继续推进下一阶段”授权的 E12-A1 / E09-B1 已完成；其余切片仍待独立复核，不分配发布版本。
 > 晋升基线：`5b764eaa5`；工作树干净，保留 `1822b025369a33f4` 的 dev 人工验收环境，不重建后端镜像。
 
 ## 本轮定稿：E12-A1 / E09-B1
@@ -272,3 +272,17 @@ pnpm --dir docs-site check:navigation
 实现时同步：[storage-buckets.md](../../docs-site/dev/reference/storage-buckets.md)、[docker-compose.md](../../docs-site/ops/deploy/docker-compose.md)、[lan-production.md](../../docs-site/ops/deploy/lan-production.md)、[network-security.md](../../docs-site/ops/deploy/network-security.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
 完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+
+## Outcome
+
+E12-A1 / E09-B1 已完成。主实现提交 `0e85ce496`；本次交付记录同时补上经回归复现的“终态先于快照读取”竞态修复，避免已完成响应携带较早统计而停止轮询。没有宣称完整 E12-A、E12 或 E09-B 完成，也未分配发布版本。
+
+- 已交付：九用途按实际桶去重、显式后台分页盘点、逐页检查点与有界预算、租约投递恢复、进程丢失信号隔离、合作式取消、逐桶成功快照、脱敏失败与旧值/时间保留。GET 和 ML overview 只读快照，超级管理员与全权 Key 限制覆盖任务列表/详情/取消及执行中的授权复核。
+- API/DB：30 个不同用例通过（首批 28、进程丢失 1、完成读取竞态 1；竞态修复后附带重验 2 个已有用例不重复累计）。覆盖多页/跨段/重投、共享桶、真零、目录标记、失败/预算、取消后旧值、读前后撤权、配置变化、窄 Key、无外部 I/O 的 GET/overview、0209 迁移升降级、Job 清理后快照保留。读取竞态先出现 `completed + 0/9` 的失败，再修正为先读轮次状态、后读快照，相关 3 项通过。
+- Web：6 个目标文件共 57 个不同用例通过，覆盖原存储导航和媒体重试、未知/真零/过期/部分覆盖、显式启动、会话晚结果、拒绝后隐藏及重新授权恢复、触发按钮消失后的焦点回退。异步弹窗显式返回焦点补充通过；最后两项面板边界与位置提示修改后重验 23 项，不重复累计。SDK OpenAPI 合同 4 项通过，合计 91 项本地用例；未宣称全量测试或远程 CI。
+- 静态与文档：Web tsc、完整 Web lint、CSS token 检查、Ruff、Prettier、OpenAPI 导出/类型生成与完整提交钩子通过；只有既有 4 个 Web lint 警告和训练比较页 2 处样式建议。OpenAPI 保留全部旧端点，只新增盘点 POST；nullable 计数/状态与全权 Key 的调用兼容性已写明。文档 frontmatter 196 文件、navigation 198 页面通过。
+- 真实环境：保留本工作树 dev 3100/8100，0209 已应用，两个 Worker 均注册盘点/恢复任务，Beat active；没有重建后端镜像。最终刷新后的实际任务 `0122136c-969f-4c48-8708-6b81dff6d4b8` 完成 9 个桶、失败 0。人工验收对象总计 20 个、38911 字节；这不是物理容量。取消任务 `79b08671-45aa-4372-8ba1-3f15a0a269db` 保留此前九桶的值与时间，随后 `100972e1-ceb5-4bed-a5fb-df4e7e7d89ee` 再次盘点全部成功。
+- 真实浏览器：使用独立会话、无 mock。首次未知、成功零值、九桶采样时间、默认折叠和展开、连续刷新不产生盘点 POST、任务居中与 Escape 返回焦点通过。1440×1000 和 390×844 明暗主题均检查截图；窄屏明细改为容器内横向滚动，页面宽度仍为 390，无页面溢出；窄屏任务弹窗为 342×318，居中且可关闭。控制台没有 error/warn，仅 debug/info；页面错误与失败网络请求均为零。权限、失败、部分覆盖及进程丢失故障以本地测试验证，未在保留的业务环境注入故障。
+- 正式文档：`docs-site/user-guide/datasets/storage-connections.md`、`docs-site/api/guides/storage-locations.md`、`docs-site/dev/reference/storage-buckets.md`、`README.md`、`CHANGELOG.md` Unreleased 与生成 API 索引同步；SDK coverage 明确将平台运维入口排除为 Web 专用。
+- 清理：一次性 `1822b025369a33f4:test` 数据库/Redis/九桶按 owner 校验销毁；本轮截图、报告、日志、临时脚本、测试缓存及专用浏览器会话清理。保留 dev 人工环境、原演示数据、已有冻结版本与本轮可查看的成功/取消任务记录。
+- 剩余：E12-A 的原件/预览/扫描关联诊断、E12-B 分项归因/配额与一致恢复、E12-C 规模基准仍需独立复核；E09-B 的 E11 清理影响预览和 E07 迁移/退役合同未实施。本计划继续保留为活动计划，外部源索引字节、历史版本/分片与底层物理容量不冒充已测量。
