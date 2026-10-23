@@ -1,3 +1,4 @@
+from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.db.models.storage_usage import StorageUsageInventory, StorageUsageSnapshot
 from app.db.models.original_cache import OriginalCacheEntry, OriginalCacheReadLease
@@ -302,3 +303,5 @@ __all__ += ["ManagedOriginalRetirement"]
 __all__ += ["ManagedOriginalRetentionHold"]
 
 __all__ += ["ManagedOriginalVerification"]
+
+__all__ += ["ManagedOriginalCreation"]
