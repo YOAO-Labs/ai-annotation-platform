@@ -14,6 +14,7 @@ import uuid
 
 import httpx
 from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import ArgumentError
 
 from tests.test_identity_admission_live import ROOT, _dsn
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
@@ -109,6 +110,8 @@ _SERVICES = (
     "identity-mail-v2",
     "identity-notification-publisher",
 )
+_NOTIFICATIONS_SOCKET_SERVICE = "notifications-socket"
+_NOTIFICATIONS_SOCKET_IMAGE_ACCEPTANCE = "notifications-socket-runtime"
 _API_BINDING_NAMES = (
     "IDENTITY_AUTH_DATABASE_URL",
     "IDENTITY_KEY_DATABASE_URL",
@@ -139,6 +142,35 @@ _READY_PROBE = (
 )
 
 
+def verifier_database_url(
+    value: str,
+    reference_url: URL,
+    *,
+    expected_role: str,
+    container_name: str,
+) -> URL:
+    """Bind one verifier role DSN to the same disposable database privately."""
+    try:
+        url = make_url(value)
+        if (
+            url.drivername not in {"postgresql", "postgresql+asyncpg"}
+            or (url.host, url.port, url.database)
+            != (reference_url.host, reference_url.port, reference_url.database)
+            or url.username != expected_role
+            or not url.password
+            or url.database is None
+            or not url.database.endswith("_test")
+            or bool(url.query)
+            or not container_name
+        ):
+            raise ValueError
+        return url.set(host=container_name, port=5432)
+    except (ArgumentError, TypeError, ValueError):
+        raise RuntimeError(
+            "Verifier role DSN does not match the disposable database"
+        ) from None
+
+
 class IdentityModuleStack:
     """Run the existing Identity Compose services plus one isolated API image."""
 
@@ -154,6 +186,12 @@ class IdentityModuleStack:
         login_redis_url: str,
         publisher_redis_url: str,
         smtp_port: int,
+        notifications_socket_image: str | None = None,
+        notifications_socket_identity: str | None = None,
+        notification_delivery_database_url: str | None = None,
+        identity_actor_status_database_url: str | None = None,
+        notifications_socket_redis_url: str | None = None,
+        admission_token: str | None = None,
     ) -> None:
         self.test_engine = test_engine
         self.directory = Path(directory).resolve()
@@ -166,6 +204,24 @@ class IdentityModuleStack:
         self._api_secret = api_secret
         self._control = control
         self._mail_key = mail_key
+        notification_inputs = (
+            notifications_socket_image,
+            notifications_socket_identity,
+            notification_delivery_database_url,
+            identity_actor_status_database_url,
+            notifications_socket_redis_url,
+            admission_token,
+        )
+        if any(value is not None for value in notification_inputs) and not all(
+            isinstance(value, str) and value.strip() for value in notification_inputs
+        ):
+            raise ValueError("Notifications socket verifier inputs are incomplete")
+        self._notifications_socket_enabled = all(
+            value is not None for value in notification_inputs
+        )
+        self._notifications_socket_image = notifications_socket_image
+        self._notifications_socket_identity = notifications_socket_identity
+        self._admission_token = admission_token
         _verify_postgres(test_engine.url)
         _verify_redis()
         self._postgres_name = self._required_environment(
@@ -179,6 +235,11 @@ class IdentityModuleStack:
         )
         self._login_redis_url = self._docker_url(login_redis_url)
         self._publisher_redis_url = self._docker_url(publisher_redis_url)
+        self._notifications_socket_redis_url = (
+            self._docker_url(notifications_socket_redis_url)
+            if notifications_socket_redis_url is not None
+            else None
+        )
         self._smtp_port = int(smtp_port)
         if not 1 <= self._smtp_port <= 65535:
             raise ValueError("SMTP port is outside the valid TCP range")
@@ -199,6 +260,26 @@ class IdentityModuleStack:
         }
         self._database_name = str(test_engine.url.database or "")
         self._validate_database_name(self._database_name)
+        self._notifications_socket_database_url = (
+            verifier_database_url(
+                notification_delivery_database_url,
+                test_engine.url,
+                expected_role="notification_delivery_read_client",
+                container_name=self._postgres_name,
+            )
+            if notification_delivery_database_url is not None
+            else None
+        )
+        self._actor_status_database_url = (
+            verifier_database_url(
+                identity_actor_status_database_url,
+                test_engine.url,
+                expected_role="identity_actor_status_client",
+                container_name=self._postgres_name,
+            )
+            if identity_actor_status_database_url is not None
+            else None
+        )
         api_host_url = make_url(
             self._required_environment("AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL")
         )
@@ -225,10 +306,22 @@ class IdentityModuleStack:
         )
         self._service_ids: dict[str, str] = {}
         self._inspection_evidence: dict[str, dict] = {}
+        self._services = _SERVICES + (
+            (_NOTIFICATIONS_SOCKET_SERVICE,)
+            if self._notifications_socket_enabled
+            else ()
+        )
         self._api_origin = ""
         self._identity_origin = ""
         self._verify_image(self._identity_image, self._identity)
         self._verify_image(self._api_image, self._api_identity)
+        if self._notifications_socket_enabled:
+            self._verify_image(
+                self._notifications_socket_image or "",
+                self._notifications_socket_identity or "",
+                acceptance=_NOTIFICATIONS_SOCKET_IMAGE_ACCEPTANCE,
+                expected_user="10004:10004",
+            )
 
     @property
     def api_origin(self) -> str:
@@ -247,8 +340,19 @@ class IdentityModuleStack:
         return json.loads(json.dumps(self._inspection_evidence))
 
     def redact(self, value: str) -> str:
-        values = [self._secret, self._api_secret, self._control, self._mail_key]
-        for url in [self._api_database_url, *self._database_urls.values()]:
+        values = [
+            self._secret,
+            self._api_secret,
+            self._control,
+            self._mail_key,
+            self._admission_token or "",
+        ]
+        urls = [self._api_database_url, *self._database_urls.values()]
+        if self._notifications_socket_database_url is not None:
+            urls.append(self._notifications_socket_database_url)
+        if self._actor_status_database_url is not None:
+            urls.append(self._actor_status_database_url)
+        for url in urls:
             values.extend(
                 [url.render_as_string(hide_password=False), url.password or ""]
             )
@@ -256,6 +360,7 @@ class IdentityModuleStack:
             [
                 self._login_redis_url,
                 self._publisher_redis_url,
+                self._notifications_socket_redis_url or "",
                 os.environ.get("AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY", ""),
             ]
         )
@@ -394,6 +499,14 @@ class IdentityModuleStack:
         self._compose("stop", service, timeout=90)
         self._refresh_inspection_evidence()
 
+    async def kill_service(self, service: str) -> None:
+        """Terminate one owned service without Compose's graceful stop window."""
+        self._validate_service(service)
+        self._prepare_files()
+        self._verify_project_ownership()
+        self._compose("kill", service, timeout=30)
+        self._refresh_inspection_evidence()
+
     async def switch_database(self, database_name: str) -> None:
         database_name = self._validate_database_name(database_name)
         self._prepare_files()
@@ -440,6 +553,31 @@ class IdentityModuleStack:
             }[secret_name]
             self._write_secret(secret_name, value)
 
+        if self._notifications_socket_enabled:
+            assert self._notifications_socket_database_url is not None
+            assert self._actor_status_database_url is not None
+            assert self._notifications_socket_redis_url is not None
+            assert self._admission_token is not None
+            self._write_secret(
+                "identity_actor_status_database_url",
+                self._actor_status_database_url.set(
+                    database=self._database_name
+                ).render_as_string(hide_password=False),
+            )
+            self._write_secret("identity_admission_token", self._admission_token)
+            self._write_secret(
+                "notification_socket_database_url",
+                self._notifications_socket_database_url.set(
+                    database=self._database_name
+                ).render_as_string(hide_password=False),
+            )
+            self._write_secret(
+                "notification_socket_redis_url", self._notifications_socket_redis_url
+            )
+            self._write_secret(
+                "notification_socket_identity_token", self._admission_token
+            )
+
         self._write_environment_file(self._api_env_file, self._api_environment())
         compose_values = {
             "AAP_IDENTITY_RUNTIME_IMAGE": self._identity_image,
@@ -455,6 +593,8 @@ class IdentityModuleStack:
             "IDENTITY_MAIL_SMTP_USER": "",
             "IDENTITY_MAIL_SMTP_PASSWORD": "",
             "IDENTITY_MAIL_SMTP_FROM": "noreply@example.test",
+            "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE": "",
+            "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE": "",
         }
         for kind, (environment_name, secret_name) in _DATABASES.items():
             compose_values[environment_name] = str(self._secret_directory / secret_name)
@@ -469,6 +609,35 @@ class IdentityModuleStack:
             ),
         ):
             compose_values[env_name] = str(self._secret_directory / secret_name)
+        if self._notifications_socket_enabled:
+            compose_values.update(
+                {
+                    "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE": str(
+                        self._secret_directory / "identity_admission_token"
+                    ),
+                    "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE": str(
+                        self._secret_directory / "identity_actor_status_database_url"
+                    ),
+                    "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IMAGE": (
+                        self._notifications_socket_image or ""
+                    ),
+                    "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IDENTITY": (
+                        self._notifications_socket_identity or ""
+                    ),
+                    "NOTIFICATION_SOCKET_DATABASE_URL_FILE": str(
+                        self._secret_directory / "notification_socket_database_url"
+                    ),
+                    "NOTIFICATION_SOCKET_REDIS_URL_FILE": str(
+                        self._secret_directory / "notification_socket_redis_url"
+                    ),
+                    "NOTIFICATION_SOCKET_IDENTITY_URL": (
+                        "http://identity-admission:8170"
+                    ),
+                    "NOTIFICATION_SOCKET_IDENTITY_TOKEN_FILE": str(
+                        self._secret_directory / "notification_socket_identity_token"
+                    ),
+                }
+            )
         self._write_environment_file(self._compose_env_file, compose_values)
         self._write_override_file()
 
@@ -486,6 +655,7 @@ class IdentityModuleStack:
             "CELERY_BROKER_URL": celery_url,
             "IDENTITY_URL": "http://identity-admission:8170",
             "IDENTITY_TOKEN": self._control,
+            "NOTIFICATION_SOCKET_URL": "",
             "ALEMBIC_AUTO_UPGRADE": "false",
             "E2E_SEED_ENABLED": "false",
             "AUDIT_ASYNC": "true",
@@ -504,6 +674,8 @@ class IdentityModuleStack:
                 "AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY"
             ),
         }
+        if self._notifications_socket_enabled:
+            values["NOTIFICATION_SOCKET_URL"] = "ws://notifications-socket:8180"
         for env_name, default in (
             ("MINIO_BUCKET", "annotations"),
             ("MINIO_DATASETS_BUCKET", "datasets"),
@@ -532,6 +704,22 @@ class IdentityModuleStack:
 
     def _write_override_file(self) -> None:
         api_env_file = json.dumps(str(self._api_env_file))
+        socket_service = ""
+        socket_dependency = ""
+        if self._notifications_socket_enabled:
+            socket_service = """
+  notifications-socket:
+    image: ${AAP_NOTIFICATIONS_SOCKET_RUNTIME_IMAGE:?}
+    build: !reset null
+    depends_on:
+      identity-admission:
+        condition: service_healthy
+    labels: *identity-module-owner-labels
+"""
+            socket_dependency = """
+      notifications-socket:
+        condition: service_healthy
+"""
         self._override_file.write_text(
             f"""services:
   identity-admission:
@@ -563,6 +751,7 @@ class IdentityModuleStack:
     depends_on:
       identity-admission:
         condition: service_healthy
+{socket_dependency.rstrip()}
     ports: !override
       - "127.0.0.1::8000"
     read_only: true
@@ -573,6 +762,7 @@ class IdentityModuleStack:
     cpus: 1
     tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     labels: *identity-module-owner-labels
+{socket_service.rstrip()}
 """,
             encoding="utf-8",
         )
@@ -633,7 +823,7 @@ class IdentityModuleStack:
         return result.stdout.strip()
 
     def _compose_arguments(self) -> list[str]:
-        return [
+        arguments = [
             "compose",
             "--project-name",
             self.project_name,
@@ -643,11 +833,11 @@ class IdentityModuleStack:
             str(self._compose_env_file),
             "-f",
             str(ROOT / "docker-compose.identity.yml"),
-            "-f",
-            str(self._override_file),
-            "--profile",
-            "mail-v2",
         ]
+        if self._notifications_socket_enabled:
+            arguments.extend(["-f", str(ROOT / "docker-compose.notifications.yml")])
+        arguments.extend(["-f", str(self._override_file), "--profile", "mail-v2"])
+        return arguments
 
     def _compose(self, *arguments: str, timeout: int = 90) -> str:
         return self._docker(
@@ -670,7 +860,14 @@ class IdentityModuleStack:
             raise RuntimeError("Owned container identity was not unique")
         return records[0]
 
-    def _verify_image(self, image: str, identity: str) -> None:
+    def _verify_image(
+        self,
+        image: str,
+        identity: str,
+        *,
+        acceptance: str = "identity-admission",
+        expected_user: str | None = None,
+    ) -> None:
         output = self._docker(
             ["image", "inspect", image], operation="image inspection", timeout=30
         )
@@ -684,8 +881,12 @@ class IdentityModuleStack:
             raise RuntimeError("Owned image identity was not unique")
         labels = (records[0].get("Config") or {}).get("Labels") or {}
         if (
-            labels.get("org.aap.acceptance") != "identity-admission"
+            labels.get("org.aap.acceptance") != acceptance
             or labels.get("org.aap.acceptance-id") != identity
+            or (
+                expected_user is not None
+                and (records[0].get("Config") or {}).get("User") != expected_user
+            )
         ):
             raise RuntimeError("Runtime image labels do not match this verifier")
 
@@ -799,16 +1000,31 @@ class IdentityModuleStack:
             await self._wait_mail_ready(service)
         elif service == "identity-notification-publisher":
             await self._wait_publisher_running()
+        elif service == _NOTIFICATIONS_SOCKET_SERVICE:
+            await self._wait_notifications_socket_ready()
 
     async def _wait_ready(self) -> None:
-        for service in (
-            "identity-admission",
-            "identity-api",
-            "identity-mail",
-            "identity-mail-v2",
-            "identity-notification-publisher",
-        ):
+        for service in self._services:
             await self._wait_service_ready(service)
+
+    async def _wait_notifications_socket_ready(self, timeout: float = 60) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            details = self._verify_project_ownership().get(
+                _NOTIFICATIONS_SOCKET_SERVICE
+            )
+            if details is not None:
+                state = details.get("State") or {}
+                health = (state.get("Health") or {}).get("Status")
+                if state.get("Running") is True and health == "healthy":
+                    return
+                if state.get("Running") is False and state.get("Status") == "exited":
+                    break
+            await asyncio.sleep(0.2)
+        self._write_log("notifications-socket: readiness timed out")
+        raise RuntimeError(
+            f"Owned Notifications socket did not become ready; see {self._log_file}"
+        )
 
     def _refresh_inspection_evidence(self) -> None:
         containers = self._verify_project_ownership()
@@ -859,8 +1075,11 @@ class IdentityModuleStack:
         mounts: list,
         env: dict,
     ) -> None:
-        if config.get("User") != "10003:10003":
-            raise RuntimeError(f"{service} does not run as UID/GID 10003")
+        expected_user = (
+            "10004:10004" if service == _NOTIFICATIONS_SOCKET_SERVICE else "10003:10003"
+        )
+        if config.get("User") != expected_user:
+            raise RuntimeError(f"{service} does not run as UID/GID {expected_user}")
         if host.get("ReadonlyRootfs") is not True:
             raise RuntimeError(f"{service} does not have a read-only root filesystem")
         if "ALL" not in (host.get("CapDrop") or []):
@@ -925,7 +1144,17 @@ class IdentityModuleStack:
                 "notification_publish_redis_url",
             },
             "identity-api": set(),
+            _NOTIFICATIONS_SOCKET_SERVICE: {
+                "notification_socket_database_url",
+                "notification_socket_redis_url",
+                "notification_socket_identity_token",
+            },
         }.get(service)
+        if service == "identity-admission" and self._notifications_socket_enabled:
+            expected |= {
+                "identity_admission_token",
+                "identity_actor_status_database_url",
+            }
         if expected is None or targets != {f"/run/secrets/{name}" for name in expected}:
             raise RuntimeError(f"{service} secret mounts cross service boundaries")
         for mount in mounts:
@@ -954,9 +1183,45 @@ class IdentityModuleStack:
                 raise RuntimeError(
                     "API runtime contains a direct Identity database binding"
                 )
+            expected_socket_origin = (
+                "ws://notifications-socket:8180"
+                if self._notifications_socket_enabled
+                else ""
+            )
+            if env.get("NOTIFICATION_SOCKET_URL", "") != expected_socket_origin:
+                raise RuntimeError("API runtime socket owner binding does not match")
+        elif service == _NOTIFICATIONS_SOCKET_SERVICE:
+            expected_environment = {
+                "NOTIFICATION_SOCKET_DATABASE_URL_FILE": (
+                    "/run/secrets/notification_socket_database_url"
+                ),
+                "NOTIFICATION_SOCKET_REDIS_URL_FILE": (
+                    "/run/secrets/notification_socket_redis_url"
+                ),
+                "NOTIFICATION_SOCKET_IDENTITY_URL": ("http://identity-admission:8170"),
+                "NOTIFICATION_SOCKET_IDENTITY_TOKEN_FILE": (
+                    "/run/secrets/notification_socket_identity_token"
+                ),
+            }
+            if any(
+                env.get(name) != value for name, value in expected_environment.items()
+            ):
+                raise RuntimeError("Notifications socket secret file binding differs")
+            secret_values = (
+                self._admission_token,
+                self._notifications_socket_database_url.render_as_string(
+                    hide_password=False
+                ),
+                self._notifications_socket_redis_url,
+            )
+            if any(value and value in env.values() for value in secret_values):
+                raise RuntimeError("Notifications socket environment contains a secret")
+            port_bindings = host.get("PortBindings") or {}
+            if any(bindings for bindings in port_bindings.values()):
+                raise RuntimeError("Notifications socket must not publish a host port")
 
     def _validate_service(self, service: str) -> None:
-        if service not in _SERVICES:
+        if service not in self._services:
             raise ValueError("Service is outside this owned Identity Compose project")
 
     @staticmethod
