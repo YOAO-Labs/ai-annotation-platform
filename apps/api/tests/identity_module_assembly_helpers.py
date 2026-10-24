@@ -112,6 +112,55 @@ _SERVICES = (
 )
 _NOTIFICATIONS_SOCKET_SERVICE = "notifications-socket"
 _NOTIFICATIONS_SOCKET_IMAGE_ACCEPTANCE = "notifications-socket-runtime"
+_IDENTITY_OPTIONAL_SECRETS = {
+    "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE": "identity_admission_token",
+    "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE": "identity_actor_status_database_url",
+}
+_SERVICE_SECRET_MOUNTS = {
+    "identity-admission": {
+        "identity_database_url",
+        "identity_key_database_url",
+        "identity_session_database_url",
+        "identity_account_database_url",
+        "identity_presence_database_url",
+        "identity_group_database_url",
+        "identity_directory_database_url",
+        "identity_admin_password_database_url",
+        "identity_platform_role_database_url",
+        "identity_suspension_database_url",
+        "identity_deletion_database_url",
+        "identity_offboarding_database_url",
+        "identity_briefs_database_url",
+        "identity_invitation_database_url",
+        "identity_deactivation_database_url",
+        "identity_deactivation_operator_database_url",
+        "identity_recovery_database_url",
+        "identity_recovery_mail_key",
+        "identity_login_redis_url",
+        "identity_token",
+        "identity_signing_secret",
+    },
+    "identity-mail": {
+        "identity_mail_database_url",
+        "identity_mail_settings_database_url",
+        "identity_recovery_mail_key",
+    },
+    "identity-mail-v2": {
+        "identity_mail_v2_database_url",
+        "identity_mail_settings_database_url",
+        "identity_recovery_mail_key",
+    },
+    "identity-notification-publisher": {
+        "notification_publish_database_url",
+        "notification_publish_redis_url",
+    },
+    "identity-api": set(),
+    _NOTIFICATIONS_SOCKET_SERVICE: {
+        "notification_socket_database_url",
+        "notification_socket_redis_url",
+        "notification_socket_identity_token",
+    },
+}
 _API_BINDING_NAMES = (
     "IDENTITY_AUTH_DATABASE_URL",
     "IDENTITY_KEY_DATABASE_URL",
@@ -169,6 +218,31 @@ def verifier_database_url(
         raise RuntimeError(
             "Verifier role DSN does not match the disposable database"
         ) from None
+
+
+def _identity_optional_secret_selectors(
+    secret_directory: Path, notifications_socket_enabled: bool
+) -> dict[str, str]:
+    return {
+        environment_name: (
+            str(secret_directory / secret_name) if notifications_socket_enabled else ""
+        )
+        for environment_name, secret_name in _IDENTITY_OPTIONAL_SECRETS.items()
+    }
+
+
+def _expected_secret_mount_names(
+    service: str, notifications_socket_enabled: bool
+) -> set[str] | None:
+    expected = _SERVICE_SECRET_MOUNTS.get(service)
+    if expected is None or (
+        service == _NOTIFICATIONS_SOCKET_SERVICE and not notifications_socket_enabled
+    ):
+        return None
+    result = set(expected)
+    if service == "identity-admission":
+        result.update(_IDENTITY_OPTIONAL_SECRETS.values())
+    return result
 
 
 class IdentityModuleStack:
@@ -593,9 +667,12 @@ class IdentityModuleStack:
             "IDENTITY_MAIL_SMTP_USER": "",
             "IDENTITY_MAIL_SMTP_PASSWORD": "",
             "IDENTITY_MAIL_SMTP_FROM": "noreply@example.test",
-            "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE": "",
-            "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE": "",
         }
+        compose_values.update(
+            _identity_optional_secret_selectors(
+                self._secret_directory, self._notifications_socket_enabled
+            )
+        )
         for kind, (environment_name, secret_name) in _DATABASES.items():
             compose_values[environment_name] = str(self._secret_directory / secret_name)
         for env_name, secret_name in (
@@ -612,12 +689,6 @@ class IdentityModuleStack:
         if self._notifications_socket_enabled:
             compose_values.update(
                 {
-                    "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE": str(
-                        self._secret_directory / "identity_admission_token"
-                    ),
-                    "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE": str(
-                        self._secret_directory / "identity_actor_status_database_url"
-                    ),
                     "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IMAGE": (
                         self._notifications_socket_image or ""
                     ),
@@ -1105,56 +1176,9 @@ class IdentityModuleStack:
             for mount in mounts
             if str(mount.get("Destination", "")).startswith("/run/secrets/")
         }
-        expected = {
-            "identity-admission": {
-                "identity_database_url",
-                "identity_key_database_url",
-                "identity_session_database_url",
-                "identity_account_database_url",
-                "identity_presence_database_url",
-                "identity_group_database_url",
-                "identity_directory_database_url",
-                "identity_admin_password_database_url",
-                "identity_platform_role_database_url",
-                "identity_suspension_database_url",
-                "identity_deletion_database_url",
-                "identity_offboarding_database_url",
-                "identity_briefs_database_url",
-                "identity_invitation_database_url",
-                "identity_deactivation_database_url",
-                "identity_deactivation_operator_database_url",
-                "identity_recovery_database_url",
-                "identity_recovery_mail_key",
-                "identity_login_redis_url",
-                "identity_token",
-                "identity_signing_secret",
-            },
-            "identity-mail": {
-                "identity_mail_database_url",
-                "identity_mail_settings_database_url",
-                "identity_recovery_mail_key",
-            },
-            "identity-mail-v2": {
-                "identity_mail_v2_database_url",
-                "identity_mail_settings_database_url",
-                "identity_recovery_mail_key",
-            },
-            "identity-notification-publisher": {
-                "notification_publish_database_url",
-                "notification_publish_redis_url",
-            },
-            "identity-api": set(),
-            _NOTIFICATIONS_SOCKET_SERVICE: {
-                "notification_socket_database_url",
-                "notification_socket_redis_url",
-                "notification_socket_identity_token",
-            },
-        }.get(service)
-        if service == "identity-admission" and self._notifications_socket_enabled:
-            expected |= {
-                "identity_admission_token",
-                "identity_actor_status_database_url",
-            }
+        expected = _expected_secret_mount_names(
+            service, self._notifications_socket_enabled
+        )
         if expected is None or targets != {f"/run/secrets/{name}" for name in expected}:
             raise RuntimeError(f"{service} secret mounts cross service boundaries")
         for mount in mounts:
@@ -1162,7 +1186,30 @@ class IdentityModuleStack:
             if source and Path(source).resolve().is_relative_to(ROOT):
                 raise RuntimeError(f"{service} mounts the application source tree")
 
-        if service == "identity-api":
+        if service == "identity-admission":
+            expected_optional_selectors = {
+                "IDENTITY_ADMISSION_TOKEN_FILE": (
+                    "/run/secrets/identity_admission_token"
+                    if self._notifications_socket_enabled
+                    else ""
+                ),
+                "IDENTITY_ACTOR_STATUS_DATABASE_URL_FILE": (
+                    "/run/secrets/identity_actor_status_database_url"
+                    if self._notifications_socket_enabled
+                    else ""
+                ),
+            }
+            if any(
+                env.get(name, "") != value
+                for name, value in expected_optional_selectors.items()
+            ):
+                raise RuntimeError("Identity optional credential selectors differ")
+            if not self._notifications_socket_enabled and any(
+                (self._secret_directory / name).exists()
+                for name in _IDENTITY_OPTIONAL_SECRETS.values()
+            ):
+                raise RuntimeError("Disabled Identity secret files contain credentials")
+        elif service == "identity-api":
             if (
                 "IDENTITY_SIGNING_SECRET" in env
                 or "IDENTITY_SIGNING_SECRET_FILE" in env

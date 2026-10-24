@@ -32,6 +32,8 @@ from app.db.models.user import User
 from tests.factory import DEFAULT_PASSWORD, create_api_key
 from tests.identity_module_assembly_helpers import (
     IdentityModuleStack,
+    _expected_secret_mount_names,
+    _identity_optional_secret_selectors,
     verifier_database_url,
 )
 from tests.identity_recovery_live_helpers import SMTPInbox
@@ -131,6 +133,51 @@ def test_verifier_role_database_url_rejects_cross_database_inputs(changes):
             expected_role="notification_delivery_read_client",
             container_name="owned-postgres",
         )
+
+
+def test_optional_identity_secret_mounts_are_empty_by_default_and_selected_only_for_socket(
+    tmp_path,
+):
+    optional_mounts = {
+        "identity_admission_token",
+        "identity_actor_status_database_url",
+    }
+    default_selectors = _identity_optional_secret_selectors(
+        tmp_path, notifications_socket_enabled=False
+    )
+    enabled_selectors = _identity_optional_secret_selectors(
+        tmp_path, notifications_socket_enabled=True
+    )
+
+    assert (
+        set(_expected_secret_mount_names("identity-admission", False))
+        >= optional_mounts
+    )
+    assert _expected_secret_mount_names("notifications-socket", False) is None
+    assert _expected_secret_mount_names("notifications-socket", True) == {
+        "notification_socket_database_url",
+        "notification_socket_redis_url",
+        "notification_socket_identity_token",
+    }
+    assert set(default_selectors) == {
+        "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE",
+        "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE",
+    }
+    assert set(default_selectors.values()) == {""}
+    assert not any((tmp_path / name).exists() for name in optional_mounts)
+    assert enabled_selectors == {
+        "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE": str(
+            tmp_path / "identity_admission_token"
+        ),
+        "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE": str(
+            tmp_path / "identity_actor_status_database_url"
+        ),
+    }
+    compose = (ROOT / "docker-compose.identity.yml").read_text(encoding="utf-8")
+    assert "file: ${IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE:-/dev/null}" in compose
+    assert (
+        "file: ${IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE:-/dev/null}" in compose
+    )
 
 
 def _required_native_inputs() -> dict[str, str]:
