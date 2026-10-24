@@ -65,6 +65,12 @@ async def owned_import(test_engine, monkeypatch, tmp_path):
                     f'CREATE TABLE "{schema}"."{table}" (LIKE "{source}"."{table}" INCLUDING ALL)'
                 )
             )
+        await connection.execute(
+            text(
+                f'ALTER TABLE "{schema}".scene_frame_poses ADD CONSTRAINT '
+                "uq_scene_frame_pose UNIQUE (scene_id, frame_index)"
+            )
+        )
         for table, column in (
             ("dataset_items", "nuscenes_raw_original_id"),
             ("scenes", "nuscenes_map_original_id"),
