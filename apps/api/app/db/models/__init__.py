@@ -1,3 +1,4 @@
+from app.db.models.comment_attachment_upload import CommentAttachmentUpload
 from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
@@ -318,3 +319,5 @@ __all__ += ["BugAttachmentUpload"]
 
 
 __all__ += ["AuditArchiveOutput"]
+
+__all__ += ["CommentAttachmentUpload"]
