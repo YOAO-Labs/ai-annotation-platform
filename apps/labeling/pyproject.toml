@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "aap-labeling"
 version = "0.1.0"
-description = "Portable Labeling query and video finalization contracts and policy"
+description = "Portable Labeling task control, query and video finalization contracts"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.10",
@@ -20,6 +20,7 @@ cache-keys = [
     { file = "README.md" },
     { file = "src/**/*.py" },
     { file = "src/**/*.json" },
+    { file = "src/**/*.sql" },
 ]
 
 [project.optional-dependencies]

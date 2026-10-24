@@ -1,7 +1,7 @@
 # Labeling
 
-This package currently owns the private contract and query manager for Project
-class-usage reads, plus a portable policy and runtime for video-worker finalization.
+This package owns task edit-lock and lifecycle/evidence contracts, the Project
+class-usage query manager, and the policy and runtime for video-worker finalization.
 The base package depends on Pydantic and the portable preannotation-results,
 assets-media and mask-content contracts. It does not depend on the platform API,
 SQLAlchemy, Celery, an object-storage SDK or ML implementations. PostgreSQL and
@@ -39,6 +39,36 @@ apps/labeling/tests` for the package suite. Native permissions, coordinated API
 replay, installed peers, images and restore remain separate acceptance gates.
 See [ADR-0142](../../docs/adr/0142-labeling-class-usage-query-owner.md) for their
 current status and limits.
+
+## Task control in the caller transaction
+
+The closed contracts `aap-labeling-task-locks/v1` and
+`aap-labeling-task-workflow/v1` call
+`aap_labeling_v1.task_edit_lock_command(jsonb)` and
+`aap_labeling_v1.task_workflow_command(jsonb)`. Their packaged SQL and JSON
+schemas match the frozen migration resources. Portable data clients accept a
+callback and do not import the API or SQLAlchemy.
+
+Edit locks retain the existing advisory-lock namespace, account suspension
+fence, takeover rules, lease renewal, expired-lock cleanup, and ordered batch
+final-write check. Lifecycle commands cover submission, skip, withdrawal,
+reopening, review and contributor evidence. They recheck current actor and
+Task/Batch identity; the API retains current Workspace authorization, Audit,
+counter updates, QC and notification ordering.
+
+The API borrows its existing connection and synchronizes its ORM cache from the
+owner result. Neither data client commits or rolls back. These transaction locks
+must not use an HTTP call or a separate connection: they must survive until the
+same business transaction ends. A language-neutral PostgreSQL command is the
+boundary for these operations.
+
+Apply current migrations and `infra/docker/module-data-grants.sql`, then the
+existing LAN/worktree runtime grants. A dedicated trusted caller can use
+`infra/docker/labeling-task-control-grants.sql`; it grants exactly these two
+functions and rejects direct data access, role membership, CREATE and TEMP.
+It does not grant public end users access to the commands. Unmigrated Batch and
+Annotation operations still need their legacy permissions; this capability does
+not close the entire Labeling module.
 
 ## Video worker finalization
 

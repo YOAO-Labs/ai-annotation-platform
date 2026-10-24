@@ -59,6 +59,7 @@ last_reviewed: 2026-10-25
 | Assets：来源、目录、连接及媒体／输入                | 已有 Source、Catalog、Media、Images、accepted inputs 和视频输入能力                                | 已迁移选定导入、Workbench 和推理输入消费者                                                                 | [数据能力协议](/api/guides/module-data)及既有 ADR 保留受限进程／容器证据；[辅助保留](#来源删除的辅助引用)的实际删除与 HTTP 映射通过 11 项定向检查 | 已确认沿用既有辅助引用 409 guard；部分相机／轨迹引用缺少独立解除入口，任务、标注及学习证据保留；一般 Blob、其余输入、运维写入与完整装配仍待收口                                                                                                                                                                                                                  |
 | Labeling：建题、类别及视频最终发布                  | 选定事务 owner 已实现；视频终结由唯一 owner 发布                                                   | 视频 bbox／Mask 的借用事务、DSN 与 HTTP 消费者已迁移                                                       | [ADR-0159](/dev/adr/0159-independent-labeling-video-writer)：受限容器、重启、有限写入样本；恢复见下一行                                           | 人工 accept／decide／discard、中间 start／progress、其余任务／审核／标注写入、整模块凭据和语言替换仍缺                                                                                                                                                                                                                                                           |
 | Labeling：生命周期与审核原子计数                    | 三项固定 Native 增减与窄列 owner 写入已实现                                                        | 撤回、重开、批准和驳回已迁移，保留 autoflush／缓存／Task 与 Audit 共同事务                                 | [原子计数](#labeling-counter-deltas)通过 139 项不同案例，含旧行为、受限 API／Node、并发等待与实际 HTTP                                            | 本组操作调用边界已闭合；其余 Labeling 写入、完整凭据及工件仍待整模块验收                                                                                                                                                                                                                                                                                         |
+| Labeling：编辑锁、任务生命周期及审核证据            | 两项固定 Native 命令与可移植合同已接入 Labeling 包；状态、审核轮次和贡献者写入由 owner 持有        | TaskLockService、任务提交／生命周期／审核及选定视频消费者迁移，保留业务事务和原计数／Audit／QC 顺序        | [实现检查点](#labeling-task-control-checkpoint)：基础检查与安装资源核对单列，原生权限／并发／故障恢复未验收                                       | 当前仅关闭这组源码与调用接线；批次分配／状态、一般 Annotation、Mask／SceneTrack、视频人工候选及整模块凭据仍待实现／验收，不全局收回 Task／TaskLock 私有权限                                                                                                                                                                                                      |
 | Jobs／Labeling：旧视频输入保留                      | 0312 的窄 Jobs 事实与 Labeling 保留投影已实现；0313 补齐历史垃圾领取围栏                           | tracker sweep 和 video garbage claim 使用当前保留事实；pin、审核宽限期及已证明替代的前缀清理保留           | [输入保留](#tracker-input-retention)：0312 的 23 项和 0313 的 10 项定向案例及各自完整迁移往返通过；进程内取消单测单列                             | 新领取路径的限定本地资格已闭合；已领租约仍须真实停机／凭据围栏，历史 expired 状态／已删除对象修复和无账本退役 operator 未闭合；[当前组合工件](#coherent-module-artifact)已验收，主环境尚未采用                                                                                                                                                                   |
 | Inference／Jobs：协调视频恢复                       | `aap-video-restore/v1`、两类权威屏障／轮换、不可变退休证明已实现                                   | 实际 runner 已经独立安装 CLI 恢复，同 run 新代次复用窗口并由 Labeling owner 发布                           | [ADR-0160](/dev/adr/0160-coordinated-video-restore)：五个 Native／消费者场景、源码和安装各 420 项、51 项旧路径回归、完整迁移通过                  | 本切片已闭合：独立安装 CLI 实际消费者与匹配 Inference／API 冷镜像均通过，源码提交 `968212e4e`；对象存储备份恢复、GPU／生产容量不在本切片通过范围                                                                                                                                                                                                                 |
 | Inference：控制面与其他预测路径                     | Pipeline、backend 配置／探测／健康、registry ingress、routing 和 scope 退休已有选定 owner          | 对应绑定及部分实际预测消费者已迁移                                                                         | [Inference 协议](/api/guides/inference-runtime)保留各切片资格                                                                                     | 其他推理编排、GPU 租约、取消／迟到结果、完整独立装配及提供方替换仍须逐操作收口                                                                                                                                                                                                                                                                                   |
@@ -2289,3 +2290,28 @@ DDL 或锁；新原生回归已保存但未运行，不能据此宣称原生或�
 主工作树仍为 `5421fa1af` 且干净；没有执行数据库或容器操作，也未切换日常维护调度。
 Learning 的父表私有读取按原暂缓范围保留；训练、资产数据集／存储及 Go 范围未扩大。
 真实权限、原生事务／中断恢复、冷装配与完整模块验收仍待集中完成。
+
+## Labeling 任务控制实现检查点 {#labeling-task-control-checkpoint}
+
+编辑锁和任务生命周期／审核证据使用 Labeling 包内的两个封闭 JSONB 命令，分别由
+`aap_labeling_v1.task_edit_lock_command(jsonb)` 和
+`aap_labeling_v1.task_workflow_command(jsonb)` 承接。公开 API 的授权、提交及响应保持；
+借用事务的 API 绑定只持有调用和 ORM 缓存同步，不把锁交给新的 HTTP 事务。
+生命周期、贡献者和视频段送审继续组合既有 Workspace 当前权限、计数、Audit、QC 与通知。
+
+普通 LAN／worktree 授权已在源码中增加两项 EXECUTE；专用可信 LOGIN 的授权脚本只开放
+这两个函数。Labeling owner 只新增所需 Task 状态／证据列及 TaskLock 租约写权限，Identity
+账号锁继续使用已有公开能力。冻结 SQL／schema 与安装包资源一起维护。批次重置和
+无来源任务清理仍直接访问 TaskLock，其他 Task／Annotation 写入也未迁移，不能提前
+全局撤销兼容访问，更不能把这组公共能力当作完整 Labeling 模块。
+
+源码集成提交为 `f5459f10a`、`4f32051fb`；父线补齐公共授权、验收脚本与安装资源，并修正
+编辑锁函数内 CASE 表达式的 PL/pgSQL 语法。49 项合同／贡献者／审核守卫、8 项验收脚本
+检查及 22 项资源工具单元检查通过。两份 SQL、两份 schema 与冻结迁移副本相同，wheel／
+sdist 各自包含这四项资源，335 条迁移只有一个 head。五份 SQL／授权文件及其 PL/pgSQL
+块仅通过语法核对，没有执行数据库权限或业务事务；OpenAPI 实际重导未变化。
+
+本地 `.worktree/labeling-task-control-checkpoint.json` 保存源码与原始结果绑定，保留最初
+缺失 SQL 资源和语法失败记录。两份 Native 回归已接入既有受限账号验收入口但未运行；
+真实权限、并发／回滚、冷装配和恢复按模块集中验收，不把上述基础检查记成独立运行资格。
+主工作树、日常数据库与独立拓扑未切换，训练、资产和 Go 的既定范围保持。

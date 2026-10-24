@@ -590,9 +590,24 @@ BEGIN
     END LOOP;
 END $$;
 
--- Labeling owns all task creation mutations, counter writes, and receipts.
+-- Labeling owns task creation, lifecycle/evidence, edit locks and counters.
 GRANT SELECT (id, project_id, dataset_item_id, batch_id, status), UPDATE (id), DELETE
     ON public.tasks TO :"labeling_owner";
+GRANT SELECT (
+    assignee_id, assigned_at, submitted_at, reviewer_id, reviewer_is_override,
+    reviewer_claimed_at, reviewed_at, reject_reason, reject_reason_type,
+    skip_reason, skipped_at, reopened_count, last_reopened_at, review_round_id,
+    annotation_contributor_ids, review_contributor_ids, review_submitter_id,
+    first_review_eligible, first_review_contributor_ids, first_reviewed_at,
+    first_review_result, updated_at
+), UPDATE (
+    status, assignee_id, assigned_at, submitted_at, reviewer_id,
+    reviewer_is_override, reviewer_claimed_at, reviewed_at, reject_reason,
+    reject_reason_type, skip_reason, skipped_at, reopened_count, last_reopened_at,
+    review_round_id, annotation_contributor_ids, review_contributor_ids,
+    review_submitter_id, first_review_contributor_ids, first_reviewed_at,
+    first_review_result, updated_at
+) ON public.tasks TO :"labeling_owner";
 GRANT SELECT (
         id, project_id, dataset_id, display_id, annotator_id, reviewer_id,
         name, status, admin_locked, assigned_user_ids
@@ -640,7 +655,9 @@ GRANT SELECT (id, project_id, task_id, annotation_id, thread_parent_id),
     ON public.annotation_feedbacks TO :"labeling_owner";
 GRANT SELECT (task_id, annotation_id), DELETE
     ON public.annotation_drafts TO :"labeling_owner";
-GRANT SELECT (id, task_id, user_id, expire_at), UPDATE (id), DELETE
+GRANT SELECT (id, unique_id, task_id, user_id, expire_at, created_at),
+    INSERT (id, unique_id, task_id, user_id, expire_at),
+    UPDATE (id, expire_at), DELETE
     ON public.task_locks TO :"labeling_owner";
 GRANT SELECT (project_id, annotation_id), DELETE
     ON public.annotation_comments TO :"labeling_owner";
@@ -2441,6 +2458,10 @@ ALTER FUNCTION aap_labeling_v1.workspace_project_query_task_count(uuid)
 ALTER FUNCTION aap_labeling_v1.workspace_project_query_batches(uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.workspace_project_query_batch_task_counts(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.task_edit_lock_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.task_workflow_command(jsonb)
     OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 

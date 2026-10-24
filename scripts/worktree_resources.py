@@ -1293,6 +1293,8 @@ class LocalResources:
                     "aap_jobs_v1.video_execution_step(text,text), "
                     "aap_jobs_v1.video_execution_checkpoint_step(text,text), "
                     "aap_labeling_v1.video_writer_step(text,text), "
+                    "aap_labeling_v1.task_edit_lock_command(jsonb), "
+                    "aap_labeling_v1.task_workflow_command(jsonb), "
                     "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb), "
                     "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid), "
                     "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb), "

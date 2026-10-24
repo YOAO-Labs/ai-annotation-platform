@@ -3169,6 +3169,19 @@ AAP_WORKSPACE_CAPACITY_LIVE=1 apps/api/.venv/bin/python \
 相同账号的管理写入仍可能按既有 NOWAIT 规则返回 409；不引入隐藏重试或放宽围栏。
 有限本机数据与未完成范围见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
+### Labeling 任务控制绑定
+
+编辑锁与生命周期／审核证据分别调用
+`aap_labeling_v1.task_edit_lock_command(jsonb)` 和
+`aap_labeling_v1.task_workflow_command(jsonb)`。应用当前迁移后，重施
+`infra/docker/module-data-grants.sql` 及既有 LAN／worktree runtime 授权；需要专用可信
+调用账号时使用 `infra/docker/labeling-task-control-grants.sql`，参数见文件头。
+
+调用继续借用业务连接及事务，不增加环境变量、HTTP 锁服务或独立提交点。更新 API 与
+实际挂载这份源码的 Celery 消费者后再使用新函数；主工作树未采用集成源码时，不能只升级
+日常数据库并把它当作运行切换。批次及标注内容尚未迁移的私有访问仍保留，完整 Labeling
+资格与剩余范围见[运行协议](docs-site/api/guides/labeling-runtime.md#任务编辑锁与生命周期)。
+
 ### 宿主机转发诊断
 
 在 macOS 上使用已存在的不可变 Docker Python 镜像。镜像必须提供

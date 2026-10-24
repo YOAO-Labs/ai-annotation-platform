@@ -2,10 +2,10 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-25
 ---
 
-# Labeling 类别与属性统计运行协议
+# Labeling 运行协议
 
 公开 `GET /api/v1/projects/{project_id}/class-usage` 保持原路径、响应与管理权限。
 API 先由 Workspace 核验当前项目管理权，再调用 Labeling 读取统计。
@@ -61,6 +61,28 @@ Project Query 配置；部署时同步更新匹配的 Workspace／Labeling 工�
 使用 1 CPU／256 MiB；16 次请求、并发 4 的结果一致。数据库和 API 不在这个资源预算内，
 这些结果不代表生产容量。范围、冻结样本与剩余门槛见
 [ADR-0142](/dev/adr/0142-labeling-class-usage-query-owner)。
+
+## 任务编辑锁与生命周期
+
+任务编辑锁、送审／跳过／撤回／重开、审核认领／批准／驳回和贡献者证据使用两个封闭合同：
+`aap-labeling-task-locks/v1` 与 `aap-labeling-task-workflow/v1`。
+对应入口是 `aap_labeling_v1.task_edit_lock_command(jsonb)` 与
+`aap_labeling_v1.task_workflow_command(jsonb)`；请求／响应 schema 随 Labeling 包分发。
+
+调用方继续核验当前 Workspace 权限，owner 核对当前账号、Task 的项目／批次、状态及
+审核轮次。编辑锁保留原 advisory 命名空间、续租／接管规则和批次完整集合的有序
+NOWAIT 围栏。业务命令只承接对应状态和证据写入，计数、Audit、QC 与通知仍按原顺序
+组合，不新增提交点。
+
+这两项能力使用业务调用方的同一 PostgreSQL 连接与事务。API 适配器根据返回值同步
+ORM 缓存；owner 不提交／回滚，也不把未提交数据和锁转交给独立 HTTP 事务。
+其他语言可以在相同调用事务中使用同一 JSONB 命令边界。
+
+先应用当前迁移和 `infra/docker/module-data-grants.sql`，再更新 LAN／worktree 的
+既有运行授权。需要独立可信调用账号时，可应用
+`infra/docker/labeling-task-control-grants.sql`：只授权这两个函数，拒绝直接表／列、
+序列、角色成员、CREATE、TEMP 和其他模块函数权限。公开用户仍只能经过原 API 授权。
+未迁移的批次与标注内容调用保留现有权限，不能据此宣称完整 Labeling 已独立。
 
 ## 视频 worker 的最终写入
 

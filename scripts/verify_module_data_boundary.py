@@ -88,6 +88,8 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_labeling_v1.task_edit_lock_command(jsonb)": "0334_labeling_task_locks.sql",
+    "aap_labeling_v1.task_workflow_command(jsonb)": "0335_labeling_task_workflow.sql",
     "aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
     "aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
     "aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)": "0331_jobs_filter_fixtures.sql",
@@ -232,6 +234,7 @@ IDENTITY_CLIENT_ROLES = {
     "WORKSPACE_DIRECTORY_QUERY": "workspace_directory_query_client",
     "LABELING_CLASS_QUERY": "labeling_class_query_client",
     "LABELING_VIDEO_WRITER": "labeling_video_writer_client",
+    "LABELING_TASK_CONTROL": "labeling_task_control_client",
     "VIDEO_RESTORE": "video_restore_operator_client",
     "INFERENCE_PIPELINES": "inference_pipelines_client",
     "INFERENCE_BACKEND_PROBE": "inference_backend_probe_client",
@@ -468,6 +471,8 @@ SQL_ARTIFACTS = (
     "0330_jobs_fixture_cleanup.sql",
     "0331_jobs_filter_fixtures.sql",
     "0332_jobs_action_idempotency.sql",
+    "0334_labeling_task_locks.sql",
+    "0335_labeling_task_workflow.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -612,6 +617,8 @@ SCHEMA_ARTIFACTS = (
     "0330_jobs_fixture_cleanup.schema.json",
     "0331_jobs_filter_fixtures.schema.json",
     "0332_jobs_action_idempotency.schema.json",
+    "0334_labeling_task_locks.schema.json",
+    "0335_labeling_task_workflow.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -675,6 +682,8 @@ TEST_FILES = (
     "tests/test_video_restore_live.py",
     "tests/test_video_restore_worker_live.py",
     "tests/test_labeling_video_writer_native.py",
+    "tests/test_labeling_task_locks_native.py",
+    "tests/test_labeling_task_workflow_native.py",
     "tests/test_labeling_video_writer_live.py",
     "tests/test_labeling_video_writer_containers.py",
     "tests/test_labeling_video_writer_restore.py",
@@ -3897,6 +3906,9 @@ def main(argv: list[str] | None = None) -> int:
         labeling_video_writer_grants_path = (
             ROOT / "infra/docker/labeling-video-writer-grants.sql"
         )
+        labeling_task_control_grants_path = (
+            ROOT / "infra/docker/labeling-task-control-grants.sql"
+        )
         video_restore_grants_path = ROOT / "infra/docker/video-restore-grants.sql"
         inference_pipelines_grants_path = (
             ROOT / "infra/docker/inference-pipelines-grants.sql"
@@ -4006,6 +4018,7 @@ def main(argv: list[str] | None = None) -> int:
             or not workspace_directory_query_grants_path.is_file()
             or not labeling_class_query_grants_path.is_file()
             or not labeling_video_writer_grants_path.is_file()
+            or not labeling_task_control_grants_path.is_file()
             or not video_restore_grants_path.is_file()
             or not inference_pipelines_grants_path.is_file()
             or not inference_backend_probe_grants_path.is_file()
@@ -4106,6 +4119,9 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8"
         )
         labeling_video_writer_grant_sql = labeling_video_writer_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_task_control_grant_sql = labeling_task_control_grants_path.read_text(
             encoding="utf-8"
         )
         video_restore_grant_sql = video_restore_grants_path.read_text(encoding="utf-8")
@@ -6035,6 +6051,22 @@ def main(argv: list[str] | None = None) -> int:
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
                 "labeling_video_writer_role": "labeling_video_writer_client",
+            },
+        )
+        phase = "install-labeling-task-control-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_task_control_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "task_control_role": "labeling_task_control_client",
             },
         )
         phase = "install-video-restore-grants"

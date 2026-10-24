@@ -159,10 +159,10 @@ BEGIN
 
     ELSIF v_action IN ('lock_scope', 'try_final_scope', 'release', 'heartbeat', 'assert_write_allowed', 'is_locked', 'active_lock', 'active_locks') THEN
         IF v_action IN ('release', 'heartbeat', 'assert_write_allowed') THEN
-            IF v_keys IS DISTINCT FROM CASE v_action
+            IF v_keys IS DISTINCT FROM (CASE v_action
                 WHEN 'release' THEN ARRAY['action','schema','task_id','user_id']::text[]
                 WHEN 'heartbeat' THEN ARRAY['action','schema','task_id','ttl','user_id']::text[]
-                ELSE ARRAY['action','schema','task_id','user_id']::text[] END
+                ELSE ARRAY['action','schema','task_id','user_id']::text[] END)
                OR jsonb_typeof(p_request -> 'user_id') IS DISTINCT FROM 'string'
                OR p_request ->> 'user_id' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
                OR (v_action = 'heartbeat' AND jsonb_typeof(p_request -> 'ttl') NOT IN ('null', 'number'))
@@ -429,7 +429,7 @@ BEGIN
     END IF;
 
     RAISE EXCEPTION 'Invalid Labeling task-lock action' USING ERRCODE = '22023';
-END
+END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_labeling_v1.task_edit_lock_command(jsonb) FROM PUBLIC;
