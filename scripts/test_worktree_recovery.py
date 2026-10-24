@@ -1,5 +1,6 @@
 """Guard irreversible recovery boundaries without connecting to infrastructure."""
 
+from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
@@ -182,6 +183,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         from app.db.models.prediction_input import PredictionInputLease
         from app.db.models.training_storage_deletion import TrainingStorageDeletion
         from app.db.models.training_dataset import TrainingDatasetVersion
+        from app.db.models.training_run import TrainingRun
         from app.services.dataset_assets import LEGACY_LOCATION_ID
 
         self.models = SimpleNamespace(
@@ -194,6 +196,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             deletion=TrainingStorageDeletion,
             retirement=ManagedOriginalRetirement,
             version=TrainingDatasetVersion,
+            run=TrainingRun,
         )
         self.source, self.target, self.endpoint = (
             roles("source"),
@@ -223,11 +226,20 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             "origin": "verified-retained",
             "evidence": {"inventory_digest": "a" * 64},
         }
+        run_id = uuid.UUID(int=14)
+        run_ref = {
+            **training_ref,
+            "purpose": "training-run",
+            "prefix": f"projects/{project_id}/runs/{run_id}/",
+        }
         self.rows = {
             TrainingDatasetVersion: [
                 SimpleNamespace(
                     id=version_id, project_id=project_id, storage_ref=dict(training_ref)
                 )
+            ],
+            TrainingRun: [
+                SimpleNamespace(id=run_id, project_id=project_id, storage_ref=run_ref)
             ],
             StorageBinding: [
                 SimpleNamespace(
@@ -279,7 +291,13 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                     bucket=self.source["MINIO_TRAINING_BUCKET"],
                     prefix=training_ref["prefix"],
                     storage_ref=dict(training_ref),
-                )
+                ),
+                SimpleNamespace(
+                    id="run-deletion",
+                    bucket=self.source["MINIO_TRAINING_BUCKET"],
+                    prefix=run_ref["prefix"],
+                    storage_ref=dict(run_ref),
+                ),
             ],
             ManagedOriginalRetirement: [
                 SimpleNamespace(
@@ -331,6 +349,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 "training_storage_deletions",
                 "managed_original_retirements",
                 "training_dataset_versions",
+                "training_runs",
             },
         )
         target = storage_view(self.endpoint, self.target)
@@ -364,46 +383,77 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(retirement.retain_until)
 
     async def test_unknown_training_owner_is_not_adopted_or_mapped(self):
-        version = self.rows[self.models.version][0]
-        for field, value in [
-            ("bucket", "foreign"),
-            ("endpoint_url", "http://other:9000"),
-            ("storage_identity", "b" * 64),
-            ("prefix", "unknown/"),
-        ]:
-            original = version.storage_ref[field]
-            version.storage_ref[field] = value
-            with self.subTest(field=field), self.assertRaises(WorktreeError):
-                await remap_storage(self.db, self.source, self.target, self.endpoint)
-            version.storage_ref[field] = original
+        baseline = deepcopy(self.rows)
+        for model in [self.models.version, self.models.run, self.models.deletion]:
+            for index in range(len(baseline[model])):
+                for field, value in [
+                    ("bucket", "foreign"),
+                    ("endpoint_url", "http://other:9000"),
+                    ("storage_identity", "b" * 64),
+                    ("prefix", "unknown/"),
+                ]:
+                    self.rows = deepcopy(baseline)
+                    self.rows[model][index].storage_ref[field] = value
+                    with self.subTest(
+                        model=model.__tablename__, index=index, field=field
+                    ):
+                        with self.assertRaises(WorktreeError):
+                            await remap_storage(
+                                self.db, self.source, self.target, self.endpoint
+                            )
         self.db.flush.assert_not_awaited()
+
+    async def test_run_and_dataset_ownership_cannot_be_interchanged(self):
+        baseline = deepcopy(self.rows)
+        for model, foreign in [
+            (self.models.version, self.models.run),
+            (self.models.run, self.models.version),
+        ]:
+            self.rows = deepcopy(baseline)
+            self.rows[model][0].storage_ref = deepcopy(baseline[foreign][0].storage_ref)
+            with (
+                self.subTest(model=model.__tablename__),
+                self.assertRaises(WorktreeError),
+            ):
+                await remap_storage(self.db, self.source, self.target, self.endpoint)
+        self.db.flush.assert_not_awaited()
+
+    async def test_unknown_legacy_run_remains_unpinned_during_restore(self):
+        run = self.rows[self.models.run][0]
+        run.storage_ref = None
+        await remap_storage(self.db, self.source, self.target, self.endpoint)
+        self.assertIsNone(run.storage_ref)
 
     def test_protected_training_ref_excludes_only_physical_subfields(self):
         from worktree_recovery_fixture import digest, protected_row
 
-        original = {
-            "id": "version",
-            "storage_ref": self.rows[self.models.version][0].storage_ref,
-        }
-        base = protected_row("training_dataset_versions", original)
-        for field in ["bucket", "storage_identity"]:
-            changed = {
-                **original,
-                "storage_ref": {**original["storage_ref"], field: "mapped"},
-            }
-            self.assertEqual(
-                digest(base),
-                digest(protected_row("training_dataset_versions", changed)),
-            )
-        for field in ["prefix", "origin", "evidence", "location_id", "endpoint_url"]:
-            changed = {
-                **original,
-                "storage_ref": {**original["storage_ref"], field: "changed"},
-            }
-            self.assertNotEqual(
-                digest(base),
-                digest(protected_row("training_dataset_versions", changed)),
-            )
+        for model in [self.models.version, self.models.run, self.models.deletion]:
+            table = model.__tablename__
+            for row in self.rows[model]:
+                original = {"id": str(row.id), "storage_ref": row.storage_ref}
+                base = protected_row(table, original)
+                for field in ["bucket", "storage_identity"]:
+                    changed = {
+                        **original,
+                        "storage_ref": {**original["storage_ref"], field: "mapped"},
+                    }
+                    self.assertEqual(
+                        digest(base), digest(protected_row(table, changed))
+                    )
+                for field in [
+                    "prefix",
+                    "origin",
+                    "evidence",
+                    "location_id",
+                    "endpoint_url",
+                ]:
+                    changed = {
+                        **original,
+                        "storage_ref": {**original["storage_ref"], field: "changed"},
+                    }
+                    self.assertNotEqual(
+                        digest(base), digest(protected_row(table, changed))
+                    )
 
     async def test_unknown_retired_original_cannot_be_adopted_on_restore(self):
         retirement = self.rows[self.models.retirement][0]

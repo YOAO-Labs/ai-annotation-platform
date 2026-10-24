@@ -488,10 +488,14 @@ def test_real_artifact_stream_digest_and_partial_delete_errors(monkeypatch):
         "owned/a",
         {"sha256": hashlib.sha256(b"abc").hexdigest(), "size_bytes": 3},
         attempt_id,
+        bucket="saved-run",
     )
     with pytest.raises(ValueError):
         service.verify_artifact(
-            "owned/a", {"sha256": "0" * 64, "size_bytes": 3}, attempt_id
+            "owned/a",
+            {"sha256": "0" * 64, "size_bytes": 3},
+            attempt_id,
+            bucket="saved-run",
         )
     storage = StorageService.__new__(StorageService)
     storage.client, storage.bucket = client, "owned"

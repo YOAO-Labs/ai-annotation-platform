@@ -964,6 +964,7 @@
 | GET | `/initialization-sources/{model_id}` |
 | POST | `:preflight` |
 | GET | `/parameter-schema` |
+| POST | `/{run_id}/storage-pin` |
 | GET | `/{run_id}` |
 | GET | `/{run_id}/events` |
 | GET | `/{run_id}/attempts/{attempt_id}/evaluation` |
@@ -1034,4 +1035,4 @@
 
 ---
 
-_共 93 模块 / 597 路由_
+_共 93 模块 / 598 路由_

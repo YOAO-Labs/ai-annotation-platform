@@ -50,7 +50,7 @@ from app.services.training_list_filters import (
     run_task_expression,
 )
 from app.services.storage import storage_service as storage
-from app.services.training_dataset_bridge import content_digest
+from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-runs",
@@ -280,6 +280,25 @@ async def list_runs(
             for item in items
         ],
     }
+
+
+@router.post(
+    "/{run_id}/storage-pin",
+    response_model=TrainingRunOut,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def pin_legacy_run_storage(
+    run_id: uuid.UUID,
+    request: Request,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.training_run_storage_adoption import pin
+
+    return await pin(
+        db, run_id, user, project, getattr(request.state, "api_key_id", None)
+    )
 
 
 @router.get("/{run_id}", response_model=TrainingRunDetail)
@@ -617,7 +636,12 @@ async def delete_run(
         )
     from app.services import training_storage_cleanup as cleanup
 
-    await cleanup.delete_record(db, run, f"projects/{project.id}/runs/{run.id}/")
+    try:
+        await cleanup.delete_record(db, run, f"projects/{project.id}/runs/{run.id}/")
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            exc.status_code, detail={"code": exc.code, "message": str(exc)}
+        ) from None
 
 
 @executor_router.post("/claim")

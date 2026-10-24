@@ -90581,6 +90581,64 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/training-runs/{run_id}/storage-pin": {
+      "post": {
+        "operationId": "pin_legacy_run_storage_api_v1_projects__project_id__training_runs__run_id__storage_pin_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Pin Legacy Run Storage",
+        "tags": [
+          "training-runs"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/training-runs:preflight": {
       "post": {
         "operationId": "preflight_api_v1_projects__project_id__training_runs_preflight_post",

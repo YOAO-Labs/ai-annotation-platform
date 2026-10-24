@@ -14,6 +14,7 @@ import json
 from pathlib import PurePosixPath
 import stat
 import tempfile
+import threading
 import time
 import uuid
 import zipfile
@@ -42,6 +43,7 @@ MAX_OBJECTS = 100_000
 MAX_TRANSFER_BYTES = 64 * 1024**3
 TIMEOUT_SECONDS = 600
 CHUNK = 1024 * 1024
+CAPACITY = threading.BoundedSemaphore(1)
 
 
 def reject(code="legacy_storage_content_mismatch", status=409):

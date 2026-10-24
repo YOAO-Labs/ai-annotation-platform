@@ -43,7 +43,8 @@ def protected_row(table, row):
         if key not in MAPPED_COLUMNS.get(table, set())
     }
     if (
-        table in {"training_dataset_versions", "training_storage_deletions"}
+        table
+        in {"training_dataset_versions", "training_runs", "training_storage_deletions"}
         and result.get("storage_ref") is not None
     ):
         result["storage_ref"] = {
@@ -144,6 +145,7 @@ async def seed(db, external: Path):
     from app.db.models.storage_connection import StorageConnection
     from app.db.models.task import Task
     from app.db.models.training_dataset import TrainingDatasetVersion
+    from app.db.models.training_run import TrainingAttempt, TrainingRun
     from app.db.models.training_storage_deletion import TrainingStorageDeletion
     from app.schemas.training_dataset import TrainingDatasetSelection
     from app.services import (
@@ -502,6 +504,62 @@ async def seed(db, external: Path):
             Key=deletion_ref["prefix"] + f"attempts/{uuid.uuid4()}/dataset.zip",
             Body=b"retained until reviewed",
         )
+        from app.services import training_run_storage as run_storage
+
+        run_config = {"task": "detect", "fixture": "isolated-recovery"}
+        run = TrainingRun(
+            project_id=project.id,
+            creator_id=actor.id,
+            dataset_id=ready.id,
+            request_id=uuid.uuid4(),
+            request_digest=digest("recovery-run"),
+            name="Recovery stopped experiment",
+            status="failed",
+            config=run_config,
+            config_digest=digest(run_config),
+            completed_at=now,
+        )
+        db.add(run)
+        await db.flush()
+        await run_storage.allocate(db, run)
+        attempt = TrainingAttempt(run_id=run.id, ordinal=1, status="failed")
+        db.add(attempt)
+        await db.flush()
+        run.current_attempt_id = attempt.id
+        weights = b"synthetic recovery weights; never deserialized"
+        spec = {
+            "name": "best.pt",
+            "role": "weights",
+            "size_bytes": len(weights),
+            "sha256": hashlib.sha256(weights).hexdigest(),
+            "epoch": 1,
+        }
+        attempt.upload_inventory = {"best.pt": spec}
+        owner = run_storage.resolve(run)
+        key = owner.key(f"attempts/{attempt.id}/best.pt")
+        attempt.artifacts = {"best.pt": {**spec, "key": key}}
+        storage.client.put_object(
+            Bucket=owner.bucket,
+            Key=key,
+            Body=weights,
+            Metadata={"sha256": spec["sha256"], "attempt-id": str(attempt.id)},
+        )
+        run_deletion_ref = {
+            **run.storage_ref,
+            "prefix": run_storage.prefix_for(project.id, uuid.uuid4()),
+        }
+        db.add(
+            TrainingStorageDeletion(
+                bucket=run_deletion_ref["bucket"],
+                prefix=run_deletion_ref["prefix"],
+                storage_ref=run_deletion_ref,
+            )
+        )
+        storage.client.put_object(
+            Bucket=run_deletion_ref["bucket"],
+            Key=run_deletion_ref["prefix"] + f"attempts/{uuid.uuid4()}/last.pt",
+            Body=b"retained run output until reviewed",
+        )
         db.add(
             StorageConnection(
                 name="Synthetic recovery secret",
@@ -729,17 +787,52 @@ async def verify_application(db, external: Path):
             raise WorktreeError("同名不同内容被错误恢复为原件")
     from app.db.models.training_storage_deletion import TrainingStorageDeletion
     from app.services.training_dataset_storage import resolve_ref
+    from app.db.models.training_run import TrainingAttempt, TrainingRun
+    from app.services import training_run_storage as run_storage
 
     deletion_count = 0
     for intent in await db.scalars(select(TrainingStorageDeletion)):
-        owner = resolve_ref(intent.storage_ref, expected_prefix=intent.prefix)
+        resolver = (
+            run_storage.resolve_ref
+            if intent.storage_ref["purpose"] == "training-run"
+            else resolve_ref
+        )
+        owner = resolver(intent.storage_ref, expected_prefix=intent.prefix)
         assert intent.bucket == owner.bucket == storage.training_bucket
         objects = storage.client.list_objects_v2(
             Bucket=owner.bucket, Prefix=owner.prefix
         )
         assert len(objects.get("Contents", [])) == 1
         deletion_count += 1
-    assert deletion_count == 1
+    assert deletion_count == 2
+    run_count, run_artifact_count = 0, 0
+    for run in await db.scalars(select(TrainingRun)):
+        assert run.status == "failed" and digest(run.config) == run.config_digest
+        owner = run_storage.resolve(run)
+        assert owner.bucket == storage.training_bucket
+        attempt = await db.get(TrainingAttempt, run.current_attempt_id)
+        assert attempt.run_id == run.id and attempt.status == "failed"
+        for name, artifact in attempt.artifacts.items():
+            assert {k: v for k, v in artifact.items() if k != "key"} == (
+                attempt.upload_inventory[name]
+            )
+            run_storage.expect_attempt(owner, attempt.id, artifact["key"])
+            response = storage.client.get_object(
+                Bucket=owner.bucket, Key=artifact["key"]
+            )
+            try:
+                data = response["Body"].read(1024)
+            finally:
+                response["Body"].close()
+            assert len(data) == artifact["size_bytes"]
+            assert hashlib.sha256(data).hexdigest() == artifact["sha256"]
+            assert response["Metadata"] == {
+                "sha256": artifact["sha256"],
+                "attempt-id": str(attempt.id),
+            }
+            run_artifact_count += 1
+        run_count += 1
+    assert (run_count, run_artifact_count) == (1, 1)
     ready_count, partial_count, media_count = 0, 0, 0
     sys.path.insert(0, str(ROOT / "apps/training-executor"))
     from training_executor.adapters import validate_dataset
@@ -827,6 +920,8 @@ async def verify_application(db, external: Path):
     return {
         "pinned_training_versions": ready_count + partial_count,
         "pinned_training_deletions": deletion_count,
+        "pinned_training_runs": run_count,
+        "verified_run_artifacts": run_artifact_count,
         "ready_versions": ready_count,
         "interrupted_versions": partial_count,
         "unavailable_external_originals": unavailable,

@@ -462,7 +462,8 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
         descriptor["evaluator"]["options"]["imgsz"] = run.config["parameters"]["imgsz"]
         report["summary"]["metrics/mAP50-95(B)"] = 0.2 + index * 0.3
         raw = json.dumps(report).encode()
-        key = "study/report/" + str(attempt.id)
+        prefix = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/"
+        key = prefix + "metrics.json"
         objects[key] = (raw, str(attempt.id))
         attempt.artifacts = {
             "metrics.json": {
@@ -471,7 +472,7 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "size_bytes": len(raw),
             },
-            "best.pt": {"role": "weights", **weights},
+            "best.pt": {"role": "weights", **weights, "key": prefix + "best.pt"},
         }
         await db_session.flush()
         await studies.coordinate(db_session, study.id)
@@ -492,7 +493,7 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
     second_key = next(
         key
         for key in objects
-        if key.endswith(result["trials"][1]["result"]["attempt_id"])
+        if f"/attempts/{result['trials'][1]['result']['attempt_id']}/" in key
     )
     raw, identity = objects[second_key]
     incompatible = json.loads(raw)
@@ -525,7 +526,12 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
 
 async def test_concurrent_coordinators_and_fenced_finish_do_not_require_study_lock(
     test_engine,
+    monkeypatch,
 ):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "training_node_id", f"study-{uuid.uuid4().hex}")
+    resource_id = runs.resource_id()
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     project_id = user_id = study_id = None
     try:
@@ -585,6 +591,7 @@ async def test_concurrent_coordinators_and_fenced_finish_do_not_require_study_lo
             async def execute():
                 async with maker() as db:
                     claim = native_claim()
+                    claim.resource_id = resource_id
                     assignment = await runs.claim(db, claim)
                     assert assignment
                     await finish(db, claim, assignment, seconds=1)
@@ -600,11 +607,7 @@ async def test_concurrent_coordinators_and_fenced_finish_do_not_require_study_lo
             async with maker() as db:
                 await db.execute(
                     delete(TrainingResourceLease).where(
-                        TrainingResourceLease.attempt_id.in_(
-                            select(TrainingAttempt.id)
-                            .join(TrainingRun)
-                            .where(TrainingRun.project_id == project_id)
-                        )
+                        TrainingResourceLease.resource_id == resource_id
                     )
                 )
                 await db.execute(

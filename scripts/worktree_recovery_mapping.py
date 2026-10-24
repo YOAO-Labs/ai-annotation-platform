@@ -60,6 +60,8 @@ async def remap_storage(
     from app.db.models.prediction_input import PredictionInputLease
     from app.db.models.training_storage_deletion import TrainingStorageDeletion
     from app.db.models.training_dataset import TrainingDatasetVersion
+    from app.db.models.training_run import TrainingRun
+    from app.services import training_run_storage
     from app.services.training_dataset_storage import prefix_for, resolve_ref
 
     mapping = bucket_mapping(source, target)
@@ -140,17 +142,30 @@ async def remap_storage(
                 table,
                 str(row.id),
             )
-    for model in (TrainingDatasetVersion, TrainingStorageDeletion):
+    for model in (TrainingDatasetVersion, TrainingRun, TrainingStorageDeletion):
         for row in await db.scalars(select(model)):
             ref = row.storage_ref
             if ref is not None:
+                run_owner = (
+                    ref.get("purpose") == "training-run"
+                    if isinstance(ref, dict)
+                    else False
+                )
                 expected = (
                     prefix_for(row.project_id, row.id)
                     if model is TrainingDatasetVersion
+                    else training_run_storage.prefix_for(row.project_id, row.id)
+                    if model is TrainingRun
                     else row.prefix
                 )
+                if (model is TrainingDatasetVersion and run_owner) or (
+                    model is TrainingRun and not run_owner
+                ):
+                    raise WorktreeError("恢复训练归属类型不匹配")
                 try:
-                    owner = resolve_ref(ref, expected_prefix=expected)
+                    owner = (
+                        training_run_storage.resolve_ref if run_owner else resolve_ref
+                    )(ref, expected_prefix=expected)
                 except ValueError:
                     raise WorktreeError("训练版本或清理意图含未知归属") from None
                 if (

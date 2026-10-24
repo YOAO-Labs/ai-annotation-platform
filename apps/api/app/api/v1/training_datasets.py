@@ -3,7 +3,6 @@
 import asyncio
 from copy import deepcopy
 from datetime import datetime, timezone
-import threading
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -30,6 +29,7 @@ from app.services import training_datasets as service
 from app.services import project_task_dataset as task_datasets
 from app.services import training_storage_cleanup as cleanup
 from app.services import training_dataset_storage as storage_owners
+from app.services.training_storage_adoption import CAPACITY as _adoption_capacity
 from app.services.training_list_filters import (
     ISODate,
     created_date_bounds,
@@ -45,8 +45,6 @@ router = APIRouter(
     prefix="/projects/{project_id}/training-datasets",
     dependencies=[Depends(require_scopes("annotations:read", "datasets:read"))],
 )
-
-_adoption_capacity = threading.BoundedSemaphore(1)
 
 
 def fail(exc: TrainingDatasetError):

@@ -11,7 +11,9 @@ from app.db.models.training_storage_deletion import TrainingStorageDeletion
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import TrainingDatasetError
 
-_DATASET_PREFIX = re.compile(r"projects/[0-9a-f-]{36}/datasets/[0-9a-f-]{36}/")
+_UNRESOLVED_PREFIX = re.compile(
+    r"projects/[0-9a-f-]{36}/(?:datasets|runs)/[0-9a-f-]{36}/"
+)
 
 log = logging.getLogger(__name__)
 
@@ -20,10 +22,15 @@ async def delete_record(db, record, prefix):
     # The database checks every remaining FK before storage can be destroyed.
     # No FK from the tombstone: project removal must not cancel pending cleanup.
     from app.db.models.training_dataset import TrainingDatasetVersion
-    from app.services.training_dataset_storage import resolve
+    from app.db.models.training_run import TrainingRun
+    from app.services import training_dataset_storage, training_run_storage
 
-    if isinstance(record, TrainingDatasetVersion):
-        owner = resolve(record)
+    if isinstance(record, (TrainingDatasetVersion, TrainingRun)):
+        owner = (
+            training_dataset_storage
+            if isinstance(record, TrainingDatasetVersion)
+            else training_run_storage
+        ).resolve(record)
         if prefix != owner.prefix:
             raise TrainingDatasetError(
                 "training_storage_invalid_key",
@@ -34,8 +41,11 @@ async def delete_record(db, record, prefix):
             bucket=owner.bucket, prefix=owner.prefix, storage_ref=owner.ref
         )
     else:
-        # Run artifacts retain their separate cleanup contract.
-        intent = TrainingStorageDeletion(bucket=storage.training_bucket, prefix=prefix)
+        raise TrainingDatasetError(
+            "training_storage_identity_changed",
+            "无法核实清理对象的存储归属",
+            status_code=409,
+        )
     db.add(intent)
     await db.delete(record)
     await db.commit()
@@ -61,19 +71,25 @@ async def purge_requested(db, intent_id):
     intent.last_attempted_at = datetime.now(timezone.utc)
     await db.commit()
     if intent.storage_ref is not None:
-        from app.services.training_dataset_storage import resolve_ref
+        from app.services import training_dataset_storage, training_run_storage
 
-        owner = resolve_ref(intent.storage_ref, expected_prefix=prefix)
+        resolver = (
+            training_run_storage
+            if isinstance(intent.storage_ref, dict)
+            and intent.storage_ref.get("purpose") == "training-run"
+            else training_dataset_storage
+        )
+        owner = resolver.resolve_ref(intent.storage_ref, expected_prefix=prefix)
         if owner.bucket != bucket:
             raise TrainingDatasetError(
                 "training_storage_identity_changed",
                 "删除意图的存储身份不一致",
                 status_code=409,
             )
-    elif _DATASET_PREFIX.fullmatch(prefix):
+    elif _UNRESOLVED_PREFIX.fullmatch(prefix):
         raise TrainingDatasetError(
             "training_storage_unpinned",
-            "旧版本删除意图的端点尚未核实，未执行物理清理",
+            "旧训练删除意图的端点尚未核实，未执行物理清理",
             status_code=409,
         )
     # Repeated prefix deletion is safe after crashes or an acknowledgement

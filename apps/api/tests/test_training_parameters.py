@@ -391,7 +391,7 @@ async def test_v2_success_requires_verified_native_observation_and_retains_lease
             ("train.log", "log"),
         ]
     }
-    monkeypatch.setattr(service, "verify_artifact", lambda *args: None)
+    monkeypatch.setattr(service, "verify_artifact", lambda *args, **kwargs: None)
     body = ExecutorFinish(
         **fence(claim, assignment), status="succeeded", process_exited=True
     )
