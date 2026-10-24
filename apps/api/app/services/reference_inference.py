@@ -247,7 +247,10 @@ async def reference_image_operation(
             yield None
             return
         from app.services import prediction_originals as originals
-        from app.services.managed_image_inference import ManagedImageOperation
+        from app.services.managed_image_inference import (
+            ManagedImageOperation,
+            managed_inference_http_error,
+        )
 
         owner = ManagedImageOperation(
             db, task, actor, request, operation, prompt_source
@@ -263,7 +266,7 @@ async def reference_image_operation(
                     409, detail={"code": "managed_inference_busy"}
                 ) from None
             if isinstance(exc, Exception):
-                raise content_http_error(exc) from None
+                raise managed_inference_http_error(exc) from None
             raise
         finally:
             try:

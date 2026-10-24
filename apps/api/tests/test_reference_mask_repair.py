@@ -392,13 +392,15 @@ async def state(w):
         predictions = (
             await db.scalars(select(Prediction).where(Prediction.task_id == w.task_id))
         ).all()
-        assert (
-            await db.scalar(
-                select(func.count())
-                .select_from(PredictionInputLease)
-                .where(PredictionInputLease.task_id == w.task_id)
+        inputs = list(
+            await db.scalars(
+                select(PredictionInputLease).where(
+                    PredictionInputLease.task_id == w.task_id
+                )
             )
-            == 0
+        )
+        assert all(
+            row.state == "deleted" and row.deleted_at is not None for row in inputs
         )
         return batch, job, annotation, predictions
 

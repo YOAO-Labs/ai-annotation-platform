@@ -17,6 +17,7 @@ from app.services.project_access import ProjectAccess
 from app.services.ai_mask_accept import AiMaskAcceptError, accept_ai_mask_candidate
 from app.services.content_snapshot import ContentError
 from app.services.dataset_content import content_http_error
+from app.services.managed_image_inference import managed_inference_http_error
 from app.services.raster_mask_storage import RasterMaskContractError
 from app.services.video_collaboration import assert_video_annotation_write_scope
 from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_operation
@@ -109,7 +110,12 @@ async def accept_native_ai_mask_candidate(
             )
     except (AiMaskAcceptError, RasterMaskContractError, ContentError) as exc:
         error = (
-            content_http_error(exc)
+            (
+                managed_inference_http_error(exc)
+                if getattr(request.state, "original_native_acceptance", None)
+                is not None
+                else content_http_error(exc)
+            )
             if isinstance(exc, ContentError)
             else HTTPException(status_code=exc.status_code, detail=exc.detail)
         )

@@ -119,6 +119,12 @@ async def reference_task_guard(
                         else "managed_inference_busy"
                     },
                 ) from None
+            if not reference:
+                from app.services.managed_image_inference import (
+                    managed_inference_http_error,
+                )
+
+                raise managed_inference_http_error(exc) from None
             raise content_http_error(exc) from None
         return
     if not is_reference(task.file_path):

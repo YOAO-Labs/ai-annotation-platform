@@ -65,6 +65,25 @@ def prompt():
     return {"type": "point", "points": [[0.5, 0.5]], "output_geometry": "mask"}
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        "prediction_requires_original_provenance",
+        "prediction_original_identity_invalid",
+        "prediction_original_receipt_invalid",
+        "content_binding_changed",
+        "prediction_input_expired",
+    ],
+)
+def test_managed_source_errors_explain_how_to_recover(code):
+    from app.services.managed_image_inference import managed_inference_http_error
+
+    error = managed_inference_http_error(ContentError(code, 409))
+    assert error.status_code == 409
+    assert error.detail["code"] == code
+    assert "重新运行推理" in error.detail["message"]
+
+
 def test_managed_source_identity_participates_in_prompt_revision():
     task_id = uuid.uuid4()
     source = identity(task_id)

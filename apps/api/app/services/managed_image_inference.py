@@ -21,7 +21,7 @@ from app.db.models.user import User
 from app.services import prediction_inputs, prediction_originals as originals
 from app.services import storage_access
 from app.services.content_snapshot import ContentError, MAX_BYTES, MAX_PIXELS
-from app.services.dataset_content import key_authority
+from app.services.dataset_content import content_http_error, key_authority
 from app.services.image_inference_authority import authorize_image_operation
 from app.services.project_write_guard import (
     lock_actor_project_authority,
@@ -51,6 +51,20 @@ _FIELDS = frozenset(
         "facts_digest",
     }
 )
+
+
+def managed_inference_http_error(exc):
+    error = content_http_error(exc)
+    messages = {
+        "prediction_requires_original_provenance": "候选缺少可核验的原图来源，请刷新页面后重新运行推理。",
+        "prediction_original_identity_invalid": "候选的原图来源信息已失效，请刷新页面后重新运行推理。",
+        "prediction_original_receipt_invalid": "本次原图校验已失效，请刷新页面后重新运行推理。",
+        "content_binding_changed": "原图来源已变化，请刷新页面后重新运行推理。",
+        "prediction_input_expired": "本次推理输入已过期，请刷新页面后重新运行推理。",
+    }
+    if isinstance(exc, ContentError) and exc.code in messages:
+        error.detail = {**error.detail, "message": messages[exc.code]}
+    return error
 
 
 def normalize_identity(value):
