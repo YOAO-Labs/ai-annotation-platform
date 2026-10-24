@@ -451,6 +451,31 @@ it.each(["valid", "forbidden"])(
     expect(prepareOriginalVideo).toHaveBeenCalledTimes(1);
   },
 );
+it("keeps code-only API failures visible when HTTP statusText is empty", async () => {
+  vi.mocked(prepareOriginalVideo).mockRejectedValueOnce(
+    new ApiError(429, "", { code: "video_playback_capacity_exceeded" }),
+  );
+  const { result } = mounted(null);
+  await flush();
+  expect(result.current.status).toBe("error");
+  expect(result.current.error).toContain("请检查权限或连接");
+});
+
+it("remembers actual foreground playback after an earlier pause intent", async () => {
+  const native = nativeVideo();
+  const { result } = mounted(native.node);
+  await flush();
+  act(() => {
+    result.current.cancelResume();
+    native.playing(true);
+    vi.setSystemTime(Date.now() + 310_000);
+    window.dispatchEvent(new Event("focus"));
+  });
+  await flush();
+  act(() => result.current.onPrimed());
+  expect(native.play).toHaveBeenCalledOnce();
+});
+
 it("retains content identity and allows explicit retry after a renewal failure", async () => {
   vi.mocked(prepareOriginalVideo)
     .mockResolvedValueOnce(lease())

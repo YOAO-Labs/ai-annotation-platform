@@ -9,7 +9,7 @@ import type {
 import type { AnnotationFeedback } from "@/api/feedbacks";
 import type { WorkbenchPerformanceTier } from "../state/performanceTier";
 import { resolveWorkbenchPerformanceTier } from "../state/performanceTier";
-import { buildFrameTimebase, frameToTime } from "./frameTimebase";
+import { buildFrameTimebase, frameToTime, timeToFrame } from "./frameTimebase";
 import type { FrameTimebase } from "./frameTimebase";
 import { deriveSamplingStep, gridNext, gridPrev, microStep, snapToGrid } from "./videoSamplingGrid";
 import { useFrameClock, type FrameSeekResult } from "./useFrameClock";
@@ -98,6 +98,10 @@ function nextLowerPlaybackRate(rate: VideoPlaybackRate): VideoPlaybackRate | nul
 
 export interface UseVideoPlaybackControllerOptions {
   manifest: TaskVideoManifestResponse | undefined;
+  onSourceRecover?: () => void;
+  onSourcePrimed?: () => void;
+  onPauseIntent?: () => void;
+  isSourceReady?: () => boolean;
   frameTimetable?: TaskVideoFrameTimetableResponse;
   videoRef: RefObject<HTMLVideoElement | null>;
   controlledFrameIndex?: number;
@@ -179,6 +183,10 @@ export interface UseVideoPlaybackControllerResult {
 
 export function useVideoPlaybackController({
   manifest,
+  onSourceRecover,
+  onSourcePrimed,
+  onPauseIntent,
+  isSourceReady,
   frameTimetable,
   videoRef,
   controlledFrameIndex,
@@ -213,6 +221,7 @@ export function useVideoPlaybackController({
   const [isPlaying, setIsPlaying] = useState(false);
   const [jogPlayback, setJogPlayback] = useState<VideoJogPlayback>(() => pausedJogPlayback);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [, refreshNativeReadiness] = useState(0);
   const [playbackOverlayVisible, setPlaybackOverlayVisible] = useState(true);
   const [highlightAction, setHighlightAction] = useState<"prev" | "next" | "play" | null>(null);
   const [loopRegion, setLoopRegion] = useState<VideoLoopRegion | null>(null);
@@ -241,6 +250,9 @@ export function useVideoPlaybackController({
     sourceOwnerRef.current = { key: sourceKey, epoch: sourceOwnerRef.current.epoch + 1 };
   }
   const sourceEpoch = sourceOwnerRef.current.epoch;
+  const isSourceReadyRef = useRef(isSourceReady);
+  isSourceReadyRef.current = isSourceReady;
+  const playableSource = !isSourceReady || isSourceReady();
 
   const settlePresentation = useCallback(
     (request: PendingFramePresentation, result: VideoFrameSeekResult, publish = true) => {
@@ -373,7 +385,7 @@ export function useVideoPlaybackController({
   } = useVideoFramePreview({
     taskId: manifest?.task_id,
     maxFrame,
-    enabled: Boolean(manifest),
+    enabled: Boolean(manifest) && playableSource,
     width: 320,
     format: "webp",
     maxCacheItems: performanceConfig.previewCache,
@@ -396,7 +408,7 @@ export function useVideoPlaybackController({
   const precise = useVideoPreciseFrame({
     taskId: manifest?.task_id,
     frameIndex,
-    enabled: !isPlaybackActive,
+    enabled: !isPlaybackActive && playableSource,
     decodeEnabled: !frameClock.isSeeking || presentationRequest !== null,
     bitmapBudgetBytes: performanceConfig.videoDecoderBitmapCacheBytes,
     chunkBudgetBytes: performanceConfig.videoChunkByteCacheBytes,
@@ -470,6 +482,7 @@ export function useVideoPlaybackController({
       image,
       isCurrent: () =>
         mountedRef.current &&
+        (isSourceReadyRef.current?.() ?? true) &&
         pendingPresentationRef.current === request &&
         sourceOwnerRef.current.epoch === request.ownerEpoch &&
         navigationGenerationRef.current === request.navigationGeneration &&
@@ -505,6 +518,7 @@ export function useVideoPlaybackController({
       const request = pendingPresentationRef.current;
       if (
         !request ||
+        !(isSourceReadyRef.current?.() ?? true) ||
         request.requestId !== presentation.requestId ||
         request.frameIndex !== presentation.frameIndex ||
         !presentation.isCurrent()
@@ -863,6 +877,7 @@ export function useVideoPlaybackController({
   // ---- 播放控制 ----
   const pausePlayback = useCallback(
     (options?: { snapToGrid?: boolean }) => {
+      onPauseIntent?.();
       const video = videoRef.current;
       if (video) {
         video.pause();
@@ -878,7 +893,7 @@ export function useVideoPlaybackController({
         }
       }
     },
-    [defaultPlaybackRate, maxFrame, videoRef],
+    [defaultPlaybackRate, maxFrame, onPauseIntent, videoRef],
   );
 
   const togglePlayback = useCallback(() => {
@@ -1024,6 +1039,7 @@ export function useVideoPlaybackController({
       if (
         !mountedRef.current ||
         !manifest?.task_id ||
+        (isSourceReady && !isSourceReady()) ||
         !stageModeGuard.canSetupFrame ||
         !Number.isInteger(nextFrame) ||
         nextFrame < 0 ||
@@ -1052,6 +1068,7 @@ export function useVideoPlaybackController({
     },
     [
       cancelPresentation,
+      isSourceReady,
       manifest?.task_id,
       maxFrame,
       pausePlayback,
@@ -1194,13 +1211,16 @@ export function useVideoPlaybackController({
     const onError = () => {
       setIsPlaying(false);
       setJogPlayback(pausedJogPlaybackRef.current);
-      setPlaybackError(video.error?.message || "当前浏览器无法播放该视频源");
+      if (onSourceRecover) onSourceRecover();
+      else setPlaybackError(video.error?.message || "当前浏览器无法播放该视频源");
     };
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
     video.addEventListener("ended", onEnded);
     video.addEventListener("error", onError);
     const onFrameReady = () => {
+      // Drawability can change without a frame receipt on browsers without rVFC.
+      refreshNativeReadiness((value) => value + 1);
       if (!isPlaybackActive) void captureVerifiedFrame(video, frameIndexRef.current);
     };
     video.addEventListener("seeked", onFrameReady);
@@ -1213,21 +1233,44 @@ export function useVideoPlaybackController({
       video.removeEventListener("seeked", onFrameReady);
       video.removeEventListener("loadeddata", onFrameReady);
     };
-  }, [captureVerifiedFrame, isPlaybackActive, videoRef]);
+  }, [captureVerifiedFrame, isPlaybackActive, onSourceRecover, videoRef]);
 
   // ---- 首帧预热 ----
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !manifest?.video_url) return;
+    setPlaybackError(null);
+    const epoch = sourceOwnerRef.current.epoch;
     let cancelled = false;
+    let disposed = false;
     const primeFirstFrame = () => {
-      if (cancelled) return;
+      if (cancelled || disposed) return;
       cancelled = true;
-      void seekFrameAsyncRef.current(
-        frameIndexRef.current,
-        { recordHistory: false },
-        pendingPresentationRef.current ?? undefined,
-      );
+      void seekFrameAsyncRef
+        .current(
+          frameIndexRef.current,
+          { recordHistory: false },
+          pendingPresentationRef.current ?? undefined,
+        )
+        .then((result) => {
+          const aligned =
+            result.status === "ready" ||
+            ((result.status === "timeout" || result.status === "unavailable") &&
+              !video.seeking &&
+              video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+              video.videoWidth > 0 &&
+              video.videoHeight > 0 &&
+              timeToFrame(video.currentTime, timebase) === frameIndexRef.current);
+          // Ordinary transport positioning may resume estimated videos. Strict QC
+          // presentation still requires its independent source-frame pixel receipt.
+          if (
+            !disposed &&
+            aligned &&
+            sourceOwnerRef.current.epoch === epoch &&
+            videoRef.current === video
+          )
+            onSourcePrimed?.();
+        });
     };
     if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
       primeFirstFrame();
@@ -1235,10 +1278,11 @@ export function useVideoPlaybackController({
       video.addEventListener("loadedmetadata", primeFirstFrame, { once: true });
     }
     return () => {
+      disposed = true;
       cancelled = true;
       video.removeEventListener("loadedmetadata", primeFirstFrame);
     };
-  }, [manifest?.video_url, videoRef]);
+  }, [manifest?.video_url, onSourcePrimed, timebase, videoRef]);
 
   // ---- 加载卡死看门狗 ----
   // 隐藏 <video> 偶发卡在 readyState=HAVE_NOTHING(networkState=NETWORK_LOADING)永不
@@ -1257,7 +1301,8 @@ export function useVideoPlaybackController({
       // 期间已拿到元数据 → 加载已恢复, 停止看门狗。
       if (!video.isConnected || video.readyState >= HTMLMediaElement.HAVE_METADATA) return;
       if (retries >= MAX_RETRIES) {
-        setPlaybackError("视频加载超时,请刷新页面重试");
+        if (onSourceRecover) onSourceRecover();
+        else setPlaybackError("视频加载超时,请刷新页面重试");
         return;
       }
       retries += 1;
@@ -1271,7 +1316,7 @@ export function useVideoPlaybackController({
     return () => {
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [manifest?.video_url, videoRef]);
+  }, [manifest?.video_url, onSourceRecover, videoRef]);
 
   // ---- 暂停时持续抓位图 ----
   useEffect(() => {
@@ -1408,6 +1453,7 @@ export function useVideoPlaybackController({
     >
   >(
     () => ({
+      isSourceReady,
       togglePlayback,
       jogPlayback: jogPlaybackBy,
       pausePlayback,
@@ -1428,16 +1474,45 @@ export function useVideoPlaybackController({
       deleteSelectedTrackKeyframe,
       // v0.21.4 · 当前帧 → JPEG(视频单题 AI / 交互式 SAM 供图), 经 ref 读最新位图故不入 deps。
       captureCurrentFrameJpeg: async (quality?: number) => {
-        const bmp = displayBitmapRef.current?.bitmap;
-        if (bmp) return imageBitmapToJpeg(bmp, quality);
+        const epoch = sourceOwnerRef.current.epoch;
+        const frame = frameIndexRef.current;
+        const generation = navigationGenerationRef.current;
+        if (!(isSourceReadyRef.current?.() ?? true)) return null;
+        const shown = displayBitmapRef.current;
+        const el = videoRef.current;
+        const nativeFrameCurrent = () =>
+          videoRef.current === el &&
+          !!el &&
+          !el.seeking &&
+          el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          el.videoWidth > 0 &&
+          el.videoHeight > 0 &&
+          timeToFrame(el.currentTime, timebase) === frame;
+        let result: Blob | null;
+        if (shown) {
+          if (shown.frameIndex !== frame) return null;
+          result = await imageBitmapToJpeg(shown.bitmap, quality);
+        }
         // v0.21.23 · 位图缓存未命中时画布画的是 <video> 本身(pickMediaImageSource 的回退),
         // 只认 bitmap 会在画面明明可见时谎报「当前帧尚未就绪」。取帧与渲染取同一源。
-        const el = videoRef.current;
-        return el ? videoElementToJpeg(el, quality) : null;
+        else {
+          if (!nativeFrameCurrent()) return null;
+          result = await videoElementToJpeg(el!, quality);
+        }
+        return mountedRef.current &&
+          frameIndexRef.current === frame &&
+          navigationGenerationRef.current === generation &&
+          sourceOwnerRef.current.epoch === epoch &&
+          (isSourceReadyRef.current?.() ?? true) &&
+          (shown ? displayBitmapRef.current === shown : nativeFrameCurrent())
+          ? result
+          : null;
       },
     }),
     [
       clearLoopRegion,
+      isSourceReady,
+      timebase,
       deleteSelectedTrackKeyframe,
       jogPlaybackBy,
       jumpHistoryBy,

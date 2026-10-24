@@ -70,6 +70,8 @@ export type VideoDrawingDraft = {
 };
 
 export interface VideoStageControls {
+  /** Current original lease and native media must both be drawable. */
+  isSourceReady?: () => boolean;
   /** User view/frame commands only; internal checked seek and restore do not emit. */
   subscribeIssueNavigationInterrupt?: (listener: () => void) => () => void;
   captureIssueView?: () => VideoIssueViewCapture | null;

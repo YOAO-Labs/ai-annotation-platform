@@ -1202,7 +1202,7 @@ function ItemInspector({
                 读取只读预览
               </Button>
             )}
-            {!identity && item.file_type !== "video" && (
+            {!identity && (
               <Button
                 size="sm"
                 disabled={downloadState.scope === downloadScope && downloadState.pending}
@@ -1212,16 +1212,6 @@ function ItemInspector({
                   ? "正在核验并下载…"
                   : "核验下载原件"}
               </Button>
-            )}
-            {!identity && item.file_type === "video" && item.file_url && (
-              <a
-                className="text-xs text-primary hover:underline"
-                href={item.file_url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                查看托管原图（未提供实时核验）
-              </a>
             )}
             {actions.includes("view_location") && item.availability?.location_id && (
               <Link

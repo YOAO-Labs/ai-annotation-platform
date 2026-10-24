@@ -44,7 +44,8 @@ function detach(video: HTMLVideoElement | null, path: string | undefined): void 
   video.load();
 }
 function message(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
+  if (error instanceof ApiError)
+    return error.message || "原视频播放准备失败，请检查权限或连接后重试";
   if (error instanceof Error && error.name === "AbortError") return "原视频请求已取消，请重试";
   return "原视频播放准备失败，请检查连接后重试";
 }
@@ -225,6 +226,7 @@ class VideoSession {
     if (document.visibilityState === "hidden" || !this.alive() || !this.lease) return;
     if (Date.now() < this.renewNotBefore) return;
     if (Date.now() >= this.lease.expiresAt) {
+      if (!this.operation) this.operationCancelRevision = this.cancelRevision;
       this.releaseCurrent();
       this.update({ mediaPath: undefined, status: "preparing" });
     }

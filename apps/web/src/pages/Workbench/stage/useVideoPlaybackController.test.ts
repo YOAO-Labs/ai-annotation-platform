@@ -2,6 +2,7 @@
 // 播放浮层 show/2s 自动隐藏(v0.16.x 回归修复)、loopRegion 规范化/清除、书签开合、派生 maxFrame。
 // Source/draw admission uses explicit child-hook receipts; actual pixels remain a browser gate.
 import { act, renderHook } from "@testing-library/react";
+import type { TaskVideoManifestResponse, TaskVideoFrameTimetableResponse } from "@/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const videoHookMocks = vi.hoisted(() => ({
@@ -131,7 +132,7 @@ const MANIFEST = {
   task_id: "T1",
   video_url: "http://x/v.mp4",
   metadata: { fps: 30, frame_count: 100 },
-} as never;
+} as TaskVideoManifestResponse;
 
 /** 最小可用的 <video> 替身:满足 hook 各 effect 挂监听 / 读 readyState / 调 load()。 */
 function mockVideo(readyState = 0) {
@@ -204,6 +205,222 @@ describe("useVideoPlaybackController", () => {
     expect(result.current.fps).toBe(30);
   });
 
+  it("原件源未就绪时不交付缓存JPEG或QC定位成功", async () => {
+    videoHookMocks.preciseBitmap = {
+      frameIndex: 0,
+      bitmap: { close: vi.fn(), width: 4, height: 4 } as unknown as ImageBitmap,
+      width: 4,
+      height: 4,
+    };
+    const ready = vi.fn(() => false);
+    const { result } = setup(undefined, { isSourceReady: ready });
+    expect(result.current.controls.isSourceReady?.()).toBe(false);
+    await expect(result.current.controls.captureCurrentFrameJpeg()).resolves.toBeNull();
+    await act(async () => {
+      expect(await result.current.controls.seekToFrameReady(5)).toMatchObject({
+        status: "unavailable",
+        frameIndex: 5,
+      });
+    });
+    expect(videoHookMocks.imageBitmapToJpeg).not.toHaveBeenCalled();
+  });
+
+  it("原生错误交由租约HEAD恢复处理，不预先判为编码错误", () => {
+    const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
+    const recover = vi.fn();
+    const { result } = setup({ current: video }, { onSourceRecover: recover });
+    const listener = video.addEventListener.mock.calls.find(
+      ([event]) => event === "error",
+    )?.[1] as () => void;
+    act(() => listener());
+    expect(recover).toHaveBeenCalledOnce();
+    expect(result.current.playbackError).toBeNull();
+  });
+
+  it("显式暂停取消续租后的自动播放意图", () => {
+    const cancelResume = vi.fn();
+    const { result } = setup(undefined, { onPauseIntent: cancelResume });
+    act(() => result.current.controls.pausePlayback({ snapToGrid: false }));
+    expect(cancelResume).toHaveBeenCalledOnce();
+  });
+
+  it("估算时间表在普通定位完成后可续播，不伪造精确QC回执", async () => {
+    videoHookMocks.seekToAsync.mockResolvedValue({
+      status: "timeout",
+      frameIndex: 0,
+      source: "timeout",
+    });
+    const video = {
+      ...mockVideo(HTMLMediaElement.HAVE_CURRENT_DATA),
+      videoWidth: 320,
+      videoHeight: 240,
+      seeking: false,
+      currentTime: 0.25 / 30,
+    };
+    const primed = vi.fn();
+    setup({ current: video }, { onSourcePrimed: primed });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(primed).toHaveBeenCalledOnce();
+    expect(videoHookMocks.getFrameEvidence()).toBeNull();
+  });
+
+  it("JPEG编码完成时原件租约已失效，不返回晚到字节", async () => {
+    let finish!: (blob: Blob) => void;
+    videoHookMocks.imageBitmapToJpeg.mockReturnValueOnce(
+      new Promise<Blob>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    videoHookMocks.preciseBitmap = {
+      frameIndex: 0,
+      bitmap: { close: vi.fn(), width: 4, height: 4 } as unknown as ImageBitmap,
+      width: 4,
+      height: 4,
+    };
+    let ready = true;
+    const { result } = setup(undefined, { isSourceReady: () => ready });
+    const capture = result.current.controls.captureCurrentFrameJpeg();
+    ready = false;
+    finish(new Blob(["old frame"]));
+    await expect(capture).resolves.toBeNull();
+  });
+
+  it.each([
+    { seeking: true, currentTime: 0 },
+    { seeking: false, currentTime: 17 / 30 },
+  ])("原生像素未与逻辑帧对齐时不开始JPEG编码: %j", async (position) => {
+    const video = {
+      ...mockVideo(HTMLMediaElement.HAVE_CURRENT_DATA),
+      videoWidth: 320,
+      videoHeight: 240,
+      ...position,
+    };
+    const { result } = setup({ current: video }, { isSourceReady: () => true });
+    await expect(result.current.controls.captureCurrentFrameJpeg()).resolves.toBeNull();
+    expect(videoHookMocks.videoElementToJpeg).not.toHaveBeenCalled();
+  });
+
+  it("原生JPEG编码期间节点跳帧时丢弃字节", async () => {
+    let finish!: (blob: Blob) => void;
+    videoHookMocks.videoElementToJpeg.mockReturnValueOnce(
+      new Promise<Blob>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const video = {
+      ...mockVideo(HTMLMediaElement.HAVE_CURRENT_DATA),
+      videoWidth: 320,
+      videoHeight: 240,
+      seeking: false,
+    };
+    const { result } = setup({ current: video });
+    const capture = result.current.controls.captureCurrentFrameJpeg();
+    video.currentTime = 17 / 30;
+    finish(new Blob(["old frame"]));
+    await expect(capture).resolves.toBeNull();
+  });
+
+  it("租约失效后的晚到精确像素不能结算QC呈现", async () => {
+    videoHookMocks.preciseBitmap = {
+      frameIndex: 0,
+      bitmap: { close: vi.fn(), width: 4, height: 4 } as unknown as ImageBitmap,
+      width: 4,
+      height: 4,
+    };
+    let ready = true;
+    const { result } = setup(undefined, { isSourceReady: () => ready });
+    let pending!: Promise<import("./videoStageControls").VideoFrameSeekResult>;
+    act(() => {
+      pending = result.current.controls.seekToFrameReady(0);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const presentation = result.current.framePresentation!;
+    expect(presentation).not.toBeNull();
+    ready = false;
+    expect(presentation.isCurrent()).toBe(false);
+    act(() => {
+      result.current.markFramePresented(presentation);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+    await expect(pending).resolves.toMatchObject({ status: "timeout" });
+  });
+
+  it.each(["lease", "timetable"] as const)(
+    "旧源的首帧晚到不会恢复新来源的播放: %s",
+    async (change) => {
+      let resolveFirst!: (result: import("./useFrameClock").FrameSeekResult) => void;
+      let resolveSecond!: (result: import("./useFrameClock").FrameSeekResult) => void;
+      const first = new Promise<import("./useFrameClock").FrameSeekResult>((resolve) => {
+        resolveFirst = resolve;
+      });
+      const second = new Promise<import("./useFrameClock").FrameSeekResult>((resolve) => {
+        resolveSecond = resolve;
+      });
+      videoHookMocks.seekToAsync.mockReset().mockReturnValueOnce(first).mockReturnValueOnce(second);
+      const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
+      const videoRef = { current: video };
+      const primed = vi.fn();
+      const { rerender } = renderHook(
+        ({ manifest, frameTimetable }) =>
+          useVideoPlaybackController({
+            manifest,
+            frameTimetable,
+            videoRef: videoRef as never,
+            onSourcePrimed: primed,
+            annotations: [],
+            selectedId: null,
+            selectedTrack: null,
+            hiddenTrackIds: new Set<string>(),
+            lockedTrackIds: new Set<string>(),
+            readOnly: false,
+            drag: null,
+            currentFrameEntries: [],
+            onUpdate: vi.fn(),
+          }),
+        {
+          initialProps: {
+            manifest: MANIFEST,
+            frameTimetable: undefined as TaskVideoFrameTimetableResponse | undefined,
+          },
+        },
+      );
+      rerender({
+        manifest:
+          change === "lease"
+            ? { ...MANIFEST, video_url: "/api/v1/media/original-playback/new" }
+            : MANIFEST,
+        frameTimetable:
+          change === "timetable"
+            ? {
+                task_id: "T1",
+                fps: 30,
+                frame_count: 100,
+                source: "ffprobe",
+                frames: [
+                  {
+                    frame_index: 0,
+                    pts_ms: 0,
+                    is_keyframe: true,
+                    pict_type: null,
+                    byte_offset: null,
+                  },
+                ],
+              }
+            : undefined,
+      });
+      await act(async () => resolveFirst({ status: "ready", frameIndex: 0, source: "rvfc" }));
+      expect(primed).not.toHaveBeenCalled();
+      await act(async () => resolveSecond({ status: "ready", frameIndex: 0, source: "rvfc" }));
+      expect(primed).toHaveBeenCalledOnce();
+    },
+  );
+
   it("暂停态仅显示当前帧 bitmap，不复用上一帧缓存", () => {
     videoHookMocks.activeBitmap = {
       frameIndex: 1,
@@ -251,7 +468,12 @@ describe("useVideoPlaybackController", () => {
       width: 4,
       height: 4,
     };
-    const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
+    const video = {
+      ...mockVideo(HTMLMediaElement.HAVE_CURRENT_DATA),
+      videoWidth: 320,
+      videoHeight: 240,
+      seeking: false,
+    };
     const { result } = setup({ current: video });
     expect(result.current.frameSource).toBe("video-bitmap");
 

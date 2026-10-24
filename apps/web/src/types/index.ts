@@ -163,7 +163,8 @@ export interface VideoMetadata {
 export interface TaskVideoManifestResponse {
   task_id: string;
   dataset_item_id?: string | null;
-  video_url: string;
+  original_identity_path?: string | null;
+  video_url: string | null;
   poster_url: string | null;
   metadata: VideoMetadata;
   expires_in: number;
@@ -243,7 +244,7 @@ export interface VideoManifestSegmentOut {
 export interface VideoManifestV2Response {
   task_id: string | null;
   dataset_item_id: string;
-  video_url: string;
+  video_url: string | null;
   poster_url: string | null;
   fps: number | null;
   frame_count: number | null;

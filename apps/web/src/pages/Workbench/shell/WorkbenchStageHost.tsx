@@ -608,6 +608,7 @@ export const WorkbenchStageHost = forwardRef<VideoStageControls, WorkbenchStageH
           </Suspense>
         ) : stageKind === "video" ? (
           <VideoWorkbench
+            taskId={taskId}
             overlays={overlays}
             maskCompareStore={maskCompareStore}
             ref={ref}
