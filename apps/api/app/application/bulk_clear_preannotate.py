@@ -88,12 +88,14 @@ async def bulk_clear_preannotate(
                 )
             else:
                 task_id_select = select(Task.id).where(Task.batch_id == batch_id)
-                await detach_prediction_parents_for_tasks(db, task_id_select)
+                await detach_prediction_parents_for_tasks(db, batch_id=batch_id)
                 cascade = await PredictionService(db).delete_for_tasks(task_id_select)
                 cascade["prediction_jobs"] = await delete_batch_predict_jobs(
                     db, batch_id
                 )
-                batch_service.reactivate_preannotated_after_prediction_clear(batch)
+                await batch_service.reactivate_preannotated_after_prediction_clear(
+                    batch
+                )
 
             await db.flush()
             for key in aggregate_cascade:

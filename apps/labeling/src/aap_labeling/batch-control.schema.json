@@ -1,0 +1,2246 @@
+{
+  "$defs": {
+    "AnnotationControlState": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "parent_prediction_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Prediction Id"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": ["id", "is_active", "parent_prediction_id", "updated_at"],
+      "title": "AnnotationControlState",
+      "type": "object"
+    },
+    "ApplyBatchAssignments": {
+      "additionalProperties": false,
+      "properties": {
+        "assignments": {
+          "items": {
+            "$ref": "#/$defs/BatchAssignment"
+          },
+          "title": "Assignments",
+          "type": "array"
+        },
+        "operation": {
+          "const": "apply_batch_assignments",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "tracked_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "assignments"],
+      "title": "ApplyBatchAssignments",
+      "type": "object"
+    },
+    "ApplyTaskAssignments": {
+      "additionalProperties": false,
+      "properties": {
+        "assignments": {
+          "items": {
+            "$ref": "#/$defs/TaskAssignment"
+          },
+          "title": "Assignments",
+          "type": "array"
+        },
+        "operation": {
+          "const": "apply_task_assignments",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "assignments"],
+      "title": "ApplyTaskAssignments",
+      "type": "object"
+    },
+    "AssignTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "assign_tasks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "tracked_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "task_ids"],
+      "title": "AssignTasks",
+      "type": "object"
+    },
+    "BatchAssignment": {
+      "additionalProperties": false,
+      "properties": {
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotator Id"
+        },
+        "annotator_set": {
+          "title": "Annotator Set",
+          "type": "boolean"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "expected_annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Annotator Id"
+        },
+        "expected_reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Reviewer Id"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "reviewer_set": {
+          "title": "Reviewer Set",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "batch_id",
+        "expected_annotator_id",
+        "expected_reviewer_id",
+        "annotator_set",
+        "annotator_id",
+        "reviewer_set",
+        "reviewer_id"
+      ],
+      "title": "BatchAssignment",
+      "type": "object"
+    },
+    "BatchControlError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "details": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Details"
+        }
+      },
+      "required": ["code"],
+      "title": "BatchControlError",
+      "type": "object"
+    },
+    "BatchControlResult": {
+      "additionalProperties": false,
+      "properties": {
+        "affected": {
+          "default": 0,
+          "title": "Affected",
+          "type": "integer"
+        },
+        "ai_annotations_deactivated": {
+          "default": 0,
+          "title": "Ai Annotations Deactivated",
+          "type": "integer"
+        },
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/AnnotationControlState"
+          },
+          "title": "Annotations",
+          "type": "array"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Id"
+        },
+        "batch_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Batch Ids",
+          "type": "array"
+        },
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/BatchControlState"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "changed": {
+          "default": false,
+          "title": "Changed",
+          "type": "boolean"
+        },
+        "cleared_assignee_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Cleared Assignee Task Ids",
+          "type": "array"
+        },
+        "cleared_reviewer_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Cleared Reviewer Task Ids",
+          "type": "array"
+        },
+        "completed_tasks": {
+          "default": 0,
+          "title": "Completed Tasks",
+          "type": "integer"
+        },
+        "deleted_batch_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Deleted Batch Ids",
+          "type": "array"
+        },
+        "failed_predictions": {
+          "default": 0,
+          "title": "Failed Predictions",
+          "type": "integer"
+        },
+        "from_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Status"
+        },
+        "predictions": {
+          "default": 0,
+          "title": "Predictions",
+          "type": "integer"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "review_tasks": {
+          "default": 0,
+          "title": "Review Tasks",
+          "type": "integer"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/TaskControlState"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "tasks_reset": {
+          "default": 0,
+          "title": "Tasks Reset",
+          "type": "integer"
+        },
+        "total_tasks": {
+          "default": 0,
+          "title": "Total Tasks",
+          "type": "integer"
+        }
+      },
+      "title": "BatchControlResult",
+      "type": "object"
+    },
+    "BatchControlState": {
+      "additionalProperties": false,
+      "properties": {
+        "admin_lock_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Admin Lock Reason"
+        },
+        "admin_locked": {
+          "title": "Admin Locked",
+          "type": "boolean"
+        },
+        "admin_locked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Admin Locked At"
+        },
+        "admin_locked_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Admin Locked By"
+        },
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotator Id"
+        },
+        "approved_tasks": {
+          "title": "Approved Tasks",
+          "type": "integer"
+        },
+        "assigned_user_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assigned User Ids",
+          "type": "array"
+        },
+        "completed_tasks": {
+          "title": "Completed Tasks",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Id"
+        },
+        "deadline": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deadline"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "priority": {
+          "title": "Priority",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "rejected_tasks": {
+          "title": "Rejected Tasks",
+          "type": "integer"
+        },
+        "review_feedback": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Feedback"
+        },
+        "review_tasks": {
+          "title": "Review Tasks",
+          "type": "integer"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewed At"
+        },
+        "reviewed_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewed By"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "total_tasks": {
+          "title": "Total Tasks",
+          "type": "integer"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "dataset_id",
+        "display_id",
+        "name",
+        "description",
+        "status",
+        "priority",
+        "deadline",
+        "assigned_user_ids",
+        "total_tasks",
+        "completed_tasks",
+        "review_tasks",
+        "approved_tasks",
+        "rejected_tasks",
+        "created_by",
+        "created_at",
+        "updated_at",
+        "review_feedback",
+        "reviewed_at",
+        "reviewed_by",
+        "annotator_id",
+        "reviewer_id",
+        "admin_locked",
+        "admin_lock_reason",
+        "admin_locked_at",
+        "admin_locked_by"
+      ],
+      "title": "BatchControlState",
+      "type": "object"
+    },
+    "BatchStatusItem": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        }
+      },
+      "required": ["batch_id", "expected_status"],
+      "title": "BatchStatusItem",
+      "type": "object"
+    },
+    "BulkApproveBatches": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/BulkReviewBatchItem"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "operation": {
+          "const": "bulk_approve",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "actor_id", "batches"],
+      "title": "BulkApproveBatches",
+      "type": "object"
+    },
+    "BulkBatchStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/BatchStatusItem"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "operation": {
+          "enum": ["bulk_archive", "bulk_activate"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "batches"],
+      "title": "BulkBatchStatus",
+      "type": "object"
+    },
+    "BulkDeleteBatchItem": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        }
+      },
+      "required": ["batch_id"],
+      "title": "BulkDeleteBatchItem",
+      "type": "object"
+    },
+    "BulkDeleteBatches": {
+      "additionalProperties": false,
+      "properties": {
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/BulkDeleteBatchItem"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "default_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Default Batch Id"
+        },
+        "operation": {
+          "const": "bulk_delete",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "tracked_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "default_batch_id", "batches"],
+      "title": "BulkDeleteBatches",
+      "type": "object"
+    },
+    "BulkRejectBatches": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/BulkReviewBatchItem"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "feedback": {
+          "title": "Feedback",
+          "type": "string"
+        },
+        "operation": {
+          "const": "bulk_reject",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reviewed_at": {
+          "format": "date-time",
+          "title": "Reviewed At",
+          "type": "string"
+        },
+        "reviewer_id": {
+          "format": "uuid",
+          "title": "Reviewer Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "tracked_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Task Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "actor_id",
+        "reviewer_id",
+        "feedback",
+        "reviewed_at",
+        "batches"
+      ],
+      "title": "BulkRejectBatches",
+      "type": "object"
+    },
+    "BulkReviewBatchItem": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        }
+      },
+      "required": ["batch_id", "expected_status"],
+      "title": "BulkReviewBatchItem",
+      "type": "object"
+    },
+    "CheckAutoTransition": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "check_auto_transition",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "expected_status"],
+      "title": "CheckAutoTransition",
+      "type": "object"
+    },
+    "ClearAnnotationContributors": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "clear_annotation_contributors",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "tracked_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "task_ids"],
+      "title": "ClearAnnotationContributors",
+      "type": "object"
+    },
+    "ClearPredictionProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "clear_prediction_projection",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "tracked_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "task_ids"],
+      "title": "ClearPredictionProjection",
+      "type": "object"
+    },
+    "CreateBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotator Id"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Id"
+        },
+        "deadline": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deadline"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "operation": {
+          "const": "create_batch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "priority": {
+          "title": "Priority",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "batch_id",
+        "project_id",
+        "dataset_id",
+        "display_id",
+        "name",
+        "description",
+        "priority",
+        "deadline",
+        "annotator_id",
+        "reviewer_id",
+        "created_by"
+      ],
+      "title": "CreateBatch",
+      "type": "object"
+    },
+    "DeactivatePredictionAnnotations": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "deactivate_prediction_annotations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "tracked_annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Annotation Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "task_ids"],
+      "title": "DeactivatePredictionAnnotations",
+      "type": "object"
+    },
+    "DeleteBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "delete_batch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "project_id"],
+      "title": "DeleteBatch",
+      "type": "object"
+    },
+    "DetachPredictionParents": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Id"
+        },
+        "operation": {
+          "const": "detach_prediction_parents",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Ids"
+        },
+        "tracked_annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Annotation Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation"],
+      "title": "DetachPredictionParents",
+      "type": "object"
+    },
+    "MarkPreannotated": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "expected_status": {
+          "const": "active",
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "mark_preannotated",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "expected_status"],
+      "title": "MarkPreannotated",
+      "type": "object"
+    },
+    "PrepareBatchCleanup": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "expected_non_pending": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Non Pending"
+        },
+        "expected_predicted": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Predicted"
+        },
+        "operation": {
+          "const": "prepare_batch_cleanup",
+          "title": "Operation",
+          "type": "string"
+        },
+        "protect_task_work": {
+          "default": false,
+          "title": "Protect Task Work",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "tracked_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "batch_id"],
+      "title": "PrepareBatchCleanup",
+      "type": "object"
+    },
+    "ReactivatePreannotated": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reactivate_preannotated",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "expected_status"],
+      "title": "ReactivatePreannotated",
+      "type": "object"
+    },
+    "ReassignBatchTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "default_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Default Batch Id"
+        },
+        "operation": {
+          "const": "reassign_batch_tasks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "tracked_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "project_id", "default_batch_id"],
+      "title": "ReassignBatchTasks",
+      "type": "object"
+    },
+    "RecalculateBatchCounters": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "recalculate_batch_counters",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id"],
+      "title": "RecalculateBatchCounters",
+      "type": "object"
+    },
+    "RejectBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "feedback": {
+          "title": "Feedback",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reject_batch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "reviewed_at": {
+          "format": "date-time",
+          "title": "Reviewed At",
+          "type": "string"
+        },
+        "reviewer_id": {
+          "format": "uuid",
+          "title": "Reviewer Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "tracked_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Task Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "batch_id",
+        "expected_status",
+        "actor_id",
+        "reviewer_id",
+        "feedback",
+        "reviewed_at"
+      ],
+      "title": "RejectBatch",
+      "type": "object"
+    },
+    "ResetBatchToDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reset_batch_to_draft",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "expected_status"],
+      "title": "ResetBatchToDraft",
+      "type": "object"
+    },
+    "SequenceOrder": {
+      "additionalProperties": false,
+      "properties": {
+        "sequence_order": {
+          "title": "Sequence Order",
+          "type": "integer"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id", "sequence_order"],
+      "title": "SequenceOrder",
+      "type": "object"
+    },
+    "SetBatchAdminLock": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "locked": {
+          "title": "Locked",
+          "type": "boolean"
+        },
+        "locked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Locked At"
+        },
+        "operation": {
+          "const": "set_batch_admin_lock",
+          "title": "Operation",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "batch_id", "locked", "locked_at", "reason", "actor_id"],
+      "title": "SetBatchAdminLock",
+      "type": "object"
+    },
+    "SetSequenceOrders": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "set_sequence_orders",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "sequence_orders": {
+          "items": {
+            "$ref": "#/$defs/SequenceOrder"
+          },
+          "title": "Sequence Orders",
+          "type": "array"
+        },
+        "tracked_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "sequence_orders"],
+      "title": "SetSequenceOrders",
+      "type": "object"
+    },
+    "TaskAssignment": {
+      "additionalProperties": false,
+      "properties": {
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotator Id"
+        },
+        "annotator_set": {
+          "title": "Annotator Set",
+          "type": "boolean"
+        },
+        "assigned_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assigned At"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Assignee Id"
+        },
+        "expected_assignee_is_override": {
+          "title": "Expected Assignee Is Override",
+          "type": "boolean"
+        },
+        "expected_reviewer_claimed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Reviewer Claimed At"
+        },
+        "expected_reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Reviewer Id"
+        },
+        "expected_reviewer_is_override": {
+          "title": "Expected Reviewer Is Override",
+          "type": "boolean"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "reviewer_set": {
+          "title": "Reviewer Set",
+          "type": "boolean"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "batch_id",
+        "expected_status",
+        "expected_assignee_id",
+        "expected_assignee_is_override",
+        "expected_reviewer_id",
+        "expected_reviewer_is_override",
+        "expected_reviewer_claimed_at",
+        "annotator_set",
+        "annotator_id",
+        "assigned_at",
+        "reviewer_set",
+        "reviewer_id"
+      ],
+      "title": "TaskAssignment",
+      "type": "object"
+    },
+    "TaskControlState": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_contributor_ids": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Contributor Ids"
+        },
+        "assigned_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assigned At"
+        },
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assignee Id"
+        },
+        "assignee_is_override": {
+          "title": "Assignee Is Override",
+          "type": "boolean"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_labeled": {
+          "title": "Is Labeled",
+          "type": "boolean"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "review_contributor_ids": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Contributor Ids"
+        },
+        "review_submitter_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Submitter Id"
+        },
+        "reviewer_claimed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Claimed At"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "reviewer_is_override": {
+          "title": "Reviewer Is Override",
+          "type": "boolean"
+        },
+        "sequence_order": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sequence Order"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "total_annotations": {
+          "title": "Total Annotations",
+          "type": "integer"
+        },
+        "total_predictions": {
+          "title": "Total Predictions",
+          "type": "integer"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "batch_id",
+        "status",
+        "assignee_id",
+        "assignee_is_override",
+        "assigned_at",
+        "reviewer_id",
+        "reviewer_is_override",
+        "reviewer_claimed_at",
+        "review_contributor_ids",
+        "review_submitter_id",
+        "annotation_contributor_ids",
+        "total_annotations",
+        "total_predictions",
+        "is_labeled",
+        "sequence_order",
+        "updated_at"
+      ],
+      "title": "TaskControlState",
+      "type": "object"
+    },
+    "TransitionBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "transition_batch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "target_status": {
+          "title": "Target Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "batch_id",
+        "expected_status",
+        "target_status",
+        "actor_id"
+      ],
+      "title": "TransitionBatch",
+      "type": "object"
+    },
+    "UpdateBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotator Id"
+        },
+        "annotator_set": {
+          "title": "Annotator Set",
+          "type": "boolean"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "deadline": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deadline"
+        },
+        "deadline_set": {
+          "title": "Deadline Set",
+          "type": "boolean"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "description_set": {
+          "title": "Description Set",
+          "type": "boolean"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Name"
+        },
+        "name_set": {
+          "title": "Name Set",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "update_batch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Priority"
+        },
+        "priority_set": {
+          "title": "Priority Set",
+          "type": "boolean"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "reviewer_set": {
+          "title": "Reviewer Set",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-labeling-batch-control/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "tracked_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Tracked Task Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "batch_id",
+        "project_id",
+        "name_set",
+        "name",
+        "description_set",
+        "description",
+        "priority_set",
+        "priority",
+        "deadline_set",
+        "deadline",
+        "annotator_set",
+        "annotator_id",
+        "reviewer_set",
+        "reviewer_id"
+      ],
+      "title": "UpdateBatch",
+      "type": "object"
+    }
+  },
+  "$id": "aap-labeling-batch-control/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BatchControlResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BatchControlError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "apply_batch_assignments": "#/$defs/ApplyBatchAssignments",
+          "apply_task_assignments": "#/$defs/ApplyTaskAssignments",
+          "assign_tasks": "#/$defs/AssignTasks",
+          "bulk_activate": "#/$defs/BulkBatchStatus",
+          "bulk_approve": "#/$defs/BulkApproveBatches",
+          "bulk_archive": "#/$defs/BulkBatchStatus",
+          "bulk_delete": "#/$defs/BulkDeleteBatches",
+          "bulk_reject": "#/$defs/BulkRejectBatches",
+          "check_auto_transition": "#/$defs/CheckAutoTransition",
+          "clear_annotation_contributors": "#/$defs/ClearAnnotationContributors",
+          "clear_prediction_projection": "#/$defs/ClearPredictionProjection",
+          "create_batch": "#/$defs/CreateBatch",
+          "deactivate_prediction_annotations": "#/$defs/DeactivatePredictionAnnotations",
+          "delete_batch": "#/$defs/DeleteBatch",
+          "detach_prediction_parents": "#/$defs/DetachPredictionParents",
+          "mark_preannotated": "#/$defs/MarkPreannotated",
+          "prepare_batch_cleanup": "#/$defs/PrepareBatchCleanup",
+          "reactivate_preannotated": "#/$defs/ReactivatePreannotated",
+          "reassign_batch_tasks": "#/$defs/ReassignBatchTasks",
+          "recalculate_batch_counters": "#/$defs/RecalculateBatchCounters",
+          "reject_batch": "#/$defs/RejectBatch",
+          "reset_batch_to_draft": "#/$defs/ResetBatchToDraft",
+          "set_batch_admin_lock": "#/$defs/SetBatchAdminLock",
+          "set_sequence_orders": "#/$defs/SetSequenceOrders",
+          "transition_batch": "#/$defs/TransitionBatch",
+          "update_batch": "#/$defs/UpdateBatch"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CreateBatch"
+        },
+        {
+          "$ref": "#/$defs/UpdateBatch"
+        },
+        {
+          "$ref": "#/$defs/TransitionBatch"
+        },
+        {
+          "$ref": "#/$defs/SetBatchAdminLock"
+        },
+        {
+          "$ref": "#/$defs/PrepareBatchCleanup"
+        },
+        {
+          "$ref": "#/$defs/ResetBatchToDraft"
+        },
+        {
+          "$ref": "#/$defs/DeleteBatch"
+        },
+        {
+          "$ref": "#/$defs/ReassignBatchTasks"
+        },
+        {
+          "$ref": "#/$defs/AssignTasks"
+        },
+        {
+          "$ref": "#/$defs/SetSequenceOrders"
+        },
+        {
+          "$ref": "#/$defs/ApplyBatchAssignments"
+        },
+        {
+          "$ref": "#/$defs/ApplyTaskAssignments"
+        },
+        {
+          "$ref": "#/$defs/BulkBatchStatus"
+        },
+        {
+          "$ref": "#/$defs/BulkDeleteBatches"
+        },
+        {
+          "$ref": "#/$defs/BulkApproveBatches"
+        },
+        {
+          "$ref": "#/$defs/BulkRejectBatches"
+        },
+        {
+          "$ref": "#/$defs/RejectBatch"
+        },
+        {
+          "$ref": "#/$defs/RecalculateBatchCounters"
+        },
+        {
+          "$ref": "#/$defs/MarkPreannotated"
+        },
+        {
+          "$ref": "#/$defs/CheckAutoTransition"
+        },
+        {
+          "$ref": "#/$defs/ReactivatePreannotated"
+        },
+        {
+          "$ref": "#/$defs/ClearAnnotationContributors"
+        },
+        {
+          "$ref": "#/$defs/DeactivatePredictionAnnotations"
+        },
+        {
+          "$ref": "#/$defs/DetachPredictionParents"
+        },
+        {
+          "$ref": "#/$defs/ClearPredictionProjection"
+        }
+      ],
+      "title": "Request"
+    },
+    "schema": {
+      "const": "aap-labeling-batch-control/v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": ["schema", "ok", "request"],
+  "title": "BatchControlReply",
+  "type": "object",
+  "x-postgresql-functions": ["aap_labeling_v1.batch_control_command(jsonb)"]
+}

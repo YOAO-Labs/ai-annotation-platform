@@ -3,12 +3,53 @@ from __future__ import annotations
 import logging
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import Integer, case, select, func, update, delete, or_
+from sqlalchemy import select, func, or_, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
+
+from aap_labeling.batch_control_contract import (
+    ApplyBatchAssignments,
+    ApplyTaskAssignments,
+    AssignTasks,
+    BatchAssignment,
+    BatchControlCommand,
+    BatchControlFailure,
+    BatchControlResult,
+    BatchControlUnavailable,
+    BulkApproveBatches,
+    BulkBatchStatus,
+    BulkDeleteBatches,
+    BulkDeleteBatchItem,
+    BulkRejectBatches,
+    BulkReviewBatchItem,
+    BatchStatusItem,
+    CheckAutoTransition,
+    ClearAnnotationContributors,
+    ClearPredictionProjection,
+    CreateBatch,
+    DeactivatePredictionAnnotations,
+    DeleteBatch,
+    DetachPredictionParents,
+    MarkPreannotated,
+    PrepareBatchCleanup,
+    ReactivatePreannotated,
+    RecalculateBatchCounters,
+    RejectBatch,
+    ReassignBatchTasks,
+    ResetBatchToDraft,
+    SequenceOrder,
+    SetBatchAdminLock,
+    SetSequenceOrders,
+    TransitionBatch,
+    UpdateBatch,
+)
+from aap_labeling.batch_control_data import LabelingBatchControlData
+from app.db.models.annotation import Annotation
 
 from app.db.enums import BatchStatus, WORKBENCH_AI_EDITABLE_TASK_STATUSES
 from app.services.project_access import get_workspace_project
@@ -53,6 +94,371 @@ logger = logging.getLogger(__name__)
 # v0.12.0 B5 · split 回写 batch_id 的分块大小，避免十万级未归类「一键全量建包」
 # 打成单条巨 IN/UPDATE。模块级常量便于测试覆盖分块边界。
 ASSIGN_CHUNK_SIZE = 5000
+_BATCH_CONTROL_SQL = text(
+    "SELECT aap_labeling_v1.batch_control_command(CAST(:request AS jsonb))"
+)
+
+
+def _task_control_cache_fields(request: BatchControlCommand) -> set[str]:
+    fields: set[str] = set()
+    if isinstance(request, UpdateBatch):
+        if request.annotator_set:
+            fields.update(
+                ("assignee_id", "assignee_is_override", "assigned_at", "updated_at")
+            )
+        if request.reviewer_set:
+            fields.update(("reviewer_id", "reviewer_is_override", "updated_at"))
+    elif isinstance(request, PrepareBatchCleanup):
+        pass
+    elif isinstance(request, (ReassignBatchTasks, AssignTasks, BulkDeleteBatches)):
+        fields.update(("batch_id", "updated_at"))
+    elif isinstance(request, SetSequenceOrders):
+        fields.update(("sequence_order", "updated_at"))
+    elif isinstance(request, ApplyBatchAssignments):
+        if any(item.annotator_set for item in request.assignments):
+            fields.update(
+                ("assignee_id", "assignee_is_override", "assigned_at", "updated_at")
+            )
+        if any(item.reviewer_set for item in request.assignments):
+            fields.update(("reviewer_id", "reviewer_is_override", "updated_at"))
+    elif isinstance(request, ApplyTaskAssignments):
+        if any(item.annotator_set for item in request.assignments):
+            fields.update(
+                ("assignee_id", "assignee_is_override", "assigned_at", "updated_at")
+            )
+        reviewer_items = [item for item in request.assignments if item.reviewer_set]
+        if reviewer_items:
+            fields.update(("reviewer_id", "reviewer_is_override", "updated_at"))
+            if any(
+                item.expected_reviewer_id != item.reviewer_id for item in reviewer_items
+            ):
+                fields.add("reviewer_claimed_at")
+    elif isinstance(request, (RejectBatch, BulkRejectBatches)):
+        fields.update(
+            ("status", "review_contributor_ids", "review_submitter_id", "updated_at")
+        )
+        if isinstance(request, BulkRejectBatches):
+            fields.add("is_labeled")
+    elif isinstance(request, ClearAnnotationContributors):
+        fields.update(("annotation_contributor_ids", "updated_at"))
+    elif isinstance(request, ClearPredictionProjection):
+        fields.update(
+            ("total_predictions", "total_annotations", "is_labeled", "updated_at")
+        )
+    return fields
+
+
+def _task_control_cache_fields_for_row(
+    request: BatchControlCommand, task: Task, result: BatchControlResult
+) -> set[str]:
+    if isinstance(request, UpdateBatch):
+        fields: set[str] = set()
+        if request.annotator_set and (
+            not task.assignee_is_override or task.assignee_id is None
+        ):
+            fields.update(
+                ("assignee_id", "assignee_is_override", "assigned_at", "updated_at")
+            )
+        if request.reviewer_set and (
+            not task.reviewer_is_override or task.reviewer_id is None
+        ):
+            fields.update(("reviewer_id", "reviewer_is_override", "updated_at"))
+        return fields
+    if isinstance(request, ApplyBatchAssignments):
+        assignment = next(
+            (item for item in request.assignments if item.batch_id == task.batch_id),
+            None,
+        )
+        if assignment is None:
+            return set()
+        fields = set()
+        if assignment.annotator_set and (
+            not task.assignee_is_override or task.assignee_id is None
+        ):
+            fields.update(
+                ("assignee_id", "assignee_is_override", "assigned_at", "updated_at")
+            )
+        if assignment.reviewer_set and (
+            not task.reviewer_is_override or task.reviewer_id is None
+        ):
+            fields.update(("reviewer_id", "reviewer_is_override", "updated_at"))
+        return fields
+    if isinstance(request, ApplyTaskAssignments):
+        assignment = next(
+            (item for item in request.assignments if item.task_id == task.id),
+            None,
+        )
+        if assignment is None:
+            return set()
+        fields = set()
+        if assignment.annotator_set:
+            fields.update(
+                ("assignee_id", "assignee_is_override", "assigned_at", "updated_at")
+            )
+        if assignment.reviewer_set:
+            fields.update(("reviewer_id", "reviewer_is_override", "updated_at"))
+            if assignment.expected_reviewer_id != assignment.reviewer_id:
+                fields.add("reviewer_claimed_at")
+        return fields
+    if isinstance(request, PrepareBatchCleanup):
+        fields = set()
+        if task.status != "pending":
+            fields.update(
+                (
+                    "status",
+                    "review_contributor_ids",
+                    "review_submitter_id",
+                    "updated_at",
+                )
+            )
+        if task.id in result.cleared_assignee_task_ids:
+            fields.update(("assignee_id", "updated_at"))
+        if task.id in result.cleared_reviewer_task_ids:
+            fields.update(("reviewer_id", "reviewer_claimed_at", "updated_at"))
+        return fields
+    if isinstance(request, (RejectBatch, BulkRejectBatches)) and task.status not in {
+        "review",
+        "completed",
+    }:
+        return set()
+    if isinstance(request, AssignTasks) and (
+        task.id not in request.task_ids or task.project_id != result.project_id
+    ):
+        return set()
+    if isinstance(request, ReassignBatchTasks) and task.batch_id != request.batch_id:
+        return set()
+    if isinstance(request, BulkDeleteBatches) and task.batch_id not in {
+        item.batch_id for item in request.batches
+    }:
+        return set()
+    if isinstance(request, SetSequenceOrders) and task.id not in {
+        item.task_id for item in request.sequence_orders
+    }:
+        return set()
+    if isinstance(request, ApplyTaskAssignments) and task.id not in {
+        item.task_id for item in request.assignments
+    }:
+        return set()
+    if (
+        isinstance(request, ClearAnnotationContributors)
+        and task.id not in request.task_ids
+    ):
+        return set()
+    if (
+        isinstance(request, ClearPredictionProjection)
+        and task.id not in request.task_ids
+    ):
+        return set()
+    return _task_control_cache_fields(request)
+
+
+def _batch_control_cache_fields(request: BatchControlCommand) -> set[str]:
+    if isinstance(request, UpdateBatch):
+        fields: set[str] = set()
+        for selected, names in (
+            (request.name_set, ("name",)),
+            (request.description_set, ("description",)),
+            (request.priority_set, ("priority",)),
+            (request.deadline_set, ("deadline",)),
+            (request.annotator_set, ("annotator_id", "assigned_user_ids")),
+            (request.reviewer_set, ("reviewer_id", "assigned_user_ids")),
+        ):
+            if selected:
+                fields.update(names)
+        if fields:
+            fields.add("updated_at")
+        return fields
+    if isinstance(request, TransitionBatch):
+        fields = {"status", "updated_at"}
+        if (
+            request.expected_status == "approved"
+            and request.target_status == "reviewing"
+        ):
+            fields.update(("review_feedback", "reviewed_at", "reviewed_by"))
+        return fields
+    if isinstance(request, SetBatchAdminLock):
+        return {
+            "admin_locked",
+            "admin_lock_reason",
+            "admin_locked_at",
+            "admin_locked_by",
+            "updated_at",
+        }
+    if isinstance(request, ResetBatchToDraft):
+        return {"status", "review_feedback", "reviewed_at", "reviewed_by", "updated_at"}
+    if isinstance(request, ApplyBatchAssignments):
+        fields = {"assigned_user_ids", "updated_at"}
+        if any(item.annotator_set for item in request.assignments):
+            fields.add("annotator_id")
+        if any(item.reviewer_set for item in request.assignments):
+            fields.add("reviewer_id")
+        return fields
+    if isinstance(request, BulkBatchStatus):
+        return {"status", "updated_at"}
+    if isinstance(request, BulkApproveBatches):
+        return {"status", "updated_at"}
+    if isinstance(request, BulkRejectBatches):
+        return {
+            "status",
+            "review_feedback",
+            "reviewed_at",
+            "reviewed_by",
+            "total_tasks",
+            "completed_tasks",
+            "review_tasks",
+            "updated_at",
+        }
+    if isinstance(request, RejectBatch):
+        return {"status", "review_feedback", "reviewed_at", "reviewed_by", "updated_at"}
+    if isinstance(request, RecalculateBatchCounters):
+        return {"total_tasks", "completed_tasks", "review_tasks", "updated_at"}
+    if isinstance(
+        request, (MarkPreannotated, CheckAutoTransition, ReactivatePreannotated)
+    ):
+        return {"status", "updated_at"}
+    return set()
+
+
+def _tracked_task_ids(
+    db: AsyncSession,
+    *,
+    task_ids: list[uuid.UUID] | None = None,
+    batch_ids: list[uuid.UUID] | None = None,
+) -> list[uuid.UUID]:
+    task_filter = set(task_ids or ())
+    batch_filter = set(batch_ids or ())
+    return sorted(
+        {
+            task.id
+            for task in db.identity_map.values()
+            if isinstance(task, Task)
+            and (
+                task.id in task_filter
+                or task.batch_id in batch_filter
+                or (not task_filter and not batch_filter)
+            )
+        },
+        key=str,
+    )
+
+
+async def execute_batch_control(
+    db: AsyncSession, request: BatchControlCommand
+) -> BatchControlResult:
+    """Run a fixed Labeling command in the caller's transaction and refresh tracked rows."""
+    if db.autoflush:
+        await db.flush()
+    try:
+        result = await LabelingBatchControlData(
+            lambda request_json: db.scalar(
+                _BATCH_CONTROL_SQL, {"request": request_json}
+            )
+        ).command(request)
+    except DBAPIError as exc:
+        sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
+            exc.orig, "pgcode", None
+        )
+        if sqlstate in {"55P03", "40P01", "40001"}:
+            raise HTTPException(409, detail={"reason": "batch_control_busy"}) from exc
+        raise
+    except BatchControlUnavailable as exc:
+        raise HTTPException(
+            503, detail={"reason": "batch_control_unavailable"}
+        ) from exc
+    except BatchControlFailure as exc:
+        details = dict(exc.details)
+        if exc.code == "batch_not_found":
+            raise HTTPException(404, detail="Batch not found") from exc
+        if exc.code == "default_batch_protected":
+            raise HTTPException(400, detail="Cannot delete the default batch") from exc
+        if exc.code == "batch_tasks_not_reassigned":
+            raise HTTPException(
+                409, detail={"reason": "batch_tasks_not_reassigned"}
+            ) from exc
+        if exc.code == "batch_delete_protection_changed":
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "batch_has_active_work",
+                    "requires_force": True,
+                    "non_pending": int(details.get("non_pending", 0)),
+                    "predicted": int(details.get("predicted", 0)),
+                    "affected_tasks": int(details.get("affected_tasks", 0)),
+                    "message": (
+                        "批次含进行中/已完成或 AI 预标过的任务；删除将重置为待标注"
+                        "并清除 AI 预标。请改用归档，或确认强制删除。"
+                    ),
+                },
+            ) from exc
+        if exc.code == "batch_transition_invalid":
+            raise HTTPException(
+                400,
+                detail=(
+                    f"Cannot transition from '{details.get('from_status')}' "
+                    f"to '{details.get('target_status')}'"
+                ),
+            ) from exc
+        if exc.code == "batch_empty":
+            raise HTTPException(400, detail="cannot activate empty batch") from exc
+        if exc.code == "batch_already_locked":
+            raise HTTPException(409, detail="Batch is already locked") from exc
+        if exc.code == "batch_not_locked":
+            raise HTTPException(409, detail="Batch is not locked") from exc
+        raise HTTPException(409, detail={"reason": exc.code, **details}) from exc
+
+    tracked = {
+        task.id: task for task in db.identity_map.values() if isinstance(task, Task)
+    }
+    if result.changed:
+        for state in result.tasks:
+            task = tracked.get(state.id)
+            if task is None:
+                continue
+            fields = _task_control_cache_fields_for_row(request, task, result)
+            for field in fields:
+                set_committed_value(task, field, getattr(state, field))
+    annotation_fields: tuple[str, ...] = ()
+    if isinstance(request, DeactivatePredictionAnnotations):
+        annotation_fields = ("is_active", "updated_at")
+    elif isinstance(request, DetachPredictionParents):
+        annotation_fields = ("parent_prediction_id", "updated_at")
+    annotations = {
+        annotation.id: annotation
+        for annotation in db.identity_map.values()
+        if isinstance(annotation, Annotation)
+    }
+    for state in result.annotations:
+        annotation = annotations.get(state.id)
+        if annotation is not None:
+            for field in annotation_fields:
+                set_committed_value(annotation, field, getattr(state, field))
+    batch_fields = _batch_control_cache_fields(request)
+    if result.changed and batch_fields:
+        batches = {
+            row.id: row
+            for row in db.identity_map.values()
+            if isinstance(row, TaskBatch)
+        }
+        for state in result.batches:
+            batch = batches.get(state.id)
+            if batch is not None:
+                for field in batch_fields:
+                    set_committed_value(batch, field, getattr(state, field))
+    deleted_task_ids = (
+        set(result.task_ids) if isinstance(request, PrepareBatchCleanup) else set()
+    )
+    if result.deleted_batch_ids or deleted_task_ids:
+        deleted_batches = set(result.deleted_batch_ids)
+        for row in list(db.identity_map.values()):
+            if (
+                isinstance(row, TaskBatch)
+                and row.id in deleted_batches
+                or isinstance(row, TaskLock)
+                and row.task_id in deleted_task_ids
+            ):
+                db.sync_session.expunge(row)
+    return result
+
 
 VALID_TRANSITIONS: dict[str, set[str]] = {
     BatchStatus.DRAFT: {BatchStatus.ACTIVE},
@@ -200,6 +606,44 @@ class BatchService:
         )
         return [row[0] for row in result.fetchall()]
 
+    async def _create_batch(
+        self,
+        *,
+        project_id: uuid.UUID,
+        name: str,
+        description: str = "",
+        dataset_id: uuid.UUID | None = None,
+        priority: int = 50,
+        deadline: date | None = None,
+        annotator_id: uuid.UUID | None = None,
+        reviewer_id: uuid.UUID | None = None,
+        created_by: uuid.UUID | None,
+    ) -> TaskBatch:
+        batch_id = uuid.uuid4()
+        await execute_batch_control(
+            self.db,
+            CreateBatch(
+                schema="aap-labeling-batch-control/v1",
+                operation="create_batch",
+                batch_id=batch_id,
+                project_id=project_id,
+                dataset_id=dataset_id,
+                display_id=await next_display_id(self.db, "batches"),
+                name=name,
+                description=description,
+                priority=priority,
+                deadline=deadline,
+                annotator_id=annotator_id,
+                reviewer_id=reviewer_id,
+                created_by=created_by,
+            ),
+        )
+        await self.db.flush()
+        batch = await self.db.get(TaskBatch, batch_id, populate_existing=True)
+        if batch is None:
+            raise HTTPException(503, detail={"reason": "batch_control_unavailable"})
+        return batch
+
     # ── Mutations ──────────────────────────────────────────────────────────
 
     async def create(
@@ -214,23 +658,17 @@ class BatchService:
         if data.reviewer_id is not None:
             assignment_targets.append(("reviewer", data.reviewer_id))
         await self.lock_and_validate_assignment_targets(project_id, assignment_targets)
-        batch = TaskBatch(
+        return await self._create_batch(
             project_id=project_id,
-            dataset_id=data.dataset_id,
-            display_id=await next_display_id(self.db, "batches"),
             name=data.name,
             description=data.description,
-            status=BatchStatus.DRAFT,
+            dataset_id=data.dataset_id,
             priority=data.priority,
             deadline=data.deadline,
             annotator_id=data.annotator_id,
             reviewer_id=data.reviewer_id,
             created_by=created_by,
         )
-        self._sync_assigned_user_ids(batch)
-        self.db.add(batch)
-        await self.db.flush()
-        return batch
 
     async def update(
         self,
@@ -268,23 +706,31 @@ class BatchService:
             batch = await self.db.get(TaskBatch, batch_id)
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
-
-        for k, v in fields.items():
-            setattr(batch, k, v)
-
-        # v0.7.2：annotator_id / reviewer_id 变更时，自动派生 assigned_user_ids
-        # （前端旧路径仍读这个 list；同时回填 task 级 assignee_id / reviewer_id）
         annotator_changed = "annotator_id" in fields
         reviewer_changed = "reviewer_id" in fields
-        if annotator_changed or reviewer_changed:
-            self._sync_assigned_user_ids(batch)
-
+        await execute_batch_control(
+            self.db,
+            UpdateBatch(
+                schema="aap-labeling-batch-control/v1",
+                operation="update_batch",
+                batch_id=batch_id,
+                project_id=project_id,
+                name_set="name" in fields,
+                name=fields.get("name"),
+                description_set="description" in fields,
+                description=fields.get("description"),
+                priority_set="priority" in fields,
+                priority=fields.get("priority"),
+                deadline_set="deadline" in fields,
+                deadline=fields.get("deadline"),
+                annotator_set=annotator_changed,
+                annotator_id=fields.get("annotator_id"),
+                reviewer_set=reviewer_changed,
+                reviewer_id=fields.get("reviewer_id"),
+                tracked_task_ids=_tracked_task_ids(self.db, batch_ids=[batch_id]),
+            ),
+        )
         await self.db.flush()
-
-        if annotator_changed:
-            await self._cascade_task_assignee(batch.id, batch.annotator_id)
-        if reviewer_changed:
-            await self._cascade_task_reviewer(batch.id, batch.reviewer_id)
         # issue #124 · 改派不改变 batch.status，不会触发 status_changed；单独广播让
         # 其它管理员的「可预标」列表实时收敛（draft 的分派会改变准入资格）。
         if annotator_changed or reviewer_changed:
@@ -292,53 +738,6 @@ class BatchService:
                 str(batch.project_id), [str(batch.id)]
             )
         return batch
-
-    @staticmethod
-    def _sync_assigned_user_ids(batch: TaskBatch) -> None:
-        """v0.7.2：派生 assigned_user_ids = [annotator_id, reviewer_id] filter None。
-        旧的 multi-select 数据由 alembic 0030 已迁移到单值列；此处保持双向写。
-        """
-        ids: list[str] = []
-        if batch.annotator_id:
-            ids.append(str(batch.annotator_id))
-        if batch.reviewer_id:
-            ids.append(str(batch.reviewer_id))
-        batch.assigned_user_ids = ids
-
-    async def _cascade_task_assignee(
-        self,
-        batch_id: uuid.UUID,
-        user_id: uuid.UUID | None,
-    ) -> None:
-        """Update inherited assignments without overwriting selected tasks."""
-        values: dict[str, Any] = {
-            "assignee_id": user_id,
-            "assignee_is_override": False,
-        }
-        values["assigned_at"] = func.now() if user_id is not None else None
-        await self.db.execute(
-            update(Task)
-            .where(
-                Task.batch_id == batch_id,
-                or_(Task.assignee_is_override.is_(False), Task.assignee_id.is_(None)),
-            )
-            .values(**values)
-        )
-
-    async def _cascade_task_reviewer(
-        self,
-        batch_id: uuid.UUID,
-        user_id: uuid.UUID | None,
-    ) -> None:
-        """Update inherited reviewers without overwriting selected tasks."""
-        await self.db.execute(
-            update(Task)
-            .where(
-                Task.batch_id == batch_id,
-                or_(Task.reviewer_is_override.is_(False), Task.reviewer_id.is_(None)),
-            )
-            .values(reviewer_id=user_id, reviewer_is_override=False)
-        )
 
     async def transition(
         self,
@@ -381,24 +780,26 @@ class BatchService:
         if is_decision:
             await self._assert_locked_batch_evidence(batch, actor_id)
         from_status = batch.status
-        if (from_status, target_status) == (
-            BatchStatus.APPROVED,
-            BatchStatus.REVIEWING,
-        ):
-            batch.review_feedback = None
-            batch.reviewed_at = None
-            batch.reviewed_by = None
-
-        batch.status = target_status
+        result = await execute_batch_control(
+            self.db,
+            TransitionBatch(
+                schema="aap-labeling-batch-control/v1",
+                operation="transition_batch",
+                batch_id=batch_id,
+                expected_status=from_status,
+                target_status=target_status,
+                actor_id=actor_id,
+            ),
+        )
         await self.db.flush()
 
         # v0.9.13 · 广播 batch 状态变更, 前端 useBatchEventsSocket invalidate ["batches", projectId]
-        if from_status != target_status:
+        if result.changed:
             await publish_batch_status_change(
                 str(batch.project_id),
                 str(batch_id),
-                from_status,
-                target_status,
+                result.from_status or from_status,
+                result.status or target_status,
             )
 
         if target_status == BatchStatus.APPROVED:
@@ -439,6 +840,7 @@ class BatchService:
             )
 
         # v0.11.25：默认保护——批次含非 pending 或已预标 task 时拒删，需显式 force（前端弹保护框）。
+        non_pending = predicted = 0
         if not force:
             non_pending, predicted, affected = await self._count_protected_tasks(
                 batch_id
@@ -462,27 +864,42 @@ class BatchService:
         # v0.11.23：解绑前先重置非 pending task 为 pending、清 AI 预标（保留人工标注），
         # 否则 review/completed task 解绑后成孤儿、AI 预标残留会在重分包再预标时叠加重复标注。
         # 必须在改写 batch_id 之前调用（清理靠 Task.batch_id==batch_id 子查询定位）。
-        await self._reset_and_clean_batch_tasks(batch_id, actor_id=actor_id)
+        await self._reset_and_clean_batch_tasks(
+            batch_id,
+            actor_id=actor_id,
+            protect_task_work=not force,
+            expected_non_pending=non_pending,
+            expected_predicted=predicted,
+        )
 
-        # v0.6.8 B-14：老项目仍走「回收到 B-DEFAULT」路径；新项目无 B-DEFAULT 时把任务回退为
-        # batch_id=NULL（成为「未归类任务」），由 split 流程兜底，避免删完所有批次后死锁。
+        # Preserve the existing counter flush before removing the batch row.
         default = await self.get_default_batch(batch.project_id)
-        if default:
-            await self.db.execute(
-                update(Task)
-                .where(Task.batch_id == batch_id)
-                .values(batch_id=default.id)
-            )
+        await execute_batch_control(
+            self.db,
+            ReassignBatchTasks(
+                schema="aap-labeling-batch-control/v1",
+                operation="reassign_batch_tasks",
+                batch_id=batch_id,
+                project_id=batch.project_id,
+                default_batch_id=default.id if default else None,
+                tracked_task_ids=_tracked_task_ids(self.db, batch_ids=[batch_id]),
+            ),
+        )
+        if default is not None:
             await self.recalculate_counters(default.id)
         else:
-            await self.db.execute(
-                update(Task).where(Task.batch_id == batch_id).values(batch_id=None)
-            )
             # 无 B-DEFAULT 兜底时没有 recalculate_counters 触发 project 计数同步，
             # 这里显式刷一次，否则强删含进行中/已完成 task 的批次后 project 物化列会停在旧快照。
             await self._sync_project_counters(batch.project_id)
-
-        await self.db.execute(delete(TaskBatch).where(TaskBatch.id == batch_id))
+        await execute_batch_control(
+            self.db,
+            DeleteBatch(
+                schema="aap-labeling-batch-control/v1",
+                operation="delete_batch",
+                batch_id=batch_id,
+                project_id=batch.project_id,
+            ),
+        )
         await self.db.flush()
         return True
 
@@ -558,21 +975,16 @@ class BatchService:
             chunk = task_ids[offset : offset + size]
             offset += size
 
-            batch = TaskBatch(
+            batch = await self._create_batch(
                 project_id=project_id,
-                display_id=await next_display_id(self.db, "batches"),
-                # v0.11.22：n=1（把全部未归类任务注入一个批次）时直接用名称本身，不加 " 1" 后缀。
+                # v0.11.22: n=1 uses the name itself without a numeric suffix.
                 name=data.name_prefix if n == 1 else f"{data.name_prefix} {i + 1}",
-                status=BatchStatus.DRAFT,
                 priority=data.priority,
                 deadline=data.deadline,
                 annotator_id=data.annotator_id,
                 reviewer_id=data.reviewer_id,
                 created_by=created_by,
             )
-            self._sync_assigned_user_ids(batch)
-            self.db.add(batch)
-            await self.db.flush()
 
             await self._assign_tasks(batch.id, chunk)
             await self.recalculate_counters(batch.id)
@@ -613,20 +1025,15 @@ class BatchService:
                 status_code=400, detail="No tasks match the metadata filter"
             )
 
-        batch = TaskBatch(
+        batch = await self._create_batch(
             project_id=project_id,
-            display_id=await next_display_id(self.db, "batches"),
             name=f"{data.name_prefix} ({data.metadata_key}={data.metadata_value})",
-            status=BatchStatus.DRAFT,
             priority=data.priority,
             deadline=data.deadline,
             annotator_id=data.annotator_id,
             reviewer_id=data.reviewer_id,
             created_by=created_by,
         )
-        self._sync_assigned_user_ids(batch)
-        self.db.add(batch)
-        await self.db.flush()
 
         await self._assign_tasks(batch.id, task_ids)
         await self.recalculate_counters(batch.id)
@@ -663,20 +1070,15 @@ class BatchService:
                 status_code=400, detail="No tasks match the provided item IDs"
             )
 
-        batch = TaskBatch(
+        batch = await self._create_batch(
             project_id=project_id,
-            display_id=await next_display_id(self.db, "batches"),
             name=data.name_prefix,
-            status=BatchStatus.DRAFT,
             priority=data.priority,
             deadline=data.deadline,
             annotator_id=data.annotator_id,
             reviewer_id=data.reviewer_id,
             created_by=created_by,
         )
-        self._sync_assigned_user_ids(batch)
-        self.db.add(batch)
-        await self.db.flush()
 
         await self._assign_tasks(batch.id, task_ids)
         await self.recalculate_counters(batch.id)
@@ -730,20 +1132,15 @@ class BatchService:
                 if scene_name
                 else f"{data.name_prefix} · 无 scene"
             )
-            batch = TaskBatch(
+            batch = await self._create_batch(
                 project_id=project_id,
-                display_id=await next_display_id(self.db, "batches"),
                 name=batch_name[:255],
-                status=BatchStatus.DRAFT,
                 priority=data.priority,
                 deadline=data.deadline,
                 annotator_id=data.annotator_id,
                 reviewer_id=data.reviewer_id,
                 created_by=created_by,
             )
-            self._sync_assigned_user_ids(batch)
-            self.db.add(batch)
-            await self.db.flush()
 
             await self._assign_tasks(batch.id, chunk)
             await self._set_sequence_orders(
@@ -768,12 +1165,21 @@ class BatchService:
         if not task_ids:
             return 0
         # v0.12.0 B5 · 分块 UPDATE，避免十万级未归类「一键全量建包」打成单条巨 IN/UPDATE。
+        affected = 0
         for i in range(0, len(task_ids), ASSIGN_CHUNK_SIZE):
             chunk = task_ids[i : i + ASSIGN_CHUNK_SIZE]
-            await self.db.execute(
-                update(Task).where(Task.id.in_(chunk)).values(batch_id=batch_id)
+            result = await execute_batch_control(
+                self.db,
+                AssignTasks(
+                    schema="aap-labeling-batch-control/v1",
+                    operation="assign_tasks",
+                    batch_id=batch_id,
+                    task_ids=chunk,
+                    tracked_task_ids=_tracked_task_ids(self.db, task_ids=chunk),
+                ),
             )
-        return len(task_ids)
+            affected += result.affected
+        return affected
 
     async def _set_sequence_orders(
         self, frame_by_task: dict[uuid.UUID, int | None]
@@ -788,15 +1194,17 @@ class BatchService:
         task_ids = list(concrete)
         for i in range(0, len(task_ids), ASSIGN_CHUNK_SIZE):
             chunk = task_ids[i : i + ASSIGN_CHUNK_SIZE]
-            await self.db.execute(
-                update(Task)
-                .where(Task.id.in_(chunk))
-                .values(
-                    sequence_order=case(
-                        {task_id: concrete[task_id] for task_id in chunk},
-                        value=Task.id,
-                    )
-                )
+            await execute_batch_control(
+                self.db,
+                SetSequenceOrders(
+                    schema="aap-labeling-batch-control/v1",
+                    operation="set_sequence_orders",
+                    sequence_orders=[
+                        SequenceOrder(task_id=task_id, sequence_order=concrete[task_id])
+                        for task_id in chunk
+                    ],
+                    tracked_task_ids=_tracked_task_ids(self.db, task_ids=chunk),
+                ),
             )
 
     async def assign_tasks_to_batch(
@@ -843,42 +1251,48 @@ class BatchService:
                 },
             )
 
-        # Keep the exact locked batch set used to compute the reviewed plan.
-        batches = (
-            (
-                await self.db.execute(
-                    select(TaskBatch).where(
-                        TaskBatch.id.in_([item.batch_id for item in plan.items])
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        batches_by_id = {batch.id: batch for batch in batches}
         annotator_per_batch: dict[str, str | None] = {}
         reviewer_per_batch: dict[str, str | None] = {}
         affected = 0
         changed_ids: list[uuid.UUID] = []
+        assignments: list[BatchAssignment] = []
         for item in plan.items:
-            b = batches_by_id[item.batch_id]
-            if item.before_annotator_id != item.after_annotator_id:
-                b.annotator_id = item.after_annotator_id
-                await self._cascade_task_assignee(b.id, b.annotator_id)
-            if item.before_reviewer_id != item.after_reviewer_id:
-                b.reviewer_id = item.after_reviewer_id
-                await self._cascade_task_reviewer(b.id, b.reviewer_id)
-            annotator_per_batch[str(b.id)] = (
-                str(b.annotator_id) if b.annotator_id else None
+            annotator_changed = item.before_annotator_id != item.after_annotator_id
+            reviewer_changed = item.before_reviewer_id != item.after_reviewer_id
+            annotator_per_batch[str(item.batch_id)] = (
+                str(item.after_annotator_id) if item.after_annotator_id else None
             )
-            reviewer_per_batch[str(b.id)] = (
-                str(b.reviewer_id) if b.reviewer_id else None
+            reviewer_per_batch[str(item.batch_id)] = (
+                str(item.after_reviewer_id) if item.after_reviewer_id else None
             )
             if item.will_change:
-                self._sync_assigned_user_ids(b)
                 affected += 1
-                changed_ids.append(b.id)
-
+                changed_ids.append(item.batch_id)
+            if annotator_changed or reviewer_changed:
+                assignments.append(
+                    BatchAssignment(
+                        batch_id=item.batch_id,
+                        expected_annotator_id=item.before_annotator_id,
+                        expected_reviewer_id=item.before_reviewer_id,
+                        annotator_set=annotator_changed,
+                        annotator_id=item.after_annotator_id,
+                        reviewer_set=reviewer_changed,
+                        reviewer_id=item.after_reviewer_id,
+                    )
+                )
+        if assignments:
+            await execute_batch_control(
+                self.db,
+                ApplyBatchAssignments(
+                    schema="aap-labeling-batch-control/v1",
+                    operation="apply_batch_assignments",
+                    project_id=project_id,
+                    assignments=assignments,
+                    tracked_task_ids=_tracked_task_ids(
+                        self.db, batch_ids=[item.batch_id for item in assignments]
+                    ),
+                ),
+            )
         await self.db.flush()
 
         # issue #124 · 分派不改变 batch.status, 单独广播让可预标列表实时收敛。
@@ -896,24 +1310,17 @@ class BatchService:
     # ── Counters ───────────────────────────────────────────────────────────
 
     async def recalculate_counters(self, batch_id: uuid.UUID) -> None:
-        batch = await self.db.get(TaskBatch, batch_id)
-        if not batch:
-            return
-
-        result = await self.db.execute(
-            select(
-                func.count().label("total"),
-                func.count().filter(Task.status == "completed").label("completed"),
-                func.count().filter(Task.status == "review").label("review"),
-            ).where(Task.batch_id == batch_id)
+        result = await execute_batch_control(
+            self.db,
+            RecalculateBatchCounters(
+                schema="aap-labeling-batch-control/v1",
+                operation="recalculate_batch_counters",
+                batch_id=batch_id,
+            ),
         )
-        row = result.one()
-        batch.total_tasks = row.total
-        batch.completed_tasks = row.completed
-        batch.review_tasks = row.review
-
         await self.db.flush()
-        await self._sync_project_counters(batch.project_id)
+        if result.project_id is not None:
+            await self._sync_project_counters(result.project_id)
 
     async def _sync_project_counters(self, project_id: uuid.UUID) -> None:
         register_project_counter_projection(self.db, project_id)
@@ -985,9 +1392,17 @@ class BatchService:
             allowed_statuses=allowed_statuses,
         ):
             return False
-        batch.status = BatchStatus.PRE_ANNOTATED
+        result = await execute_batch_control(
+            self.db,
+            MarkPreannotated(
+                schema="aap-labeling-batch-control/v1",
+                operation="mark_preannotated",
+                batch_id=batch.id,
+                expected_status=BatchStatus.ACTIVE,
+            ),
+        )
         await self.db.flush()
-        return True
+        return result.changed
 
     async def check_auto_transitions(self, batch_id: uuid.UUID | None) -> None:
         # v0.9.12 · INFO 日志诊断 B-15: admin 反馈 "标注员开始标注后 batch 未转 annotating".
@@ -1005,62 +1420,35 @@ class BatchService:
             )
             return
 
-        from_status = batch.status
-
-        if batch.status in (BatchStatus.ACTIVE, BatchStatus.PRE_ANNOTATED):
-            has_in_progress = await self.db.execute(
-                select(Task.id)
-                .where(
-                    Task.batch_id == batch_id,
-                    # M1: rejected 也算"标注进行中"
-                    Task.status.in_(["in_progress", "rejected"]),
-                )
-                .limit(1)
+        result = await execute_batch_control(
+            self.db,
+            CheckAutoTransition(
+                schema="aap-labeling-batch-control/v1",
+                operation="check_auto_transition",
+                batch_id=batch_id,
+                expected_status=batch.status,
+            ),
+        )
+        if not result.changed:
+            logger.debug(
+                "batch.auto_transition: %s %s -> no_change",
+                batch_id,
+                result.from_status or batch.status,
             )
-            if has_in_progress.scalar_one_or_none():
-                batch.status = BatchStatus.ANNOTATING
-                await self.db.flush()
-                logger.info(
-                    "batch.auto_transition: %s %s -> annotating (task in_progress detected)",
-                    batch_id,
-                    from_status,
-                )
-                await publish_batch_status_change(
-                    str(batch.project_id),
-                    str(batch_id),
-                    from_status,
-                    BatchStatus.ANNOTATING,
-                )
-            else:
-                logger.debug(
-                    "batch.auto_transition: %s %s -> no_change (no in_progress task)",
-                    batch_id,
-                    from_status,
-                )
-
-        elif batch.status == BatchStatus.ANNOTATING:
-            pending_or_ip = await self.db.execute(
-                select(Task.id)
-                .where(
-                    Task.batch_id == batch_id,
-                    # M1: rejected 任务仍需标注员重做，不能视为完成
-                    Task.status.in_(["pending", "in_progress", "rejected"]),
-                )
-                .limit(1)
-            )
-            if not pending_or_ip.scalar_one_or_none():
-                batch.status = BatchStatus.REVIEWING
-                await self.db.flush()
-                logger.info(
-                    "batch.auto_transition: %s annotating -> reviewing (all tasks done)",
-                    batch_id,
-                )
-                await publish_batch_status_change(
-                    str(batch.project_id),
-                    str(batch_id),
-                    from_status,
-                    BatchStatus.REVIEWING,
-                )
+            return
+        await self.db.flush()
+        logger.info(
+            "batch.auto_transition: %s %s -> %s",
+            batch_id,
+            result.from_status,
+            result.status,
+        )
+        await publish_batch_status_change(
+            str(batch.project_id),
+            str(batch_id),
+            result.from_status or batch.status,
+            result.status or batch.status,
+        )
 
     # ── Batch rejection ────────────────────────────────────────────────────
 
@@ -1242,28 +1630,25 @@ class BatchService:
                 detail=f"Cannot reject batch in status '{batch.status}'",
             )
 
-        await self._assert_locked_batch_evidence(batch, actor_id or reviewer_id)
-        result = await self.db.execute(
-            update(Task)
-            .where(
-                Task.batch_id == batch_id,
-                Task.status.in_(["review", "completed"]),
-            )
-            .values(
-                status="pending",
-                review_contributor_ids=None,
-                review_submitter_id=None,
-            )
+        decision_actor = actor_id or reviewer_id
+        await self._assert_locked_batch_evidence(batch, decision_actor)
+        result = await execute_batch_control(
+            self.db,
+            RejectBatch(
+                schema="aap-labeling-batch-control/v1",
+                operation="reject_batch",
+                batch_id=batch_id,
+                expected_status=batch.status,
+                actor_id=decision_actor,
+                reviewer_id=reviewer_id,
+                feedback=feedback,
+                reviewed_at=datetime.now(timezone.utc),
+                tracked_task_ids=_tracked_task_ids(self.db, batch_ids=[batch_id]),
+            ),
         )
-        affected = result.rowcount
-
-        batch.status = BatchStatus.REJECTED
-        batch.review_feedback = feedback
-        batch.reviewed_at = datetime.now(timezone.utc)
-        batch.reviewed_by = reviewer_id
         await self.db.flush()
         await self.recalculate_counters(batch_id)
-        return batch, affected
+        return batch, result.affected
 
     # ── Reset to draft (v0.7.6) ────────────────────────────────────────────
 
@@ -1292,25 +1677,44 @@ class BatchService:
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
 
+        expected_status = batch.status
         counts = await self._reset_and_clean_batch_tasks(batch_id, actor_id=actor_id)
         affected = counts.pop("tasks_reset")
-
-        batch.status = BatchStatus.DRAFT
-        batch.review_feedback = None
-        batch.reviewed_at = None
-        batch.reviewed_by = None
-
+        await execute_batch_control(
+            self.db,
+            ResetBatchToDraft(
+                schema="aap-labeling-batch-control/v1",
+                operation="reset_batch_to_draft",
+                batch_id=batch_id,
+                expected_status=expected_status,
+            ),
+        )
         await self.db.flush()
         await self.recalculate_counters(batch_id)
         return batch, affected, counts
 
-    def reactivate_preannotated_after_prediction_clear(self, batch: TaskBatch) -> None:
+    async def reactivate_preannotated_after_prediction_clear(
+        self, batch: TaskBatch
+    ) -> None:
         """Move a cleared, ready batch back to active without resetting its tasks."""
-        if batch.status == BatchStatus.PRE_ANNOTATED:
-            batch.status = BatchStatus.ACTIVE
+        await execute_batch_control(
+            self.db,
+            ReactivatePreannotated(
+                schema="aap-labeling-batch-control/v1",
+                operation="reactivate_preannotated",
+                batch_id=batch.id,
+                expected_status=batch.status,
+            ),
+        )
 
     async def _reset_and_clean_batch_tasks(
-        self, batch_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
+        self,
+        batch_id: uuid.UUID,
+        *,
+        actor_id: uuid.UUID | None = None,
+        protect_task_work: bool = False,
+        expected_non_pending: int | None = None,
+        expected_predicted: int | None = None,
     ) -> dict[str, int]:
         """把批次内所有非 pending task 重置为 pending, 并清理 AI 预标产物, 保留人工标注.
 
@@ -1324,82 +1728,30 @@ class BatchService:
         Returns: cascade_counts (含 tasks_reset / predictions / failed_predictions /
                  prediction_jobs / ai_annotations_deactivated).
         """
-        from sqlalchemy.orm import aliased
-
-        from app.db.models.project_member import ProjectMember
         from app.services.async_job import delete_batch_predict_jobs
-        from app.services.workspace_read_relations import project_member_facts
 
-        result = await self.db.execute(
-            update(Task)
-            .where(
-                Task.batch_id == batch_id,
-                Task.status != "pending",
-            )
-            .values(
-                status="pending",
-                review_contributor_ids=None,
-                review_submitter_id=None,
-            )
-        )
-        tasks_reset = result.rowcount
-
-        # Role-change handoffs materialize the old batch default onto terminal
-        # history (non-override explicit columns) to freeze attribution.  This
-        # reset reactivates those rows as pending work, where a stale explicit
-        # assignment would keep overriding the batch default with a user who no
-        # longer holds the matching project role, leaving the task unworkable.
-        # Restore inheritance for exactly those rows; genuine manual overrides
-        # (override flags) and current members keep their assignment.
-        for role_value, column, override_column, extra_values in (
-            ("annotator", Task.assignee_id, Task.assignee_is_override, {}),
-            (
-                "reviewer",
-                Task.reviewer_id,
-                Task.reviewer_is_override,
-                {"reviewer_claimed_at": None},
+        cleanup = await execute_batch_control(
+            self.db,
+            PrepareBatchCleanup(
+                schema="aap-labeling-batch-control/v1",
+                operation="prepare_batch_cleanup",
+                batch_id=batch_id,
+                protect_task_work=protect_task_work,
+                expected_non_pending=(
+                    expected_non_pending if protect_task_work else None
+                ),
+                expected_predicted=(expected_predicted if protect_task_work else None),
+                tracked_task_ids=_tracked_task_ids(self.db, batch_ids=[batch_id]),
             ),
-        ):
-            member_facts = project_member_facts()
-            membership = aliased(ProjectMember, member_facts, adapt_on_names=True)
-            await self.db.execute(
-                update(Task)
-                .where(
-                    Task.batch_id == batch_id,
-                    Task.status == "pending",
-                    column.is_not(None),
-                    override_column.is_(False),
-                    ~select(membership.id)
-                    .select_from(membership)
-                    .where(
-                        membership.project_id == Task.project_id,
-                        membership.user_id == column,
-                        membership.role == role_value,
-                    )
-                    .exists(),
-                )
-                .values({column.key: None, **extra_values})
-            )
-
-        await self.db.execute(
-            delete(TaskLock).where(
-                TaskLock.task_id.in_(select(Task.id).where(Task.batch_id == batch_id))
-            )
         )
 
         # Batch prediction history belongs to the generic async-job owner.
         job_count = await delete_batch_predict_jobs(self.db, batch_id)
-
-        task_ids = [
-            r[0]
-            for r in (
-                await self.db.execute(select(Task.id).where(Task.batch_id == batch_id))
-            ).all()
-        ]
+        task_ids = cleanup.task_ids
         pred_counts = await self.clean_task_predictions(task_ids, actor_id=actor_id)
 
         return {
-            "tasks_reset": tasks_reset,
+            "tasks_reset": cleanup.tasks_reset,
             "prediction_jobs": job_count,
             **pred_counts,
         }
@@ -1435,7 +1787,6 @@ class BatchService:
             record_annotation_actors_for_tasks,
         )
         from app.services.prediction import PredictionService
-        from sqlalchemy import text, bindparam
 
         if not task_ids:
             return {
@@ -1470,13 +1821,19 @@ class BatchService:
                     self.db, ai_affected_task_ids, actor_id
                 )
             else:
-                await self.db.execute(
-                    update(Task)
-                    .where(Task.id.in_(ai_affected_task_ids))
-                    .values(annotation_contributor_ids=None)
+                await execute_batch_control(
+                    self.db,
+                    ClearAnnotationContributors(
+                        schema="aap-labeling-batch-control/v1",
+                        operation="clear_annotation_contributors",
+                        task_ids=ai_affected_task_ids,
+                        tracked_task_ids=_tracked_task_ids(
+                            self.db, task_ids=ai_affected_task_ids
+                        ),
+                    ),
                 )
 
-        # B-33 · 软删 AI 采纳的 annotation. 保留 source='manual' 的人工标注 (不丢工作量).
+        # The two Annotation updates remain separate because each fires mask history.
         ai_annotations_deactivated = await deactivate_prediction_annotations_for_tasks(
             self.db, task_ids
         )
@@ -1484,33 +1841,20 @@ class BatchService:
         # Annotations own the soft reference; detach it before PredictionService removes
         # partitioned prediction rows and their metadata.
         task_id_select = select(Task.id).where(Task.id.in_(task_ids))
-        await detach_prediction_parents_for_tasks(self.db, task_id_select)
+        await detach_prediction_parents_for_tasks(self.db, task_ids=task_ids)
         prediction_counts = await PredictionService(self.db).delete_for_tasks(
             task_id_select
         )
 
-        # B-33 · 同步 task 物化字段: total_predictions 归 0, total_annotations / is_labeled
-        # 按剩余 active+未取消的 annotation 重算. 一条 UPDATE+子查询, 按 task_id 定位.
-        stmt = text(
-            """
-            UPDATE tasks AS t
-            SET total_predictions = 0,
-                total_annotations = COALESCE(sub.cnt, 0),
-                is_labeled = COALESCE(sub.cnt, 0) > 0
-            FROM (
-                SELECT t2.id AS task_id, (
-                    SELECT COUNT(*) FROM annotations a
-                    WHERE a.task_id = t2.id
-                      AND a.is_active = TRUE
-                      AND a.was_cancelled = FALSE
-                ) AS cnt
-                FROM tasks t2
-                WHERE t2.id IN :tids
-            ) AS sub
-            WHERE t.id = sub.task_id
-            """
-        ).bindparams(bindparam("tids", expanding=True))
-        await self.db.execute(stmt, {"tids": task_ids})
+        await execute_batch_control(
+            self.db,
+            ClearPredictionProjection(
+                schema="aap-labeling-batch-control/v1",
+                operation="clear_prediction_projection",
+                task_ids=task_ids,
+                tracked_task_ids=_tracked_task_ids(self.db, task_ids=task_ids),
+            ),
+        )
 
         return {
             **prediction_counts,
@@ -1552,22 +1896,36 @@ class BatchService:
         succeeded: list[uuid.UUID] = []
         skipped: list[dict] = []
         failed: list[dict] = []
+        virtual_status = {bid: batch.status for bid, batch in loaded.items()}
+        changes: list[BatchStatusItem] = []
         for bid in batch_ids:
             batch = loaded.get(bid)
             if batch is None:
                 failed.append({"batch_id": bid, "reason": "not found"})
                 continue
-            if batch.status == BatchStatus.ARCHIVED:
+            status = virtual_status[bid]
+            if status == BatchStatus.ARCHIVED:
                 skipped.append({"batch_id": bid, "reason": "already archived"})
                 continue
-            allowed = VALID_TRANSITIONS.get(batch.status, set())
+            allowed = VALID_TRANSITIONS.get(status, set())
             if BatchStatus.ARCHIVED not in allowed:
                 failed.append(
-                    {"batch_id": bid, "reason": f"cannot archive from '{batch.status}'"}
+                    {"batch_id": bid, "reason": f"cannot archive from '{status}'"}
                 )
                 continue
-            batch.status = BatchStatus.ARCHIVED
+            changes.append(BatchStatusItem(batch_id=bid, expected_status=status))
+            virtual_status[bid] = BatchStatus.ARCHIVED
             succeeded.append(bid)
+        if changes:
+            await execute_batch_control(
+                self.db,
+                BulkBatchStatus(
+                    schema="aap-labeling-batch-control/v1",
+                    operation="bulk_archive",
+                    project_id=project_id,
+                    batches=sorted(changes, key=lambda item: str(item.batch_id)),
+                ),
+            )
         await self.db.flush()
         return {"succeeded": succeeded, "skipped": skipped, "failed": failed}
 
@@ -1579,11 +1937,15 @@ class BatchService:
         force: bool = False,
         actor_id: uuid.UUID | None = None,
     ) -> dict[str, list[dict]]:
-        loaded = await self._list_batches_in_project(project_id, batch_ids)
+        loaded = await self._list_batches_in_project(
+            project_id, batch_ids, for_update=True
+        )
         succeeded: list[uuid.UUID] = []
         skipped: list[dict] = []
         failed: list[dict] = []
         default = await self.get_default_batch(project_id)
+        delete_ids: list[uuid.UUID] = []
+        seen_delete_ids: set[uuid.UUID] = set()
         for bid in batch_ids:
             batch = loaded.get(bid)
             if batch is None:
@@ -1594,7 +1956,11 @@ class BatchService:
                     {"batch_id": bid, "reason": "B-DEFAULT cannot be deleted"}
                 )
                 continue
+            if bid in seen_delete_ids:
+                succeeded.append(bid)
+                continue
             # v0.11.25：默认保护——含进行中成果/已预标的批次非 force 时计入 failed（partial 语义）
+            non_pending = predicted = 0
             if not force:
                 non_pending, predicted, affected = await self._count_protected_tasks(
                     bid
@@ -1611,18 +1977,31 @@ class BatchService:
                     )
                     continue
             # v0.11.23：与单删一致——解绑前先重置非 pending task + 清 AI 预标（保留人工标注）
-            await self._reset_and_clean_batch_tasks(bid, actor_id=actor_id)
-            # 复用单个删除路径里的 task 接管逻辑（按 default 是否存在二选一）
-            if default is not None:
-                await self.db.execute(
-                    update(Task).where(Task.batch_id == bid).values(batch_id=default.id)
-                )
-            else:
-                await self.db.execute(
-                    update(Task).where(Task.batch_id == bid).values(batch_id=None)
-                )
-            await self.db.execute(delete(TaskBatch).where(TaskBatch.id == bid))
+            await self._reset_and_clean_batch_tasks(
+                bid,
+                actor_id=actor_id,
+                protect_task_work=not force,
+                expected_non_pending=non_pending,
+                expected_predicted=predicted,
+            )
+            seen_delete_ids.add(bid)
+            delete_ids.append(bid)
             succeeded.append(bid)
+        if delete_ids:
+            await execute_batch_control(
+                self.db,
+                BulkDeleteBatches(
+                    schema="aap-labeling-batch-control/v1",
+                    operation="bulk_delete",
+                    project_id=project_id,
+                    default_batch_id=default.id if default else None,
+                    batches=[
+                        BulkDeleteBatchItem(batch_id=bid)
+                        for bid in sorted(set(delete_ids), key=str)
+                    ],
+                    tracked_task_ids=_tracked_task_ids(self.db, batch_ids=delete_ids),
+                ),
+            )
         await self.db.flush()
         if default is not None and succeeded:
             await self.recalculate_counters(default.id)
@@ -1657,19 +2036,38 @@ class BatchService:
         )
         succeeded: list[uuid.UUID] = []
         failed: list[dict] = []
+        assignments: dict[uuid.UUID, BatchAssignment] = {}
         for bid in batch_ids:
             batch = loaded.get(bid)
             if batch is None:
                 failed.append({"batch_id": bid, "reason": "not found"})
                 continue
-            if annotator_set:
-                batch.annotator_id = annotator_id
-                await self._cascade_task_assignee(bid, annotator_id)
-            if reviewer_set:
-                batch.reviewer_id = reviewer_id
-                await self._cascade_task_reviewer(bid, reviewer_id)
-            self._sync_assigned_user_ids(batch)
+            assignments.setdefault(
+                bid,
+                BatchAssignment(
+                    batch_id=bid,
+                    expected_annotator_id=batch.annotator_id,
+                    expected_reviewer_id=batch.reviewer_id,
+                    annotator_set=annotator_set,
+                    annotator_id=annotator_id,
+                    reviewer_set=reviewer_set,
+                    reviewer_id=reviewer_id,
+                ),
+            )
             succeeded.append(bid)
+        if assignments:
+            await execute_batch_control(
+                self.db,
+                ApplyBatchAssignments(
+                    schema="aap-labeling-batch-control/v1",
+                    operation="apply_batch_assignments",
+                    project_id=project_id,
+                    assignments=list(assignments.values()),
+                    tracked_task_ids=_tracked_task_ids(
+                        self.db, batch_ids=list(assignments)
+                    ),
+                ),
+            )
         await self.db.flush()
         # issue #124 · 批量改派后广播, 让其它管理员的「可预标」列表实时收敛。
         if succeeded:
@@ -1688,19 +2086,22 @@ class BatchService:
         succeeded: list[uuid.UUID] = []
         skipped: list[dict] = []
         failed: list[dict] = []
+        virtual_status = {bid: batch.status for bid, batch in loaded.items()}
+        changes: list[BatchStatusItem] = []
         for bid in batch_ids:
             batch = loaded.get(bid)
             if batch is None:
                 failed.append({"batch_id": bid, "reason": "not found"})
                 continue
-            if batch.status == BatchStatus.ACTIVE:
+            status = virtual_status[bid]
+            if status == BatchStatus.ACTIVE:
                 skipped.append({"batch_id": bid, "reason": "already active"})
                 continue
-            if batch.status != BatchStatus.DRAFT:
+            if status != BatchStatus.DRAFT:
                 failed.append(
                     {
                         "batch_id": bid,
-                        "reason": f"cannot activate from '{batch.status}'",
+                        "reason": f"cannot activate from '{status}'",
                     }
                 )
                 continue
@@ -1715,8 +2116,19 @@ class BatchService:
             if count == 0:
                 failed.append({"batch_id": bid, "reason": "batch has no tasks"})
                 continue
-            batch.status = BatchStatus.ACTIVE
+            changes.append(BatchStatusItem(batch_id=bid, expected_status=status))
+            virtual_status[bid] = BatchStatus.ACTIVE
             succeeded.append(bid)
+        if changes:
+            await execute_batch_control(
+                self.db,
+                BulkBatchStatus(
+                    schema="aap-labeling-batch-control/v1",
+                    operation="bulk_activate",
+                    project_id=project_id,
+                    batches=sorted(changes, key=lambda item: str(item.batch_id)),
+                ),
+            )
         await self.db.flush()
         return {"succeeded": succeeded, "skipped": skipped, "failed": failed}
 
@@ -1734,10 +2146,18 @@ class BatchService:
             raise HTTPException(status_code=404, detail="Batch not found")
         if batch.admin_locked:
             raise HTTPException(status_code=409, detail="Batch is already locked")
-        batch.admin_locked = True
-        batch.admin_lock_reason = reason
-        batch.admin_locked_at = datetime.now(timezone.utc)
-        batch.admin_locked_by = locked_by
+        await execute_batch_control(
+            self.db,
+            SetBatchAdminLock(
+                schema="aap-labeling-batch-control/v1",
+                operation="set_batch_admin_lock",
+                batch_id=batch_id,
+                locked=True,
+                locked_at=datetime.now(timezone.utc),
+                reason=reason,
+                actor_id=locked_by,
+            ),
+        )
         await self.db.flush()
         return batch
 
@@ -1747,10 +2167,18 @@ class BatchService:
             raise HTTPException(status_code=404, detail="Batch not found")
         if not batch.admin_locked:
             raise HTTPException(status_code=409, detail="Batch is not locked")
-        batch.admin_locked = False
-        batch.admin_lock_reason = None
-        batch.admin_locked_at = None
-        batch.admin_locked_by = None
+        await execute_batch_control(
+            self.db,
+            SetBatchAdminLock(
+                schema="aap-labeling-batch-control/v1",
+                operation="set_batch_admin_lock",
+                batch_id=batch_id,
+                locked=False,
+                locked_at=None,
+                reason=None,
+                actor_id=None,
+            ),
+        )
         await self.db.flush()
         return batch
 
@@ -1769,20 +2197,23 @@ class BatchService:
         succeeded: list[uuid.UUID] = []
         skipped: list[dict] = []
         failed: list[dict] = []
+        virtual_status = {bid: batch.status for bid, batch in loaded.items()}
+        approvals: list[BulkReviewBatchItem] = []
         for bid in batch_ids:
             batch = loaded.get(bid)
             if batch is None:
                 failed.append({"batch_id": bid, "reason": "not found"})
                 continue
-            if batch.status == BatchStatus.APPROVED:
+            status = virtual_status[bid]
+            if status == BatchStatus.APPROVED:
                 skipped.append({"batch_id": bid, "reason": "already approved"})
                 continue
             if batch.admin_locked:
                 failed.append({"batch_id": bid, "reason": "batch is admin-locked"})
                 continue
-            if batch.status != BatchStatus.REVIEWING:
+            if status != BatchStatus.REVIEWING:
                 failed.append(
-                    {"batch_id": bid, "reason": f"cannot approve from '{batch.status}'"}
+                    {"batch_id": bid, "reason": f"cannot approve from '{status}'"}
                 )
                 continue
             try:
@@ -1799,8 +2230,21 @@ class BatchService:
                     raise
                 failed.append({"batch_id": bid, "reason": reason})
                 continue
-            batch.status = BatchStatus.APPROVED
+            approvals.append(BulkReviewBatchItem(batch_id=bid, expected_status=status))
+            virtual_status[bid] = BatchStatus.APPROVED
             succeeded.append(bid)
+        if approvals:
+            assert actor_id is not None
+            await execute_batch_control(
+                self.db,
+                BulkApproveBatches(
+                    schema="aap-labeling-batch-control/v1",
+                    operation="bulk_approve",
+                    project_id=project_id,
+                    actor_id=actor_id,
+                    batches=approvals,
+                ),
+            )
         await self.db.flush()
         return {"succeeded": succeeded, "skipped": skipped, "failed": failed}
 
@@ -1819,21 +2263,25 @@ class BatchService:
         succeeded: list[uuid.UUID] = []
         skipped: list[dict] = []
         failed: list[dict] = []
+        decision_actor = actor_id or reviewer_id
+        virtual_status = {bid: batch.status for bid, batch in loaded.items()}
+        rejections: dict[uuid.UUID, BulkReviewBatchItem] = {}
         for bid in batch_ids:
             batch = loaded.get(bid)
             if batch is None:
                 failed.append({"batch_id": bid, "reason": "not found"})
                 continue
-            if batch.status == BatchStatus.REJECTED:
+            status = virtual_status[bid]
+            if status == BatchStatus.REJECTED:
                 skipped.append({"batch_id": bid, "reason": "already rejected"})
                 continue
-            if batch.status != BatchStatus.REVIEWING:
+            if status != BatchStatus.REVIEWING:
                 failed.append(
-                    {"batch_id": bid, "reason": f"cannot reject from '{batch.status}'"}
+                    {"batch_id": bid, "reason": f"cannot reject from '{status}'"}
                 )
                 continue
             try:
-                await self._assert_locked_batch_evidence(batch, actor_id or reviewer_id)
+                await self._assert_locked_batch_evidence(batch, decision_actor)
             except HTTPException as exc:
                 detail = exc.detail if isinstance(exc.detail, dict) else {}
                 reason = detail.get("reason")
@@ -1846,59 +2294,32 @@ class BatchService:
                     raise
                 failed.append({"batch_id": bid, "reason": reason})
                 continue
-            # soft reset: review/completed tasks → pending
-            # The current round's frozen evidence is cleared with the reset,
-            # matching single-batch rejection, so stale evidence from a
-            # completed round is never mistaken for current review authority.
-            await self.db.execute(
-                update(Task)
-                .where(
-                    Task.batch_id == bid,
-                    Task.status.in_(["review", "completed"]),
-                )
-                .values(
-                    status="pending",
-                    is_labeled=False,
-                    review_contributor_ids=None,
-                    review_submitter_id=None,
-                )
+            rejections.setdefault(
+                bid,
+                BulkReviewBatchItem(batch_id=bid, expected_status=status),
             )
-            batch.status = BatchStatus.REJECTED
-            batch.review_feedback = feedback
-            batch.reviewed_at = datetime.now(timezone.utc)
-            batch.reviewed_by = reviewer_id
+            virtual_status[bid] = BatchStatus.REJECTED
             succeeded.append(bid)
-        await self.db.flush()
-        for bid in succeeded:
-            await self._recalculate_batch_counters(bid)
-        return {"succeeded": succeeded, "skipped": skipped, "failed": failed}
-
-    async def _load_batches_for_bulk(
-        self, project_id: uuid.UUID, batch_ids: list[uuid.UUID]
-    ) -> dict[uuid.UUID, TaskBatch]:
-        rows = await self.db.execute(
-            select(TaskBatch).where(
-                TaskBatch.id.in_(batch_ids),
-                TaskBatch.project_id == project_id,
+        if rejections:
+            await execute_batch_control(
+                self.db,
+                BulkRejectBatches(
+                    schema="aap-labeling-batch-control/v1",
+                    operation="bulk_reject",
+                    project_id=project_id,
+                    actor_id=decision_actor,
+                    reviewer_id=reviewer_id,
+                    feedback=feedback,
+                    reviewed_at=datetime.now(timezone.utc),
+                    batches=list(rejections.values()),
+                    tracked_task_ids=_tracked_task_ids(
+                        self.db,
+                        batch_ids=list(rejections),
+                    ),
+                ),
             )
-        )
-        return {b.id: b for b in rows.scalars().all()}
-
-    async def _recalculate_batch_counters(self, batch_id: uuid.UUID) -> None:
-        result = await self.db.execute(
-            select(
-                func.count(Task.id).label("total"),
-                func.sum(func.cast(Task.is_labeled, Integer)).label("completed"),
-                func.sum(func.cast(Task.status == "review", Integer)).label("review"),
-            ).where(Task.batch_id == batch_id)
-        )
-        row = result.one()
-        batch = await self.db.get(TaskBatch, batch_id)
-        if batch:
-            batch.total_tasks = row.total or 0
-            batch.completed_tasks = row.completed or 0
-            batch.review_tasks = row.review or 0
-            await self.db.flush()
+        await self.db.flush()
+        return {"succeeded": succeeded, "skipped": skipped, "failed": failed}
 
     # ── AI/ML hook ─────────────────────────────────────────────────────────
 

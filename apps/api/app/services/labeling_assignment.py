@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_labeling.batch_control_contract import ApplyTaskAssignments, TaskAssignment
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
@@ -20,7 +21,7 @@ from app.schemas.labeling_assignment import (
     DataManagerTaskAssignmentResponse,
 )
 from app.services.identity_contracts import IdentityActorFacts
-from app.services.batch import BatchService
+from app.services.batch import BatchService, execute_batch_control
 from app.services.scheduler import (
     effective_task_assignee_id,
     effective_task_reviewer_id,
@@ -325,6 +326,7 @@ class LabelingTaskAssignmentService:
         reviewer_set = "reviewer_id" in payload.model_fields_set
         lock_service = TaskLockService(self.db)
         succeeded: list[uuid.UUID] = []
+        assignments: list[TaskAssignment] = []
         for item in plan.items:
             if not item.will_change:
                 continue
@@ -346,21 +348,38 @@ class LabelingTaskAssignmentService:
                 item.will_change = False
                 item.reason = "task_locked"
                 continue
-            if annotator_set:
-                task.assignee_id = payload.annotator_id
-                task.assignee_is_override = payload.annotator_id is not None
-                task.assigned_at = (
-                    datetime.now(timezone.utc)
-                    if payload.annotator_id is not None
-                    else None
+            assignments.append(
+                TaskAssignment(
+                    task_id=task.id,
+                    project_id=task.project_id,
+                    batch_id=task.batch_id,
+                    expected_status=task.status,
+                    expected_assignee_id=task.assignee_id,
+                    expected_assignee_is_override=task.assignee_is_override,
+                    expected_reviewer_id=task.reviewer_id,
+                    expected_reviewer_is_override=task.reviewer_is_override,
+                    expected_reviewer_claimed_at=task.reviewer_claimed_at,
+                    annotator_set=annotator_set,
+                    annotator_id=payload.annotator_id,
+                    assigned_at=(
+                        datetime.now(timezone.utc)
+                        if annotator_set and payload.annotator_id is not None
+                        else None
+                    ),
+                    reviewer_set=reviewer_set,
+                    reviewer_id=payload.reviewer_id,
                 )
-            if reviewer_set:
-                task.reviewer_id = payload.reviewer_id
-                task.reviewer_is_override = payload.reviewer_id is not None
-                if item.before_reviewer_id != payload.reviewer_id:
-                    task.reviewer_claimed_at = None
+            )
             succeeded.append(task.id)
-
+        if assignments:
+            await execute_batch_control(
+                self.db,
+                ApplyTaskAssignments(
+                    schema="aap-labeling-batch-control/v1",
+                    operation="apply_task_assignments",
+                    assignments=assignments,
+                ),
+            )
         await self.db.flush()
         plan.succeeded = succeeded
         plan.eligible_count = len(succeeded)
