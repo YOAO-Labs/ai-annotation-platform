@@ -21,7 +21,7 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.db.models.user import User
 from app.schemas.trained_model import TrainedModelCreate
-from app.services import trained_models as service
+from app.services import trained_models as service, training_run_storage
 from app.services.ml_client import MLBackendClient, PredictionResult
 from app.services.prediction import PredictionService, to_internal_shape
 from tests.conftest import _create_user, create_registry_with_pool
@@ -74,6 +74,7 @@ async def seed_source(db, owner, *, project=None):
     )
     db.add(run)
     await db.flush()
+    await training_run_storage.allocate(db, run)
     attempt = TrainingAttempt(
         run_id=run.id,
         ordinal=1,
@@ -97,6 +98,11 @@ async def seed_source(db, owner, *, project=None):
     )
     db.add(attempt)
     await db.flush()
+    storage_owner = training_run_storage.resolve(run)
+    attempt.artifacts = {
+        name: {**artifact, "key": storage_owner.key(f"attempts/{attempt.id}/{name}")}
+        for name, artifact in attempt.artifacts.items()
+    }
     run.current_attempt_id = attempt.id
     return project, run, attempt
 
@@ -107,7 +113,7 @@ def controlled_artifacts(monkeypatch):
     monkeypatch.setattr(
         service,
         "read_json_artifact",
-        lambda *_: {
+        lambda *_, bucket: {
             "summary": {"mAP50-95": 0.4},
             "validation_digest": "f" * 64,
             "evaluation": {
@@ -146,6 +152,11 @@ async def next_successful_attempt(db, run, previous):
     )
     db.add(attempt)
     await db.flush()
+    storage_owner = training_run_storage.resolve(run)
+    attempt.artifacts = {
+        name: {**artifact, "key": storage_owner.key(f"attempts/{attempt.id}/{name}")}
+        for name, artifact in attempt.artifacts.items()
+    }
     run.current_attempt_id = attempt.id
     return attempt
 
@@ -164,7 +175,7 @@ async def test_libre_registration_retains_native_gaps_and_immutable_runtime_qual
     monkeypatch.setattr(
         service,
         "read_json_artifact",
-        lambda *_: {
+        lambda *_, bucket: {
             "validation_digest": run.config["validation_digest"],
             "evaluation": {
                 "framework": "libreyolo",
@@ -881,10 +892,11 @@ def test_backend_download_is_absolute_with_a_relative_browser_proxy(monkeypatch)
 
     monkeypatch.setattr(settings, "minio_public_url", "/minio")
     monkeypatch.setattr(settings, "ml_backend_storage_host", "")
-    url = service.download_url("owned/weights.pt")
+    url = service.download_url("owned/weights.pt", bucket="retained-model-bucket")
     assert urlsplit(url).scheme in {"http", "https"}
     assert urlsplit(url).netloc
     assert "/owned/weights.pt" in urlsplit(url).path
+    assert "/retained-model-bucket/" in urlsplit(url).path
     public_url = service.storage.generate_download_url("owned/input.png")
     assert public_url.startswith("/minio/")
     backend_url = service.storage.rewrite_host_for_ml_backend(public_url)

@@ -21,7 +21,7 @@ from app.db.models.training_run import TrainingRun
 from app.db.models.training_storage_deletion import TrainingStorageDeletion
 from app.db.models.user import User
 from app.deps import get_db
-from app.services import training_storage_cleanup as cleanup
+from app.services import training_storage_cleanup as cleanup, training_run_storage
 from app.services.storage import storage_service
 from app.workers import sample_evaluations as worker
 from tests.factory import create_user
@@ -45,6 +45,7 @@ async def terminal_record(db, owner, kind):
     )
     db.add(run)
     await db.flush()
+    await training_run_storage.allocate(db, run)
     return project, run
 
 
@@ -113,7 +114,7 @@ async def test_storage_failure_keeps_intent_for_existing_maintenance_owner(
     committed_record, test_engine, app_module, monkeypatch
 ):
     world = committed_record
-    original_bucket = storage_service.training_bucket
+    original_bucket = world.record.storage_ref["bucket"]
     purge = Mock(side_effect=RuntimeError("storage unavailable"))
     warning = Mock()
     monkeypatch.setattr(storage_service, "delete_prefix", purge)
@@ -136,10 +137,7 @@ async def test_storage_failure_keeps_intent_for_existing_maintenance_owner(
         assert await db.get(type(world.record), world.record.id) is None
         intent = await db.scalar(select(TrainingStorageDeletion))
         assert (intent.prefix, intent.bucket) == (world.prefix, original_bucket)
-        if world.kind == "datasets":
-            assert intent.storage_ref == world.record.storage_ref
-        else:
-            assert intent.storage_ref is None
+        assert intent.storage_ref == world.record.storage_ref
         assert intent.last_attempted_at is not None
         intent_id = intent.id
     warning.assert_called_once_with(
@@ -210,17 +208,15 @@ async def test_cleanup_commit_failure_keeps_retryable_intent(
 @pytest.mark.parametrize(
     "unresolved", [False, True], ids=["endpoint-changed", "legacy"]
 )
+@pytest.mark.parametrize("kind", ["datasets", "runs"])
 async def test_unknown_training_owner_retains_intent_without_physical_delete(
-    db_session, super_admin, monkeypatch, unresolved
+    db_session, super_admin, monkeypatch, unresolved, kind
 ):
     from copy import deepcopy
     from app.services.training_dataset_bridge import TrainingDatasetError
-    from app.services.training_dataset_storage import allocate
-    from tests.test_training_runs import ready_dataset
 
     owner, _ = super_admin
-    project, version = await ready_dataset(db_session, owner)
-    await allocate(db_session, version)
+    _, version = await terminal_record(db_session, owner, kind)
     ref = deepcopy(version.storage_ref)
     if not unresolved:
         ref["endpoint_url"] = "http://unverified.invalid:9000"

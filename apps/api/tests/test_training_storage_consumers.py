@@ -17,8 +17,11 @@ import pytest
 
 from app.config import settings
 from app.db.models.training_dataset import TrainingDatasetVersion
+from app.db.models.training_run import TrainingAttempt
+from app.db.models.trained_model import TrainedModelVersion
 from app.services import training_dataset_analysis as analysis
 from app.services import training_dataset_storage as owners
+from app.services import training_run_storage as run_owners
 from app.services import training_previews, training_runs, trained_models
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
@@ -132,6 +135,58 @@ def source_sample(frozen):
         "source_bucket": "source-bucket",
         "media": {"etag": "original", "size_bytes": len(frozen.raw)},
     }
+
+
+def run_for(frozen, *, bucket="retained-run-bucket"):
+    run_id = uuid.uuid4()
+    ref = {
+        **deepcopy(frozen.version.storage_ref),
+        "purpose": "training-run",
+        "prefix": run_owners.prefix_for(frozen.version.project_id, run_id),
+        "bucket": bucket,
+        "storage_identity": managed_storage_identity(
+            frozen.version.storage_ref["endpoint_url"], bucket
+        ),
+    }
+    run = SimpleNamespace(
+        id=run_id,
+        project_id=frozen.version.project_id,
+        dataset_id=frozen.version.id,
+        storage_ref=ref,
+        config={},
+        config_digest="f" * 64,
+    )
+    attempt = SimpleNamespace(
+        id=uuid.uuid4(),
+        run_id=run.id,
+        native_budget=None,
+        resume_from_id=None,
+        artifacts={},
+    )
+    return run, attempt
+
+
+def source_model(frozen):
+    run, attempt = run_for(frozen, bucket="retained-source-model-bucket")
+    artifact = {
+        "key": run.storage_ref["prefix"] + f"attempts/{attempt.id}/best.pt",
+        "role": "weights",
+        "sha256": "a" * 64,
+        "size_bytes": 12,
+    }
+    attempt.artifacts = {"best.pt": artifact}
+    model = SimpleNamespace(
+        id=uuid.uuid4(),
+        project_id=run.project_id,
+        run_id=run.id,
+        attempt_id=attempt.id,
+        artifact=artifact,
+        provenance={
+            "dataset_id": str(frozen.version.id),
+            "validation_digest": "c" * 64,
+        },
+    )
+    return run, attempt, model
 
 
 def test_materialize_image_requires_an_explicit_retained_bucket(frozen, tmp_path):
@@ -280,54 +335,69 @@ def test_media_identity_failure_never_reads_the_current_bucket(frozen, invalid):
 async def test_run_assignment_pins_dataset_but_keeps_other_artifact_owners(
     frozen, extra
 ):
-    run = SimpleNamespace(
-        id=uuid.uuid4(),
-        project_id=frozen.version.project_id,
-        dataset_id=frozen.version.id,
-        config={},
-        config_digest="f" * 64,
-    )
-    attempt = SimpleNamespace(id=uuid.uuid4(), native_budget=None, resume_from_id=None)
-    checkpoint_key = "projects/run/checkpoint.pt"
+    run, attempt = run_for(frozen)
+    source_run, source_attempt, model = source_model(frozen)
     parent = SimpleNamespace(
-        artifacts={"checkpoint": {"role": "checkpoint", "key": checkpoint_key}}
+        id=uuid.uuid4(),
+        run_id=run.id,
     )
+    checkpoint_key = run.storage_ref["prefix"] + f"attempts/{parent.id}/checkpoint.pt"
+    parent.artifacts = {"checkpoint": {"role": "checkpoint", "key": checkpoint_key}}
     if extra == "resume":
-        attempt.resume_from_id = uuid.uuid4()
+        attempt.resume_from_id = parent.id
     elif extra == "initialization":
         run.config["initialization"] = {
-            "artifact": {"key": checkpoint_key},
+            "model_version_id": str(model.id),
+            "project_id": str(source_run.project_id),
+            "run_id": str(source_run.id),
+            "attempt_id": str(source_attempt.id),
+            "artifact": deepcopy(model.artifact),
             "source_digest": "a" * 64,
         }
 
-    async def get(model, identifier):
-        return frozen.version if model is TrainingDatasetVersion else parent
+    async def get(model_type, identifier):
+        if model_type is TrainingDatasetVersion:
+            return frozen.version
+        if model_type is TrainingAttempt:
+            return parent if identifier == parent.id else source_attempt
+        assert model_type is TrainedModelVersion and identifier == model.id
+        return model
 
+    config_before = deepcopy(run.config)
     result = await training_runs.assignment(
-        SimpleNamespace(get=get), run, attempt, "token"
+        SimpleNamespace(get=get, scalar=AsyncMock(return_value=source_run)),
+        run,
+        attempt,
+        "token",
     )
     assert result["dataset_url"].startswith(f"https://owned-storage/{frozen.bucket}/")
     assert frozen.client.calls[0][1:] == (frozen.bucket, frozen.version.package_key)
-    if extra:
-        assert frozen.client.calls[1][1:] == ("new-current-bucket", checkpoint_key)
+    if extra == "resume":
+        assert frozen.client.calls[1][1:] == (
+            run.storage_ref["bucket"],
+            checkpoint_key,
+        )
+    elif extra == "initialization":
+        assert frozen.client.calls[1][1:] == (
+            source_run.storage_ref["bucket"],
+            model.artifact["key"],
+        )
+    assert run.config == config_before
+    assert all(call[1] != "new-current-bucket" for call in frozen.client.calls)
 
 
 @pytest.mark.parametrize("invalid", ["missing-pin", "foreign-package", "other-project"])
 async def test_run_assignment_does_not_sign_an_unresolved_dataset(frozen, invalid):
-    run = SimpleNamespace(
-        id=uuid.uuid4(),
-        project_id=frozen.version.project_id,
-        dataset_id=frozen.version.id,
-    )
+    run, attempt = run_for(frozen)
     if invalid == "missing-pin":
         frozen.version.storage_ref = None
     elif invalid == "foreign-package":
         frozen.version.package_key = "another-version/dataset.zip"
     else:
-        run.project_id = uuid.uuid4()
+        frozen.version.project_id = uuid.uuid4()
     db = SimpleNamespace(get=AsyncMock(return_value=frozen.version))
     with pytest.raises(HTTPException) as error:
-        await training_runs.assignment(db, run, SimpleNamespace(), "token")
+        await training_runs.assignment(db, run, attempt, "token")
     assert error.value.status_code == 409
     assert frozen.client.calls == []
 
@@ -413,13 +483,7 @@ async def test_model_install_keeps_weights_separate_from_the_trial_input(
     frozen, monkeypatch
 ):
     project = SimpleNamespace(id=frozen.version.project_id)
-    model = SimpleNamespace(
-        provenance={
-            "dataset_id": str(frozen.version.id),
-            "validation_digest": "c" * 64,
-        },
-        artifact={"key": "projects/run/weights.pt", "size_bytes": 12},
-    )
+    run, attempt, model = source_model(frozen)
     payloads = []
 
     async def install(payload):
@@ -450,12 +514,20 @@ async def test_model_install_keeps_weights_separate_from_the_trial_input(
     monkeypatch.setattr(trained_models, "validate_and_map_results", lambda *args: None)
     monkeypatch.setattr(trained_models, "model_task", lambda _: "detect")
     monkeypatch.setattr(storage_service, "rewrite_host_for_ml_backend", lambda url: url)
-    db = SimpleNamespace(get=AsyncMock(return_value=frozen.version))
+
+    async def get(model_type, identifier):
+        if model_type is TrainingAttempt:
+            assert identifier == attempt.id
+            return attempt
+        assert model_type is TrainingDatasetVersion and identifier == frozen.version.id
+        return frozen.version
+
+    db = SimpleNamespace(get=get, scalar=AsyncMock(return_value=run))
     await trained_models.install_and_trial(
         db, project, model, SimpleNamespace(registry_id=uuid.uuid4())
     )
     assert payloads[0]["download_url"].startswith(
-        "https://owned-storage/new-current-bucket/"
+        f"https://owned-storage/{run.storage_ref['bucket']}/"
     )
     assert payloads[1][0]["file_path"].startswith(
         f"https://owned-storage/{frozen.bucket}/"

@@ -47,6 +47,7 @@ from app.services import (
     learning_policies,
     trained_models,
     training_datasets,
+    training_run_storage,
     training_runs,
 )
 from app.services.annotation import AnnotationService
@@ -280,9 +281,10 @@ def report_for(run, weights):
 
 
 def artifact(objects, run, attempt, name, role, raw):
-    key = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/{name}"
+    owner = training_run_storage.resolve(run)
+    key = owner.key(f"attempts/{attempt.id}/{name}")
     objects.put(
-        Bucket=storage.training_bucket,
+        Bucket=owner.bucket,
         Key=key,
         Body=raw,
         Metadata={"attempt-id": str(attempt.id)},
@@ -321,6 +323,7 @@ async def seed_run(db, owner, project, dataset, objects, *, segment=True):
     )
     db.add(run)
     await db.flush()
+    await training_run_storage.allocate(db, run)
     attempt = TrainingAttempt(
         run_id=run.id,
         ordinal=1,
@@ -709,7 +712,7 @@ async def test_mask_release_human_review_second_freeze_and_learning_baseline(
         f"projects/{s.project.id}/datasets/{second.id}/masks/{task.id}.json"
     )
     independent = json.loads(
-        s.objects.values[storage.training_bucket, independent_key][0]
+        s.objects.values[second.storage_ref["bucket"], independent_key][0]
     )
     assert independent["instances"][0]["annotation_id"] == accepted_id
     assert list(decode_coco_rle(independent["instances"][0]["rle"])) == changed_pixels
