@@ -143,6 +143,7 @@ class EnvironmentTests(unittest.TestCase):
                 "LABELING_MASK_GC_TOKEN": "shared-test-token",
                 "identity_url": "http://shared-identity.test",
                 "IDENTITY_TOKEN": "shared-identity-token",
+                "notification_socket_url": "ws://shared-notifications.test:8180",
                 "IDENTITY_AUTH_DATABASE_URL": "postgresql://shared/identity",
                 "IDENTITY_AUTH_DATABASE_URL_FILE": "/shared/identity-dsn",
                 "IDENTITY_KEY_DATABASE_URL": "postgresql://shared/key-commands",
@@ -197,6 +198,7 @@ class EnvironmentTests(unittest.TestCase):
             self.assertEqual(env["ML_BACKEND_OBSERVE_URLS"], "[]")
             self.assertNotIn("assets_mask_cleanup_url", env)
             self.assertNotIn("identity_url", env)
+            self.assertNotIn("notification_socket_url", env)
             for key in (
                 "ASSETS_MASK_CONTENT_URL",
                 "ASSETS_MASK_CONTENT_TOKEN",
@@ -206,6 +208,7 @@ class EnvironmentTests(unittest.TestCase):
                 "LABELING_MASK_GC_TOKEN",
                 "IDENTITY_URL",
                 "IDENTITY_TOKEN",
+                "NOTIFICATION_SOCKET_URL",
                 "IDENTITY_AUTH_DATABASE_URL",
                 "IDENTITY_AUTH_DATABASE_URL_FILE",
                 "IDENTITY_KEY_DATABASE_URL",

@@ -575,6 +575,8 @@ API 设置 `NOTIFICATION_SOCKET_URL=ws://notifications-socket:8180` 后，将原
 `/ws/notifications` 的文本和二进制消息直接转发给它。空值使用同一 owner 的内嵌
 装配；显式地址失效或拒绝握手时关闭连接，不回退本地 DB／Redis。SDK、Web 与反代
 继续使用 API 原地址。新服务 CLI 禁用访问日志，避免记录 query 中的用户 JWT。
+托管工作树清空继承的 `NOTIFICATION_SOCKET_URL`，避免误连共享 owner；独立验收夹具
+显式注入自己私网内的地址。
 
 独立服务只需要三组秘密，每组直接值与 `_FILE` 二选一：
 

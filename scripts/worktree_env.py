@@ -203,6 +203,7 @@ def isolated_environment(
         "LABELING_MASK_GC_TOKEN": "",
         "IDENTITY_URL": "",
         "IDENTITY_TOKEN": "",
+        "NOTIFICATION_SOCKET_URL": "",
         **{
             f"{capability}_DATABASE_URL{suffix}": ""
             for capability in (

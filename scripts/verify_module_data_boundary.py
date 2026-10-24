@@ -142,6 +142,7 @@ READ_RELATION_SPECS = {
 }
 IDENTITY_CLIENT_ROLES = {
     "AUTH": "identity_auth_client",
+    "ACTOR_STATUS": "identity_actor_status_client",
     "COMMAND": "identity_command_client",
     "FENCE": "identity_fence_client",
     "OPERATOR": "identity_session_operator",
@@ -3743,6 +3744,9 @@ def main(argv: list[str] | None = None) -> int:
         mask_gc_grants_path = ROOT / "infra/docker/labeling-mask-gc-data-grants.sql"
         result_grants_path = ROOT / "infra/docker/preannotation-result-data-grants.sql"
         identity_grants_path = ROOT / "infra/docker/identity-auth-grants.sql"
+        identity_actor_status_grants_path = (
+            ROOT / "infra/docker/identity-actor-status-grants.sql"
+        )
         identity_key_grants_path = ROOT / "infra/docker/identity-keys-grants.sql"
         identity_session_grants_path = (
             ROOT / "infra/docker/identity-sessions-grants.sql"
@@ -3880,6 +3884,7 @@ def main(argv: list[str] | None = None) -> int:
             or not mask_gc_grants_path.is_file()
             or not result_grants_path.is_file()
             or not identity_grants_path.is_file()
+            or not identity_actor_status_grants_path.is_file()
             or not identity_key_grants_path.is_file()
             or not identity_session_grants_path.is_file()
             or not identity_deactivation_grants_path.is_file()
@@ -3951,6 +3956,9 @@ def main(argv: list[str] | None = None) -> int:
         mask_gc_grant_sql = mask_gc_grants_path.read_text(encoding="utf-8")
         result_grant_sql = result_grants_path.read_text(encoding="utf-8")
         identity_grant_sql = identity_grants_path.read_text(encoding="utf-8")
+        identity_actor_status_grant_sql = identity_actor_status_grants_path.read_text(
+            encoding="utf-8"
+        )
         identity_key_grant_sql = identity_key_grants_path.read_text(encoding="utf-8")
         identity_session_grant_sql = identity_session_grants_path.read_text(
             encoding="utf-8"
@@ -4662,6 +4670,23 @@ def main(argv: list[str] | None = None) -> int:
                     "notifications_owner": "notifications_code",
                     "api_role": "legacy_runtime",
                     "query_client": NOTIFICATION_DELIVERY_READ_ROLE,
+                },
+            )
+
+        def apply_identity_actor_status_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=identity_actor_status_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "identity_owner": "identity_code",
+                    "status_role": IDENTITY_CLIENT_ROLES["ACTOR_STATUS"],
                 },
             )
 
@@ -5899,6 +5924,8 @@ def main(argv: list[str] | None = None) -> int:
                 },
             },
         )
+        phase = "install-identity-actor-status-grants"
+        apply_identity_actor_status_grants()
         phase = "install-identity-key-grants"
         _psql(
             container_id,
@@ -7341,6 +7368,7 @@ SELECT pg_catalog.jsonb_build_object(
                 "AAP_IDENTITY_BRIEFS_LIVE_ACCEPTANCE": "1",
                 "RUN_NATIVE_IMPORT_DELIVERY_LEASE_TEST": "1",
                 "AAP_MODULE_DATA_APPEND_URL": append_url,
+                "AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL": notification_delivery_read_url,
                 "AAP_MODULE_DATA_ASSET_CLEANUP_URL": cleanup_url,
                 "AAP_MODULE_DATA_ASSET_CATALOG_URL": catalog_url,
                 "AAP_MODULE_DATA_ASSET_SOURCE_URL": source_url,
@@ -7506,6 +7534,7 @@ SELECT pg_catalog.jsonb_build_object(
                 apply_notification_append_grants()
                 apply_notification_delivery_read_grants()
                 apply_notification_inbox_grants()
+                apply_identity_actor_status_grants()
                 apply_audit_append_grants()
                 apply_notification_read_grants(NOTIFICATION_READ_ROLE)
                 apply_audit_read_grants()
