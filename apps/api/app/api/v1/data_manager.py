@@ -60,7 +60,7 @@ from app.services import async_job as async_job_service
 from app.services.audit import AuditService
 from app.services.exporting.packaging import clean_export_targets
 from app.services.data_management.task_filters import visible_tasks_stmt
-from app.workers.export import run_export
+from app.services.jobs_queue import dispatch_job
 from app.services.identity_contracts import IdentityActorFacts
 
 
@@ -264,13 +264,18 @@ async def export_data_manager_tasks(
         },
     )
     try:
-        celery_job = run_export.delay(
-            project_id=str(project_id),
-            batch_id=None,
-            task_ids=[str(task_id) for task_id in payload.task_ids],
-            targets=targets,
-            opts=options,
-            async_job_id=str(job.id),
+        execution_id = await dispatch_job(
+            task_name="app.workers.export.run_export",
+            execution_id=str(uuid.uuid4()),
+            args=[],
+            kwargs={
+                "project_id": str(project_id),
+                "batch_id": None,
+                "task_ids": [str(task_id) for task_id in payload.task_ids],
+                "targets": targets,
+                "opts": options,
+                "async_job_id": str(job.id),
+            },
         )
     except Exception as exc:
         await async_job_service.mark_failed(
@@ -278,7 +283,7 @@ async def export_data_manager_tasks(
         )
         await db.commit()
         raise
-    async_job_service.bind_execution_id(job, celery_job.id)
+    async_job_service.bind_execution_id(job, execution_id)
     await db.commit()
     return {"job_id": str(job.id), "status": "queued"}
 

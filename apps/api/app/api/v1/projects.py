@@ -958,7 +958,7 @@ async def export_project(
 
     from app.services import async_job as async_job_svc
     from app.db.models.async_job import AsyncJobKind
-    from app.workers.export import run_export
+    from app.services.jobs_queue import dispatch_job
 
     job = await async_job_svc.create_job(
         db,
@@ -1013,25 +1013,30 @@ async def export_project(
     )
     await db.commit()
 
-    run_export.delay(
-        project_id=str(project.id),
-        batch_id=None,
-        targets=targets,
-        opts={
-            "include_attributes": include_attributes,
-            "video_frame_mode": video_frame_mode,
-            "axis_frame": axis_frame,
-            "indexed_overlap_policy": indexed_overlap_policy,
-            "video_overlap_policy": video_overlap_policy,
-            "mots_frame_base": mots_frame_base,
-            **(
-                {"video_export_scope": video_scope_payload}
-                if video_scope_payload
-                else {}
-            ),
-            **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
+    await dispatch_job(
+        task_name="app.workers.export.run_export",
+        execution_id=str(uuid.uuid4()),
+        args=[],
+        kwargs={
+            "project_id": str(project.id),
+            "batch_id": None,
+            "targets": targets,
+            "opts": {
+                "include_attributes": include_attributes,
+                "video_frame_mode": video_frame_mode,
+                "axis_frame": axis_frame,
+                "indexed_overlap_policy": indexed_overlap_policy,
+                "video_overlap_policy": video_overlap_policy,
+                "mots_frame_base": mots_frame_base,
+                **(
+                    {"video_export_scope": video_scope_payload}
+                    if video_scope_payload
+                    else {}
+                ),
+                **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
+            },
+            "async_job_id": str(job.id),
         },
-        async_job_id=str(job.id),
     )
     return {"job_id": str(job.id)}
 

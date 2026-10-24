@@ -106,14 +106,20 @@ Identity dependency. The API keeps its embedded Celery transport when
 `JOBS_QUEUE_URL` is blank. An explicit remote URL never falls back to the local
 broker.
 
-The only consumer wired in this slice is cross-frame propagation: one positional
-job ID, the existing `default` route, and a stable execution ID stored before
-dispatch. The reply confirms broker acceptance only. Revoke uses
-`terminate=False` and does not prove a task stopped. Custom task options, Celery
-canvases, other task payloads, and non-JSON serializers remain unqualified; the
-bounded local API/owner/worker and full-database-restore acceptance is recorded
-in [the module deployment ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-lifecycle-queue).
-This does not qualify the remaining producers or complete Jobs credential closure.
+Consumers include cross-frame propagation and the project, batch, and Data
+Manager annotation-export endpoints. Cross-frame sends one positional job ID;
+exports send the existing keyword payload. Both use the shared `task_routes`
+resource, which routes exports to the existing `export` queue, and use a stable
+execution ID. Cross-frame stores it before dispatch; project and batch workers
+bind it when they claim the job; Data Manager binds it after successful broker
+acceptance and marks the durable job failed if dispatch raises. The reply
+confirms broker acceptance only. Revoke uses `terminate=False` and does not
+prove a task stopped. Custom task options, Celery canvases, other task payloads,
+and non-JSON serializers remain unqualified; the bounded local API/owner/worker
+and full-database-restore acceptance is recorded in [the module deployment
+ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-lifecycle-queue).
+This does not qualify the remaining producers or complete Jobs credential
+closure.
 
 The standalone `apps/jobs/Dockerfile.queue` image runs as UID 10005, exposes no
 host port, and reads `JOBS_QUEUE_BROKER_URL_FILE` and `JOBS_QUEUE_TOKEN_FILE`.
