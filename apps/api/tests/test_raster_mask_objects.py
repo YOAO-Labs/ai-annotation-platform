@@ -403,6 +403,28 @@ async def test_gzip_reuse_verifies_winners_own_stored_bytes_not_new_wrapper(harn
         assert await owners.load(reference, db=caller, storage=harness.blobs) == rle
 
 
+async def test_legacy_gzip_null_storage_encoding_resolves_only_saved_owner(harness):
+    rle, _, data = harness.content()
+    reference = build_rle_gzip_reference(rle)
+    harness.keys.add(reference["object_key"])
+    legacy = {**reference, "encoding": "coco_rle_gzip", "storage_encoding": None}
+    async with harness.factory() as caller:
+        await owners.store(
+            legacy, gzip.compress(data, mtime=1), db=caller, storage=harness.blobs
+        )
+        assert await owners.load(legacy, db=caller, storage=harness.blobs) == rle
+        assert await owners.bind_publications(caller, legacy) == 1
+        await caller.commit()
+        with pytest.raises(physical.RasterObjectStorageError):
+            await owners.load(
+                {**reference, "storage_encoding": None},
+                db=caller,
+                storage=harness.blobs,
+            )
+    assert len(harness.blobs.puts) == 1
+    assert all(body.closed for body in harness.blobs.bodies)
+
+
 async def test_corrupt_ready_cannot_be_reused_or_overwritten(harness):
     _, reference, data = harness.content()
     async with harness.factory() as caller:

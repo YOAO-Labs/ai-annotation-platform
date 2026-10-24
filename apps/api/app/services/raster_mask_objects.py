@@ -151,7 +151,13 @@ def _matching_reference(reference, receipt):
         reference.get("storage_encoding") if isinstance(reference, dict) else None
     )
     if encoding is None:
-        encoding = "identity"
+        encoding = (
+            "gzip"
+            if isinstance(reference, dict)
+            and reference.get("encoding") == "coco_rle_gzip"
+            and expected["object_key"].endswith(".json.gz")
+            else "identity"
+        )
     if (
         not isinstance(reference, dict)
         or reference.get("encoding") not in ("coco_rle_ref", "coco_rle_gzip")
