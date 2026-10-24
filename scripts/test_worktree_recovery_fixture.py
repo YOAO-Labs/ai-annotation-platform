@@ -20,6 +20,83 @@ from worktree_recovery_fixture import (
 from worktree_recovery_mapping import identity
 
 
+class ExportMediaProtectedFacts(unittest.IsolatedAsyncioTestCase):
+    async def test_only_media_cache_indexes_are_disposable_in_protected_fingerprint(
+        self,
+    ):
+        from sqlalchemy.sql.elements import TextClause
+        from worktree_recovery_fixture import database_facts
+
+        identifier = str(uuid.uuid4())
+        rows = {
+            "export_artifacts": [
+                {"id": identifier, "output_id": "bundle-zip", "cache_key": "g1"},
+                {"id": "legacy", "output_id": "ordinary-zip", "cache_key": "keep"},
+            ],
+            "export_media_bundles": [
+                {
+                    "id": "owner",
+                    "storage_ref": {
+                        "bucket": "source",
+                        "storage_identity": "mapped",
+                        "key_prefix": "immutable/",
+                    },
+                    "inventory": {"private": "unchanged"},
+                }
+            ],
+        }
+
+        async def scalars(statement):
+            return list(rows) if isinstance(statement, TextClause) else [identifier]
+
+        async def stream(statement):
+            table = str(statement).split('"')[1]
+
+            async def values():
+                for row in rows[table]:
+                    yield row
+
+            return SimpleNamespace(scalars=values)
+
+        db = SimpleNamespace(scalars=scalars, stream=stream)
+        protected = await database_facts(db, protected=True)
+        full = await database_facts(db)
+        self.assertEqual(protected["export_artifacts"]["count"], 1)
+        self.assertEqual(full["export_artifacts"]["count"], 2)
+        rows["export_artifacts"].pop(0)
+        rows["export_media_bundles"][0]["storage_ref"].update(
+            bucket="target", storage_identity="new"
+        )
+        self.assertEqual(await database_facts(db, protected=True), protected)
+        self.assertNotEqual(await database_facts(db), full)
+        rows["export_artifacts"][0]["cache_key"] = "unexpected"
+        self.assertNotEqual(await database_facts(db, protected=True), protected)
+        rows["export_artifacts"][0]["cache_key"] = "keep"
+        rows["export_media_bundles"][0]["inventory"]["private"] = "changed"
+        self.assertNotEqual(await database_facts(db, protected=True), protected)
+
+    async def test_disposable_indexes_still_count_toward_raw_table_budget(self):
+        from worktree_env import WorktreeError
+        from worktree_recovery_fixture import database_facts
+
+        async def stream(_statement):
+            async def values():
+                for _ in range(10_001):
+                    yield {"id": "g1-index"}
+
+            return SimpleNamespace(scalars=values)
+
+        db = SimpleNamespace(
+            scalars=AsyncMock(return_value=["export_artifacts"]), stream=stream
+        )
+        with patch(
+            "worktree_recovery_export.media_cache_ids",
+            AsyncMock(return_value={"g1-index"}),
+        ):
+            with self.assertRaises(WorktreeError):
+                await database_facts(db, protected=True)
+
+
 class TaskOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):
     async def test_seed_uses_creation_boundary_and_keeps_deleted_task_responsibility(
         self,

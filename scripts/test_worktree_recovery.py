@@ -640,9 +640,9 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 )
             ),
             scalars=AsyncMock(
-                side_effect=lambda statement: self.rows[
-                    statement.column_descriptions[0]["entity"]
-                ]
+                side_effect=lambda statement: self.rows.get(
+                    statement.column_descriptions[0]["entity"], []
+                )
             ),
             flush=AsyncMock(),
             execute=AsyncMock(),
@@ -925,6 +925,209 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             changed = deepcopy(row)
             changed["storage_ref"][field] = "changed"
             self.assertNotEqual(base, digest(protected_row("export_outputs", changed)))
+
+    async def media_fixture(self):
+        from app.db.models.export_artifact import ExportArtifact
+        from app.db.models.export_media_bundle import ExportMediaBundle
+        from app.services import export_media_bundles as bundles
+        from tests.test_export_media_bundles import FakeDB
+        from worktree_recovery_export import MEDIA_CACHE_KEY, media_bytes, media_inputs
+
+        endpoint = patch(
+            "app.services.export_media_storage._runtime_endpoint",
+            return_value=self.endpoint,
+        )
+        endpoint.start()
+        self.addCleanup(endpoint.stop)
+        project_id = self.rows[self.models.output][0].project_id
+        sources = {
+            role: {
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "size_bytes": len(raw),
+                "media_type": "point_cloud" if role == "primary_lidar" else "image",
+                "relation": None,
+            }
+            for role, raw in media_bytes().items()
+        }
+        frozen, logical = media_inputs(
+            project_id, sources, self.source["MINIO_EXPORT_BUCKET"]
+        )
+        digest = hashlib.sha256(
+            json.dumps(frozen, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()
+        fake = FakeDB()
+        with patch.object(
+            bundles.settings, "minio_export_bucket", self.source["MINIO_EXPORT_BUCKET"]
+        ):
+            allocated = await bundles.allocate(
+                fake,
+                project_id=project_id,
+                job_id=uuid.uuid4(),
+                input_snapshot=frozen,
+                input_digest=digest,
+                logical_sources=logical,
+            )
+        row = fake.rows[allocated.id]
+        row.lease_token, row.lease_expires_at = (
+            uuid.uuid4(),
+            row.created_at + timedelta(hours=1),
+        )
+        row.state, row.published_at = "ready", row.created_at
+        output = deepcopy(self.rows[self.models.output][0])
+        output.id, output.job_id, output.media_bundle_id = (
+            row.zip_output_id,
+            row.job_id,
+            row.id,
+        )
+        output.state, output.format = "ready", "pointmask"
+        output.created_at, output.expires_at = row.created_at, row.expires_at
+        output.storage_ref["object_key"] = (
+            f"image/{project_id}/{row.job_id}/{output.id}.zip"
+        )
+        self.rows[self.models.output].append(output)
+        self.rows[ExportMediaBundle] = [row]
+        cache = SimpleNamespace(
+            id=uuid.uuid4(),
+            cache_key=MEDIA_CACHE_KEY,
+            project_id=project_id,
+            batch_id=None,
+            output_id=output.id,
+            format=output.format,
+            object_key=output.storage_ref["object_key"],
+            file_count=output.file_count,
+            size_bytes=output.size_bytes,
+            expires_at=output.expires_at,
+        )
+        self.rows[ExportArtifact] = [cache]
+        self.db.delete = AsyncMock(
+            side_effect=lambda value: self.rows[ExportArtifact].remove(value)
+        )
+        return row, output, cache
+
+    async def test_media_mapping_changes_only_physical_ref_and_invalidates_typed_cache(
+        self,
+    ):
+        row, output, cache = await self.media_fixture()
+        before = {
+            column.key: deepcopy(getattr(row, column.key))
+            for column in type(row).__mapper__.column_attrs
+        }
+        output_before = deepcopy(vars(output))
+        ledger = await remap_storage(self.db, self.source, self.target, self.endpoint)
+        for field, value in before.items():
+            if field != "storage_ref":
+                self.assertEqual(getattr(row, field), value, field)
+        self.assertEqual(
+            row.storage_ref,
+            {
+                **before["storage_ref"],
+                "bucket": self.target["MINIO_EXPORT_BUCKET"],
+                "storage_identity": identity(
+                    self.endpoint, self.target["MINIO_EXPORT_BUCKET"]
+                ),
+            },
+        )
+        self.assertEqual(output.sha256, output_before["sha256"])
+        self.assertEqual(output.expires_at, row.expires_at)
+        self.db.delete.assert_awaited_once_with(cache)
+        self.assertTrue(
+            any(entry["table"] == "export_media_bundles" for entry in ledger)
+        )
+        invalidated = [
+            entry for entry in ledger if entry["table"] == "export_artifacts"
+        ]
+        self.assertEqual(len(invalidated), 1)
+        self.assertEqual(invalidated[0]["reason"], "immutable_embedded_media_urls")
+        self.assertIsNone(invalidated[0]["after"])
+
+    async def test_invalid_media_owner_pair_or_cache_refuses_before_any_mapping(self):
+        row, output, cache = await self.media_fixture()
+        for subject, field, value in [
+            (row.storage_ref, "purpose", "datasets"),
+            (row.storage_ref, "bucket", self.source["MINIO_TRAINING_BUCKET"]),
+            (row.storage_ref, "key_prefix", "lidar-export-media/objects/foreign/"),
+            (row.storage_ref, "storage_identity", "f" * 64),
+            (output, "expires_at", output.expires_at + timedelta(seconds=1)),
+            (output, "media_bundle_id", uuid.uuid4()),
+            (cache, "size_bytes", cache.size_bytes + 1),
+            (cache, "format", "foreign"),
+            (cache, "object_key", "foreign.zip"),
+            (cache, "project_id", uuid.uuid4()),
+        ]:
+            original = (
+                subject[field] if isinstance(subject, dict) else getattr(subject, field)
+            )
+            if isinstance(subject, dict):
+                subject[field] = value
+            else:
+                setattr(subject, field, value)
+            with self.subTest(field=field), self.assertRaises(WorktreeError):
+                await remap_storage(self.db, self.source, self.target, self.endpoint)
+            self.db.flush.assert_not_awaited()
+            self.db.delete.assert_not_awaited()
+            self.assertEqual(
+                self.rows[self.models.binding][0].bucket, self.source["MINIO_BUCKET"]
+            )
+            if isinstance(subject, dict):
+                subject[field] = original
+            else:
+                setattr(subject, field, original)
+
+    async def test_protected_media_excludes_only_bucket_and_storage_identity(self):
+        from worktree_recovery_fixture import digest, protected_row
+
+        owner, _, _ = await self.media_fixture()
+        row = {
+            column.key: deepcopy(getattr(owner, column.key))
+            for column in type(owner).__mapper__.column_attrs
+        }
+        base = digest(protected_row("export_media_bundles", row))
+        for field in ("bucket", "storage_identity"):
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "mapped"
+            self.assertEqual(
+                base, digest(protected_row("export_media_bundles", changed))
+            )
+        for field in (
+            "id",
+            "project_id",
+            "job_id",
+            "zip_output_id",
+            "input_snapshot",
+            "input_digest",
+            "logical_paths",
+            "inventory",
+            "object_count",
+            "size_bytes",
+            "state",
+            "lease_token",
+            "lease_expires_at",
+            "created_at",
+            "expires_at",
+            "published_at",
+            "retired_at",
+            "last_attempted_at",
+        ):
+            self.assertNotEqual(
+                base,
+                digest(
+                    protected_row("export_media_bundles", {**row, field: "changed"})
+                ),
+                field,
+            )
+        for field in (
+            "purpose",
+            "location_id",
+            "config_revision",
+            "binding_generation",
+            "endpoint_url",
+            "key_prefix",
+        ):
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "changed"
+            self.assertNotEqual(
+                base, digest(protected_row("export_media_bundles", changed)), field
+            )
 
     async def test_unknown_bug_attachment_refuses_without_partially_mapping_others(
         self,

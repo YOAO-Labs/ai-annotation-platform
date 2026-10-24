@@ -54,6 +54,7 @@ def protected_row(table, row):
             "active_learning_rounds",
             "avatar_uploads",
             "export_outputs",
+            "export_media_bundles",
             "bug_attachment_uploads",
             "audit_archive_outputs",
             "comment_attachment_uploads",
@@ -86,6 +87,14 @@ async def database_facts(db, *, protected=False):
     """Bounded, order-independent row evidence without exporting raw cells."""
     from sqlalchemy import text
 
+    invalidated_export_indexes = set()
+    if protected:
+        from worktree_recovery_export import media_cache_ids
+
+        # The full source fingerprint still contains every cache row. Offline
+        # mapping deliberately removes only typed bundle-linked indexes: their
+        # immutable ZIPs retain historical signed URLs which cannot be remapped.
+        invalidated_export_indexes = await media_cache_ids(db)
     tables = list(
         await db.scalars(
             text(
@@ -101,9 +110,17 @@ async def database_facts(db, *, protected=False):
         result = await db.stream(
             text(f"SELECT row_to_json(record) FROM {quoted} AS record")
         )
+        seen = 0
         async for row in result.scalars():
-            if len(rows) >= 10000:
+            seen += 1
+            if seen > 10000:
                 raise WorktreeError("演练数据库单表超过10000行预算")
+            if (
+                protected
+                and table == "export_artifacts"
+                and str(row["id"]) in invalidated_export_indexes
+            ):
+                continue
             if protected:
                 row = protected_row(table, row)
             rows.append(digest(row))

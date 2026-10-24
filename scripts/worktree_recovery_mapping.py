@@ -66,6 +66,7 @@ async def remap_storage(
     from app.db.models.active_learning import ActiveLearningRound
     from app.db.models.avatar_upload import AvatarUpload
     from app.db.models.export_output import ExportOutput
+    from app.db.models.export_media_bundle import ExportMediaBundle
     from app.db.models.bug_attachment_upload import BugAttachmentUpload
     from app.db.models.audit_archive_output import AuditArchiveOutput
     from app.db.models.comment_attachment_upload import CommentAttachmentUpload
@@ -74,6 +75,7 @@ async def remap_storage(
     from app.db.models.task_original import TaskOriginal
     from app.services import avatar_storage
     from app.services import export_storage
+    from app.services import export_media_bundles
     from app.services import bug_attachment_storage
     from app.services import audit_archive_storage
     from app.services import comment_attachment_storage
@@ -91,6 +93,7 @@ async def remap_storage(
     mapping = bucket_mapping(source, target)
     planned = []
     ledger = []
+    invalidated_caches = []
 
     def change(row, field, value, table, key):
         before = getattr(row, field)
@@ -258,6 +261,49 @@ async def remap_storage(
             ExportOutput.__tablename__,
             str(row.id),
         )
+    from worktree_recovery_export import typed_media_cache_indexes, validate_media_pairs
+
+    media_rows = list(await db.scalars(select(ExportMediaBundle)))
+    outputs = list(await db.scalars(select(ExportOutput)))
+    validate_media_pairs(media_rows, outputs)
+    for row in media_rows:
+        try:
+            frozen = export_media_bundles.snapshot(row)
+        except ValueError:
+            raise WorktreeError("导出媒体副本含未知归属、冻结输入或内容清单") from None
+        ref = frozen.storage_ref
+        if (
+            ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or ref["bucket"] != source["MINIO_EXPORT_BUCKET"]
+        ):
+            raise WorktreeError("导出媒体副本归属与备份export用途不一致")
+        bucket = target["MINIO_EXPORT_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            ExportMediaBundle.__tablename__,
+            str(row.id),
+        )
+    for cache in await typed_media_cache_indexes(db, media_rows, outputs):
+        invalidated_caches.append(cache)
+        ledger.append(
+            {
+                "table": "export_artifacts",
+                "id": str(cache.id),
+                "field": "cache_index",
+                "before": {
+                    "output_id": str(cache.output_id),
+                    "cache_key": cache.cache_key,
+                },
+                "after": None,
+                "reason": "immutable_embedded_media_urls",
+            }
+        )
     for row in await db.scalars(select(BugAttachmentUpload)):
         try:
             owner = bug_attachment_storage.resolve(row)
@@ -413,6 +459,8 @@ async def remap_storage(
     await db.execute(text("SET LOCAL aap.restore_training_storage = 'on'"))
     for row, field, value in planned:
         setattr(row, field, value)
+    for cache in invalidated_caches:
+        await db.delete(cache)
     await db.flush()
     await db.execute(text("SET LOCAL aap.restore_training_storage = 'off'"))
     return ledger
