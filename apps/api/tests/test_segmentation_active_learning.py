@@ -16,6 +16,7 @@ from app.services import active_learning_pool as pool, trained_models
 from app.services.training_dataset_bridge import content_digest
 from tests.active_learning_fixtures import seed, create
 from tests.sample_evaluation_fixtures import prediction
+from tests.test_original_binary import request
 from tests.test_sample_evaluation_masks import predictions, rle, wire
 
 
@@ -105,7 +106,7 @@ async def test_mask_round_revalidates_pixel_evidence_and_accepts_only_human_task
     rows = await service.candidate_rows(db_session, round)
     for row in rows:
         sample = round.spec["samples"][row.ordinal]
-        service.prepare_image(round, sample)
+        await service.prepare_image(db_session, round, sample)
         row.media = service.media_descriptor(round, sample)
         row.request = service.managed.request_identity(
             round.spec, row, sample["preprocessing"]
@@ -150,6 +151,7 @@ async def test_mask_round_revalidates_pixel_evidence_and_accepts_only_human_task
         owner,
         round.id,
         DecisionCreate(request_id=uuid.uuid4(), action="accept", ordinals=selected),
+        request=request(owner),
     )
     assert (
         await db_session.scalar(

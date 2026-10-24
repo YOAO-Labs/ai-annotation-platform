@@ -18,6 +18,7 @@ from app.db.models.active_learning import (
 )
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
+from app.db.models.dataset import Dataset
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.notification import Notification
@@ -63,6 +64,7 @@ async def world(test_engine, monkeypatch):
                 (Notification, Notification.user_id == uid),
                 (Round, Round.project_id == pid),
                 (Task, Task.project_id == pid),
+                (Dataset, Dataset.id.in_(fixture.dataset_ids)),
                 (TaskBatch, TaskBatch.project_id == pid),
                 (AsyncJob, AsyncJob.project_id == pid),
                 (ModelDeployment, ModelDeployment.registry_id == registry),
@@ -86,6 +88,8 @@ async def world(test_engine, monkeypatch):
                 await db.execute(delete(model).where(condition))
             await db.commit()
         fixture.objects.objects.clear()
+        assert all(body.closed for body in fixture.originals.bodies)
+        fixture.originals.objects.clear()
 
 
 def receipt(row, state, result=None):
@@ -105,7 +109,7 @@ async def prepared(world, claim_id, ordinal=0):
         round, _ = await worker.fenced(db, world.attempt.id, claim_id)
         row = await db.get(Candidate, (round.id, ordinal))
         sample = round.spec["samples"][ordinal]
-        png = service.prepare_image(round, sample)
+        png = await service.prepare_image(db, round, sample)
         row.request = managed.request_identity(round.spec, row, sample["preprocessing"])
         row.status, row.media = "inflight", service.media_descriptor(round, sample)
         await db.commit()

@@ -22,6 +22,7 @@ from app.services import (
     active_learning_feedback as feedback,
 )
 from tests.active_learning_fixtures import complete, create, seed
+from tests.test_original_binary import request
 
 
 async def test_preview_rejects_libre_through_real_shared_qualification(
@@ -120,8 +121,12 @@ async def test_accept_subset_creates_ordinary_draft_replay_preserves_batch_and_r
         ordinals=selected,
         batch_name="Human review only",
     )
-    decision = await service.decide(db_session, world.project, owner, round.id, body)
-    again = await service.decide(db_session, world.project, owner, round.id, body)
+    decision = await service.decide(
+        db_session, world.project, owner, round.id, body, request=request(owner)
+    )
+    again = await service.decide(
+        db_session, world.project, owner, round.id, body, request=request(owner)
+    )
     assert (
         again.id == decision.id
         and again.accepted_batch_id == decision.accepted_batch_id
@@ -151,6 +156,7 @@ async def test_accept_subset_creates_ordinary_draft_replay_preserves_batch_and_r
         owner,
         round.id,
         DecisionCreate(request_id=uuid.uuid4(), action="reject", ordinals=[rejected]),
+        request=request(owner),
     )
     with pytest.raises(HTTPException) as error:
         await service.decide(
@@ -161,6 +167,7 @@ async def test_accept_subset_creates_ordinary_draft_replay_preserves_batch_and_r
             DecisionCreate(
                 request_id=uuid.uuid4(), action="reject", ordinals=[rejected]
             ),
+            request=request(owner),
         )
     assert error.value.detail["code"] == "candidate_decided"
     saved = copy.deepcopy(decision.snapshot)
@@ -189,6 +196,7 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
         DecisionCreate(
             request_id=uuid.uuid4(), action="accept", ordinals=[chosen["ordinal"]]
         ),
+        request=request(owner),
     )
     decision.created_at = service.now() - timedelta(minutes=5)
     task = next(task for task in world.tasks if str(task.id) == chosen["task_id"])
