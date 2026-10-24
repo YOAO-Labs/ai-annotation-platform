@@ -1244,3 +1244,21 @@ Worker 已接入一次 claim 的独立副本流程；实际冻结输入再次执
 test 数据库、Redis 和九桶已销毁并独立确认不存在；临时 Celery 全部退出，读取操作归零。六棵干净隔离树的来源提交均核对 patch 等价后移除，六个任务分支及本片测试／构建缓存、私有探针和下载产物按归属清理。保留人工环境、虚拟环境、共享依赖、生成类型及工作树身份。
 
 用户资料已同步到 `docs-site/user-guide/reference/export-formats.md`、`docs-site/user-guide/projects/batch.md`，API 与架构资料位于 `docs-site/api/` 和 `docs-site/dev/concepts/`，README 与 CHANGELOG Unreleased 同步。NuScenes 的 raw lidar.bin／map、独立 NuScenes 导出及其全部相机仍待 G2；完整 E02／B13、完整用途切换与整套 epic 均继续执行，不归档本活动计划。
+
+## E02-B13-B3-G2 Design — NuScenes 原始传感器与地图归属
+
+本片将纯 NuScenes 和所有混合格式一起接入 G1 的冻结输入、独立副本、固定期限、缓存和恢复合同。原始五通道 `.pcd.bin` 与平台坐标变换后的 PCD 是不同原件；NuScenes 清单必须交付原始 sensor 字节及全部已链接相机，平台 PCD 仅用于已有精确点框统计。保留完整场景、sample／sensor／log／map／pose、原 filename 和坐标合同，不能用主 PCD 替代 raw，也不能只更换现有 URL。
+
+迁移 0235 增加独立 DatasetAuxiliaryOriginal 当前归属：id 对应唯一 verified Creation，保存 dataset 快照、raw_lidar／map 种类、位置、端点身份、桶、对象键、真实 SHA／大小、写回执和时间。业务父行不级联删除此责任；DatasetItem.nuscenes_raw_original_id、Scene.nuscenes_map_original_id 为可空 RESTRICT 指针，绑定检查精确 Dataset／种类／Scene／主件关系。共享地图可以引用同一已知 owner，不按 SHA 猜测合并。不增加可见假 Item 或把不同内容当同 Asset 的副本。
+
+Creation 新增 dataset_auxiliary 范围和专属 `__aap_auxiliary_originals__/{dataset_id}/{creation_id}/payload`，复用现有条件写、完整回读、Gate 和耐久账本；专属空间禁止普通浏览器 PUT，且不进入 Dataset 自动扫描。新导入与明确重导的 raw／map、平台 PCD／相机都走受控创建与真实登记，幂等已有归属先完整核对后复用，不能覆盖稳定键。原始点云一次有界读取后同时生成 raw 收据及平台 PCD，避免两次打开读到不同文件。已有 JSON 指纹不构成归属；不从当前桶 HEAD 猜测补登记。取消、软时限和其他 BaseException 必须等待整个创建及真实关闭完成，调用方源文件随实际工作存续；未知关闭继续保留责任。
+
+独立辅助 resolver 不授予新权限，只在原导出授权的准确 Task／primary Item／Scene 上核对指针、Dataset、原件与保存位置，返回统一 OriginalSource，复用现有两槽、条件读取、完整 SHA／大小和真实排空。全部相机使用 canonical Task link。冻结包含辅助归属、指针和完整来源合同，HTTP 预检仅核对登记事实、规则和预算，不访问对象存储；实际消息、原 Key／账号、Job attempt、每件原件及最终全量冻结输入继续复核。现有项目／批次预检权限差异保持，不新增 datasets／tasks／annotations scopes。
+
+统一 bundle 扩展 raw_lidar／map 覆盖和 NuScenes 路径，每个清单引用必须精确对应已登记副本及原始逻辑路径，路径冲突核对完整来源而非单一 SHA。纯 NuScenes 不再走旧缓存；混合 KITTI 也收齐 NuScenes 所需全部相机。新 schema／缓存合同不采纳旧无辅助事实的结果，已登记 G1 历史责任仍可读取、退休和恢复。ZIP、所有副本与 Job 仍共同使用创建起七天截止，首次期限不因缓存命中、业务删除或恢复续期；NuScenes 下载脚本并入公共网关 origin 与完整哈希校验。
+
+资源合同继续包括 256MiB／对象、20000 图、1000 主 PCD、图像20GiB、主 PCD4GiB、冻结 JSON256MiB、ZIP8GiB／单成员512MiB／200000成员；raw／map 同样计入总计21000对象及24GiB，不得作为未计量辅助资源。NuScenes 1000帧、30000框、1亿点框测试等现有预算保持。收集、冻结和辅助查找先作数量／字段体积边界，不在载入大 JSON／字符串后才拒绝。
+
+辅助原件沿当前保守原件保留政策：业务删除只解除指针，独立 owner／Creation 和未知操作责任保留，不宣称已有自动物理回收资格。七天交付副本继续由 G1 精确清单退休与回收；不增加裸扫或按当前桶删除。恢复只在现有 restore guard 下映射辅助当前 owner 的 bucket／storage_identity；历史 Creation、冻结 JSON、签名 URL、期限和所有内容证据不变，新增语义核对与 raw／map 真字节夹具。新 bundle 沿用精确缓存失效；旧 ZIP 的历史链接不能因桶恢复被宣称已更新。
+
+实施在本地 Design HEAD 的隔离树，测试只用新建可销毁环境，覆盖新导入／幂等重导、指针错配、共享地图、扫描与直传禁区、源篡改／撤权、纯及混合导出、全场景与坐标合同、预算、真实关闭、恢复映射和清理。同步用户／API／架构资料与生成合同。保留3100／8100、两 Worker／绑定 Beat与既有业务指纹，不安装依赖、重建镜像、分配发布版本或归档仍活动的 E02／B13。
