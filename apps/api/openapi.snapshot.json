@@ -44099,6 +44099,11 @@
             ],
             "title": "Bucket"
           },
+          "change_policy": {
+            "const": "legacy_mapping_locked",
+            "title": "Change Policy",
+            "type": "string"
+          },
           "generation": {
             "anyOf": [
               {
@@ -44109,6 +44114,17 @@
               }
             ],
             "title": "Generation"
+          },
+          "location_config_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Config Revision"
           },
           "location_id": {
             "anyOf": [
@@ -44126,6 +44142,11 @@
             "title": "Purpose",
             "type": "string"
           },
+          "read_policy": {
+            "const": "consumer_owned_compatibility",
+            "title": "Read Policy",
+            "type": "string"
+          },
           "state": {
             "enum": [
               "missing",
@@ -44134,11 +44155,19 @@
             ],
             "title": "State",
             "type": "string"
+          },
+          "write_policy": {
+            "const": "deployment_mapping",
+            "title": "Write Policy",
+            "type": "string"
           }
         },
         "required": [
           "purpose",
-          "state"
+          "state",
+          "read_policy",
+          "write_policy",
+          "change_policy"
         ],
         "title": "StorageBindingOut",
         "type": "object"

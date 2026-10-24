@@ -281,6 +281,12 @@ async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
     monkeypatch.setattr(
         storage_service, "export_bucket", storage_service.datasets_bucket
     )
+
+    def no_storage_io(*args, **kwargs):
+        raise AssertionError("Binding metadata must not contact object storage")
+
+    monkeypatch.setattr(storage_service.client, "head_bucket", no_storage_io)
+    monkeypatch.setattr(storage_service.client, "list_objects_v2", no_storage_io)
     response = await httpx_client.get(
         "/api/v1/storage-locations/bindings", headers=headers(super_admin)
     )
@@ -290,6 +296,7 @@ async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
     assert (
         await db_session.scalar(select(func.count()).select_from(StorageBinding)) == 0
     )
+    assert all(row["location_config_revision"] is None for row in response.json())
     await ensure_legacy_bindings(db_session)
     response = await httpx_client.get(
         "/api/v1/storage-locations/bindings", headers=headers(super_admin)
@@ -299,6 +306,42 @@ async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
     }
     buckets = {row["purpose"]: row["bucket"] for row in response.json()}
     assert buckets["datasets"] == buckets["export"]
+    assert all(row["location_config_revision"] == 1 for row in response.json())
+    assert {row["read_policy"] for row in response.json()} == {
+        "consumer_owned_compatibility"
+    }
+    assert {row["write_policy"] for row in response.json()} == {"deployment_mapping"}
+    assert {row["change_policy"] for row in response.json()} == {
+        "legacy_mapping_locked"
+    }
+    training = await db_session.get(StorageBinding, "training")
+    training.generation = 2
+    location = await db_session.get(StorageLocation, training.location_id)
+    location.config_revision = 7
+    await db_session.flush()
+    response = await httpx_client.get(
+        "/api/v1/storage-locations/bindings", headers=headers(super_admin)
+    )
+    rows = {row["purpose"]: row for row in response.json()}
+    assert len(rows) == 9
+    assert rows["training"]["generation"] == 2
+    assert rows["training"]["location_config_revision"] == 7
+    assert {row["state"] for row in rows.values()} == {"mismatch"}
+    assert {row["change_policy"] for row in rows.values()} == {"legacy_mapping_locked"}
+    await db_session.refresh(training)
+    await db_session.refresh(location)
+    assert training.generation == 2 and location.config_revision == 7
+
+
+async def test_binding_policies_remain_super_admin_only(
+    httpx_client, project_admin, annotator
+):
+    for actor in (project_admin, annotator):
+        response = await httpx_client.get(
+            "/api/v1/storage-locations/bindings", headers=headers(actor)
+        )
+        assert response.status_code == 403
+        assert "read_policy" not in response.text
 
 
 async def test_connector_location_preserves_scope_revision_and_reference_guards(

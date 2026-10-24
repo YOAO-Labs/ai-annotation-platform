@@ -106,11 +106,31 @@ beforeEach(() => {
     },
   ]);
   api.probe.mockResolvedValue({ ok: true });
-  storage.bindings.mockResolvedValue([
-    { purpose: "datasets", location_id: ID, bucket: "shared", generation: 1, state: "configured" },
-    { purpose: "export", location_id: ID, bucket: "shared", generation: 1, state: "configured" },
-    { purpose: "training", location_id: ID, bucket: "training", generation: 2, state: "mismatch" },
-  ]);
+  storage.bindings.mockResolvedValue(
+    [
+      {
+        purpose: "datasets",
+        location_id: ID,
+        bucket: "shared",
+        generation: 1,
+        state: "configured",
+      },
+      { purpose: "export", location_id: ID, bucket: "shared", generation: 1, state: "configured" },
+      {
+        purpose: "training",
+        location_id: ID,
+        bucket: "training",
+        generation: 2,
+        state: "mismatch",
+      },
+    ].map((row) => ({
+      ...row,
+      location_config_revision: row.purpose === "training" ? 7 : 1,
+      read_policy: "consumer_owned_compatibility",
+      write_policy: "deployment_mapping",
+      change_policy: "legacy_mapping_locked",
+    })),
+  );
 });
 it("loads exact URL detail, separates disabled state from expired node health and preserves unknown metrics", async () => {
   mount();
@@ -147,6 +167,23 @@ it("shows all nine purposes, keeps shared buckets separate and identifies missin
   expect(screen.getByText("avatars")).toBeInTheDocument();
   expect(screen.getAllByText("未配置").length).toBeGreaterThan(0);
   expect(api.locationPage).not.toHaveBeenCalled();
+  const training = screen.getByRole("row", { name: /冻结训练数据/ });
+  expect(within(training).getByText("位置修订 7")).toBeInTheDocument();
+  expect(within(training).getByText("2")).toBeInTheDocument();
+  expect(screen.getAllByText("读取：对象记录与兼容路径")).toHaveLength(3);
+  expect(screen.getAllByText("写入：当前部署目标")).toHaveLength(3);
+  expect(screen.getByText(/当前部署映射锁定/)).toBeInTheDocument();
+});
+it("keeps missing policy fields unknown rather than inferring them from the binding", async () => {
+  storage.bindings.mockResolvedValue([
+    { purpose: "datasets", location_id: ID, bucket: "shared", generation: 1, state: "configured" },
+  ]);
+  mount("/storage?tab=bindings");
+  const row = await screen.findByRole("row", { name: /托管数据集.*shared/ });
+  expect(within(row).getByText("读取：未提供")).toBeInTheDocument();
+  expect(within(row).getByText("写入：未提供")).toBeInTheDocument();
+  expect(within(row).getByText("位置修订 未提供")).toBeInTheDocument();
+  expect(screen.queryByText(/当前部署映射锁定/)).not.toBeInTheDocument();
 });
 it("only exposes safe dataset return links and does not query global bindings for managers", async () => {
   state.role = "project_admin";

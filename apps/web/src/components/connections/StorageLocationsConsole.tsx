@@ -165,7 +165,7 @@ function ConsoleOwner() {
           <div className="p-4">
             <h2 className="mb-1 text-sm font-semibold">平台用途映射</h2>
             <p className="mb-3 text-xs text-muted-foreground">
-              用途与物理桶独立计列；此处只读展示，配置变更需要受控迁移。
+              用途与物理桶独立计列；已配置表示部署映射匹配，不代表位置在线或迁移完成。
             </p>
             {role !== "super_admin" ? (
               <p className="text-xs text-muted-foreground">全局用途映射仅超级管理员可查看。</p>
@@ -183,14 +183,16 @@ function ConsoleOwner() {
                   </p>
                 )}
                 <div className="overflow-x-auto">
-                  <table className={listStyles.table}>
+                  <table aria-label="平台用途映射" className={`${listStyles.table} min-w-max`}>
                     <thead>
                       <tr className="border-b border-border text-muted-foreground">
-                        {["用途", "位置", "桶 / 前缀", "配置代次", "状态"].map((label) => (
-                          <th key={label} className="px-2 py-2 font-medium">
-                            {label}
-                          </th>
-                        ))}
+                        {["用途", "位置", "桶 / 前缀", "读写策略", "用途代次", "状态"].map(
+                          (label) => (
+                            <th key={label} className="px-2 py-2 font-medium">
+                              {label}
+                            </th>
+                          ),
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -214,8 +216,31 @@ function ConsoleOwner() {
                                 "未配置"
                               )}
                             </td>
-                            <td className="px-2 py-2">{binding?.bucket ?? "未配置"}</td>
-                            <td className="px-2 py-2 tabular-nums">{binding?.generation ?? "—"}</td>
+                            <td className="px-2 py-2">
+                              <span className="block max-w-56 break-all">
+                                {binding?.bucket ?? "未配置"}
+                              </span>
+                            </td>
+                            <td className="min-w-44 px-2 py-2">
+                              <div>
+                                读取：
+                                {binding?.read_policy === "consumer_owned_compatibility"
+                                  ? "对象记录与兼容路径"
+                                  : "未提供"}
+                              </div>
+                              <div className="mt-1">
+                                写入：
+                                {binding?.write_policy === "deployment_mapping"
+                                  ? "当前部署目标"
+                                  : "未提供"}
+                              </div>
+                            </td>
+                            <td className="px-2 py-2 tabular-nums">
+                              {binding?.generation ?? "—"}
+                              <div className="mt-1 whitespace-nowrap text-xs text-muted-foreground">
+                                位置修订 {binding?.location_config_revision ?? "未提供"}
+                              </div>
+                            </td>
                             <td className="px-2 py-2">
                               {!bindingData
                                 ? "待读取"
@@ -231,6 +256,12 @@ function ConsoleOwner() {
                     </tbody>
                   </table>
                 </div>
+                {!!bindingData?.length &&
+                  bindingData.every((row) => row.change_policy === "legacy_mapping_locked") && (
+                    <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                      当前部署映射锁定，受控用途切换尚未开放。已固定位置的对象按记录读取，其余入口保留既有兼容规则。
+                    </p>
+                  )}
               </>
             )}
           </div>

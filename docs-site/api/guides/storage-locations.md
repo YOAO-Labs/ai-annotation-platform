@@ -29,6 +29,19 @@ last_reviewed: 2026-10-25
 | POST  | `/{id}/probe`          | 可见该位置的管理员；探测 API 或指定 Celery hostname                               |
 | GET   | `/{id}/probes`         | 可见该位置的管理员；查看按位置、修订、执行节点记录的证据                          |
 
+## 用途映射策略
+
+`GET /bindings`只读返回九种平台用途，即使共桶或未配置仍逐行保留，不初始化配置、不探测对象存储。每行包含`purpose / location_id / bucket / generation / state`，并提供：
+
+| 字段                       | 当前值与含义                                                                                               |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `location_config_revision` | 关联位置的实际配置修订；无关联位置为null，与用途绑定`generation`独立。                                     |
+| `read_policy`              | `consumer_owned_compatibility`：各业务负责对象读取；已固定位置的对象按记录读取，其他入口保留既有兼容路径。 |
+| `write_policy`             | `deployment_mapping`：新写入采用当前兼容部署映射，不表示引用来源适配器获得写权限。                         |
+| `change_policy`            | `legacy_mapping_locked`：当前用途映射锁定，受控绑定切换尚未开放。                                          |
+
+`state=configured`只表示兼容部署映射匹配，不证明位置在线、对象可读、历史定位全覆盖或迁移完成。`missing / mismatch`保留其原有含义；策略字段描述当前路由规则，不提供写入或迁移许可。客户端遇到未提供的新字段应显示未知，不能从位置读取能力推断平台写策略。权限仍为当前超级管理员与`datasets:read`。
+
 ## 登记和修改
 
 部署配置示例：`STORAGE_FILESYSTEM_ROOTS={"ceph":"/mnt/cephfs"}`。API 请求只发送句柄和相对路径：

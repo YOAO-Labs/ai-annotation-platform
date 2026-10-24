@@ -603,10 +603,17 @@ async def require_scan_node(db, location, node_id):
 
 async def binding_rows(db):
     findings = await validate_legacy_bindings(db)
-    bindings = {row.purpose: row for row in await db.scalars(select(StorageBinding))}
+    bindings = {
+        row.purpose: (row, revision)
+        for row, revision in await db.execute(
+            select(StorageBinding, StorageLocation.config_revision).outerjoin(
+                StorageLocation, StorageLocation.id == StorageBinding.location_id
+            )
+        )
+    }
     result = []
     for purpose in PURPOSE_BUCKET_ATTRIBUTES:
-        row = bindings.get(purpose)
+        row, revision = bindings.get(purpose, (None, None))
         mismatch = row is not None and (
             f"binding_mismatch:{purpose}" in findings
             or "platform_location_mismatch" in findings
@@ -617,10 +624,14 @@ async def binding_rows(db):
                 "purpose": purpose,
                 "location_id": row.location_id if row else None,
                 "generation": row.generation if row else None,
+                "location_config_revision": revision,
                 "bucket": row.bucket if row else None,
                 "state": "missing"
                 if row is None
                 else ("mismatch" if mismatch else "configured"),
+                "read_policy": "consumer_owned_compatibility",
+                "write_policy": "deployment_mapping",
+                "change_policy": "legacy_mapping_locked",
             }
         )
     return result

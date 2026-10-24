@@ -260,5 +260,9 @@ class StorageBindingOut(BaseModel):
     purpose: str
     location_id: uuid.UUID | None = None
     generation: int | None = None
+    location_config_revision: int | None = None
     bucket: str | None = None
     state: Literal["missing", "configured", "mismatch"]
+    read_policy: Literal["consumer_owned_compatibility"]
+    write_policy: Literal["deployment_mapping"]
+    change_policy: Literal["legacy_mapping_locked"]
