@@ -34,7 +34,7 @@ from tests.test_identity_module_assembly_live import (
     _restored_database,
 )
 from tests.test_identity_recovery import _postgres_tool
-from tests.test_identity_recovery_live_helpers import SMTPInbox
+from tests.identity_recovery_live_helpers import SMTPInbox
 from tests.test_identity_sessions_live import _login_redis, _verify_redis
 from tests.test_workspace_cross_frame_worker_live import (
     _TASK_NAME,
