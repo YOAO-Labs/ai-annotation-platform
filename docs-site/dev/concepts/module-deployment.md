@@ -67,7 +67,7 @@ last_reviewed: 2026-10-24
 | Jobs：列表查询                                      | 两项固定 page／total 与原生行合同已集成；成员资格保留当前 Identity 事实                       | GET 列表迁移，保留独立语句、缓存／autoflush、caller 事务与 Workspace 补充                                  | [列表 owner](#jobs-list-query-owner)：十四项不同 Native／旧 API 案例、实际受限 HTTP／Node 及完整迁移往返通过                                      | 本查询 Native 操作与 API／Node 调用边界闭合；冷 API 业务、完整 Jobs 和恢复仍待验收，详情／取消／重试另按下行跟踪                                                                                                                                                                                                                                                 |
 | Jobs：通用生命周期与队列交接                        | 通用策略、固定创建／八项 Native 能力及可选私网队列 owner 已集成                               | 通用 helper 保留 Session／flush／缓存；首个队列调用方为跨帧传播                                            | [生命周期与队列](#jobs-lifecycle-queue)：二十二项 Native 与一个冷 API／队列／worker／完整恢复场景通过                                             | API 兼容私表权限、其余 producer、取消完成确认、其他领域恢复及完整 Jobs 工件／凭据仍待闭合；训练／资产扩展继续暂缓                                                                                                                                                                                                                                                |
 | Jobs：详情、取消、重试与终态通知读取                | 复用已有按 ID owner 能力，无新协议或迁移                                                      | 五个单行读取已迁移，保留强制刷新、二次授权和 caller 事务                                                   | [单行读取](#jobs-api-single-reads)：三十二项纯检查、三十一项 PostgreSQL／API 用例及完整迁移往返通过                                               | 其余领域查询及未支持的 ORM 加载仍依赖私表，不能全局收回 SELECT；训练／资产保持暂缓                                                                                                                                                                                                                                                                               |
-| Jobs：领域单行读取、按主键行锁及字段刷新            | 两项固定行锁能力与无锁字段刷新绑定已实现                                                      | 21 处普通读取、9 处按主键行锁已迁移；原 get／refresh 两阶段保持                                            | [行访问](#jobs-row-access)：114 项不同数据库／调用方用例、117 项纯检查及 24 项子检查通过；wheel 资源导入通过                                      | 其余过滤／聚合、领域读取、锁定刷新和未支持 ORM 形状仍待收口；不能全局收回私表权限                                                                                                                                                                                                                                                                                |
+| Jobs：领域单行读取、按主键行锁及字段刷新            | 两项固定行锁能力与无锁字段刷新绑定已实现                                                      | 21 处普通读取、9 处按主键行锁已迁移；原 get／refresh 两阶段保持                                            | [行访问](#jobs-row-access)：114 项不同数据库／调用方用例、117 项纯检查及 24 项子检查；当前冷工件、实际行访问与完整恢复通过                        | 其余过滤／聚合、领域读取、锁定刷新和未支持 ORM 形状仍待收口；不能全局收回私表权限                                                                                                                                                                                                                                                                                |
 | Audit：同事务业务事件追加                           | 既有 typed owner 保留；通用追加独立包、版本化合同与固定 SQL 已实现                            | AuditService 与普通追加构造器已迁移；保留 caller 提交／回滚、快照和 ORM 缓存，无追加后私表回读             | [追加 owner](#audit-append-owner)：12 项 PG、20 项纯检查及受限临时 owner／Node 通过；完整追加授权与 Node 已在独占 PostgreSQL 验收                 | 当前 LAN 分区树仍归 API，严格配置会拒绝该布局；维护所有权、未来分区权限及组合工件待收口，本组不代表完整 Audit                                                                                                                                                                                                                                                    |
 | Audit：HTTP 请求元数据                              | 响应后 Celery 与同步回退使用相同追加 owner；超长 request ID 仅在此元数据中省略                | middleware／worker 保留原响应、短 ID、取消及孤儿 actor 匿名重试                                            | [元数据边界](#audit-http-metadata)：11 项聚焦检查；既有三次真实 Celery 资格单列，不叠加                                                           | broker 不可用、重复／丢失、提交结果不明和恢复仍需真实验收；业务审计 request ID 的独立边界尚未修复                                                                                                                                                                                                                                                                |
 | Audit：查询、筛选与导出                             | 全局列表／导出使用固定查询 owner；项目范围通过公开事件关系组合                                | super-admin 全局与 project-admin 范围已迁移，保留筛选、游标、总数和导出顺序                                | [全局查询](#audit-global-query-owner)资格保持；[读取组合](#support-read-relations)补充项目隔离及合法复合行键原生回归                              | 剩余读取、冷进程真实消费及完整模块继续验收；不得提前撤销所有 Audit 私表 SELECT                                                                                                                                                                                                                                                                                   |
@@ -1785,7 +1785,7 @@ get／refresh 两阶段。九处按主键加锁读取使用 `aap-jobs-row-locks/
 无锁 ORM 字段刷新复用 `read_job`，保留原字段投影、脏缓存与过期语义；更新时间仍在
 属性刷新时观察数据库，不提前缓存本次写入时间。锁定刷新和不匹配的 ORM 形状保留
 原路径，后续仍需逐调用方收口。wheel 的二十项包文件与源码一致，解包到独立目录后
-可导入两项能力、Schema 与 SQL 资源；这是打包检查，不是当前冷 API／worker 运行资格。
+可导入两项能力、Schema 与 SQL 资源；wheel 仅是打包检查；当前冷组合资格另列如下。
 
 首次组合验收有一百一十四项，其中一百一十二项通过，零错误／跳过，3,912 项输入
 运行期间未变。保留两项原始失败：新用例把 ORM 缺失行 get 的额外查询混入字段刷新
@@ -1800,10 +1800,30 @@ SHA-256 为 `06d27c085ff97509e105942d10e3eccf6cf067f8e5e00a8d14c35b703d654f56`�
 最终格式化调整两份 Schema 的 JSON 排版和两份 SQL 的文件尾空行；JSON 值及函数
 定义相同，其余 3,908 项输入不变。当前 wheel 已刷新，全部原始工件和验收收据保留。
 
+当前源码检查点 `c339d8d68` 通过一个真实冷组合案例，零失败／错误／跳过，场景耗时
+73.066 秒；4,277 项输入运行期间未变。API 与 worker 各有 3,874 项 COPY 输入匹配，
+并核对 2,096 项安装／应用／迁移／CLI 文件；Jobs 队列为 24 项 COPY 输入及二十项包
+文件。未变的 Identity／publisher 工件复用原有 218／74 项匹配输入。
+
+恢复前后，实际 API 容器使用普通数据角色和当前测试库，分别执行两项 Jobs 行锁及
+字段级 refresh；原身份、结果和进度保持，SQL 只调用 owner 能力，没有私表 FROM。
+真实 HTTP GET 均返回完成态及实际标注结果。原有 owner 故障无本地回退、预先持久化
+执行 ID、default 队列真实 worker、协作取消及终态迟到重投仍通过。完整 PG dump／
+restore 后新进程处理新任务，再验证同样的容器内行访问和 HTTP 读取。完整迁移往返、
+三十一项冻结函数体、授权重施和全部自有资源清理通过。
+
+新夹具先通过十九项纯检查、内嵌脚本编译和用例收集；审阅时将原来的完整 getter
+刷新改成真正的字段级 refresh，在构建前修正。离线探针的嵌套字符串转义也在静态
+编译阶段修正，没有失败的真实冷运行。`.worktree/jobs-row-access-cold-qualification.json`
+绑定二十七项原始证据，SHA-256 为
+`0c3698bbbb432d09af69e91d6d2ee851cdf07f8568d8ce23bf13a57f400e9591`。
+这是行访问与代表性跨帧队列的限定冷资格，不代表整个 Jobs 模块或全部 worker 路径。
+
 完整 Jobs 仍有过滤／聚合查询、其余领域读取、原生生命周期之外的兼容编辑权限、
-producer／canvas／options、故障恢复和替代语言提供方待收口。当前 API／worker 镜像
-尚未按本组源码刷新；日常环境和主工作树未切换。训练／主动学习及资产的数据集／
-存储继续等待功能合并，Go 保持实验。
+producer／canvas／options、其他执行恢复和替代语言提供方待收口。下一批集中迁移
+非暂缓的跨帧 worker、Mask QC／Repair 及视频质量读取，再与专用查询统一验收，
+避免每个 getter 单独刷新工件。日常环境和主工作树未切换；训练／主动学习及资产的
+数据集／存储继续等待功能合并，Go 保持实验。
 
 ## Jobs 生命周期与队列交接 {#jobs-lifecycle-queue}
 
