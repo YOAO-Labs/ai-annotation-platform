@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob, AsyncJobKind
+from app.db.models.async_job import AsyncJobKind
 from app.db.models.dataset import VideoSegment
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from app.db.models.mask_repair_batch import MaskRepairBatch
@@ -1051,7 +1051,7 @@ async def begin_repair_execution(
     ).scalar_one_or_none()
     if batch is None or batch.async_job_id is None:
         raise RuntimeError("mask repair batch not found")
-    job = await db.get(AsyncJob, batch.async_job_id)
+    job = await async_job_svc.get_job(db, batch.async_job_id)
     if job is None:
         raise RuntimeError("mask repair async job not found")
     if celery_task_id and job.celery_task_id and job.celery_task_id != celery_task_id:
@@ -1089,7 +1089,7 @@ async def begin_repair_execution(
 async def stop_repair_execution_if_cancelled(
     db: AsyncSession, *, batch_id: uuid.UUID, async_job_id: uuid.UUID
 ) -> bool:
-    job = await db.get(AsyncJob, async_job_id)
+    job = await async_job_svc.get_job(db, async_job_id)
     if job is None or (
         job.status != "cancelled"
         and not bool((job.payload or {}).get("cancel_requested"))
@@ -1333,7 +1333,7 @@ async def begin_repair_rollback(
     if batch is None or batch.rollback_async_job_id is None:
         raise RuntimeError("mask repair rollback batch not found")
     job_id = batch.rollback_async_job_id
-    job = await db.get(AsyncJob, job_id)
+    job = await async_job_svc.get_job(db, job_id)
     if job is None:
         raise RuntimeError("mask repair rollback async job not found")
     if celery_task_id and job.celery_task_id and job.celery_task_id != celery_task_id:
@@ -1505,7 +1505,7 @@ async def record_repair_dispatch_task(
     current_job_id = batch.rollback_async_job_id if rollback else batch.async_job_id
     if current_job_id != async_job_id:
         return
-    job = await db.get(AsyncJob, async_job_id)
+    job = await async_job_svc.get_job(db, async_job_id)
     if job is not None:
         async_job_svc.bind_execution_id(job, celery_task_id)
 

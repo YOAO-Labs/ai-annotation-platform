@@ -937,7 +937,7 @@ async def dispatch_mask_qc_run(
     """Dispatch only after the caller committed the paired run/job rows."""
 
     run = await db.get(MaskQCRun, run_id)
-    job = await db.get(AsyncJob, async_job_id)
+    job = await async_job_svc.get_job(db, async_job_id)
     if run is None or job is None or not job.celery_task_id:
         raise MaskQCError(
             status_code=500,

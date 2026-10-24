@@ -13,7 +13,7 @@ from sqlalchemy import case, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.async_job import AsyncJob, AsyncJobStatus
+from app.db.models.async_job import AsyncJobStatus
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from aap_workspace.mask_configuration_values import MaskQCConfig
 from app.services.mask_qc import (
@@ -25,6 +25,7 @@ from app.services.mask_qc import (
     scan_temporal_frames,
 )
 from app.services.mask_qc.config import severity_for_rule
+from app.services import async_job as async_job_svc
 from app.services.mask_qc.service import (
     MAX_QC_OVERLAP_PAIRS,
     complete_run_summary,
@@ -106,7 +107,7 @@ def _single_frame_thresholds(config: MaskQCConfig) -> SingleFrameThresholds:
 async def _cancel_requested(db: AsyncSession, run: MaskQCRun) -> bool:
     if run.async_job_id is None:
         return False
-    job = await db.get(AsyncJob, run.async_job_id)
+    job = await async_job_svc.get_job(db, run.async_job_id)
     if job is None:
         return True
     await db.refresh(job)
@@ -647,7 +648,7 @@ async def execute_run(
         return
     if run.async_job_id is None:
         raise ValueError("Mask QC run has no async job")
-    job = await db.get(AsyncJob, run.async_job_id)
+    job = await async_job_svc.get_job(db, run.async_job_id)
     if job is None:
         raise ValueError("Mask QC async job is missing")
     if job.status == AsyncJobStatus.CANCELLED.value:
