@@ -90,6 +90,7 @@ from app.db.models.point_cloud_quality import (
 from app.db.models.audit_log import AuditLog
 from app.db.models.user_invitation import UserInvitation
 from app.db.models.bug_report import BugReport, BugComment
+from app.db.models.bug_attachment_upload import BugAttachmentUpload
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.email_verification_token import EmailVerificationToken
 from app.db.models.notification import Notification
@@ -311,3 +312,5 @@ __all__ += ["ManagedOriginalCreation"]
 __all__ += ["AvatarUpload"]
 
 __all__ += ["ExportOutput"]
+
+__all__ += ["BugAttachmentUpload"]
