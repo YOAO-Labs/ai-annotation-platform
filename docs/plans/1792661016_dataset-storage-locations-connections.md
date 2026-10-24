@@ -548,3 +548,51 @@ retired记录兼任耐久清理意图，引用变化先提交，清理释放业�
 人工环境已迁移0226并刷新所属API、两个Worker及Beat，仍为Web3100/API8100，最终doctor健康；两个Worker各注册71个任务，原队列保持。原24个对象和12个源文件逐字节SHA完全一致，其他业务表保持，仅迁移身份、正常账号活动/审计追加及新增空归属表变化。一次性test数据库、Redis和九桶已销毁并独立确认不存在；离线/maintenance资源也已验证清理。三棵干净且补丁等价的隔离树和分支已移除，私有探针/日志/截图与本轮测试、构建缓存按归属清理，人工环境及规范工作树身份保留。
 
 完整E02仍为active，不归档；完整用途切换继续关闭。只读盘点确认评论附件、项目指南图片、独立Task原文件、持久RLE和掩码导入输入仍有当前桶定位，已有Dataset原件归属也尚未贯通全部媒体消费者。下一片优先评论附件：保留通用文件及20MiB单文件能力，收敛上传回执、同上传者/标注首次绑定、活动原评论授权读取和90天期限/软删宽限后的耐久清理；Feedback镜像只保留元数据，不产生新owner或续期。当前清理读取storage_key而实际保存storageKey，且删除失败仍清空元数据，须与归属协议一起消除。其余消费者另片，不重新建立已有Asset/缓存/Training/Export所有权。E10真实框架消费、生产独占/物理回收和未指定的跨站点/迁移目标继续独立推进。
+
+## E02-B10 Design — 评论附件固定归属与认证文件传输
+
+状态：当前代码及三项只读审查已完成，进入实施。用户已授权持续实施、提交及自行选择并行，不等待Orca或真实跨站点目标；本片不代表完整E02完成。
+
+### 边界和可见行为
+
+- 保留标注评论通用文件、空文件及每文件20MiB上限；不采用BUG附件图片白名单或10MiB限制，不新增附件数量上限。任务留言、Issue与Feedback原生附件不扩展能力。
+- 新认证raw POST `/annotations/{id}/comment-attachments/upload?file_name=...` 有界读取请求体，返回现有四字段Attachment回执。旧upload-init合法请求409并给新路径，模型错误仍422。下载保留原路径及兼容query，改为认证完整文件200，不再提供最终键PUT、签名URL或302。
+- 评论创建仅首次绑定本人、同一实际annotation→task→project、ready、未过期且未消费的回执；文件名/类型/大小/键必须匹配服务端事实，重复键拒绝。正文、提及、画布和现有权限保持。历史读取仍允许软删/取消标注及归档Dataset；上传和绑定要求活动标注。
+- Feedback复制字典只保留元数据，不产生新owner、读取授权或续期；不扫描镜像JSON作为保活依据。未知历史JSON及字节保留，下载409，不猜当前桶或自动接管。
+
+### 耐久事实
+
+0227接0226，新增独立CommentAttachmentUpload：UUID、上传者/annotation/task/project快照（均无级联FK）、严格annotations用途storage_ref、SHA256、实际大小0..20MiB、安全文件名、规范MIME、created_at、固定2160小时expires_at、pending/ready/retired、首次bound_comment_id、首次retired_at及last_attempted_at。键固定 `comment-attachments/{annotation_uuid}/{upload_uuid}`；文件名为独立元数据。MIME保留通用type/subtype，规范小写和去参数，缺省octet-stream；文件名拒绝路径、控制字符和点目录。
+
+先提交pending，再If-None-Match条件创建和完整条件回读。真实收尾、末端授权和Gate核验后发布ready；失败、取消或提交结果未知不得补偿删除，pending不按年龄回收。事实/期限不可变，绑定仅ready首次，状态向前，退休时间首次固定。恢复只有表owner配合既有事务标记可映射bucket/identity，其余嵌套事实不变；任何owner存在时禁止破坏性降级。
+
+### 事务和准入
+
+```text
+原账号/凭证 + 实际讨论可见性
+  -> 提交pending或读取意图，释放业务锁
+  -> Location durable permit，acquired后重新复核并提交
+  -> 保存桶准确键条件IO、完整SHA/大小、真实关闭
+  -> 新事务按同序重新锁定并复核 -> ready或完整字节
+```
+
+评论router已持User SHARE，禁止升级UPDATE。此片锁序为User SHARE→原ApiKey SHARE→Project SHARE→ProjectMember SHARE→TaskBatch SHARE→Task SHARE→Annotation SHARE→Comment UPDATE→按UUID排序owner UPDATE→Gate SHARE。资源锁使用NOWAIT、populate_existing和no_autoflush；预读只定位，锁齐后重核关系，变化拒绝，不追锁新关系。冲突409。复用现有讨论可见性，不引入Dataset写门禁或标注编辑锁。
+
+流程模块保存原Key hash/scopes/expires证明并校验原Bearer；JWT保存exp/gen/jti并沿现有Redis尽力策略复核，不新增scope。流读、permit等待及对象IO不持业务锁。准入前、acquired回调和末端均复核当前账号/角色、原凭证、实际上下文、owner期限/绑定及Gate；最后等待后再核自然到期。下载只有原活动Comment登记的ready owner可读，permit purpose使用准确UUID；完整核验后再授权，缺失404、变化/未知409、过期410。强制attachment、nosniff、private no-store，关闭未知继续保留耐久读取责任。
+
+### 删除、期限和部署
+
+- 90天对象年龄与软删7天宽限独立，最早截止生效。评论软删、项目删除、Dataset unlink和孤儿Task硬删均在真实事务内退休已知owner；原Comment/账号消失不丢责任。标注自身软删不退休附件。
+- 复用purge_soft_deleted_attachments任务、队列及Beat名称。有界扫描ready到期、绑定原评论消失/非活动及retired；读取permit或未知关闭阻止物理删除，失败保留完整owner/key/ref及JSON，成功只删除已知责任。pending及未知历史不自动清理。GC不在owner后锁Comment/Task；retired不能重新绑定，未到期且原评论活动继续保护。
+- 只移除应用拥有的annotations桶 `comment-attachments-90d` lifecycle规则，保留无关规则，并核验实际部署，避免lifecycle绕过permit。运维自设的覆盖规则需核对，不擅自清除。
+- 不改依赖、共享环境、Compose、凭据或版本，不重建镜像；保留人工3100/8100、两个Worker/Beat及24对象/12文件。应用0227并刷新既有服务，核验任务和队列。
+
+### 分工、验收和回退
+
+超过8个文件，三个隔离worktree基于本计划提交HEAD：领域/0227/严格存储及测试；认证流程/路由/清理及测试；Web API/交互及测试。主树负责删除调用点、lifecycle、恢复/演练、正式文档/生成合同、集成及实际验收。修改者分别提交，等价集成后清理；子树不安装或运行DB，DB测试仅主树走已验证一次性test模式。
+
+覆盖严格约束/受限恢复、空文件/20MiB、通用MIME、同上传者/标注一次绑定、原账号/Key/上下文两窗变化和自然到期、同键异桶/损坏/缺失、持真实读句柄删除/到期、7天与90天边界、删除失败/未知历史不清空、Feedback不续期。实际HTTP/MinIO/Celery核验上传→绑定→读取/清理与保存桶陷阱；离线恢复先销毁合成源，覆盖三态、绑定、期限、原评论/账号已删除及旧未知，核对只映射bucket/identity和完整字节。
+
+Web保留按目标回执、会话租约、逐文件即时接收，改认证Blob下载并增加scope/卸载取消，释放URL、隔离迟到错误。实际浏览器检查评论控件、明暗及桌面/窄宽、字节下载、失败重试、溢出和非预期请求。正式知识同步README、CHANGELOG Unreleased、评论用户/API指南、存储架构及部署/恢复说明，更新OpenAPI/生成类型和SDK风险分类。正常hooks及diff检查，结果按用例去重，不冒充远程CI。
+
+有owner后不破坏性降级；回退保留0227和对象，旧客户端升级认证传输，不重新开放最终键直传。一次性数据库/Redis/桶、浏览器、探针/日志/缓存及已集成干净子树按归属清理，保留人工环境。Outcome记录实际结果，完整用途切换继续关闭。
