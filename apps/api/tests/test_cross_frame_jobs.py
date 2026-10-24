@@ -738,3 +738,42 @@ async def test_cross_frame_actor_lock_failure_preserves_error_category(
     assert job.result["failed_count"] == 1
     assert job.result["success_count"] == 0
     assert job.result["items"][0]["reason"] == reason
+
+
+async def test_cross_frame_history_keeps_actor_scene_and_independent_total(
+    db_session, httpx_client, super_admin, annotator
+):
+    from datetime import datetime, timezone
+
+    actor, token = super_admin
+    other, _ = annotator
+    project, scene, tasks = await _seed_scene(db_session, owner_id=actor.id)
+    chosen = []
+    for day, owner, kind, scene_id in [
+        (1, actor.id, JOB_KIND, scene.id),
+        (2, actor.id, JOB_KIND, scene.id),
+        (3, actor.id, JOB_KIND, scene.id),
+        (4, other.id, JOB_KIND, scene.id),
+        (5, actor.id, JOB_KIND, uuid.uuid4()),
+        (6, actor.id, "future_kind", scene.id),
+    ]:
+        job = AsyncJob(
+            id=uuid.uuid4(),
+            kind=kind,
+            user_id=owner,
+            project_id=project.id,
+            payload={"scene_id": str(scene_id)},
+            created_at=datetime(2026, 1, day, tzinfo=timezone.utc),
+        )
+        db_session.add(job)
+        if day <= 3:
+            chosen.append(job.id)
+    await db_session.flush()
+    response = await httpx_client.get(
+        f"/api/v1/tasks/{tasks[0].id}/cross-frame-jobs?limit=2",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["total"] == 3
+    assert [r["id"] for r in result["items"]] == [str(chosen[2]), str(chosen[1])]

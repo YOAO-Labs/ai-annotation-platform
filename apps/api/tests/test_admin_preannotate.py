@@ -596,3 +596,56 @@ async def test_preannotate_summary_counts_active_and_unassigned_draft(
     )
     # active(1) + 未分派 draft(2); 已分派 draft 与 archived 不计入
     assert item["active_batches"] == 3
+
+
+@pytest.mark.asyncio
+async def test_preannotate_summary_keeps_latest_batch_time_and_project_order(
+    httpx_client, db_session, super_admin
+):
+    from datetime import datetime, timezone
+    from app.db.models.async_job import AsyncJob
+    from app.db.models.ml_backend_registry import ProjectMLBackendPool
+    from tests.conftest import create_registry_with_pool
+
+    actor, token = super_admin
+    first = await create_project(db_session, owner_id=actor.id, name="Time first")
+    second = await create_project(db_session, owner_id=actor.id, name="Time second")
+    _, pool = await create_registry_with_pool(
+        db_session, name="summary times", url=f"http://summary-{uuid.uuid4().hex}/"
+    )
+    db_session.add_all(
+        [
+            ProjectMLBackendPool(project_id=first.id, pool_id=pool.id, enabled=True),
+            ProjectMLBackendPool(project_id=second.id, pool_id=pool.id, enabled=True),
+        ]
+    )
+    times = [datetime(2026, 1, day, tzinfo=timezone.utc) for day in [1, 3, 2, 8]]
+    for project_id, kind, timestamp in [
+        (first.id, "batch_predict", times[0]),
+        (first.id, "batch_predict", times[1]),
+        (second.id, "batch_predict", times[2]),
+        (second.id, "future_kind", times[3]),
+    ]:
+        db_session.add(
+            AsyncJob(
+                kind=kind,
+                project_id=project_id,
+                user_id=actor.id,
+                created_at=timestamp,
+            )
+        )
+    await db_session.flush()
+    response = await httpx_client.get(
+        "/api/v1/admin/preannotate-summary",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    rows = [
+        r
+        for r in response.json()["items"]
+        if r["project_id"] in {str(first.id), str(second.id)}
+    ]
+    assert [r["project_id"] for r in rows] == [str(first.id), str(second.id)]
+    assert [
+        datetime.fromisoformat(r["last_job_at"].replace("Z", "+00:00")) for r in rows
+    ] == [times[1], times[2]]

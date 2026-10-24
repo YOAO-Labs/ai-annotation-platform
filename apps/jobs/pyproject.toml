@@ -41,6 +41,8 @@ packages = ["src/aap_jobs"]
 "src/aap_jobs/sql/0327_jobs_lifecycle.sql" = "aap_jobs/sql/0327_jobs_lifecycle.sql"
 "src/aap_jobs/row_locks.schema.json" = "aap_jobs/row_locks.schema.json"
 "src/aap_jobs/sql/0328_jobs_row_locks.sql" = "aap_jobs/sql/0328_jobs_row_locks.sql"
+"src/aap_jobs/domain_queries.schema.json" = "aap_jobs/domain_queries.schema.json"
+"src/aap_jobs/sql/0329_jobs_domain_queries.sql" = "aap_jobs/sql/0329_jobs_domain_queries.sql"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

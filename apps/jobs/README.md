@@ -44,6 +44,24 @@ queries, domain readers and legacy edits still prevent blanket private ACL remov
 See [the operation ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-row-access)
 for the bounded native and packaging evidence.
 
+## Fixed domain queries
+
+`aap-jobs-domain-queries/v1` packages five fixed native capabilities and their
+schema without an API or ORM dependency. Cross-frame singleflight uses the
+original actor/key advisory transaction lock before querying pending/running
+jobs. History page and count remain separate actor/scene/kind statements;
+ordering remains `created_at DESC`, with no new project predicate or tie breaker.
+The admin prediction projection returns each current project's latest
+`batch_predict` creation time; retained scope is intentionally excluded.
+
+The borrowed-session API binding preserves ORM identities, original autoflush
+and statement order. Taking the advisory lock does not flush; the following
+mapped lookup does. The count and aggregate retain their original query flush.
+No capability commits, retries, authorizes the actor, or changes execution
+ownership. Ordinary runtime profiles receive these five functions; the strict
+lifecycle LOGIN retains its existing eight capabilities. Other private reads
+and legacy edits still prevent global Jobs credential retirement.
+
 ## Public notification scope facts
 
 `aap-jobs` publishes the fixed, read-only `aap_jobs_v1.notification_scope_facts`

@@ -201,7 +201,7 @@ async function main() {
     phase = "cross-frame page and count";
     const page = await client.query(
       "SELECT * FROM aap_jobs_v1.cross_frame_job_page(" +
-        "$1::pg_catalog.uuid, $2::pg_catalog.text, $3::pg_catalog.integer)",
+        "$1::pg_catalog.uuid, $2::pg_catalog.text, $3::pg_catalog.int4)",
       [actorId, sceneId, 50],
     );
     assertJobRowFields(page);

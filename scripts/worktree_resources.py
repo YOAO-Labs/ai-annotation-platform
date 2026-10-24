@@ -158,6 +158,13 @@ JOBS_ROW_LOCK_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.read_job_for_update(uuid)",
     "aap_jobs_v1.read_job_for_share_nowait(uuid)",
 )
+JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES = (
+    "aap_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
+    "aap_jobs_v1.active_cross_frame_job(uuid,text)",
+    "aap_jobs_v1.cross_frame_job_page(uuid,text,integer)",
+    "aap_jobs_v1.cross_frame_job_count(uuid,text)",
+    "aap_jobs_v1.latest_batch_prediction_times(uuid[])",
+)
 _IDENTITY_PRIVATE_RUNTIME_ACL = """
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
@@ -976,6 +983,7 @@ class LocalResources:
                     *JOBS_LIST_RUNTIME_CAPABILITIES,
                     *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
                     *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
+                    *JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
                 )
             )
             notification_delivery_read_check = " AND ".join(

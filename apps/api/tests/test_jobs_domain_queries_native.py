@@ -201,6 +201,24 @@ def _cross_frame_rows(actor_id, other_actor_id, project_id, other_project_id, ba
     ]
 
 
+async def _persist_fixture_jobs(db, jobs):
+    detached = []
+    for job in jobs:
+        if job.retained_project_id is not None:
+            assert job.project_id is None
+            job.project_id = job.retained_project_id
+            job.retained_project_id = None
+            detached.append(job)
+    db.add_all(jobs)
+    await db.flush()
+    for job in detached:
+        await db.execute(
+            text("UPDATE public.async_jobs SET project_id=NULL WHERE id=:id"),
+            {"id": job.id},
+        )
+        await db.refresh(job)
+
+
 @asynccontextmanager
 async def _committed_query_world(test_engine):
     sessions = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -238,7 +256,7 @@ async def _committed_query_world(test_engine):
                 created_at=base + timedelta(seconds=16),
             ),
         ]
-        setup.add_all([*jobs, *batch_jobs])
+        await _persist_fixture_jobs(setup, [*jobs, *batch_jobs])
         await setup.commit()
         world = {
             "sessions": sessions,
@@ -290,19 +308,57 @@ def _sqlstate(error: BaseException) -> str | None:
     return None
 
 
+@asynccontextmanager
+async def _without_api_private_job_access(test_engine):
+    # The verifier owns this entire database; separate Node/API LOGINs need a
+    # committed denial, restored before another case can use the ordinary role.
+    from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+
+    _verify_postgres(test_engine.url)
+    async with test_engine.begin() as owner:
+        rights = (
+            await owner.execute(
+                text(
+                    "SELECT pg_catalog.has_table_privilege('identity_api_consumer', "
+                    "'public.async_jobs','SELECT'), "
+                    "pg_catalog.has_table_privilege('identity_api_consumer', "
+                    "'public.async_jobs','UPDATE'), "
+                    "pg_catalog.has_table_privilege('identity_api_consumer', "
+                    "'public.async_jobs','SELECT WITH GRANT OPTION'), "
+                    "pg_catalog.has_table_privilege('identity_api_consumer', "
+                    "'public.async_jobs','UPDATE WITH GRANT OPTION')"
+                )
+            )
+        ).one()
+        assert rights == (True, True, False, False)
+        await owner.execute(
+            text(
+                "REVOKE SELECT, UPDATE ON public.async_jobs FROM identity_api_consumer"
+            )
+        )
+    try:
+        yield
+    finally:
+        async with test_engine.begin() as owner:
+            await owner.execute(
+                text(
+                    "GRANT SELECT, UPDATE ON public.async_jobs TO identity_api_consumer"
+                )
+            )
+
+
 @pytest.mark.asyncio
 async def test_cross_frame_queries_match_original_orm_filters_and_order(db_session):
     actor, other_actor, project, other_project = await _query_world(
         db_session, label="parity"
     )
     base = datetime(2026, 10, 2, tzinfo=timezone.utc)
-    scene_id = "场景-🚙"
+    scene_id = "場景-🚙"
     key = "合并-ß-雪"
     rows = _cross_frame_rows(
         actor.id, other_actor.id, project.id, other_project.id, base
     )
-    db_session.add_all(rows)
-    await db_session.flush()
+    await _persist_fixture_jobs(db_session, rows)
 
     expected_active = await _legacy_active(db_session, actor.id, key)
     actual_active = await _adapter(db_session).active_cross_frame_job(actor.id, key)
@@ -410,8 +466,7 @@ async def test_batch_prediction_times_match_original_query_for_empty_and_duplica
             created_at=base + timedelta(seconds=5),
         ),
     ]
-    db_session.add_all(jobs)
-    await db_session.flush()
+    await _persist_fixture_jobs(db_session, jobs)
 
     project_ids = [project.id, project.id, other_project.id]
     expected = dict(await _legacy_batch_times(db_session, project_ids))
@@ -626,13 +681,14 @@ async def test_domain_query_abi_and_ordinary_api_login_are_read_only(
     }
     async with test_engine.connect() as catalog:
         rows = (
-            await catalog.execute(
-                text(
-                    """
+            (
+                await catalog.execute(
+                    text(
+                        """
                     SELECT p.proname AS name,
-                           pg_catalog.pg_get_function_identity_arguments(p.oid) AS args,
+                           pg_catalog.oidvectortypes(p.proargtypes) AS args,
                            pg_catalog.pg_get_function_result(p.oid) AS result,
-                           p.provolatile,
+                           p.provolatile::text AS provolatile,
                            p.prosecdef,
                            p.proconfig,
                            pg_catalog.pg_get_userbyid(p.proowner) AS owner_name,
@@ -659,8 +715,9 @@ async def test_domain_query_abi_and_ordinary_api_login_are_read_only(
                       AND p.proname::text = ANY(:names)
                     ORDER BY p.proname
                     """
-                ).bindparams(bindparam("names", type_=ARRAY(Text()))),
-                {"names": list(expected)},
+                    ).bindparams(bindparam("names", type_=ARRAY(Text()))),
+                    {"names": list(expected)},
+                )
             )
             .mappings()
             .all()
@@ -681,7 +738,10 @@ async def test_domain_query_abi_and_ordinary_api_login_are_read_only(
     )
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     try:
-        async with _committed_query_world(test_engine) as world:
+        async with (
+            _committed_query_world(test_engine) as world,
+            _without_api_private_job_access(test_engine),
+        ):
             async with sessions() as api:
                 identity = (
                     await api.execute(

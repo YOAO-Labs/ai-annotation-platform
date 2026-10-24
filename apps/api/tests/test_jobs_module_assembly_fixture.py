@@ -146,7 +146,11 @@ def test_workspace_worker_only_allows_explicit_default_queue_opt_in():
 def _row_access_probe_evidence(**changes):
     return {
         "ok": True,
-        "protocols": ["aap-jobs-lifecycle/v1", "aap-jobs-row-locks/v1"],
+        "protocols": [
+            "aap-jobs-lifecycle/v1",
+            "aap-jobs-row-locks/v1",
+            "aap-jobs-domain-queries/v1",
+        ],
         "role_match": True,
         "database_match": True,
         "function_calls": {
@@ -154,6 +158,14 @@ def _row_access_probe_evidence(**changes):
             "read_job_for_share_nowait": 1,
             "read_job_for_update": 1,
         },
+        "domain_function_calls": {
+            "lock_cross_frame_singleflight": 1,
+            "active_cross_frame_job": 1,
+            "cross_frame_job_page": 1,
+            "cross_frame_job_count": 1,
+            "latest_batch_prediction_times": 1,
+        },
+        "domain_subject_matches": True,
         "private_table_from": 0,
         "partial_refresh": True,
         "same_orm_identity": True,

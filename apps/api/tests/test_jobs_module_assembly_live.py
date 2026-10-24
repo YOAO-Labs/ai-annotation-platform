@@ -220,7 +220,9 @@ async def _run():
     sys.path.insert(0, "/app")
     from sqlalchemy import event, inspect, text
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from aap_jobs.domain_query_contract import JOBS_DOMAIN_QUERY_PROTOCOL
     from aap_jobs.lifecycle_contract import JOBS_LIFECYCLE_PROTOCOL
+    from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
     from aap_jobs.row_lock_contract import JOBS_ROW_LOCK_PROTOCOL
     from app.config import settings
     from app.services.jobs_lifecycle_data import job_lock_statement
@@ -277,6 +279,23 @@ async def _run():
             same_identity = locked is row and locked.result == original_result
             if not same_identity:
                 raise RuntimeError("update_row")
+            queries = JobsDomainQueryPostgresData(db)
+            actor_id = row.user_id
+            scene_id = row.payload["scene_id"]
+            singleflight_key = row.payload["singleflight_key"]
+            await queries.lock_cross_frame_singleflight(actor_id, singleflight_key)
+            active = await queries.active_cross_frame_job(actor_id, singleflight_key)
+            page = await queries.cross_frame_page(actor_id, scene_id, 50)
+            total = await queries.cross_frame_count(actor_id, scene_id)
+            latest = await queries.latest_batch_prediction_times([row.project_id])
+            domain_subject_matches = (
+                active is None
+                and any(item is row for item in page)
+                and total >= len(page)
+                and not latest
+            )
+            if not domain_subject_matches:
+                raise RuntimeError("domain_subject")
             await db.rollback()
 
         lowered = [statement.lower() for statement in statements]
@@ -289,6 +308,18 @@ async def _run():
                 "aap_jobs_v1.read_job_for_update(" in statement for statement in lowered
             ),
         }
+        domain_function_calls = {
+            name: _count(lowered, "aap_jobs_v1." + name + "(")
+            for name in (
+                "lock_cross_frame_singleflight",
+                "active_cross_frame_job",
+                "cross_frame_job_page",
+                "cross_frame_job_count",
+                "latest_batch_prediction_times",
+            )
+        }
+        if any(count != 1 for count in domain_function_calls.values()):
+            raise RuntimeError("domain_sql_surface")
         private_table_from = sum(
             bool(re.search(r"\\bfrom\\s+(?:public\\.)?async_jobs\\b", statement))
             for statement in lowered
@@ -301,10 +332,14 @@ async def _run():
             raise RuntimeError("sql_surface")
         return {
             "ok": True,
-            "protocols": [JOBS_LIFECYCLE_PROTOCOL, JOBS_ROW_LOCK_PROTOCOL],
+            "protocols": [
+                JOBS_LIFECYCLE_PROTOCOL, JOBS_ROW_LOCK_PROTOCOL, JOBS_DOMAIN_QUERY_PROTOCOL
+            ],
             "role_match": True,
             "database_match": True,
             "function_calls": function_calls,
+            "domain_function_calls": domain_function_calls,
+            "domain_subject_matches": domain_subject_matches,
             "private_table_from": private_table_from,
             "partial_refresh": partial_refresh,
             "same_orm_identity": same_identity,
@@ -368,7 +403,11 @@ def _assert_api_row_access_probe(
     except json.JSONDecodeError:
         raise AssertionError("Jobs row-access probe returned invalid JSON") from None
     assert evidence.get("ok") is True, safe_output
-    assert evidence["protocols"] == ["aap-jobs-lifecycle/v1", "aap-jobs-row-locks/v1"]
+    assert evidence["protocols"] == [
+        "aap-jobs-lifecycle/v1",
+        "aap-jobs-row-locks/v1",
+        "aap-jobs-domain-queries/v1",
+    ]
     assert evidence["role_match"] is True
     assert evidence["database_match"] is True
     assert evidence["function_calls"] == {
@@ -376,20 +415,39 @@ def _assert_api_row_access_probe(
         "read_job_for_share_nowait": 1,
         "read_job_for_update": 1,
     }
+    assert evidence["domain_function_calls"] == {
+        "lock_cross_frame_singleflight": 1,
+        "active_cross_frame_job": 1,
+        "cross_frame_job_page": 1,
+        "cross_frame_job_count": 1,
+        "latest_batch_prediction_times": 1,
+    }
+    assert evidence["domain_subject_matches"] is True
     assert evidence["private_table_from"] == 0
     assert evidence["partial_refresh"] is True
     assert evidence["same_orm_identity"] is True
     return evidence
 
 
-async def _assert_completed_job_http_read(client, headers, job_id, *, redact):
+async def _assert_completed_job_http_read(
+    client, headers, job_id, anchor_task_id, *, redact
+):
     response = await client.get(f"/api/v1/async-jobs/{job_id}", headers=headers)
     assert response.status_code == 200, redact(response.text)
     result = response.json()
     assert result["id"] == str(job_id)
     assert result["status"] == AsyncJobStatus.COMPLETED.value
     assert result["result"]["created_annotation_count"] == 1
+    history = await client.get(
+        f"/api/v1/tasks/{anchor_task_id}/cross-frame-jobs?limit=50", headers=headers
+    )
+    assert history.status_code == 200, redact(history.text)
+    page = history.json()
+    assert page["total"] >= len(page["items"])
+    assert any(item["id"] == str(job_id) for item in page["items"])
     return {
+        "history_http_status": history.status_code,
+        "history_contains_job": True,
         "http_status": response.status_code,
         "job_status": result["status"],
         "created_annotation_count": result["result"]["created_annotation_count"],
@@ -553,6 +611,18 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                     "queue_size": 1,
                     "unacknowledged": 0,
                 }, "cross-frame publish did not use the existing default route"
+                reused = await _request_cross_frame(client, headers, world)
+                assert reused.status_code == 202, stack.redact(reused.text)
+                assert reused.json()["id"] == accepted_job["id"]
+                assert reused.json()["celery_task_id"] == execution_id
+                assert _broker_state(sender, "default") == {
+                    "queue_size": 1,
+                    "unacknowledged": 0,
+                }
+                record_property(
+                    "jobs_cross_frame_singleflight_reuse",
+                    {"same_job": True, "same_execution": True, "queue_size": 1},
+                )
 
             worker = WorkspaceCeleryWorker(
                 test_engine,
@@ -614,7 +684,11 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 record_property(
                     "jobs_api_http_read_before_restore",
                     await _assert_completed_job_http_read(
-                        client, headers, completed_job.id, redact=stack.redact
+                        client,
+                        headers,
+                        completed_job.id,
+                        world["source_task_id"],
+                        redact=stack.redact,
                     ),
                 )
 
@@ -733,6 +807,7 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                                 client,
                                 restored_headers,
                                 completed_restored_job.id,
+                                restored_world["source_task_id"],
                                 redact=stack.redact,
                             ),
                         )

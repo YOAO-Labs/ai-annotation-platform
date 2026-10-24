@@ -45,6 +45,13 @@ NOTIFICATION_INBOX_ROLE = "notification_inbox_query_client"
 NOTIFICATION_DELIVERY_READ_ROLE = "notification_delivery_read_client"
 JOBS_LIST_QUERY_ROLE = "jobs_list_query_client"
 JOBS_LIFECYCLE_ROLE = "jobs_lifecycle_client"
+JOBS_DOMAIN_QUERY_FUNCTIONS = (
+    "aap_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
+    "aap_jobs_v1.active_cross_frame_job(uuid,text)",
+    "aap_jobs_v1.cross_frame_job_page(uuid,text,integer)",
+    "aap_jobs_v1.cross_frame_job_count(uuid,text)",
+    "aap_jobs_v1.latest_batch_prediction_times(uuid[])",
+)
 JOBS_ROW_LOCK_FUNCTIONS = (
     "aap_jobs_v1.read_job_for_update(uuid)",
     "aap_jobs_v1.read_job_for_share_nowait(uuid)",
@@ -81,6 +88,10 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    **{
+        signature: "0329_jobs_domain_queries.sql"
+        for signature in JOBS_DOMAIN_QUERY_FUNCTIONS
+    },
     **{signature: "0328_jobs_row_locks.sql" for signature in JOBS_ROW_LOCK_FUNCTIONS},
     **{
         signature: "0327_jobs_lifecycle.sql"
@@ -449,6 +460,7 @@ SQL_ARTIFACTS = (
     "0326_jobs_list_query.sql",
     "0327_jobs_lifecycle.sql",
     "0328_jobs_row_locks.sql",
+    "0329_jobs_domain_queries.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -589,6 +601,7 @@ SCHEMA_ARTIFACTS = (
     "0326_jobs_list_query.schema.json",
     "0327_jobs_lifecycle.schema.json",
     "0328_jobs_row_locks.schema.json",
+    "0329_jobs_domain_queries.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -4271,8 +4284,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0328"]:
-            raise RuntimeError("module-data acceptance requires migration head 0328")
+        if heads != ["0329"]:
+            raise RuntimeError("module-data acceptance requires migration head 0329")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
