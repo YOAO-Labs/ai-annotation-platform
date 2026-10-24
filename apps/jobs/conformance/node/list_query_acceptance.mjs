@@ -18,6 +18,23 @@ const totalSignature = "aap_jobs_v1.async_job_list_total(uuid,text,text[],text[]
 const helperSignature = "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const statusValues = new Set(["pending", "running", "completed", "failed", "cancelled"]);
+const nativeColumnOids = {
+  id: 2950,
+  kind: 1043,
+  project_id: 2950,
+  retained_project_id: 2950,
+  user_id: 2950,
+  status: 1043,
+  progress_pct: 23,
+  payload: 3802,
+  result: 3802,
+  error_message: 25,
+  celery_task_id: 1043,
+  started_at: 1184,
+  completed_at: 1184,
+  created_at: 1184,
+  updated_at: 1184,
+};
 
 let phase = "startup";
 
@@ -134,6 +151,16 @@ async function selfCheck() {
   assert.equal(schema.$id, "aap-jobs-async-job-list-query/v1");
   assert.deepEqual(apiSchema, schema);
   assert.equal(sql, apiSql);
+  assert.deepEqual(Object.keys(nativeColumnOids).sort(), [...schema["x-row-columns"]].sort());
+  assert.deepEqual(
+    [
+      "aap_jobs_v1.async_job_list_page(uuid, text, text[], text[], uuid, text, integer, integer)",
+      "aap_jobs_v1.async_job_list_total(uuid, text, text[], text[], uuid, text)",
+    ]
+      .map(normalizeSql)
+      .sort(),
+    [pageSignature, totalSignature].map(normalizeSql).sort(),
+  );
   assert.deepEqual(schema["x-page-semantics"].order, ["created_at DESC", "id DESC"]);
   assert.equal(schema["x-page-semantics"].separate_statements, true);
   assert.equal(schema["x-identity-snapshot"].preflight_reads_per_list_request, 1);
@@ -297,8 +324,8 @@ async function verifyListQueryRole() {
         "ORDER BY signature",
     );
     assert.deepEqual(
-      executableAapFunctions.rows.map((row) => row.signature),
-      [pageSignature, totalSignature].sort(),
+      executableAapFunctions.rows.map((row) => normalizeSql(row.signature)),
+      [pageSignature, totalSignature].map(normalizeSql).sort(),
     );
 
     phase = "page result types and order";
@@ -314,25 +341,8 @@ async function verifyListQueryRole() {
       pageResult.fields.map((field) => field.name),
       columns,
     );
-    const nativeOids = {
-      uuid: 2950,
-      kind: 1043,
-      project_id: 2950,
-      retained_project_id: 2950,
-      user_id: 2950,
-      status: 1043,
-      progress_pct: 23,
-      payload: 3802,
-      result: 3802,
-      error_message: 25,
-      celery_task_id: 1043,
-      started_at: 1184,
-      completed_at: 1184,
-      created_at: 1184,
-      updated_at: 1184,
-    };
     for (const field of pageResult.fields) {
-      assert.equal(field.dataTypeID, nativeOids[field.name]);
+      assert.equal(field.dataTypeID, nativeColumnOids[field.name]);
     }
     for (const row of pageResult.rows) assertPageRow(row, columns);
     assertPageOrder(pageResult.rows);
