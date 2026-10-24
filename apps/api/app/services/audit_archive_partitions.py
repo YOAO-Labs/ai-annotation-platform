@@ -10,6 +10,7 @@ import hashlib
 import re
 from time import monotonic
 from typing import BinaryIO
+from uuid import uuid4
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -271,11 +272,30 @@ async def _stream_source(
         deadline = monotonic() + archive_storage.VERIFY_SECONDS
     digest = hashlib.sha256()
     row_count = size_bytes = 0
-    cursor = await db.stream(
-        text(f"SELECT * FROM ONLY {source.qualified} ORDER BY id, created_at")
-    )
+    # SQLAlchemy's asyncpg result.close() only drops its client cursor reference;
+    # the server portal can still prevent DROP in this very transaction. Own a
+    # uniquely named SQL cursor and explicitly close precisely that portal.
+    name = f"audit_archive_{uuid4().hex}"
+    declared = failed = False
     try:
-        async for row in cursor.mappings():
+        await db.execute(
+            text(
+                f'DECLARE "{name}" NO SCROLL CURSOR FOR '
+                f"SELECT * FROM ONLY {source.qualified} ORDER BY id, created_at"
+            )
+        )
+        declared = True
+        while True:
+            _deadline(deadline)
+            # Fetch one bounded row, even when it approaches the 16 MiB limit.
+            # PostgreSQL advances the portal without rescanning a keyset index.
+            row = (
+                (await db.execute(text(f'FETCH FORWARD 1 FROM "{name}"')))
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                break
             _deadline(deadline)
             line = archive_storage.canonical_line(row)
             row_count += 1
@@ -291,8 +311,20 @@ async def _stream_source(
                 compressed.write(line)
                 if compressed.fileobj.tell() > archive_storage.MAX_BYTES:
                     raise AuditArchiveError("audit_archive_compressed_limit", 422)
+    except BaseException:
+        failed = True
+        raise
     finally:
-        await storage_access.finish(asyncio.create_task(cursor.close()))
+        if declared:
+            try:
+                await storage_access.finish(
+                    asyncio.create_task(db.execute(text(f'CLOSE "{name}"')))
+                )
+            except BaseException:
+                if not failed:
+                    raise
+                # Preserve the original error/cancellation. The archive owner's
+                # mandatory rollback also destroys a portal in an aborted tx.
     _deadline(deadline)
     if expected_rows is not None and row_count != expected_rows:
         raise AuditArchiveError("audit_archive_source_changed")

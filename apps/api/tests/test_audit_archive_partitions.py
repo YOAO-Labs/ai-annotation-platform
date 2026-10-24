@@ -691,32 +691,31 @@ async def test_stream_limits_close_cursor_without_loading_partition(monkeypatch,
         "created_at": datetime(2000, 1, 1, tzinfo=timezone.utc),
     }
 
-    class Cursor:
+    class DB:
         closed = False
         seen = 0
+        name = None
 
-        def mappings(self):
-            return self
-
-        async def __aiter__(self):
-            for _ in range(100):
+        async def execute(self, statement):
+            sql = str(statement)
+            if sql.startswith("DECLARE "):
+                assert "ORDER BY id, created_at" in sql
+                self.name = sql.split('"')[1]
+            elif sql.startswith("FETCH "):
+                assert sql == f'FETCH FORWARD 1 FROM "{self.name}"'
                 self.seen += 1
-                yield row
+                return SimpleNamespace(
+                    mappings=lambda: SimpleNamespace(one_or_none=lambda: row)
+                )
+            else:
+                assert sql == f'CLOSE "{self.name}"'
+                self.closed = True
 
-        async def close(self):
-            self.closed = True
-
-    cursor = Cursor()
-
-    class DB:
-        async def stream(self, statement):
-            assert "ORDER BY id, created_at" in str(statement)
-            return cursor
-
+    db = DB()
     monkeypatch.setattr(codec, limit, 1)
     with pytest.raises(AuditArchiveError, match="audit_archive_source_limit"):
-        await stream_source(DB(), source)
-    assert cursor.closed and cursor.seen <= 2
+        await stream_source(db, source)
+    assert db.closed and db.seen <= 2
 
 
 async def test_stream_deadline_covers_database_wait(monkeypatch):
@@ -725,7 +724,7 @@ async def test_stream_deadline_covers_database_wait(monkeypatch):
     )
 
     class DB:
-        async def stream(self, statement):
+        async def execute(self, statement):
             await asyncio.sleep(10)
             pytest.fail("database wait should have been cancelled")
 
@@ -828,3 +827,88 @@ async def test_later_month_failure_preserves_committed_partial_job_result(
         async with case.maker() as db:
             await db.execute(text(f'DROP TABLE IF EXISTS public."{name}"'))
             await db.commit()
+
+
+async def test_stream_closes_server_portal_before_drop_and_preserves_other_cursor(
+    source_case,
+):
+    case = source_case
+    unrelated = f"test_unrelated_{uuid4().hex}"
+    async with case.maker() as db:
+        await db.execute(
+            text(f"LOCK TABLE ONLY {case.source.qualified} IN SHARE MODE NOWAIT")
+        )
+        await db.execute(text(f'DECLARE "{unrelated}" NO SCROLL CURSOR FOR SELECT 1'))
+        try:
+            observed = await stream_source(db, case.source)
+            assert observed.row_count == 1
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_cursors WHERE name LIKE 'audit_archive_%'"
+                    )
+                )
+                == 0
+            )
+            assert (
+                await db.scalar(
+                    text("SELECT count(*) FROM pg_cursors WHERE name=:name"),
+                    {"name": unrelated},
+                )
+                == 1
+            )
+            # Reproduces PostgreSQL 55006 if any archive portal remains active.
+            await db.execute(text(f"DROP TABLE {case.source.qualified}"))
+            assert await db.scalar(text(f'FETCH FORWARD 1 FROM "{unrelated}"')) == 1
+        finally:
+            # Rollback also closes our unrelated test cursor and restores the
+            # fixture's source; no ownership or archive was created.
+            await db.rollback()
+
+
+async def test_stream_repeated_cancellation_drains_its_explicit_cursor_close():
+    source = SourcePartition(
+        "audit_logs_y2000m01", 1, 2, date(2000, 1, 1), date(2000, 2, 1)
+    )
+    fetching = asyncio.Event()
+    closing = asyncio.Event()
+    release = asyncio.Event()
+
+    class DB:
+        name = None
+        closed = False
+
+        async def execute(self, statement):
+            sql = str(statement)
+            if sql.startswith("DECLARE "):
+                self.name = sql.split('"')[1]
+            elif sql.startswith("FETCH "):
+                fetching.set()
+                await asyncio.Event().wait()
+            else:
+                assert sql == f'CLOSE "{self.name}"'
+                closing.set()
+                await release.wait()
+                self.closed = True
+
+    db = DB()
+    task = asyncio.create_task(stream_source(db, source))
+    try:
+        await asyncio.wait_for(fetching.wait(), 1)
+        task.cancel()
+        await asyncio.wait_for(closing.wait(), 1)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done() and not db.closed
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert db.closed
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
