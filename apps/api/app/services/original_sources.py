@@ -11,7 +11,7 @@ import re
 from urllib.parse import urlsplit
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
@@ -31,6 +31,7 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.reference_keys import is_reference, reference_key
 
 _SHA = re.compile(r"[0-9a-f]{64}")
+_MAX_ETAG_BYTES = 1024
 
 
 @dataclass(frozen=True)
@@ -160,8 +161,26 @@ async def _relation(
     allow_missing=False,
     compact_relation=False,
     link_id=None,
+    max_links=None,
 ):
-    task = await db.scalar(_statement(select(Task).where(Task.id == task_id), lock))
+    # Scalar rows avoid rehydrating unrelated JSON or expiring the caller's
+    # already-budgeted ORM state through populate_existing/load_only.
+    task = (
+        await db.execute(
+            _statement(
+                select(
+                    Task.id,
+                    Task.project_id,
+                    Task.batch_id,
+                    Task.file_path,
+                    Task.file_type,
+                    Task.original_id,
+                    Task.dataset_item_id,
+                ).where(Task.id == task_id),
+                lock,
+            )
+        )
+    ).one_or_none()
     if task is None:
         raise ContentError("content_task_missing", 404)
     statement = select(TaskDatasetItemLink).where(
@@ -172,14 +191,16 @@ async def _relation(
         if link_id is not None:
             selected = selected | (TaskDatasetItemLink.id == link_id)
         statement = statement.where(selected)
+    if max_links is not None:
+        statement = statement.limit(max_links + 1)
+    rows = list(
+        await db.scalars(_statement(statement.order_by(TaskDatasetItemLink.id), lock))
+    )
+    if max_links is not None and len(rows) > max_links:
+        raise ContentError("original_relation_budget_exceeded", 422)
     links = tuple(
         LinkFact(row.id, row.task_id, row.dataset_item_id, row.role, row.sensor_name)
-        for row in await db.scalars(
-            _statement(
-                statement.order_by(TaskDatasetItemLink.id),
-                lock,
-            )
-        )
+        for row in rows
     )
     has_links = bool(links)
     if compact_relation and task.original_id is not None and not has_links:
@@ -229,7 +250,7 @@ async def resolve_task_relation(db, task_id, *, lock=False):
         return await _relation(db, task_id, lock)
 
 
-def _platform_location(location):
+def _platform_location(location, *, bounded=False):
     config = {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
     if (
         location is None
@@ -238,8 +259,12 @@ def _platform_location(location):
         or location.kind != "s3"
         or type(location.config_revision) is not int
         or location.config_revision != 1
-        or location.config != config
-        or type(location.config.get("use_ssl")) is not bool
+        or (
+            location.config_matches is not True
+            if bounded
+            else location.config != config
+            or type(location.config.get("use_ssl")) is not bool
+        )
     ):
         raise ContentError("location_unavailable")
     endpoint = f"{'https' if config['use_ssl'] else 'http'}://{config['endpoint']}"
@@ -272,14 +297,16 @@ def _platform_location(location):
     return endpoint, facts
 
 
-async def _gate(db, location_id, lock):
-    gate = await db.scalar(
-        _statement(
-            select(StorageMaintenanceGate).where(
-                StorageMaintenanceGate.location_id == location_id
-            ),
-            lock,
-        )
+async def _gate(db, location_id, lock, *, bounded=False):
+    statement = (
+        select(StorageMaintenanceGate.state, StorageMaintenanceGate.revision)
+        if bounded
+        else select(StorageMaintenanceGate)
+    ).where(StorageMaintenanceGate.location_id == location_id)
+    gate = (
+        (await db.execute(_statement(statement, lock))).one_or_none()
+        if bounded
+        else await db.scalar(_statement(statement, lock))
     )
     # Admission creates a durable Gate before any physical operation. Metadata
     # lookup may see no row and follows storage_access.state's initial revision.
@@ -289,6 +316,63 @@ async def _gate(db, location_id, lock):
         else {"state": "active", "revision": 1},
         None,
     )
+
+
+async def _locations(db, location_ids, lock, *, bounded=False):
+    if bounded:
+        # Exact JSONB equality rejects unknown keys and numeric "booleans"
+        # without transferring a possibly unbounded configuration value.
+        statement = select(
+            StorageLocation.id,
+            StorageLocation.kind,
+            StorageLocation.enabled,
+            StorageLocation.config_revision,
+            StorageLocation.connection_id,
+            (
+                StorageLocation.config
+                == {
+                    "endpoint": settings.minio_endpoint,
+                    "use_ssl": settings.minio_use_ssl,
+                }
+            ).label("config_matches"),
+        ).limit(2)
+    else:
+        statement = select(StorageLocation)
+    statement = statement.where(StorageLocation.id.in_(location_ids)).order_by(
+        StorageLocation.id
+    )
+    if bounded:
+        return list((await db.execute(_statement(statement, lock))).all())
+    return list(await db.scalars(_statement(statement, lock)))
+
+
+async def _replicas(db, asset_id, lock, *, bounded=False):
+    if bounded:
+        etag_bytes = func.octet_length(DatasetAssetLocation.etag)
+        statement = select(
+            DatasetAssetLocation.asset_id,
+            DatasetAssetLocation.location_id,
+            DatasetAssetLocation.bucket,
+            DatasetAssetLocation.object_key,
+            DatasetAssetLocation.role,
+            DatasetAssetLocation.reference_state,
+            DatasetAssetLocation.creation_id,
+            DatasetAssetLocation.verified_at,
+            case(
+                (etag_bytes <= _MAX_ETAG_BYTES, DatasetAssetLocation.etag), else_=None
+            ).label("etag"),
+            (etag_bytes > _MAX_ETAG_BYTES).label("etag_oversized"),
+        ).limit(2)
+    else:
+        statement = select(DatasetAssetLocation)
+    statement = statement.where(
+        DatasetAssetLocation.asset_id == asset_id,
+        DatasetAssetLocation.role == "managed_original",
+        DatasetAssetLocation.reference_state == "present",
+    ).order_by(DatasetAssetLocation.location_id, DatasetAssetLocation.bucket)
+    if bounded:
+        return list((await db.execute(_statement(statement, lock))).all())
+    return list(await db.scalars(_statement(statement, lock)))
 
 
 def _safe_locator(bucket, key):
@@ -305,16 +389,40 @@ def _safe_locator(bucket, key):
         raise ContentError("no_readable_original")
 
 
-async def _item(db, item_id, lock):
-    item = await db.scalar(
-        _statement(select(DatasetItem).where(DatasetItem.id == item_id), lock)
-    )
+async def _item(db, item_id, lock, *, bounded=False):
+    item = (
+        await db.execute(
+            _statement(
+                select(
+                    DatasetItem.id,
+                    DatasetItem.dataset_id,
+                    DatasetItem.file_path,
+                    DatasetItem.file_type,
+                    DatasetItem.width,
+                    DatasetItem.height,
+                ).where(DatasetItem.id == item_id),
+                lock,
+            )
+        )
+    ).one_or_none()
     if item is None:
         raise ContentError("item_removed")
-    asset = await db.scalar(
-        _statement(
-            select(DatasetAsset).where(DatasetAsset.dataset_item_id == item.id), lock
+    statement = (
+        select(
+            DatasetAsset.id,
+            DatasetAsset.media_type,
+            DatasetAsset.checksum_algorithm,
+            DatasetAsset.checksum_value,
+            DatasetAsset.size_bytes,
+            DatasetAsset.verification_state,
         )
+        if bounded
+        else select(DatasetAsset)
+    ).where(DatasetAsset.dataset_item_id == item.id)
+    asset = (
+        (await db.execute(_statement(statement, lock))).one_or_none()
+        if bounded
+        else await db.scalar(_statement(statement, lock))
     )
     if (
         asset is None
@@ -363,62 +471,25 @@ async def _item(db, item_id, lock):
         )
     # Location precedes replica locks, including when rejecting ambiguity. Do
     # not filter by today's purpose bucket or require a historical Creation.
-    candidates = list(
-        await db.scalars(
-            _statement(
-                select(DatasetAssetLocation)
-                .where(
-                    DatasetAssetLocation.asset_id == asset.id,
-                    DatasetAssetLocation.role == "managed_original",
-                    DatasetAssetLocation.reference_state == "present",
-                )
-                .order_by(
-                    DatasetAssetLocation.location_id, DatasetAssetLocation.bucket
-                ),
-                False,
-            )
-        )
-    )
+    candidates = await _replicas(db, asset.id, False, bounded=bounded)
     if not candidates:
         raise ContentError("no_readable_original")
     location_ids = sorted({row.location_id for row in candidates})
-    locations = list(
-        await db.scalars(
-            _statement(
-                select(StorageLocation)
-                .where(StorageLocation.id.in_(location_ids))
-                .order_by(StorageLocation.id),
-                lock,
-            )
-        )
-    )
+    locations = await _locations(db, location_ids, lock, bounded=bounded)
     if lock:
-        candidates = list(
-            await db.scalars(
-                _statement(
-                    select(DatasetAssetLocation)
-                    .where(
-                        DatasetAssetLocation.asset_id == asset.id,
-                        DatasetAssetLocation.role == "managed_original",
-                        DatasetAssetLocation.reference_state == "present",
-                    )
-                    .order_by(
-                        DatasetAssetLocation.location_id, DatasetAssetLocation.bucket
-                    ),
-                    True,
-                )
-            )
-        )
+        candidates = await _replicas(db, asset.id, True, bounded=bounded)
     if len(candidates) != 1:
         raise ContentError("original_location_ambiguous")
     replica = candidates[0]
     if len(locations) != 1 or locations[0].id != replica.location_id:
         raise ContentError("location_unavailable")
-    endpoint, location_facts = _platform_location(locations[0])
+    if bounded and replica.etag_oversized is True:
+        raise ContentError("original_source_budget_exceeded", 422)
+    endpoint, location_facts = _platform_location(locations[0], bounded=bounded)
     if replica.object_key != item.file_path:
         raise ContentError("content_binding_changed")
     _safe_locator(replica.bucket, replica.object_key)
-    revision = await _gate(db, replica.location_id, lock)
+    revision = await _gate(db, replica.location_id, lock, bounded=bounded)
     replica_facts = ReplicaFacts(
         replica.asset_id,
         replica.location_id,
@@ -457,12 +528,14 @@ async def resolve_item(db, item_id, *, lock=False):
         return await _item(db, item_id, lock)
 
 
-async def _task_source(db, relation, lock, *, source=None):
+async def _task_source(db, relation, lock, *, source=None, bounded=False):
     if relation.original_id is None:
         if relation.item_id is None:
             raise ContentError("no_readable_original")
         if source is None:
-            source = await _item(db, relation.item_id, lock)
+            source = await _item(
+                db, relation.item_id, lock, **({"bounded": True} if bounded else {})
+            )
         if (
             relation.file_path != source.object_key
             or relation.file_type != source.media_type
@@ -482,15 +555,21 @@ async def _task_source(db, relation, lock, *, source=None):
         or receipt.object_key != relation.file_path
     ):
         raise ContentError("content_binding_changed")
-    location = await db.scalar(
-        _statement(
-            select(StorageLocation).where(StorageLocation.id == receipt.location_id),
-            lock,
+    if bounded:
+        locations = await _locations(db, [receipt.location_id], lock, bounded=True)
+        location = locations[0] if locations else None
+    else:
+        location = await db.scalar(
+            _statement(
+                select(StorageLocation).where(
+                    StorageLocation.id == receipt.location_id
+                ),
+                lock,
+            )
         )
-    )
-    endpoint, location_facts = _platform_location(location)
+    endpoint, location_facts = _platform_location(location, bounded=bounded)
     locator = task_originals.resolve(receipt, endpoint_url=endpoint)
-    revision = await _gate(db, receipt.location_id, lock)
+    revision = await _gate(db, receipt.location_id, lock, bounded=bounded)
     return OriginalSource(
         "task_original",
         receipt.id,
@@ -566,11 +645,15 @@ class CachedResolver:
 
     The caller must discard this resolver before committing or rolling back the
     transaction. Cache hits do not refresh authority or replace final rechecks.
+    max_links optionally bounds all hydrated relation links across this collect.
     """
 
-    def __init__(self, db, *, lock=False):
+    def __init__(self, db, *, lock=False, max_links=None):
+        if max_links is not None and (type(max_links) is not int or max_links < 0):
+            raise ValueError("max_links must be a non-negative integer or None")
         self.db = db
         self.lock = lock
+        self.max_links = max_links
         self._relations = {}
         self._links = {}
         self._items = {}
@@ -578,10 +661,20 @@ class CachedResolver:
 
     def _remember_relation(self, relation):
         if relation.task_id not in self._relations:
+            if (
+                self.max_links is not None
+                and len(self._links) + len(relation.links) > self.max_links
+            ):
+                raise ContentError("original_relation_budget_exceeded", 422)
             self._relations[relation.task_id] = relation
             self._links.update(
                 ((relation.task_id, link.id), link) for link in relation.links
             )
+
+    def _link_budget(self):
+        if self.max_links is None:
+            return {}
+        return {"max_links": self.max_links - len(self._links)}
 
     async def task(self, task_id):
         async with _reads(self.db, self.lock):
@@ -589,12 +682,15 @@ class CachedResolver:
             if source is None:
                 relation = self._relations.get(task_id)
                 if relation is None:
-                    relation = await _relation(self.db, task_id, self.lock)
+                    relation = await _relation(
+                        self.db, task_id, self.lock, **self._link_budget()
+                    )
                 source = await _task_source(
                     self.db,
                     relation,
                     self.lock,
                     source=self._items.get(relation.item_id),
+                    bounded=self.max_links is not None,
                 )
         # Never retain observations whose savepoint failed or rolled back.
         self._remember_relation(source.relation)
@@ -608,7 +704,11 @@ class CachedResolver:
             relation = self._relations.get(task_id)
             if relation is None:
                 relation = await _relation(
-                    self.db, task_id, self.lock, allow_missing=True
+                    self.db,
+                    task_id,
+                    self.lock,
+                    allow_missing=True,
+                    **self._link_budget(),
                 )
                 selected = next(
                     (link for link in relation.links if link.id == link_id), None
@@ -618,7 +718,12 @@ class CachedResolver:
             selected = _camera_link(selected)
             source = self._items.get(selected.item_id)
             if source is None:
-                source = await _item(self.db, selected.item_id, self.lock)
+                source = await _item(
+                    self.db,
+                    selected.item_id,
+                    self.lock,
+                    **({"bounded": True} if self.max_links is not None else {}),
+                )
             result = _camera_source(source, relation)
         self._remember_relation(relation)
         self._items[selected.item_id] = source

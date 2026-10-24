@@ -631,7 +631,7 @@ async def _collect(db, project_id, batch_id, targets, options, *, lock):
             ):
                 reject("original_relation_conflict")
     sources, media = {}, []
-    resolver = original_sources.CachedResolver(db, lock=lock)
+    resolver = original_sources.CachedResolver(db, lock=lock, max_links=MAX_LINKS)
     relation_links_by_task = {}
     seen = {}
     counts = {"image": 0, "point_cloud": 0}
