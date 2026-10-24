@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B/B13-A/B13-B1/B13-B2/B13-B3-A completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B/B13-A/B13-B1/B13-B2/B13-B3-A/B13-B3-B/B13-B3-C completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -1060,3 +1060,19 @@ Job→Run短锁原子认领pending并固定Celery任务绑定；计算阶段只�
 旧completed结果继续作为历史读取，不回填原件事实；缺少合同的旧pending／running不得回源，标为stale。新问题证据保存安全原件收据与轴，现有staleness按Task去重核对owner／逻辑位置／大小及轴变化；旧原件相关问题缺少事实时明确stale，不能混入当前治理样本，纯轨迹历史保持。无数据库迁移、依赖、配置、镜像或版本变化。
 
 主树实现服务／Worker／API取消围栏、新合同与回归、文档及真实验收；隔离树升级现有PCD夹具和内调用，不修改生产。使用新且验证所有权的test／e2e模式做实际PCD字节、MinIO、HTTP／Celery和当前质检页面验收；保留人工3100/8100、两Worker及Beat和11表／24对象／12文件指纹。正常hooks提交、精确清理后记录Outcome；完整E02/B13与整套epic仍未完成。
+
+## E02-B13-B3-C Outcome — 点云质检Worker原件输入与统一发布
+
+主集成 `d0761af78`；既有PCD夹具接入 `3461b4ce8`、`5503c7f15`，物理生命周期回归 `b699c2fd3`。发布版本未指定。本片不新增迁移、依赖、配置或镜像构建，数据库保持0231。
+
+- 新运行固定安全PCD原件收据及轴约定；canonical Task关系决定已保存位置，完整SHA／大小读取拒绝当前桶及同名替代。缓存包含owner／内容／逻辑位置／轴，命中仍重核来源和当前权限；显式空轴约定沿用ISO默认值。
+- 保留原REVIEW_WRITE、manager范围和准确reviewer Task可见性，不增加API Key scope。HTTP使用准确原请求，后台隐藏保存原Key指纹并持续复核；提交前自然到期也回滚。旧pending／running无合同在派发或重放时stale且零原件I/O，历史completed保留，旧原件相关问题明确过期。
+- Job→Run短锁只领取一次，读取／解析／关闭全部实际收尾后再锁定完整来源、配置与授权，统一提交Issue、Run／Job及通知。末次关闭取消、写入中断或期限失效不遗留半轮问题；已有人工判定保留。点云质检已加入终态通知白名单，并修复带轨迹的逐框问题误用空revision而立即过期的问题。
+- 累计158个不同后端用例通过，包含真实ASCII／binary PCD、原件位置与owner、解析／关闭后10组迟到变化、两槽与未知收尾责任、末次关闭取消、原子写入回滚、Key自然到期、同名不同owner缓存、两个真实数据库会话并发认领，以及旧运行／旧问题兼容。既有纯轨迹staleness查询预算保持；7项质量面板／治理Web回归通过。仅统计最终通过的不同用例，不重复累计重跑。
+- 一次性18100／13100的真实HTTP／MinIO／Celery完成四轮：保存桶原件生成4条问题、同合同复用、对象篡改明确skip且无伪点数问题、轴变化令旧证据stale及新轮完成；浏览器另以JWT发起当前Scene扫描并确认1条问题，回读为resolved／confirmed。浏览器标准primary_lidar关联补在合成夹具中，不修改生产Scene注册边界。明暗截图、无页面横向溢出及无捕获到的JS异常已核对；此为现有确定性PCD质检，未授予ML或GPU性能资格。
+- OpenAPI快照与现行路由一致；本地Web API生成、类型检查、Ruff、格式、文档构建、正常提交hooks及`git diff --check`通过，未运行远端CI。
+- 人工环境通过原监督服务刷新并恢复3100／8100，两Worker各注册72项且实际无业务输入派发成功；绑定的独立Beat随原监督服务恢复，已核对使用本工作树dev模式。11表完整行指纹、24对象及12个文件SHA均与本片前一致。自有浏览器关闭，test／e2e两个数据库、两个Redis及18桶已销毁并独立核对不存在，三棵已集成隔离树及任务产物清理。
+
+正式资料已同步README、CHANGELOG Unreleased、`docs-site/user-guide/workbench/3d-box.md`、`docs-site/api/guides/verified-content.md`与`docs-site/dev/concepts/storage-connections.md`。完整E02／B13及整套epic仍在执行，完整用途切换关闭，不归档此活动计划。
+
+下一片优先定稿训练数据版本的托管图片预检与Worker缺失媒体回源：`freeze_selection→capture_source_media`及`materialize_sample→materialize_image`仍冻结当前source_bucket／ETag／size，现有版本snapshot、固定输出storage_ref和attempt围栏可复用。保持引用图片、已保留媒体、历史ready包和原管理者／scope合同；金字塔及LiDAR导出还涉及独立派生output归属或额外nuScenes文件，继续分别实施。此项仅完成只读盘点，尚未定稿或实现。
