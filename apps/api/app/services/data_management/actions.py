@@ -5,10 +5,10 @@ import json
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob
+from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 
 
 def normalize_idempotency_key(value: str | None) -> str | None:
@@ -48,11 +48,11 @@ async def lock_idempotency_key(
 ) -> None:
     """Serialize duplicate submissions without introducing a new ledger table."""
 
-    await db.execute(
-        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-        {
-            "key": f"aap:data-manager:{action}:{project_id}:{actor_id}:{key}",
-        },
+    await JobsDomainQueryPostgresData(db).lock_action_idempotency(
+        action=action,
+        project_id=project_id,
+        actor_id=actor_id,
+        key=key,
     )
 
 
@@ -66,16 +66,11 @@ async def find_idempotent_job(
 ) -> AsyncJob | None:
     """Find a scoped async job recorded by a Data Manager action."""
 
-    return await db.scalar(
-        select(AsyncJob)
-        .where(
-            AsyncJob.kind == kind,
-            AsyncJob.project_id == project_id,
-            AsyncJob.user_id == actor_id,
-            AsyncJob.payload["data_manager_idempotency_key"].astext == key,
-        )
-        .order_by(AsyncJob.created_at.desc(), AsyncJob.id.desc())
-        .with_for_update()
+    return await JobsDomainQueryPostgresData(db).find_action_idempotent_job(
+        kind=kind,
+        project_id=project_id,
+        actor_id=actor_id,
+        key=key,
     )
 
 
