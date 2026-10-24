@@ -111,7 +111,7 @@ def install_read_flow(monkeypatch, current):
         assert credentials == current.credentials
         actual = {
             **task_binding(current.task),
-            "original": current.evidence["original"],
+            "original": deepcopy(current.evidence["original"]),
         }
         if binding is not None and not accept._same(binding, actual):
             raise ContentError("content_binding_changed")
@@ -133,9 +133,8 @@ def install_read_flow(monkeypatch, current):
 
     async def masks(db, value, probe, *, content=None, content_key=None):
         assert current.state.transaction is None
-        assert value == [
-            {"type": current.geometry["type"], "geometry": current.geometry}
-        ]
+        kind = "annotation" if hasattr(current, "annotation") else "candidate"
+        assert value == reads._validation_shapes(kind, current.geometry)
         assert content_key == current.reference["object_key"]
         content[content_key] = deepcopy(current.rle)
         events.append("physical-rle-close")
@@ -478,7 +477,7 @@ async def test_multi_mask_track_keeps_only_requested_rle_in_content_cache(monkey
         other_ref["object_key"]: (other_rle, other_fact),
     }
     masks.value[0]["geometry"]["keyframes"].append(
-        {"frame_index": 1, "mask": other_ref, "source": "manual"}
+        {"frame_index": 1, "mask": other_ref, "source": "prediction"}
     )
 
     async def owner(db, reference, *, lock=False):
@@ -500,6 +499,21 @@ async def test_multi_mask_track_keeps_only_requested_rle_in_content_cache(monkey
     assert len(facts) == 2
     assert raster_mask_objects.load.await_count == 2
     assert content == {other_ref["object_key"]: other_rle}
+
+
+def test_human_mask_keyframes_use_annotation_schema_without_relaxing_model_results():
+    from app.services.video_prediction_results import validate_saved_results
+
+    current = mask_world()
+    current.geometry["keyframes"][0]["source"] = "manual"
+    original = deepcopy(current.geometry)
+    with pytest.raises(ContentError):
+        validate_saved_results(reads._validation_shapes("candidate", original), probe())
+    validate_saved_results(reads._validation_shapes("annotation", original), probe())
+    assert original == current.geometry
+    original["keyframes"][0]["source"] = "unknown-source"
+    with pytest.raises(ContentError):
+        reads._validation_shapes("annotation", original)
 
 
 async def test_legacy_manual_annotation_dispatch_does_not_open_current_source(

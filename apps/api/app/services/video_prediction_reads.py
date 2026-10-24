@@ -225,6 +225,24 @@ def _requested(geometry, probe, frame_index):
     return deepcopy(resolved["mask"])
 
 
+def _validation_shapes(kind, geometry):
+    value = deepcopy(geometry)
+    if kind == "annotation":
+        from pydantic import ValidationError
+        from app.schemas._jsonb_types import VideoTrackMaskGeometry
+
+        try:
+            VideoTrackMaskGeometry.model_validate(value)
+        except (ValidationError, ValueError, TypeError):
+            _reject("prediction_video_mask_changed")
+        # Persisted human keyframes are legitimate annotations. Only the copy
+        # supplied to the shared prediction-budget validator changes; receipt
+        # fingerprints and final subject comparisons retain the real geometry.
+        for frame in value["keyframes"]:
+            frame["source"] = "prediction"
+    return [{"type": value["type"], "geometry": value}]
+
+
 async def _subject(db, task_id, kind, identifier, shape_index, *, lock=False):
     from app.services.prediction import to_internal_shape
 
@@ -303,7 +321,7 @@ async def _qualify(
         content = {}
         masks = await accept.qualify_mask_references(
             db,
-            [{"type": geometry["type"], "geometry": geometry}],
+            _validation_shapes(kind, geometry),
             probe,
             content=content,
             content_key=reference["object_key"],
@@ -345,7 +363,7 @@ async def _qualify(
         ):
             _reject("prediction_video_mask_changed")
         await accept.lock_mask_references(
-            db, [{"type": geometry["type"], "geometry": geometry}], probe, masks
+            db, _validation_shapes(kind, geometry), probe, masks
         )
         return _ReadReceipt(
             _ISSUER,
@@ -442,7 +460,7 @@ async def validate_geometry_receipt(db, task, receipt, geometry):
         _reject("prediction_video_mask_changed")
     await accept.lock_mask_references(
         db,
-        [{"type": geometry["type"], "geometry": geometry}],
+        _validation_shapes(receipt.kind, geometry),
         proof["probe"],
         json.loads(receipt.masks),
     )
