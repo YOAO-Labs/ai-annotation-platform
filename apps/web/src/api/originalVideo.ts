@@ -50,6 +50,9 @@ function current(owner: OriginalOwner, signal?: AbortSignal): string {
 }
 function resourcePath(resource: VideoOriginalResource): string {
   if (resource?.kind !== "task" && resource?.kind !== "item") invalid();
+  const identifiers =
+    resource.kind === "task" ? [resource.taskId] : [resource.datasetId, resource.itemId];
+  if (identifiers.some((value) => typeof value !== "string" || !UUID.test(value))) invalid();
   return originalResourcePath(resource);
 }
 function validateIdentity(path: string, value: OriginalIdentity): OriginalIdentity {
