@@ -24,6 +24,8 @@ vi.mock("./geometry/pointCloudComputeSession", async (importOriginal) => {
 
 import {
   acquireCameraBitmap,
+  cancelPointCloudFramePrefetch,
+  getPointCloudAssetCacheDiagnostics,
   loadPointCloudDepthRasters,
   loadPointCloudBuffer,
   loadTimedDecodedPointCloudFrame,
@@ -697,5 +699,64 @@ describe("pointCloudAssetCache", () => {
     finish(await new Response(new Uint8Array([3])).blob());
     await expect(active).resolves.toEqual(new Uint8Array([3]).buffer);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("recovers a cache first observed during an incomplete cross-tab credential pair", async () => {
+    useAuthStore.getState().setAuth("before-refresh", { id: "account" } as never);
+    const key = originals.originalOwnerKey();
+    localStorage.setItem("token", "after-refresh");
+    expect(originals.captureOriginalOwner()).toBeNull();
+    getPointCloudAssetCacheDiagnostics();
+    useAuthStore.getState().setToken("after-refresh");
+    expect(originals.originalOwnerKey()).toBe(key);
+    const read = vi
+      .spyOn(originals, "readOriginalBytes")
+      .mockResolvedValue(await new Response(new Uint8Array([7])).blob());
+    const url = `/api/v1/files/tasks/11111111-1111-4111-8111-111111111111/original?content_id=22222222-2222-4222-8222-222222222222&sha256=${"b".repeat(64)}`;
+    await expect(loadPointCloudBuffer(url)).resolves.toEqual(new Uint8Array([7]).buffer);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels speculative consumers on workbench disposal without cancelling a joined foreground read", async () => {
+    let finish!: (response: Response) => void;
+    let transportSignal: AbortSignal | undefined;
+    const fetcher = vi.fn().mockImplementation(
+      (_url, init: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+          transportSignal = init.signal ?? undefined;
+        }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const url = "https://assets.test/disposed-prefetch.pcd";
+    const prefetch = prefetchPointCloudFrameAssets({
+      point_cloud_url: url,
+      cameras: [],
+    } as unknown as TaskPointCloudManifestResponse);
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    const active = loadPointCloudBuffer(url);
+    cancelPointCloudFramePrefetch();
+    await expect(prefetch).resolves.toBeUndefined();
+    expect(transportSignal?.aborted).toBe(false);
+    finish(new Response(new Uint8Array([8])));
+    await expect(active).resolves.toEqual(new Uint8Array([8]).buffer);
+  });
+
+  it("aborts an unshared speculative transport when its workbench is disposed", async () => {
+    let transportSignal: AbortSignal | undefined;
+    const fetcher = vi.fn().mockImplementation(
+      (_url, init: RequestInit) =>
+        new Promise<Response>(() => {
+          transportSignal = init.signal ?? undefined;
+        }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const prefetch = prefetchPointCloudFrameAssets({
+      point_cloud_url: "https://assets.test/disposed-unshared.pcd",
+      cameras: [],
+    } as unknown as TaskPointCloudManifestResponse);
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    cancelPointCloudFramePrefetch();
+    await expect(prefetch).resolves.toBeUndefined();
+    expect(transportSignal?.aborted).toBe(true);
   });
 });

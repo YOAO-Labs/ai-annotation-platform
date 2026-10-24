@@ -1,3 +1,4 @@
+import { cancelPointCloudFramePrefetch } from "./pointCloudAssetCache";
 import { originalOwnerKey } from "@/api/originals";
 import { useOriginalAssetOwner } from "./useOriginalAssetOwner";
 import { CopyableError } from "@/components/ui/CopyableError";
@@ -382,7 +383,13 @@ export function ThreeDWorkbench({
   const dockLayout = useWorkbench3DLayout();
   const [cameraResetKey, setCameraResetKey] = useState(0);
   const originalOwner = useOriginalAssetOwner();
-  useEffect(() => retainPointCloudComputeSession(), [originalOwner]);
+  useEffect(() => {
+    const release = retainPointCloudComputeSession();
+    return () => {
+      cancelPointCloudFramePrefetch();
+      release();
+    };
+  }, [originalOwner]);
   const manifestQuery = usePointCloudManifest(taskId, true);
   const { data: manifest, isLoading, error } = manifestQuery;
   const retainedManifestRef = useRef({ owner: originalOwner, manifest });

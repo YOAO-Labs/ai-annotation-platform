@@ -79,11 +79,12 @@ function retire(state: OwnerCache) {
 }
 function stateForOwner(): OwnerCache {
   const key = originalOwnerKey();
-  if (!current || current.key !== key) {
+  const owner = captureOriginalOwner();
+  if (!current || current.key !== key || (!current.owner && owner)) {
     if (current) retire(current);
     current = {
       key,
-      owner: captureOriginalOwner(),
+      owner,
       retired: false,
       buffers: new Map(),
       frames: new Map(),
@@ -339,6 +340,11 @@ export async function loadTimedDecodedPointCloudFrame(
   } finally {
     if (state.active === controller) state.active = null;
   }
+}
+/** Drop speculative consumers when their workbench unmounts; shared active readers stay alive. */
+export function cancelPointCloudFramePrefetch(): void {
+  current?.prefetch?.abort();
+  if (current) current.prefetch = null;
 }
 export function cancelActivePointCloudFrameLoad(): void {
   current?.active?.abort();
