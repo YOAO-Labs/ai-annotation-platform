@@ -35,6 +35,7 @@ from tests.identity_module_assembly_helpers import (
     IdentityModuleStack,
     _expected_secret_mount_names,
     _identity_optional_secret_selectors,
+    asyncpg_connection_url,
     verifier_database_url,
 )
 from tests.identity_recovery_live_helpers import SMTPInbox
@@ -75,7 +76,11 @@ def test_verifier_role_database_url_is_bound_to_owned_test_database(role, contai
         database="notifications_fixture_test",
     )
     supplied = URL.create(
-        "postgresql",
+        (
+            "postgresql+asyncpg"
+            if role == "identity_actor_status_client"
+            else "postgresql"
+        ),
         username=role,
         password="scoped-secret",
         host="127.0.0.1",
@@ -96,7 +101,35 @@ def test_verifier_role_database_url_is_bound_to_owned_test_database(role, contai
         "notifications_fixture_test",
         role,
     )
+    assert bound.drivername == "postgresql"
     assert bound.password == "scoped-secret"
+
+
+def test_asyncpg_connection_url_normalizes_scheme_without_changing_credentials():
+    supplied = URL.create(
+        "postgresql+asyncpg",
+        username="identity_actor_status_client",
+        password="scoped-secret",
+        host="127.0.0.1",
+        port=55432,
+        database="notifications_fixture_test",
+    )
+
+    normalized = asyncpg_connection_url(supplied)
+
+    assert normalized.drivername == "postgresql"
+    assert (
+        normalized.host,
+        normalized.port,
+        normalized.database,
+        normalized.username,
+    ) == (
+        "127.0.0.1",
+        55432,
+        "notifications_fixture_test",
+        "identity_actor_status_client",
+    )
+    assert normalized.password == "scoped-secret"
 
 
 @pytest.mark.parametrize(
@@ -276,7 +309,9 @@ async def _assert_role_capabilities(
 ) -> None:
     from aap_owner_data.postgres import verify_function_only_role
 
-    connection = await asyncpg.connect(dsn, timeout=5)
+    connection = await asyncpg.connect(
+        asyncpg_connection_url(dsn).render_as_string(hide_password=False), timeout=5
+    )
     try:
         assert await connection.fetchval("SELECT session_user") == expected_role
         if expected_role == "identity_actor_status_client":

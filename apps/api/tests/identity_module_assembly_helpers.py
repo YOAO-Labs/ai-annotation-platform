@@ -191,6 +191,19 @@ _READY_PROBE = (
 )
 
 
+def asyncpg_connection_url(value: str | URL) -> URL:
+    """Normalize supported SQLAlchemy PostgreSQL URLs for asyncpg.connect."""
+    try:
+        url = make_url(value)
+        if url.drivername not in {"postgresql", "postgresql+asyncpg"}:
+            raise ValueError
+        return url.set(drivername="postgresql")
+    except (ArgumentError, TypeError, ValueError):
+        raise RuntimeError(
+            "Verifier role DSN is not an asyncpg PostgreSQL URL"
+        ) from None
+
+
 def verifier_database_url(
     value: str,
     reference_url: URL,
@@ -213,7 +226,7 @@ def verifier_database_url(
             or not container_name
         ):
             raise ValueError
-        return url.set(host=container_name, port=5432)
+        return asyncpg_connection_url(url).set(host=container_name, port=5432)
     except (ArgumentError, TypeError, ValueError):
         raise RuntimeError(
             "Verifier role DSN does not match the disposable database"
