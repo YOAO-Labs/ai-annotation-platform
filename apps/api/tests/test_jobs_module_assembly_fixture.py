@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import uuid
 import pytest
 
 from tests.identity_module_assembly_helpers import (
@@ -10,6 +12,10 @@ from tests.identity_module_assembly_helpers import (
     _expected_secret_mount_names,
     validate_jobs_queue_broker_url,
     validate_jobs_queue_image_inputs,
+)
+from tests.test_jobs_module_assembly_live import (
+    _JOBS_API_ROW_ACCESS_PROBE,
+    _assert_api_row_access_probe,
 )
 from tests.workspace_worker_assembly_helpers import _worker_queue_name
 
@@ -135,3 +141,87 @@ def test_workspace_worker_only_allows_explicit_default_queue_opt_in():
     assert _worker_queue_name("owned-worker", "default") == "default"
     with pytest.raises(ValueError):
         _worker_queue_name("owned-worker", "some-other-queue")
+
+
+def _row_access_probe_evidence(**changes):
+    return {
+        "ok": True,
+        "protocols": ["aap-jobs-lifecycle/v1", "aap-jobs-row-locks/v1"],
+        "role_match": True,
+        "database_match": True,
+        "function_calls": {
+            "read_job": 1,
+            "read_job_for_share_nowait": 1,
+            "read_job_for_update": 1,
+        },
+        "private_table_from": 0,
+        "partial_refresh": True,
+        "same_orm_identity": True,
+        **changes,
+    }
+
+
+class _RowAccessProbeStack:
+    def __init__(self, evidence, *, actual_container_id="owned-api"):
+        self.evidence = evidence
+        self.actual_container_id = actual_container_id
+        self.service_ids = {"identity-api": "owned-api"}
+        self.calls = []
+        self.command = None
+
+    def _verify_project_ownership(self):
+        self.calls.append("verify")
+        return {"identity-api": {"Id": self.actual_container_id}}
+
+    def _docker(self, arguments, *, operation, timeout):
+        self.calls.append("docker")
+        self.command = arguments
+        self.operation = operation
+        self.timeout = timeout
+        return json.dumps(self.evidence)
+
+    @staticmethod
+    def redact(value):
+        return value
+
+
+def test_api_row_access_probe_execs_only_verified_container_with_isolated_python():
+    compile(_JOBS_API_ROW_ACCESS_PROBE, "<jobs row-access probe>", "exec")
+    stack = _RowAccessProbeStack(_row_access_probe_evidence())
+    job_id = uuid.uuid4()
+
+    evidence = _assert_api_row_access_probe(
+        stack, job_id=job_id, database="restored_test"
+    )
+
+    assert stack.calls == ["verify", "docker"]
+    assert stack.command[:5] == ["exec", "owned-api", "python", "-I", "-c"]
+    assert stack.command[5] == _JOBS_API_ROW_ACCESS_PROBE
+    assert stack.command[6:] == [str(job_id), "restored_test"]
+    assert stack.operation == "Jobs row-access probe"
+    assert stack.timeout == 60
+    assert evidence["private_table_from"] == 0
+
+
+def test_api_row_access_probe_rejects_unowned_container_before_exec():
+    stack = _RowAccessProbeStack(
+        _row_access_probe_evidence(), actual_container_id="foreign-api"
+    )
+
+    with pytest.raises(AssertionError, match="owned API container"):
+        _assert_api_row_access_probe(
+            stack, job_id=uuid.uuid4(), database="restored_test"
+        )
+
+    assert stack.calls == ["verify"]
+
+
+def test_api_row_access_probe_rejects_private_table_reads():
+    stack = _RowAccessProbeStack(_row_access_probe_evidence(private_table_from=1))
+
+    with pytest.raises(AssertionError):
+        _assert_api_row_access_probe(
+            stack, job_id=uuid.uuid4(), database="restored_test"
+        )
+
+    assert stack.calls == ["verify", "docker"]

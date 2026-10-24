@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
+import json
 import os
 import secrets
 import time
@@ -192,6 +193,205 @@ async def _request_cross_frame(client, headers, world):
         headers=headers,
         json=_cross_frame_body(world),
     )
+
+
+_JOBS_API_ROW_ACCESS_PROBE = """\
+import asyncio
+import json
+import re
+import sys
+import uuid
+
+def _sqlstate(error):
+    seen = set()
+    current = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        value = getattr(current, "sqlstate", None) or getattr(current, "pgcode", None)
+        if value:
+            return value
+        current = getattr(current, "orig", None) or getattr(current, "__cause__", None)
+    return None
+
+def _count(statements, fragment):
+    return sum(fragment in statement.lower() for statement in statements)
+
+async def _run():
+    sys.path.insert(0, "/app")
+    from sqlalchemy import event, inspect, text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from aap_jobs.lifecycle_contract import JOBS_LIFECYCLE_PROTOCOL
+    from aap_jobs.row_lock_contract import JOBS_ROW_LOCK_PROTOCOL
+    from app.config import settings
+    from app.services import async_job
+    from app.services.jobs_lifecycle_data import job_lock_statement
+
+    job_id = uuid.UUID(sys.argv[1])
+    expected_database = sys.argv[2]
+    engine = create_async_engine(settings.database_url, hide_parameters=True)
+    statements = []
+
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", capture)
+    try:
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as db:
+            await db.begin()
+            role, database = (
+                await db.execute(text("SELECT current_user, current_database()"))
+            ).one()
+            if (
+                role != "identity_api_consumer"
+                or database != expected_database
+                or not database.endswith("_test")
+            ):
+                raise RuntimeError("database_identity")
+
+            row = await db.scalar(
+                job_lock_statement(job_id, mode="share_nowait", populate_existing=True)
+            )
+            if row is None or row.status != "completed":
+                raise RuntimeError("share_row")
+            original_result = row.result
+
+            db.expire(row, ["updated_at"])
+            read_calls_before = _count(statements, "aap_jobs_v1.read_job(")
+            refreshed = await async_job.get_job(db, job_id, populate_existing=True)
+            read_calls_after = _count(statements, "aap_jobs_v1.read_job(")
+            partial_refresh = (
+                refreshed is row
+                and refreshed.result == original_result
+                and "updated_at" not in inspect(refreshed).expired_attributes
+                and read_calls_after == read_calls_before + 1
+            )
+            if not partial_refresh:
+                raise RuntimeError("partial_refresh")
+
+            locked = await db.scalar(
+                job_lock_statement(job_id, mode="update", populate_existing=True)
+            )
+            same_identity = locked is row and locked.result == original_result
+            if not same_identity:
+                raise RuntimeError("update_row")
+            await db.rollback()
+
+        lowered = [statement.lower() for statement in statements]
+        function_calls = {
+            "read_job": _count(lowered, "aap_jobs_v1.read_job("),
+            "read_job_for_share_nowait": sum(
+                "aap_jobs_v1.read_job_for_share_nowait(" in statement for statement in lowered
+            ),
+            "read_job_for_update": sum(
+                "aap_jobs_v1.read_job_for_update(" in statement for statement in lowered
+            ),
+        }
+        private_table_from = sum(
+            bool(re.search(r"\\bfrom\\s+(?:public\\.)?async_jobs\\b", statement))
+            for statement in lowered
+        )
+        if function_calls != {
+            "read_job": 1,
+            "read_job_for_share_nowait": 1,
+            "read_job_for_update": 1,
+        } or private_table_from:
+            raise RuntimeError("sql_surface")
+        return {
+            "ok": True,
+            "protocols": [JOBS_LIFECYCLE_PROTOCOL, JOBS_ROW_LOCK_PROTOCOL],
+            "role_match": True,
+            "database_match": True,
+            "function_calls": function_calls,
+            "private_table_from": private_table_from,
+            "partial_refresh": partial_refresh,
+            "same_orm_identity": same_identity,
+        }
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", capture)
+        await engine.dispose()
+
+try:
+    result = asyncio.run(_run())
+except Exception as error:
+    result = {"ok": False, "error": type(error).__name__, "sqlstate": _sqlstate(error)}
+print(json.dumps(result, separators=(",", ":")))
+"""
+
+
+def _assert_api_row_access_probe(
+    stack: IdentityModuleStack, *, job_id: uuid.UUID, database: str
+) -> dict:
+    try:
+        containers = stack._verify_project_ownership()
+    except Exception as error:
+        message = (
+            f"Jobs row-access ownership check failed: {type(error).__name__}: {error}"
+        )
+        raise AssertionError(stack.redact(message)) from None
+    api_container = containers.get("identity-api")
+    container_id = stack.service_ids.get("identity-api")
+    if (
+        api_container is None
+        or not container_id
+        or api_container.get("Id") != container_id
+    ):
+        raise AssertionError(
+            "Jobs row-access probe did not resolve the owned API container"
+        )
+
+    try:
+        output = stack._docker(
+            [
+                "exec",
+                container_id,
+                "python",
+                "-I",
+                "-c",
+                _JOBS_API_ROW_ACCESS_PROBE,
+                str(job_id),
+                database,
+            ],
+            operation="Jobs row-access probe",
+            timeout=60,
+        )
+    except Exception as error:
+        message = (
+            f"Jobs row-access container probe failed: {type(error).__name__}: {error}"
+        )
+        raise AssertionError(stack.redact(message)) from None
+    safe_output = stack.redact(output)
+    try:
+        evidence = json.loads(safe_output)
+    except json.JSONDecodeError:
+        raise AssertionError("Jobs row-access probe returned invalid JSON") from None
+    assert evidence.get("ok") is True, safe_output
+    assert evidence["protocols"] == ["aap-jobs-lifecycle/v1", "aap-jobs-row-locks/v1"]
+    assert evidence["role_match"] is True
+    assert evidence["database_match"] is True
+    assert evidence["function_calls"] == {
+        "read_job": 1,
+        "read_job_for_share_nowait": 1,
+        "read_job_for_update": 1,
+    }
+    assert evidence["private_table_from"] == 0
+    assert evidence["partial_refresh"] is True
+    assert evidence["same_orm_identity"] is True
+    return evidence
+
+
+async def _assert_completed_job_http_read(client, headers, job_id, *, redact):
+    response = await client.get(f"/api/v1/async-jobs/{job_id}", headers=headers)
+    assert response.status_code == 200, redact(response.text)
+    result = response.json()
+    assert result["id"] == str(job_id)
+    assert result["status"] == AsyncJobStatus.COMPLETED.value
+    assert result["result"]["created_annotation_count"] == 1
+    return {
+        "http_status": response.status_code,
+        "job_status": result["status"],
+        "created_annotation_count": result["result"]["created_annotation_count"],
+    }
 
 
 async def test_cold_jobs_queue_dispatch_revoke_and_restore(
@@ -395,6 +595,27 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 {"ack": first_ack, "task_signature": signature},
             )
 
+            row_access_before_restore = _assert_api_row_access_probe(
+                stack,
+                job_id=completed_job.id,
+                database=str(test_engine.url.database),
+            )
+            record_property(
+                "jobs_api_container_row_access_before_restore",
+                row_access_before_restore,
+            )
+            async with httpx.AsyncClient(
+                base_url=stack.api_origin,
+                trust_env=False,
+                timeout=40,
+            ) as client:
+                record_property(
+                    "jobs_api_http_read_before_restore",
+                    await _assert_completed_job_http_read(
+                        client, headers, completed_job.id, redact=stack.redact
+                    ),
+                )
+
             worker.stop()
             worker = None
             _assert_owned_broker_target(sender)
@@ -494,6 +715,24 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                                 clone_engine, restored_world["target_task_ids"]
                             )
                             == 1
+                        )
+                        row_access_after_restore = _assert_api_row_access_probe(
+                            stack,
+                            job_id=completed_restored_job.id,
+                            database=restored_database,
+                        )
+                        record_property(
+                            "jobs_api_container_row_access_after_restore",
+                            row_access_after_restore,
+                        )
+                        record_property(
+                            "jobs_api_http_read_after_restore",
+                            await _assert_completed_job_http_read(
+                                client,
+                                restored_headers,
+                                completed_restored_job.id,
+                                redact=stack.redact,
+                            ),
                         )
                         record_property("jobs_queue_after_full_restore", restored_ack)
 
