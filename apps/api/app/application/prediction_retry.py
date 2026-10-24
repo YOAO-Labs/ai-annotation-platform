@@ -17,7 +17,7 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
 from app.db.models.prediction import FailedPrediction
 from app.schemas.async_job import AsyncJobRetryFailedResponse
-from app.services import prediction as prediction_service
+from app.services import async_job as jobs, prediction as prediction_service
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.pipeline_validation import resolve_preannotate_queue
 from app.services.prediction_retry import MAX_RETRY_COUNT, PredictionRetryDispatcher
@@ -40,7 +40,6 @@ class SqlPredictionRetry(PredictionRetryPort):
             PredictionRetryFailure,
         )
         from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
-        from app.services import async_job as jobs
         from app.db.models.task import Task
 
         try:
@@ -144,7 +143,7 @@ class SqlPredictionRetry(PredictionRetryPort):
     ) -> AsyncJobRetryFailedResponse:
         try:
             db = self._db
-            job = await db.get(AsyncJob, job_id)
+            job = await jobs.get_job(db, job_id)
             if job is None:
                 raise HTTPException(status_code=404, detail="async_job not found")
             if job.project_id is not None:

@@ -11,7 +11,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.db.enums import PlatformRole
-from app.db.models.async_job import AsyncJob, AsyncJobKind
+from app.db.models.async_job import AsyncJobKind
 from app.services import async_job_access, batch, project_access, task_lock
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 
@@ -285,7 +285,6 @@ async def test_batch_actor_scope_does_not_hydrate_user(monkeypatch):
         execute=AsyncMock(
             side_effect=[
                 _Rows([project_id]),
-                Mock(),
                 _Rows([batch_row]),
                 _Rows([]),
             ]
@@ -296,7 +295,9 @@ async def test_batch_actor_scope_does_not_hydrate_user(monkeypatch):
     active_guard = AsyncMock(return_value=True)
     resolve_access = AsyncMock(return_value=SimpleNamespace(is_manager=True))
     project_reader = AsyncMock(return_value=project)
+    project_lock = AsyncMock(return_value=[project_id])
     monkeypatch.setattr(batch, "get_workspace_project", project_reader)
+    monkeypatch.setattr(batch, "lock_project_references_for_update", project_lock)
     monkeypatch.setattr(task_lock, "assert_task_user_active", active_guard)
     monkeypatch.setattr(
         "app.services.annotation_evidence.lock_tasks_for_evidence", AsyncMock()
@@ -309,6 +310,7 @@ async def test_batch_actor_scope_does_not_hydrate_user(monkeypatch):
         batch_id: batch_row
     }
     active_guard.assert_awaited_once_with(db, actor_id)
+    project_lock.assert_awaited_once_with(db, [project_id])
     db.get.assert_not_awaited()
     project_reader.assert_awaited_once_with(
         db, project_id=project_id, populate_existing=True
@@ -354,11 +356,14 @@ async def test_async_job_access_uses_unlocked_status(
         user_id=job_owner,
     )
     data = _identity_adapter(monkeypatch, async_job_access, status=actor)
-    db = SimpleNamespace(get=AsyncMock(return_value=job))
+    db = SimpleNamespace(get=AsyncMock())
+    get_job = AsyncMock(return_value=job)
+    monkeypatch.setattr(async_job_access.jobs, "get_job", get_job)
 
     assert (
         await async_job_access._can_access_job(db, job=job, actor_id=actor_id)
     ) is expected
     data.read_actor_status.assert_awaited_once_with(actor_id)
     data.lock_accounts.assert_not_awaited()
-    db.get.assert_awaited_once_with(AsyncJob, job.id, populate_existing=True)
+    get_job.assert_awaited_once_with(db, job.id, populate_existing=True)
+    db.get.assert_not_awaited()

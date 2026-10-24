@@ -16,7 +16,7 @@ from app.db.models.project import Project
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.schemas.async_job import AsyncJobListResponse, AsyncJobOut
-from app.services import async_job_access
+from app.services import async_job as jobs, async_job_access
 from app.services.project_aggregates import project_scope_clause
 from app.services.workspace_read_relations import project_search_scope
 from app.services.jobs_list_query_data import JobsListQueryPostgresData
@@ -176,7 +176,7 @@ class SqlAsyncJobReadAdapter:
     async def get_job(
         self, *, job_id: uuid.UUID, actor_id: uuid.UUID
     ) -> AsyncJobOut | None:
-        job = await self._db.get(AsyncJob, job_id, populate_existing=True)
+        job = await jobs.get_job(self._db, job_id, populate_existing=True)
         if job is None:
             return None
         if not await async_job_access._can_access_job(

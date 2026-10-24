@@ -32,7 +32,7 @@ async def test_protocol_import_uses_native_cancel_for_another_owners_job(monkeyp
     job = _job(payload={"import_protocol": DATASET_IMPORT_PROTOCOL})
     admin_id = uuid.uuid4()
     db = AsyncMock(spec=AsyncSession)
-    db.get.return_value = job
+    monkeypatch.setattr("app.services.async_job.get_job", AsyncMock(return_value=job))
     native_cancel = AsyncMock(return_value=SimpleNamespace(stage="cancelled"))
     generic_access = AsyncMock(return_value=False)
     monkeypatch.setattr(DatasetImportCapabilities, "cancel", native_cancel)
@@ -52,7 +52,11 @@ async def test_legacy_import_cancel_keeps_generic_owner_authorization(monkeypatc
     job = _job()
     actor_id = uuid.uuid4()
     db = AsyncMock(spec=AsyncSession)
-    db.get.side_effect = [job, SimpleNamespace(is_active=True)]
+    monkeypatch.setattr("app.services.async_job.get_job", AsyncMock(return_value=job))
+    monkeypatch.setattr(
+        "app.application.job_cancellation.IdentityAccountLockData.read_actor_status",
+        AsyncMock(return_value=SimpleNamespace(is_active=True)),
+    )
     native_cancel = AsyncMock()
     generic_access = AsyncMock(return_value=False)
     monkeypatch.setattr(DatasetImportCapabilities, "cancel", native_cancel)
@@ -74,7 +78,7 @@ async def test_legacy_import_cancel_keeps_existing_generic_transition(monkeypatc
     job = _job(payload={"old_import_payload": True})
     actor_id = job.user_id
     db = AsyncMock(spec=AsyncSession)
-    db.get.return_value = job
+    monkeypatch.setattr("app.services.async_job.get_job", AsyncMock(return_value=job))
     native_cancel = AsyncMock()
     generic_access = AsyncMock(return_value=True)
     mark_cancelled = AsyncMock()

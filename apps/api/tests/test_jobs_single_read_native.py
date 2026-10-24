@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
+import os
 import re
 
 import pytest
-from sqlalchemy import event, select
+from sqlalchemy import event, select, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 
 from app.application.async_job_contracts import AsyncJobOperationFailure
 from app.application.async_job_read import SqlAsyncJobReadAdapter
@@ -16,6 +19,40 @@ from app.db.models.notification import Notification
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from tests.factory import create_project
+
+
+@asynccontextmanager
+async def _without_private_job_select(db_session):
+    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        pytest.skip("requires the verifier-owned API role and disposable database")
+    url = make_url(os.environ["AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL"])
+    target = db_session.bind.engine.url
+    assert (url.host, url.port, url.database) == (
+        target.host,
+        target.port,
+        target.database,
+    )
+    assert url.database.endswith("_test")
+    assert url.username == "identity_api_consumer"
+    # The test's outer transaction rolls back this ACL change with its seed rows.
+    await db_session.execute(
+        text("REVOKE SELECT ON public.async_jobs FROM identity_api_consumer")
+    )
+    await db_session.execute(text("SET LOCAL ROLE identity_api_consumer"))
+    try:
+        assert not await db_session.scalar(
+            text(
+                "SELECT pg_catalog.has_any_column_privilege("
+                "current_user, 'public.async_jobs', 'SELECT')"
+            )
+        )
+        with pytest.raises(DBAPIError) as denied:
+            async with db_session.begin_nested():
+                await db_session.execute(text("SELECT id FROM public.async_jobs"))
+        assert denied.value.orig.sqlstate == "42501"
+        yield
+    finally:
+        await db_session.execute(text("RESET ROLE"))
 
 
 @contextmanager
@@ -69,10 +106,11 @@ async def test_detail_authorization_reads_job_through_jobs_owner(db_session, ann
     job_id = job.id
     db_session.expunge(job)
 
-    with _sql_capture(db_session) as statements:
-        result = await SqlAsyncJobReadAdapter(db_session).get_job(
-            job_id=job_id, actor_id=actor.id
-        )
+    async with _without_private_job_select(db_session):
+        with _sql_capture(db_session) as statements:
+            result = await SqlAsyncJobReadAdapter(db_session).get_job(
+                job_id=job_id, actor_id=actor.id
+            )
 
     assert result is not None
     assert result.id == job_id
@@ -97,11 +135,12 @@ async def test_cancel_reads_job_through_jobs_owner_and_keeps_terminal_notice(
     job_id = job.id
     db_session.expunge(job)
 
-    with _sql_capture(db_session) as statements:
-        outcome = await SqlJobCancellation(
-            db_session, execution_control=_UnusedExecutionControl()
-        ).cancel(job_id=job_id, actor_id=actor.id)
-        await db_session.flush()
+    async with _without_private_job_select(db_session):
+        with _sql_capture(db_session) as statements:
+            outcome = await SqlJobCancellation(
+                db_session, execution_control=_UnusedExecutionControl()
+            ).cancel(job_id=job_id, actor_id=actor.id)
+            await db_session.flush()
 
     assert outcome == "cancelled"
     _assert_jobs_owner_read(statements)
@@ -132,11 +171,12 @@ async def test_retry_scope_denial_reads_job_through_jobs_owner(
     job_id = job.id
     db_session.expunge(job)
 
-    with _sql_capture(db_session) as statements:
-        with pytest.raises(AsyncJobOperationFailure) as denied:
-            await SqlPredictionRetry(
-                db_session, dispatcher=_UnusedRetryDispatcher()
-            ).retry_job_items(job_id=job_id, actor_id=actor.id)
+    async with _without_private_job_select(db_session):
+        with _sql_capture(db_session) as statements:
+            with pytest.raises(AsyncJobOperationFailure) as denied:
+                await SqlPredictionRetry(
+                    db_session, dispatcher=_UnusedRetryDispatcher()
+                ).retry_job_items(job_id=job_id, actor_id=actor.id)
 
     assert denied.value.status_code == 403
     assert denied.value.detail == "not your job"
@@ -161,9 +201,10 @@ async def test_terminal_notification_reads_job_through_jobs_owner(
     job_id = job.id
     db_session.expunge(job)
 
-    with _sql_capture(db_session) as statements:
-        await notify_job_terminal(db_session, job_id=job_id)
-        await db_session.flush()
+    async with _without_private_job_select(db_session):
+        with _sql_capture(db_session) as statements:
+            await notify_job_terminal(db_session, job_id=job_id)
+            await db_session.flush()
 
     _assert_jobs_owner_read(statements)
     notice = await db_session.scalar(

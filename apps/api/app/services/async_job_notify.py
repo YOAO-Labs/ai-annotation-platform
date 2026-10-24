@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
+from app.services import async_job as jobs
 from app.services.notification import NotificationService
 
 
@@ -136,7 +137,7 @@ async def notify_job_terminal(db: AsyncSession, *, job_id: uuid.UUID) -> None:
     the job state transition.
     """
     try:
-        job = await db.get(AsyncJob, job_id)
+        job = await jobs.get_job(db, job_id)
         if job is None:
             return
         if job.user_id is None:

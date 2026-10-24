@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.enums import PlatformRole, ProjectRole
 from app.services.project_access import get_workspace_project
 from app.db.models.async_job import AsyncJob, AsyncJobKind
-from app.services import task_access
+from app.services import async_job as jobs, task_access
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from aap_workspace_contract.access import ProjectCapability
 from app.services.project_access import resolve_project_access
@@ -24,7 +24,7 @@ async def _can_access_job(
     db: AsyncSession, *, job: AsyncJob, actor_id: uuid.UUID
 ) -> bool:
     """Reauthorize job ownership and frozen task scope against current project access."""
-    job = await db.get(AsyncJob, job.id, populate_existing=True)
+    job = await jobs.get_job(db, job.id, populate_existing=True)
     if job is None:
         return False
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
