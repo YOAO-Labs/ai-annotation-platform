@@ -292,15 +292,15 @@ async def test_insert_rejects_json_null_or_missing_envelope(owned_db, bad):
 async def test_insert_requires_receipt_retention_and_consistent_lifecycle(
     owned_db, changes
 ):
-    expected = (
-        DBAPIError
-        if changes.get("file_name") == "x" * 256
-        else (IntegrityError, DataError)
+    column_overflow = (
+        changes.get("file_name") == "x" * 256
+        or changes.get("mime_type") == "x/" + "a" * 127
     )
+    expected = DBAPIError if column_overflow else (IntegrityError, DataError)
     with pytest.raises(expected) as rejected:
         async with owned_db.begin_nested():
             await create(owned_db, **changes)
-    if changes.get("file_name") == "x" * 256:
+    if column_overflow:
         assert rejected.value.orig.sqlstate == "22001"
 
 
