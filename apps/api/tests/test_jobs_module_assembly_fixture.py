@@ -7,9 +7,33 @@ import pytest
 from tests.identity_module_assembly_helpers import (
     IdentityModuleStack,
     _expected_secret_mount_names,
+    validate_jobs_queue_broker_url,
     validate_jobs_queue_image_inputs,
 )
 from tests.workspace_worker_assembly_helpers import _worker_queue_name
+
+
+@pytest.mark.parametrize(
+    "broker", ["redis://127.0.0.1:46379/0", "redis://worker:secret@127.0.0.1:46379/0"]
+)
+def test_jobs_broker_accepts_owned_authenticated_or_password_free_local_target(broker):
+    assert (
+        validate_jobs_queue_broker_url(broker, "redis://127.0.0.1:46379/0", "token")
+        == broker
+    )
+
+
+@pytest.mark.parametrize(
+    "broker,token",
+    [
+        ("redis://other:46379/0", "token"),
+        ("redis://127.0.0.1:46379/1", "token"),
+        ("redis://worker:token@127.0.0.1:46379/0", "token"),
+    ],
+)
+def test_jobs_broker_rejects_foreign_target_or_reused_bearer(broker, token):
+    with pytest.raises(ValueError):
+        validate_jobs_queue_broker_url(broker, "redis://127.0.0.1:46379/0", token)
 
 
 def test_jobs_queue_image_requires_complete_source_bound_inputs():

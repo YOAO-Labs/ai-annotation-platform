@@ -313,6 +313,20 @@ def validate_jobs_queue_image_inputs(
     return True
 
 
+def validate_jobs_queue_broker_url(value: str, reference: str, token: str) -> str:
+    broker, owner = make_url(value), make_url(reference)
+    if (broker.drivername, broker.host, broker.port, broker.database) != (
+        owner.drivername,
+        owner.host,
+        owner.port,
+        owner.database,
+    ):
+        raise ValueError("Jobs queue broker must use the verifier-owned Redis DB")
+    if broker.password is not None and token == broker.password:
+        raise ValueError("Jobs queue bearer must be distinct from broker credentials")
+    return broker.render_as_string(hide_password=False)
+
+
 class IdentityModuleStack:
     """Run the existing Identity Compose services plus one isolated API image."""
 
@@ -460,34 +474,13 @@ class IdentityModuleStack:
         )
         self._jobs_queue_broker_url = None
         if self._jobs_queue_enabled:
-            broker_url = make_url(
+            broker_url = validate_jobs_queue_broker_url(
                 os.environ.get("CELERY_BROKER_URL")
-                or self._required_environment("REDIS_URL")
+                or self._required_environment("REDIS_URL"),
+                self._required_environment("REDIS_URL"),
+                jobs_queue_token,
             )
-            redis_owner_url = make_url(self._required_environment("REDIS_URL"))
-            if (
-                broker_url.drivername,
-                broker_url.host,
-                broker_url.port,
-                broker_url.database,
-            ) != (
-                redis_owner_url.drivername,
-                redis_owner_url.host,
-                redis_owner_url.port,
-                redis_owner_url.database,
-            ):
-                raise ValueError(
-                    "Jobs queue broker must use the verifier-owned Redis DB"
-                )
-            if not broker_url.password:
-                raise ValueError("Jobs queue broker credentials are required")
-            self._jobs_queue_broker_url = self._docker_url(
-                broker_url.render_as_string(hide_password=False)
-            )
-            if jobs_queue_token == broker_url.password:
-                raise ValueError(
-                    "Jobs queue bearer must be distinct from broker credentials"
-                )
+            self._jobs_queue_broker_url = self._docker_url(broker_url)
         self._notifications_socket_redis_url = (
             self._docker_url(notifications_socket_redis_url)
             if notifications_socket_redis_url is not None
