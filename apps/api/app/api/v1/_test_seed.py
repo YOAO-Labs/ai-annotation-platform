@@ -388,17 +388,23 @@ async def _try_fixture_delete(db, sql: str, params: dict | None = None) -> None:
     import logging
 
     log = logging.getLogger("anno-api.seed_cleanup")
+    jobs_fixture_delete = (
+        sql == "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))"
+    )
     try:
         async with db.begin_nested():
             result = await db.execute(text(sql), params or {})
-            if sql.startswith("SELECT aap_workspace_fixture_v1."):
+            if (
+                sql.startswith("SELECT aap_workspace_fixture_v1.")
+                or jobs_fixture_delete
+            ):
                 decode_fixture_count(result.scalar_one())
     except WorkspaceE2EFixtureUnavailable:
         raise HTTPException(
             status_code=503, detail="项目测试清理服务暂不可用"
         ) from None
     except Exception as exc:
-        if sql.startswith("SELECT aap_workspace_fixture_v1."):
+        if sql.startswith("SELECT aap_workspace_fixture_v1.") or jobs_fixture_delete:
             original = getattr(exc, "orig", exc)
             state = getattr(original, "sqlstate", None) or getattr(
                 original, "pgcode", None
@@ -418,6 +424,10 @@ async def _try_fixture_delete(db, sql: str, params: dict | None = None) -> None:
         if _is_transaction_abort(exc):
             log.warning("seed_cleanup abort · %s · %s", sql, exc)
             raise
+        if jobs_fixture_delete:
+            raise HTTPException(
+                status_code=503, detail="项目测试清理服务暂不可用"
+            ) from exc
         log.warning("seed_cleanup skip · %s · %s", sql, exc)
 
 
@@ -545,7 +555,7 @@ async def _cleanup_e2e_fixtures(
             },
         )
         await _try_delete(
-            "DELETE FROM async_jobs WHERE project_id = ANY(:pids)",
+            "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
             {"pids": fixture_project_ids},
         )
         await _try_delete(
