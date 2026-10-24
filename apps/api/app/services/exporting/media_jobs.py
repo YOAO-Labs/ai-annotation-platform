@@ -61,6 +61,18 @@ async def capture_job(db, job, project, *, batch_id, targets, opts, task_ids=Non
             opts=opts,
             task_ids=task_ids,
         )
+    if project.data_type == "video":
+        from app.services.exporting.video_jobs import capture_job as capture_video
+
+        return await capture_video(
+            db,
+            job,
+            project,
+            batch_id=batch_id,
+            targets=targets,
+            opts=opts,
+            task_ids=task_ids,
+        )
     from app.services.exporting.lidar_jobs import capture_job as capture_lidar
 
     return await capture_lidar(

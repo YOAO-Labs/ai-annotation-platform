@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import uuid
+import hashlib
+from types import SimpleNamespace
+from datetime import datetime, timezone
 
 import pytest
 
 from app.db.models.dataset import Dataset, DatasetItem, VideoSegment
 from app.db.models.async_job import AsyncJob
+from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
+from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
+from app.services.storage import storage_service
+from app.services import task_originals
+from tests.test_task_originals import (
+    original_db as original_db,
+    original_client as original_client,
+    verified,
+)
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.schemas.export import VideoExportScopeRequest
@@ -184,6 +196,32 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
     ]
     db_session.add_all([task, *segments])
     await db_session.flush()
+    # This is an API metadata-only fixture: a real verified historical locator,
+    # never a guessed current key. No original bytes are read while enqueuing.
+    await ensure_legacy_bindings(db_session)
+    asset = DatasetAsset(
+        id=uuid.uuid4(),
+        dataset_item_id=item.id,
+        media_type="video",
+        verification_state="verified",
+        checksum_algorithm="sha256",
+        checksum_value=hashlib.sha256(b"video").hexdigest(),
+        size_bytes=5,
+    )
+    db_session.add(asset)
+    await db_session.flush()
+    db_session.add(
+        DatasetAssetLocation(
+            asset_id=asset.id,
+            location_id=LEGACY_LOCATION_ID,
+            bucket=storage_service.datasets_bucket,
+            object_key=item.file_path,
+            role="managed_original",
+            reference_state="present",
+            verified_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.flush()
 
     request = VideoExportScopeRequest.model_validate(
         {
@@ -229,9 +267,47 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
             "selection": {"kind": "frames", "from_frame": 8, "to_frame": 10},
         }
     )
-    with pytest.raises(ValueError, match="exceeds source frame_count"):
+    # Mutable historical Item JSON does not authorize a source frame extent.
+    # The Worker checks the exact original's probe before allocating frames.
+    deferred = await normalize_video_export_scope(
+        db_session,
+        project=project,
+        request=invalid,
+    )
+    assert (deferred.from_frame, deferred.to_frame) == (8, 10)
+
+
+async def test_standalone_video_frame_scope_needs_no_fake_item(
+    original_db, original_client
+):
+    db_session = original_db
+    task, allocation, created = await verified(db_session, original_client)
+    task.file_type = "video"
+    await task_originals.publish(db_session, task, allocation, created)
+    await db_session.commit()
+    project = SimpleNamespace(id=task.project_id, data_type="video")
+    request = VideoExportScopeRequest.model_validate(
+        {
+            "task_id": str(task.id),
+            "selection": {"kind": "frames", "from_frame": 0, "to_frame": 17},
+        }
+    )
+    scope = await normalize_video_export_scope(
+        db_session, project=project, request=request
+    )
+    assert scope.dataset_item_id is None
+    assert VideoExportScope.from_dict(scope.as_dict()) == scope
+    segment_request = VideoExportScopeRequest.model_validate(
+        {
+            "task_id": str(task.id),
+            "selection": {
+                "kind": "segments",
+                "start_segment_id": str(uuid.uuid4()),
+                "end_segment_id": str(uuid.uuid4()),
+            },
+        }
+    )
+    with pytest.raises(ValueError, match="require a dataset item"):
         await normalize_video_export_scope(
-            db_session,
-            project=project,
-            request=invalid,
+            db_session, project=project, request=segment_request
         )

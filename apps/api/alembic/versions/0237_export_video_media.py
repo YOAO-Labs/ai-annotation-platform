@@ -68,24 +68,24 @@ _GUARD_REPLACEMENTS = (
     (
         "member_size < 0 OR member_size > 268435456",
         "member_size < 0 OR (NEW.input_snapshot->'schema' = '4'::jsonb AND member_size = 0) "
-        "OR member_size > CASE WHEN NEW.input_snapshot->'schema' = '4'::jsonb "
-        "THEN 5368709120 ELSE 268435456 END",
+        "OR member_size > (CASE WHEN NEW.input_snapshot->'schema' = '4'::jsonb "
+        "THEN 5368709120 ELSE 268435456 END)",
     ),
     (
         "counted > 21000",
-        "counted > CASE WHEN NEW.input_snapshot->'schema' = '4'::jsonb THEN 1000 ELSE 21000 END",
+        "counted > (CASE WHEN NEW.input_snapshot->'schema' = '4'::jsonb THEN 1000 ELSE 21000 END)",
     ),
     (
         "total > 25769803776",
-        "total > CASE WHEN NEW.input_snapshot->'schema' = '4'::jsonb THEN 21474836480 ELSE 25769803776 END",
+        "total > (CASE WHEN NEW.input_snapshot->'schema' = '4'::jsonb THEN 21474836480 ELSE 25769803776 END)",
     ),
     (_INVENTORY_START, _VIDEO_BINDINGS + _INVENTORY_START),
 )
 _PAIR_REPLACEMENTS = (
     (
         "OR output.media IS DISTINCT FROM 'image'",
-        "OR output.media IS DISTINCT FROM CASE WHEN bundle.input_snapshot->'schema' = '4'::jsonb "
-        "THEN 'video' ELSE 'image' END",
+        "OR output.media IS DISTINCT FROM (CASE WHEN bundle.input_snapshot->'schema' = '4'::jsonb "
+        "THEN 'video' ELSE 'image' END)",
     ),
 )
 

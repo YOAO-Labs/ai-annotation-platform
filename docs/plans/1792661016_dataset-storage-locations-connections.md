@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B/B13-A/B13-B1/B13-B2/B13-B3-A/B13-B3-B/B13-B3-C/B13-B3-D completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A、B1–B12 与 B13 各切片至 B3-H1 completed locally；B3-H2 视频冻结导出已实现，集成验收与收尾进行中；完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -1370,3 +1370,13 @@ schema4只允许video角色，单件原件／副本上限5GiB、最多1000Task�
 ### 实施与验收
 
 隔离树分别负责冻结输入／纯时间重放、视频探测与路径／下载／格式打包、schema4领域／迁移／物理上限；主树负责共享Worker／HTTP集成、回归和真实验收、恢复工具与正式文档。新test／e2e命名空间经launcher验证归属，全部数据库测试由主树执行；不触碰默认annotation_test。重点覆盖TaskOriginal／Dataset、同键异桶与篡改、原Key／关系／分段／Run／标注变化、重复／取消／未知提交、预算前拒绝、同名源、多格式编号、YouTube稀疏帧、错误已有下载文件、固定期限缓存与源销毁后隔离恢复。保留3100／8100、两Worker／绑定Beat和既有12表155行／24对象／12源文件指纹，不重建镜像、安装依赖、改共享配置、分配版本或宣称外部部署资格。完整验证、人工环境刷新和精确清理后再记Outcome；完整E02／B13和整套Epic继续活动。
+
+### H2 implementation checkpoint — shared delivery and live recovery
+
+schema4 领域、迁移、物理传输、冻结输入与时间重放、真实计帧及十种格式已合入；质量 Run 查询进一步只加载消费字段，并保留同一 SQL 快照中的预算守卫。主树已接通项目／批次 HTTP、消息证明、共享 Worker／缓存／取消和独立交付副本；TaskOriginal 帧范围支持空 Item，Segment 身份与关系读取有界。0237 的 PL/pgSQL CASE 括号和 ORM 派生 schema 在 flush 后的同步读取问题已在真实隔离库复现并修正。
+
+独立 Celery 使用实际 Dataset／TaskOriginal 两类条件创建的视频、持久 mask、同名源和伪旧元数据完成 ASGI HTTP 验收：十格式项目／批次、同请求缓存、TaskOriginal 帧范围、空批次及超界拒绝／派发前取消共七个 Job；五条媒体与十一次下载／抽帧脚本执行通过。恢复演练发现 video_json 仍输出源存储键，现已与 AAP JSON 共用交付路径；额外两次实际冷导出核对全量／范围的两种 JSON 路径和三条副本字节通过。合计九个 Job，七成功、一超界失败、一取消，未把组件替身视为真实链路。
+
+新增质量查询 28 项、路径相关 81 项及此前领域／传输 76 项和集成 104 项均有本地通过记录。共享回归的 1237 项中 34 项仍需适配已改变的内部接口与 owned Worker 路径，正在逐项保留原有断言；不宣称最终回归通过。恢复视频构造检查及纯恢复脚本通过，实际演练先销毁源，再恢复 166 表 216 行、九桶 92 对象（68278 字节），核对 ready／真实中断 building、四条视频副本、两个 ZIP、探测证明、固定截止及历史 URL 不变、相应缓存失效；最终随机环境清理已独立确认。失败演练曾有一次退出时资源清理未完成，随后验证零连接、按原 owner 重试销毁，并确认源／目标资源均不存在后移除目录。
+
+用户／API／架构／恢复说明及 README、CHANGELOG 已更新。最终共享回归、主树集成提交、人工环境 0237／Worker 刷新、业务指纹复核及 test／e2e／隔离树清理尚待完成，本节不作为 H2 Outcome。完整 E02／B13、其余 ML 原件消费者和整套 Epic 继续活动。

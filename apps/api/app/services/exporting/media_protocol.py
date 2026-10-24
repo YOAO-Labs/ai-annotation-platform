@@ -56,11 +56,30 @@ def protocol(kind="lidar"):
             logical_sources,
             prepare,
         )
+    if kind == "video":
+        from app.services.exporting import video_inputs, video_jobs
+        from app.services.exporting.video_delivery import prepare
+        from app.services.exporting.video_media_paths import logical_sources
+
+        return MediaProtocol(
+            "video",
+            4,
+            "video_media",
+            "video_media",
+            video_inputs,
+            video_jobs,
+            logical_sources,
+            prepare,
+        )
     raise ValueError("Unknown export media protocol")
 
 
 def for_snapshot(snapshot):
     if type(snapshot) is dict and type(snapshot.get("schema")) is int:
+        if snapshot["schema"] == 4:
+            return protocol("video")
         if snapshot["schema"] == 3:
             return protocol("image")
-    return protocol("lidar")
+        if snapshot["schema"] in {1, 2}:
+            return protocol("lidar")
+    raise ValueError("Unknown export media snapshot")

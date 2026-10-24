@@ -140,7 +140,9 @@ class ExportMediaBundle(Base):
     )
     # Select one authoritative scalar for physical/retirement fences without
     # loading the private frozen document during cleanup.
-    input_schema = column_property(input_snapshot["schema"].label("input_schema"))
+    input_schema = column_property(
+        input_snapshot["schema"].label("input_schema"), expire_on_flush=False
+    )
     input_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     logical_paths: Mapped[dict] = mapped_column(
         JSONB(none_as_null=True), nullable=False

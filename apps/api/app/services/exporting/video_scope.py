@@ -16,8 +16,12 @@ from app.schemas.export import (
     VideoExportScopeRequest,
     VideoExportSegmentSelection,
 )
-from app.services.video_frame_service import build_context_from_task
 from app.services.video_tracks import normalize_outside_ranges, resolve_track_at_frame
+from app.services import original_sources
+from app.services.content_snapshot import ContentError
+
+MAX_SCOPE_SEGMENTS = 100_000
+MAX_SCOPE_LINKS = 50_000
 
 
 @dataclass(frozen=True)
@@ -39,7 +43,7 @@ class VideoExportSegment:
 @dataclass(frozen=True)
 class VideoExportScope:
     task_id: uuid.UUID
-    dataset_item_id: uuid.UUID
+    dataset_item_id: uuid.UUID | None
     selection_kind: Literal["segments", "frames"]
     from_frame: int
     to_frame: int
@@ -54,7 +58,9 @@ class VideoExportScope:
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "task_id": str(self.task_id),
-            "dataset_item_id": str(self.dataset_item_id),
+            "dataset_item_id": str(self.dataset_item_id)
+            if self.dataset_item_id
+            else None,
             "selection_kind": self.selection_kind,
             "from_frame": self.from_frame,
             "to_frame": self.to_frame,
@@ -69,7 +75,9 @@ class VideoExportScope:
             return None
         return cls(
             task_id=uuid.UUID(str(payload["task_id"])),
-            dataset_item_id=uuid.UUID(str(payload["dataset_item_id"])),
+            dataset_item_id=uuid.UUID(str(payload["dataset_item_id"]))
+            if payload["dataset_item_id"]
+            else None,
             selection_kind=cast(
                 Literal["segments", "frames"], str(payload["selection_kind"])
             ),
@@ -105,38 +113,46 @@ async def normalize_video_export_scope(
     if batch_id is not None and task.batch_id != batch_id:
         raise ValueError("video export task does not belong to this batch")
 
-    ctx = await build_context_from_task(db, task)
-    frame_count = int(ctx.metadata.frame_count or 0)
-    if frame_count <= 0:
-        raise ValueError("video metadata is not ready")
+    if task.file_type != "video":
+        raise ValueError("video export task is not a video")
+    try:
+        relation = await original_sources.resolve_task_relation(
+            db, task.id, max_links=MAX_SCOPE_LINKS
+        )
+    except ContentError:
+        raise ValueError("video export source relation is unavailable") from None
+    item_id = relation.item_id
+    # Source extent is checked against the completely verified video's actual
+    # probe receipt by the Worker, before any frame or track expansion.
 
     selection = request.selection
     if isinstance(selection, VideoExportFrameSelection):
-        if selection.to_frame >= frame_count:
-            raise ValueError("video export frame range exceeds source frame_count")
         return VideoExportScope(
             task_id=task.id,
-            dataset_item_id=ctx.item.id,
+            dataset_item_id=item_id,
             selection_kind="frames",
             from_frame=selection.from_frame,
             to_frame=selection.to_frame,
         )
 
     assert isinstance(selection, VideoExportSegmentSelection)
+    if item_id is None:
+        raise ValueError("video export segments require a dataset item")
     endpoints = (
-        (
-            await db.execute(
-                select(VideoSegment).where(
-                    VideoSegment.id.in_(
-                        [selection.start_segment_id, selection.end_segment_id]
-                    ),
-                    VideoSegment.dataset_item_id == ctx.item.id,
-                )
+        await db.execute(
+            select(
+                VideoSegment.id,
+                VideoSegment.segment_index,
+                VideoSegment.start_frame,
+                VideoSegment.end_frame,
+            ).where(
+                VideoSegment.id.in_(
+                    [selection.start_segment_id, selection.end_segment_id]
+                ),
+                VideoSegment.dataset_item_id == item_id,
             )
         )
-        .scalars()
-        .all()
-    )
+    ).all()
     by_id = {segment.id: segment for segment in endpoints}
     start = by_id.get(selection.start_segment_id)
     end = by_id.get(selection.end_segment_id)
@@ -145,22 +161,27 @@ async def normalize_video_export_scope(
     if start.segment_index > end.segment_index:
         raise ValueError("video export start segment must not follow end segment")
 
+    span = end.segment_index - start.segment_index + 1
+    if span > MAX_SCOPE_SEGMENTS:
+        raise ValueError("video export segment range exceeds its budget")
     rows = (
-        (
-            await db.execute(
-                select(VideoSegment)
-                .where(
-                    VideoSegment.dataset_item_id == ctx.item.id,
-                    VideoSegment.segment_index >= start.segment_index,
-                    VideoSegment.segment_index <= end.segment_index,
-                )
-                .order_by(VideoSegment.segment_index)
+        await db.execute(
+            select(
+                VideoSegment.id,
+                VideoSegment.segment_index,
+                VideoSegment.start_frame,
+                VideoSegment.end_frame,
             )
+            .where(
+                VideoSegment.dataset_item_id == item_id,
+                VideoSegment.segment_index >= start.segment_index,
+                VideoSegment.segment_index <= end.segment_index,
+            )
+            .order_by(VideoSegment.segment_index)
+            .limit(MAX_SCOPE_SEGMENTS + 1)
         )
-        .scalars()
-        .all()
-    )
-    if len(rows) != end.segment_index - start.segment_index + 1:
+    ).all()
+    if len(rows) != span:
         raise ValueError("video export segment range is not contiguous")
     segments = tuple(
         VideoExportSegment(
@@ -173,11 +194,11 @@ async def normalize_video_export_scope(
     )
     from_frame = min(segment.start_frame for segment in segments)
     to_frame = max(segment.end_frame for segment in segments)
-    if from_frame < 0 or to_frame >= frame_count:
-        raise ValueError("video export segment range exceeds source frame_count")
+    if from_frame < 0 or to_frame < from_frame:
+        raise ValueError("invalid video export segment range")
     return VideoExportScope(
         task_id=task.id,
-        dataset_item_id=ctx.item.id,
+        dataset_item_id=item_id,
         selection_kind="segments",
         from_frame=from_frame,
         to_frame=to_frame,

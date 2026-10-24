@@ -199,9 +199,17 @@ async def test_all_video_formats_use_one_trusted_grid_receipt_and_separate_bases
                 .startswith("0 ")
             )
             portable = json.loads(output.read("aap_json/annotations.json"))
+            assert (
+                portable["tasks"][0]["file_path"]
+                == "videos/" + frozen.paths[frozen.tasks[0].id]
+            )
             assert portable["tasks"][0]["video"]["frame_count"] == 10
             assert portable["tasks"][0]["video"]["metadata_receipt"]["sha256"] == SHA
             tracks = json.loads(output.read("video_json/annotations.json"))
+            assert (
+                tracks["tasks"][0]["file_path"]
+                == "videos/" + frozen.paths[frozen.tasks[0].id]
+            )
             assert tracks["tasks"][0]["video_metadata"]["width"] == 4
             assert (
                 max(frame["frame_index"] for frame in tracks["tracks"][0]["frames"])

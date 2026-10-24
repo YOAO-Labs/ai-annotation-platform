@@ -42,6 +42,7 @@ class AsyncJobOut(BaseModel):
                 "output_authority",
                 "lidar_media",
                 "image_media",
+                "video_media",
                 "prediction_authority",
                 "repair_authority",
                 "point_cloud_quality_authority",

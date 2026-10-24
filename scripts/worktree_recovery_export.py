@@ -157,7 +157,8 @@ def validate_media_pairs(bundles, outputs):
             or output.project_id != bundle.project_id
             or output.job_id != bundle.job_id
             or output.expires_at != bundle.expires_at
-            or output.media != "image"
+            or output.media
+            != ("video" if bundle.input_snapshot.get("schema") == 4 else "image")
             or (output.state == "ready" and bundle.published_at is None)
             or (output.state == "pending" and bundle.state == "ready")
         ):

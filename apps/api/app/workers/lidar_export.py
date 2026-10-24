@@ -66,7 +66,7 @@ def _attempt(row, receipt, task_id):
 
 def _selected(receipt):
     data = receipt._input_snapshot
-    if data.get("schema") == 3 and data.get("task_ids") is not None:
+    if data.get("schema") in {3, 4} and data.get("task_ids") is not None:
         return [uuid.UUID(identifier) for identifier in data["task_ids"]]
     return None
 
@@ -75,7 +75,7 @@ async def _guard(db, receipt, task_id):
     from app.workers.export import _reauthorize_export_final_write
 
     row = await _job(db, receipt.job_id)
-    if receipt._input_snapshot.get("schema") == 3:
+    if receipt._input_snapshot.get("schema") in {3, 4}:
         await check_cancelled(db, receipt.job_id)
     _attempt(row, receipt, task_id)
     batch_id = receipt._input_snapshot["batch_id"]
@@ -250,6 +250,7 @@ async def _lookup(db, receipt, key, *, guard):
         bindings.setdefault(row["source_key"], []).append(row)
     record = SimpleNamespace(
         id=previous.id,
+        input_schema=data["schema"],
         storage_ref=previous.storage_ref,
         inventory=previous.inventory,
         created_at=previous.created_at,
@@ -313,6 +314,8 @@ async def _lookup(db, receipt, key, *, guard):
             "lidar_export_cache_inventory_changed",
             "image_export_cache_changed",
             "image_export_cache_inventory_changed",
+            "video_export_cache_changed",
+            "video_export_cache_inventory_changed",
         }
         if not recoverable or getattr(exc, "storage_operation_unsettled", False):
             raise
@@ -437,7 +440,7 @@ async def _missing_contract(
     )
 
     adapter = adapter or protocol()
-    if adapter.kind == "image":
+    if adapter.kind in {"image", "video"}:
         adapter.jobs.validate_missing_message(
             job,
             project_id=project_id,
@@ -587,6 +590,18 @@ async def run_owned(
         context_options = {adapter.context_keyword: context}
         if adapter.kind == "image":
             context_options["reference_media"] = reference_media
+        if adapter.kind == "video":
+            context_options["video_scope"] = context.video_scope
+
+        async def checkpoint():
+            if adapter.kind == "video":
+                # CPU/frame loops must not retain a SQL transaction or borrow
+                # the serializer's connection while a physical thread drains.
+                async with transfer._session(db) as owned:
+                    await check_cancelled(owned, receipt.job_id)
+            else:
+                await check_cancelled(db, receipt.job_id)
+
         path, file_count, size = await build_export_zip(
             db,
             receipt.project_id,
@@ -597,7 +612,7 @@ async def run_owned(
             axis_frame=opts.get("axis_frame", "iso"),
             format_options=opts,
             **context_options,
-            check_cancel=lambda: check_cancelled(db, receipt.job_id),
+            check_cancel=checkpoint,
         )
         await guard(db)
         await bundles.check_claim(db, receipt)
@@ -606,7 +621,7 @@ async def run_owned(
             db,
             project_id=receipt.project_id,
             job_id=receipt.job_id,
-            media="image",
+            media="video" if adapter.kind == "video" else "image",
             format=",".join(sorted(targets)),
             file_count=file_count,
             path=path,

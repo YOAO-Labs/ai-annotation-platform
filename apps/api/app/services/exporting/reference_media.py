@@ -89,7 +89,24 @@ async def authorize_export_job(
     if not allow_reference:
         from app.services.reference_keys import PREFIX
 
-        query = task_query(project_id, batch_id, task_ids).where(
+        reference_ids = task_ids
+        temporal = (job.payload or {}).get("video_export_scope")
+        if task_ids is None and project.data_type == "video" and temporal is not None:
+            try:
+                scoped_id = uuid.UUID(temporal["task_id"])
+                if temporal["task_id"] != str(scoped_id):
+                    raise ValueError
+            except (ValueError, KeyError, TypeError, AttributeError):
+                raise ValueError("video export task scope is invalid") from None
+            present = await db.scalar(
+                task_query(project_id, batch_id, [scoped_id]).with_only_columns(Task.id)
+            )
+            if present != scoped_id:
+                raise ValueError("video export task scope is no longer valid")
+            # This only narrows the reference refusal. The project/batch export
+            # capability above retains its existing authorization semantics.
+            reference_ids = [scoped_id]
+        query = task_query(project_id, batch_id, reference_ids).where(
             Task.file_path.startswith(PREFIX, autoescape=True)
         )
         if await db.scalar(query.limit(1)):

@@ -681,7 +681,7 @@ class ExportService:
                     "id": str(task.id),
                     "display_id": task.display_id,
                     "file_name": task.file_name,
-                    "file_path": task.file_path,
+                    "file_path": self.media_paths.get(task.id, task.file_path),
                     "file_type": task.file_type,
                     "sequence_order": task.sequence_order,
                     "batch_id": str(task.batch_id) if task.batch_id else None,

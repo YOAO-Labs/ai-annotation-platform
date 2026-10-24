@@ -174,9 +174,37 @@ def _assert_input(snapshot, expected):
         assert _receipt(source) == _receipt(expected[binding["task_id"]])
 
 
+def video_annotation(*, task, actor, case):
+    from app.db.models.annotation import Annotation
+
+    return Annotation(
+        id=identifier("annotation:" + case),
+        task_id=task.id,
+        project_id=task.project_id,
+        user_id=actor.id,
+        class_name="car",
+        annotation_type="video_track_bbox",
+        tool_unit_id="bbox",
+        source="manual",
+        track_id="recovery-" + case,
+        geometry={
+            "type": "video_track_bbox",
+            "track_id": "recovery-" + case,
+            "keyframes": [
+                {
+                    "frame_index": frame,
+                    "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+                    "source": "manual",
+                }
+                for frame in (0, 5)
+            ],
+            "outside": [],
+        },
+    )
+
+
 async def _seed_sources(db, *, actor, storage, raw_by_case):
     from sqlalchemy import select
-    from app.db.models.annotation import Annotation
     from app.db.models.dataset import Dataset, DatasetItem
     from app.db.models.dataset_asset import DatasetAssetLocation
     from app.db.models.managed_original_creation import ManagedOriginalCreation
@@ -296,30 +324,7 @@ async def _seed_sources(db, *, actor, storage, raw_by_case):
             assert owner is not None
             locator = None
         task.status = "pending"
-        db.add(
-            Annotation(
-                id=identifier("annotation:" + case),
-                task_id=task.id,
-                project_id=project.id,
-                created_by=actor.id,
-                class_name="car",
-                tool_unit_id="bbox",
-                source="manual",
-                geometry={
-                    "type": "video_track_bbox",
-                    "track_id": "recovery-" + case,
-                    "keyframes": [
-                        {
-                            "frame_index": frame,
-                            "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
-                            "source": "manual",
-                        }
-                        for frame in (0, 5)
-                    ],
-                    "outside": [],
-                },
-            )
-        )
+        db.add(video_annotation(task=task, actor=actor, case=case))
         await db.commit()
         history = await db.get(
             ManagedOriginalCreation, created.creation_id, populate_existing=True

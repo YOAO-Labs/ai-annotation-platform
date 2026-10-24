@@ -19,8 +19,7 @@ from app.db.models.export_media_bundle import (
 from app.services import export_media_bundles as bundles
 from app.services import export_media_retirement as retirement
 from app.services import export_media_storage as physical
-from app.services import export_outputs
-from app.services.content_snapshot import ContentError
+from app.services import export_outputs, export_storage
 from app.services.exporting.lidar_sources import canonical_identity
 from tests import test_export_media_bundle_models as models
 from tests import test_export_media_retirement as retirement_tests
@@ -566,7 +565,7 @@ async def test_creation_checks_video_pair_profile_without_a_current_bucket_guess
         expires=owner.expires_at,
     )
     export_outputs._creation_valid(owner, **facts)
-    with pytest.raises(ContentError):
+    with pytest.raises(export_storage.ExportStorageError):
         export_outputs._creation_valid(owner, **{**facts, "media": "image"})
 
 

@@ -127,6 +127,19 @@ def archive_bytes(manifest):
 
 
 class RecoveryVideoContracts(unittest.TestCase):
+    def test_seed_annotation_uses_mapped_author_and_temporal_fields(self):
+        task = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
+        actor = SimpleNamespace(id=uuid.uuid4())
+        row = fixture.video_annotation(task=task, actor=actor, case="dataset")
+        self.assertEqual(row.user_id, actor.id)
+        self.assertEqual(row.task_id, task.id)
+        self.assertEqual(row.project_id, task.project_id)
+        self.assertEqual(row.annotation_type, "video_track_bbox")
+        self.assertEqual(row.track_id, row.geometry["track_id"])
+        self.assertEqual(
+            [key["frame_index"] for key in row.geometry["keyframes"]], [0, 5]
+        )
+
     def test_expected_bytes_are_retained_in_receipt_not_regenerated(self):
         snapshot, expected = inputs()
         fixture._assert_input(snapshot, expected)

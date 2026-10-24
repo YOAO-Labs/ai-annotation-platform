@@ -244,10 +244,10 @@ async def _relation(
     )
 
 
-async def resolve_task_relation(db, task_id, *, lock=False):
+async def resolve_task_relation(db, task_id, *, lock=False, max_links=None):
     """Resolve direct/primary/standalone ownership; never infer from a path."""
     async with _reads(db, lock):
-        return await _relation(db, task_id, lock)
+        return await _relation(db, task_id, lock, max_links=max_links)
 
 
 def _platform_location(location, *, bounded=False):

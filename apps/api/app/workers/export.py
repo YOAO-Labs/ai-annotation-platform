@@ -610,7 +610,7 @@ async def _run_export(
     lock_acquired = False
     reference_media = None
     owned_media = False
-    owned_image = False
+    owned_terminal_guard = False
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -639,13 +639,34 @@ async def _run_export(
                     # build or publish a second artifact.
                     return
                 project = await db.get(Project, proj_uuid)
+                if (project is not None and project.data_type == "video") or (
+                    "video_media" in (job_row.payload or {})
+                ):
+                    from app.workers.lidar_export import run_owned
+
+                    owned_media = True
+                    owned_terminal_guard = True
+                    await db.rollback()
+                    await run_owned(
+                        db,
+                        project_id=project_id,
+                        batch_id=batch_id,
+                        task_ids=task_ids,
+                        targets=targets,
+                        opts=opts,
+                        async_job_id=async_job_id,
+                        celery_task_id=celery_task_id,
+                        media_kind="video",
+                        worker_node_id=worker_node_id,
+                    )
+                    return
                 if (project is not None and project.data_type == "image") or (
                     "image_media" in (job_row.payload or {})
                 ):
                     from app.workers.lidar_export import run_owned
 
                     owned_media = True
-                    owned_image = True
+                    owned_terminal_guard = True
                     await db.rollback()
                     await run_owned(
                         db,
@@ -938,7 +959,7 @@ async def _run_export(
                     # terminal write; the generic handler must not overwrite it.
                     if isinstance(exc, ExportCancelled):
                         return
-                    if owned_image:
+                    if owned_terminal_guard:
                         terminal_status = await db.scalar(
                             select(AsyncJob.status).where(AsyncJob.id == job_uuid)
                         )

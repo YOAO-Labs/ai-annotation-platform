@@ -2033,21 +2033,6 @@ async def export_project(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     video_scope_payload = video_scope.as_dict() if video_scope else None
-    if project.data_type == "video":
-        from app.services.video_canonical import (
-            VideoBoundaryUnreconciledError,
-            assert_export_boundaries_reconciled,
-        )
-
-        try:
-            await assert_export_boundaries_reconciled(
-                db,
-                project=project,
-                batch_id=None,
-                scope=video_scope,
-            )
-        except VideoBoundaryUnreconciledError as exc:
-            raise HTTPException(status_code=409, detail=exc.detail) from exc
 
     if "voc" in targets:
         if targets != ["voc"]:
@@ -2117,11 +2102,14 @@ async def export_project(
     )
     from app.services.content_snapshot import ContentError
     from app.services.exporting.media_jobs import capture_job
+    from app.services.video_canonical import VideoBoundaryUnreconciledError
 
     try:
         media_bundle = await capture_job(
             db, job, project, batch_id=None, targets=targets, opts=export_opts
         )
+    except VideoBoundaryUnreconciledError as exc:
+        raise HTTPException(409, detail=exc.detail) from None
     except ContentError as exc:
         raise HTTPException(status_code=exc.status, detail={"code": exc.code}) from exc
     export_authority = await capture_export_authority(
