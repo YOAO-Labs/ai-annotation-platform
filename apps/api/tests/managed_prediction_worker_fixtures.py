@@ -23,12 +23,14 @@ from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset
 from app.db.models.ml_backend_registry import MLBackendRegistry
+from app.db.models.ml_backend_pool import MLBackendServicePool
 from app.db.models.notification import Notification
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.prediction_execution import PredictionExecutionSnapshot
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
+from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.services import async_job as jobs
 from app.services import prediction_originals as originals
@@ -131,6 +133,13 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
                     PredictionExecutionSnapshot.project_id.in_(world.projects)
                 )
             )
+            await db.execute(
+                delete(TaskLock).where(
+                    TaskLock.task_id.in_(
+                        select(Task.id).where(Task.project_id.in_(world.projects))
+                    )
+                )
+            )
             await db.execute(delete(Task).where(Task.project_id.in_(world.projects)))
             await db.execute(
                 delete(TaskBatch).where(TaskBatch.project_id.in_(world.projects))
@@ -139,6 +148,11 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
             await db.execute(delete(Dataset).where(Dataset.id.in_(world.datasets)))
             await db.execute(
                 delete(Notification).where(Notification.user_id.in_(world.actors))
+            )
+            await db.execute(
+                delete(MLBackendServicePool).where(
+                    MLBackendServicePool.legacy_instance_id.in_(world.backends)
+                )
             )
             await db.execute(
                 delete(MLBackendRegistry).where(

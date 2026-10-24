@@ -1437,6 +1437,7 @@ async def _run_batch(
         snapshot_id = precreated_job.execution_snapshot_id if precreated_job else None
         reference_job = None
         if reference_proof is not None:
+            from app.services.content_snapshot import ContentError
             from app.services.prediction_references import ReferencePredictionJob
 
             reference_job = ReferencePredictionJob(
@@ -1454,7 +1455,17 @@ async def _run_batch(
                 node_id=worker_node_id,
                 execution_unit=execution_unit,
             )
-            await reference_job.authorize()
+            try:
+                await reference_job.authorize()
+            except ContentError:
+                # Cancellation can commit after scope admission and before
+                # this first source check. Preserve its terminal semantics.
+                await db.rollback()
+                if await _cancel_requested(lock=True):
+                    await _finish_cancelled(cancelled_at_index=0)
+                    await engine.dispose()
+                    return
+                raise
         if total == 0:
             if await _cancel_requested(lock=True):
                 await _finish_cancelled(cancelled_at_index=0)
