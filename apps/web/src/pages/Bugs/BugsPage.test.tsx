@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   addComment: vi.fn(),
   useBugReports: vi.fn(),
+  download: vi.fn(),
 }));
 
 vi.mock("@/components/ui/Toast", () => ({
@@ -66,7 +67,7 @@ vi.mock("@/api/bug-reports", () => ({
     get: mocks.get,
     update: mocks.update,
     addComment: mocks.addComment,
-    attachmentDownloadUrl: (_id: string, key: string) => `/download?key=${encodeURIComponent(key)}`,
+    downloadAttachment: mocks.download,
   },
 }));
 
@@ -122,6 +123,7 @@ describe("BugsPage", () => {
       created_at: "2026-01-01T00:00:00Z",
     });
     mocks.pushToast.mockReset();
+    mocks.download.mockReset();
     mocks.list.mockResolvedValue({ items: [item], total: 1 });
     mocks.update.mockReset().mockResolvedValue({});
     mocks.addComment.mockReset().mockResolvedValue({});
@@ -171,7 +173,7 @@ describe("BugsPage", () => {
     );
   });
 
-  it("renders markdown descriptions, markdown comments, and attachment links", async () => {
+  it("renders markdown descriptions, comments, and downloads attachment bytes", async () => {
     render(
       <MemoryRouter>
         <BugsPage />
@@ -188,10 +190,33 @@ describe("BugsPage", () => {
     expect(editor).toHaveAttribute("data-has-upload", "false");
     expect(screen.getByText("粗体描述").tagName).toBe("STRONG");
     expect(screen.getByText("已复现")).toBeInTheDocument();
-    expect(screen.getByText("a.png").closest("a")).toHaveAttribute(
-      "href",
-      "/download?key=bug-report-attachments%2Fu1%2Fa.png",
+    const blob = new Blob(["image"], { type: "image/png" });
+    mocks.download.mockResolvedValue(blob);
+    const createUrl = vi.fn().mockReturnValue("blob:bug-image");
+    const revokeUrl = vi.fn();
+    vi.stubGlobal(
+      "URL",
+      Object.assign(class extends URL {}, {
+        createObjectURL: createUrl,
+        revokeObjectURL: revokeUrl,
+      }),
     );
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      fireEvent.click(screen.getByRole("button", { name: /a.png/ }));
+      await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+      expect(mocks.download).toHaveBeenCalledWith(
+        "bug-1",
+        item.attachments[0].storageKey,
+        expect.any(AbortSignal),
+      );
+      expect(createUrl).toHaveBeenCalledWith(blob);
+      expect(revokeUrl).toHaveBeenCalledWith("blob:bug-image");
+      expect(document.querySelector("a[download]")).toBeNull();
+    } finally {
+      click.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps comment drafts on the Unicode length boundary and supports Ctrl+Enter", async () => {
@@ -331,5 +356,33 @@ describe("BugsPage", () => {
     expect(mocks.pushToast).not.toHaveBeenCalledWith(
       expect.objectContaining({ msg: "状态已更新" }),
     );
+  });
+
+  it("shows a pending attachment and a retryable download failure beside it", async () => {
+    let fail!: (reason: unknown) => void;
+    mocks.download.mockReturnValue(
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+    );
+    render(
+      <MemoryRouter>
+        <BugsPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByText("Markdown detail"));
+    const button = await screen.findByRole("button", { name: /a.png/ });
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    expect(screen.getByText("下载中…")).toBeInTheDocument();
+    await act(async () => {
+      fail({ status: 404 });
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("附件不存在，请联系管理员");
+    expect(button).not.toBeDisabled();
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(mocks.download).toHaveBeenCalledTimes(2);
   });
 });

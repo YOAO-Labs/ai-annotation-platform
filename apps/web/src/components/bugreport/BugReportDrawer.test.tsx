@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useAuthStore } from "@/stores/authStore";
 import { BugReportDrawer } from "./BugReportDrawer";
 
 const mocks = vi.hoisted(() => ({
@@ -9,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   addComment: vi.fn(),
+  upload: vi.fn(),
+  download: vi.fn(),
 }));
 
 vi.mock("@/components/ui/Toast", () => ({
@@ -73,13 +76,16 @@ vi.mock("@/api/bug-reports", () => ({
     update: mocks.update,
     delete: vi.fn(),
     addComment: mocks.addComment,
-    attachmentDownloadUrl: (_id: string, key: string) => `/download?key=${encodeURIComponent(key)}`,
+    downloadAttachment: mocks.download,
   },
-  uploadBugAttachment: vi.fn(),
+  uploadBugAttachment: mocks.upload,
 }));
 
 describe("BugReportDrawer", () => {
   beforeEach(() => {
+    useAuthStore.getState().setAuth("drawer-token", { id: "drawer-owner" } as never);
+    mocks.upload.mockReset();
+    mocks.download.mockReset();
     mocks.pushToast.mockClear();
     mocks.listMine.mockResolvedValue({ items: [], total: 0 });
     mocks.get.mockReset();
@@ -354,5 +360,224 @@ describe("BugReportDrawer", () => {
     expect(payload.description).not.toContain("https://");
     expect(payload.description).not.toContain("base64");
     expect(payload.recent_console_errors[0].msg).toBe("[video-workbench-diagnostics]");
+  });
+
+  async function fillNewReport() {
+    await screen.findByText("暂无反馈");
+    fireEvent.click(screen.getByText("提交新反馈"));
+    fireEvent.change(screen.getByPlaceholderText("发生了什么问题？"), {
+      target: { value: "Attachment report" },
+    });
+    const editor = await screen.findByPlaceholderText("详细描述问题...");
+    fireEvent.change(editor, { target: { value: "Original draft" } });
+    return editor;
+  }
+
+  function pasteImages(editor: HTMLElement, count = 1) {
+    fireEvent.paste(editor, {
+      clipboardData: {
+        files: Array.from(
+          { length: count },
+          (_, index) => new File(["png"], `clip-${index}.png`, { type: "image/png" }),
+        ),
+      },
+    });
+  }
+
+  it("retries a partial upload using the original successful server receipt", async () => {
+    const receipt = {
+      storageKey: "registered-first",
+      fileName: "safe-first.png",
+      mimeType: "image/png",
+      size: 3,
+    };
+    const secondReceipt = {
+      ...receipt,
+      storageKey: "registered-second",
+      fileName: "safe-second.png",
+    };
+    mocks.upload
+      .mockResolvedValueOnce(receipt)
+      .mockRejectedValueOnce(new Error("upload failed"))
+      .mockResolvedValueOnce(secondReceipt);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      render(<BugReportDrawer open onClose={() => {}} />);
+      pasteImages(await fillNewReport(), 2);
+      fireEvent.click(screen.getByRole("button", { name: "提交反馈" }));
+      await screen.findByText(/截图上传失败/);
+      expect(mocks.create).not.toHaveBeenCalled();
+      expect(screen.getByPlaceholderText("详细描述问题...")).toHaveValue("Original draft");
+      fireEvent.click(screen.getByRole("button", { name: "重试上传" }));
+      await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+      expect(mocks.upload).toHaveBeenCalledTimes(3);
+      expect(mocks.upload.mock.calls[2][1]).toBe("clip-1.png");
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attachments: [receipt, secondReceipt],
+          screenshot_url: receipt.storageKey,
+        }),
+      );
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("keeps the five image limit and allows submitting without failed screenshots", async () => {
+    mocks.upload.mockRejectedValue(new Error("upload failed"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      render(<BugReportDrawer open onClose={() => {}} />);
+      pasteImages(await fillNewReport(), 6);
+      expect(screen.getAllByText("移除")).toHaveLength(5);
+      expect(mocks.pushToast).toHaveBeenCalledWith({ msg: "最多上传 5 张截图", kind: "error" });
+      fireEvent.click(screen.getByRole("button", { name: "提交反馈" }));
+      await screen.findByText(/截图上传失败/);
+      fireEvent.click(screen.getByRole("button", { name: "跳过截图提交" }));
+      await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({ attachments: [], screenshot_url: null }),
+      );
+      expect(mocks.upload).toHaveBeenCalledTimes(1);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it.each(["account", "same-account-login", "local-token", "close", "unmount"])(
+    "does not create a report when %s changes during upload",
+    async (change) => {
+      let finish!: (value: unknown) => void;
+      mocks.upload.mockReturnValue(
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const onClose = vi.fn();
+      const { rerender, unmount } = render(<BugReportDrawer open onClose={onClose} />);
+      pasteImages(await fillNewReport(), 2);
+      fireEvent.click(screen.getByRole("button", { name: "提交反馈" }));
+      await waitFor(() => expect(mocks.upload).toHaveBeenCalledTimes(1));
+      act(() => {
+        if (change === "account")
+          useAuthStore.getState().setAuth("new-token", { id: "new-owner" } as never);
+        if (change === "same-account-login") {
+          useAuthStore.getState().logout();
+          useAuthStore.getState().setAuth("drawer-token", { id: "drawer-owner" } as never);
+        }
+        if (change === "local-token") localStorage.setItem("token", "new-token");
+        if (change === "close") fireEvent.click(screen.getByRole("button", { name: "关闭反馈" }));
+        if (change === "unmount") unmount();
+      });
+      if (change === "close") {
+        rerender(<BugReportDrawer open={false} onClose={onClose} />);
+        rerender(<BugReportDrawer open onClose={onClose} />);
+        fireEvent.change(screen.getByPlaceholderText("发生了什么问题？"), {
+          target: { value: "Reopened draft" },
+        });
+      }
+      await act(async () => {
+        finish({ storageKey: "late", fileName: "safe.png", mimeType: "image/png", size: 3 });
+      });
+      expect(mocks.upload).toHaveBeenCalledTimes(1);
+      expect(mocks.create).not.toHaveBeenCalled();
+      expect(mocks.pushToast).not.toHaveBeenCalledWith(
+        expect.objectContaining({ msg: "反馈已提交" }),
+      );
+      if (change === "close")
+        expect(screen.getByPlaceholderText("发生了什么问题？")).toHaveValue("Reopened draft");
+    },
+  );
+
+  it.each(["account", "close"])(
+    "does not clear a new draft or toast after %s changes during create",
+    async (change) => {
+      let finish!: (value: unknown) => void;
+      mocks.create.mockReturnValue(
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const onClose = vi.fn();
+      const { rerender } = render(<BugReportDrawer open onClose={onClose} />);
+      await fillNewReport();
+      fireEvent.click(screen.getByRole("button", { name: "提交反馈" }));
+      await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+      if (change === "account") {
+        act(() => {
+          useAuthStore.getState().setAuth("new-token", { id: "new-owner" } as never);
+        });
+        await fillNewReport();
+      } else {
+        fireEvent.click(screen.getByRole("button", { name: "关闭反馈" }));
+        rerender(<BugReportDrawer open={false} onClose={onClose} />);
+        rerender(<BugReportDrawer open onClose={onClose} />);
+      }
+      fireEvent.change(screen.getByPlaceholderText("发生了什么问题？"), {
+        target: { value: "New draft" },
+      });
+      await act(async () => {
+        finish({});
+      });
+      expect(screen.getByPlaceholderText("发生了什么问题？")).toHaveValue("New draft");
+      expect(mocks.pushToast).not.toHaveBeenCalledWith(
+        expect.objectContaining({ msg: "反馈已提交" }),
+      );
+    },
+  );
+
+  it("shows attachment download progress, a retryable error, and saves the retried blob", async () => {
+    const attachment = {
+      storageKey: "owned-image",
+      fileName: "screenshot.png",
+      mimeType: "image/png",
+      size: 2048,
+    };
+    mocks.get.mockResolvedValue({
+      id: "report",
+      display_id: "B-1",
+      title: "With image",
+      description: "Description",
+      status: "new",
+      attachments: [attachment],
+      comments: [],
+    });
+    let fail!: (reason: unknown) => void;
+    mocks.download
+      .mockReturnValueOnce(
+        new Promise((_, reject) => {
+          fail = reject;
+        }),
+      )
+      .mockResolvedValueOnce(new Blob(["png"]));
+    const createUrl = vi.fn().mockReturnValue("blob:drawer-image");
+    const revokeUrl = vi.fn();
+    vi.stubGlobal(
+      "URL",
+      Object.assign(class extends URL {}, {
+        createObjectURL: createUrl,
+        revokeObjectURL: revokeUrl,
+      }),
+    );
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      render(<BugReportDrawer open focusBugId="report" onClose={() => {}} />);
+      const button = await screen.findByRole("button", { name: /screenshot.png/ });
+      fireEvent.click(button);
+      expect(button).toBeDisabled();
+      expect(screen.getByText("下载中…")).toBeInTheDocument();
+      await act(async () => {
+        fail({ status: 410 });
+      });
+      expect(await screen.findByRole("alert")).toHaveTextContent("附件已过期");
+      fireEvent.click(screen.getByRole("button", { name: /screenshot.png/ }));
+      await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+      expect(mocks.download).toHaveBeenCalledWith("report", "owned-image", expect.any(AbortSignal));
+      expect(revokeUrl).toHaveBeenCalledWith("blob:drawer-image");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    } finally {
+      click.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });
