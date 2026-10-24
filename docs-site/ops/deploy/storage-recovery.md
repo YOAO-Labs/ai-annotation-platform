@@ -81,7 +81,17 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py --report /tmp/reco
 
 预览和评估原行分别保留清理责任，未知归属不物理删除；主动学习未增加删除入口。已有任一新 owner 时拒绝破坏性降级，回退代码须保留字段和事实。核验名额、关闭不确定和维护代次沿用上节，共享每个 API 进程一个名额。此项不开放整个用途切换，也不代表真实模型执行资格。
 
+## 上传头像归属的部署顺序
+
+增量迁移0223增加独立 `avatar_uploads` 表，不根据当前桶回填旧token。升级前暂停头像变更，盘点 `users.avatar_ref` 中的历史上传引用并通知用户重新上传或改用内置头像。没有独立归属的旧token升级后返回404，原文件继续保留，不能按当前桶批量推测删除；当前部署若没有上传引用，无需额外迁移头像字节。
+
+应用迁移后刷新所属API、cleanup Worker及Beat，确认新退休清理任务与队列已注册，再恢复上传。挂载代码不要求重建镜像。上传先提交pending事实，只有真实写入/完整回读结束且发布围栏通过才变ready；进程崩溃或提交应答不确定留下的pending不按年龄自动删除。人工对账须同时确认无活动或迟到写入、无用户引用、保存位置和独立内容回执，不能仅依据创建时间清桶。
+
+替换或清除后的retired行保存清理责任，失败可重试；维护排空或未知端点拒绝物理删除并保留行。不要删除账本来消除错误。存在任何上传记录时迁移拒绝破坏性降级，回退应用仍须保留表、归属和状态。该部署不开放用途切换，也不把匿名token头像授权扩大到其他对象。
+
 ## 恢复顺序与物理映射
+
+合成夹具另覆盖ready、pending和retired三类头像及其实际WebP，完整回读和用户引用对账确认恢复未把pending发布或丢失退休责任。
 
 脚本先验证完整备份和独立密钥，再销毁演练源库、源桶与外部合成原件，随后恢复到另一组空资源，证明目标不借读源数据。
 
@@ -89,9 +99,9 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py --report /tmp/reco
 
 数据库内有持久物理引用，改环境变量不足以完成恢复。本演练只在恢复目标库显式映射平台桶绑定、平台 Asset 副本、来源预览、完整原图缓存、临时输入租约、训练数据版本、实验、预览、评估与选样归属及删除账本和托管原件保留账本，并记录变换账本。旧存储身份或未知映射会拒绝通过，不会静默“修复”为当前位置。原始 dump、业务ID、内容身份、采纳修订、冻结 snapshot、manifest 和 ZIP 均不改写；容量观测仍属于原位置和原采集时间。
 
-训练数据版本、实验、预览、评估、选样及已有删除意图的固定归属先核对源 endpoint、bucket、精确前缀和物理身份。恢复工具须具有表 owner 权限，在显式 `aap.restore_training_storage=on` 事务标记下，仅映射嵌套 `storage_ref.bucket/storage_identity`；删除意图自身的 bucket 同步映射，并记录变换账本。前缀、端点、绑定与配置代次、接管来源及核验证据均保持，不能把源证据改成目标现场新核验。已保存但身份无法核实的归属拒绝映射；归属仍为空的旧记录不因恢复而自动接管，其旧清理意图保持待核对且不执行物理删除。
+训练数据版本、实验、预览、评估、选样、头像及已有删除意图的固定归属先核对源 endpoint、bucket、精确前缀或对象键和物理身份。恢复工具须具有表 owner 权限，在显式 `aap.restore_training_storage=on` 事务标记下，仅映射嵌套 `storage_ref.bucket/storage_identity`；删除意图自身的 bucket 同步映射，并记录变换账本。前缀/精确键、端点、绑定与配置代次、接管来源及核验证据均保持，不能把源证据改成目标现场新核验。已保存但身份无法核实的归属拒绝映射；归属仍为空的旧记录不因恢复而自动接管，其旧清理意图保持待核对且不执行物理删除。
 
-Run 配置、Preview 的 request/spec/input 与上传发布回执及期限、Evaluation/AL 的冻结 spec、attempt/report、候选 request/media/evidence、完成回执、初始化 pin、模型权重 artifact/provenance 及摘要不在物理映射白名单内，均逐字段保持。模型仍通过原同项目 Run/Attempt 外键找到映射后的归属；不能重写这些冻结证据来制造目标已重新训练或重新核验的结论。
+Run 配置、Preview 的 request/spec/input 与上传发布回执及期限、Evaluation/AL 的冻结 spec、attempt/report、候选 request/media/evidence、完成回执、初始化 pin、模型权重 artifact/provenance 及摘要不在物理映射白名单内，均逐字段保持。头像的token、账号快照、SHA/字节数、pending/ready/retired状态、退休时间和用户引用同样保持。模型仍通过原同项目 Run/Attempt 外键找到映射后的归属；不能重写这些冻结证据来制造目标已重新训练或重新核验的结论。
 
 托管原件保留记录只在初始平台位置/绑定及保存的存储身份与演练源一致时映射bucket/storage_identity；未知身份需要独立恢复合同，不能静默采用目标配置。原始assertion_digest、历史Dataset/Item/Asset及保留策略保持不变，恢复后回读原件摘要验证。该映射仍不授予物理回收权限，也不代表生产恢复点已成为在线保留锁。
 

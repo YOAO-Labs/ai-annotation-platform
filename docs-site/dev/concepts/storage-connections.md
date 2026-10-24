@@ -413,3 +413,11 @@ GET分页历史只读；显式POST创建或复用活动任务，接口和通用�
 读取使用短超时、单次SDK尝试及256KiB流块，不做图片解码或完整临时文件：当前HEAD固定对象观测，验证条件语义后按VersionId/IfMatch读取全部字节，比较SHA/大小，最后以无版本条件HEAD再次核对当前键。60秒协作截止和总字节预算拒绝未完成结果；HTTP403、缺失、内容变化、条件不支持和关闭不确定分别记录。ETag仅作条件值；AWS的[条件GET](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html)及[ETag与内容完整性规则](https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity-upload.html)支持这一机制，S3兼容实现仍需实际验证。
 
 结果只证明所示观测时段完整读取与历史摘要相符。context_matches只表示历史锚点/配置仍匹配，不证明现在对象未被外部覆盖、独占管理、最小副本或删除资格。既有回收预演继续纯SQL与execution_permission=false，不消费历史匹配来绕过其他门禁。离线恢复不重定位历史观测；锚点物理位置变化后旧context失效，完整历史保留，需显式重新核验目标。
+
+## 上传头像的固定存储归属
+
+上传头像的随机token对应独立 `AvatarUpload`，而非从 `User.avatar_ref` 推测当前桶。归属只在创建时从已登记的 avatars 绑定分配，保存端点、精确键、位置修订、绑定代次与物理身份；规范化WebP的SHA256和字节数与其一起不可变。读取和删除不比较当前avatars桶，端点不符则拒绝。现有匿名token URL和用户DTO不暴露内部归属。
+
+上传先提交pending事实，再在durable storage permit中写入并完整回读。真实线程结束后，重新锁定账号、复核Key原证明、原头像引用CAS及维护修订，才同事务发布ready新引用和旧对象retired意图。pending不按时间自动回收；进程崩溃、发布应答不确定或未确认物理收尾时保留待核对。历史token缺少独立记录时不从当前桶读删，也不以文件名或当前metadata自动接管，用户重新上传即可建立新归属。
+
+匿名读取只接受ready记录，按精确键有界读取，关闭句柄并验证完整SHA/大小后再返回图片或304。替换、内置选择和清除先提交引用变化及退休意图，再清理原对象；退休行无任何用户引用时由cleanup队列重试保存位置的精确删除。失败保留责任，pending不进入自动清理。离线恢复只允许更换bucket/identity，状态、账号快照和内容回执均受保护。整个avatars用途切换仍未开放，其他用途尚须独立完成消费者与历史位置对账。

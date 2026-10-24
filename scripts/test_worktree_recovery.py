@@ -187,6 +187,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         from app.db.models.training_preview import TrainingPreview
         from app.db.models.sample_evaluation import SampleEvaluationRun
         from app.db.models.active_learning import ActiveLearningRound
+        from app.db.models.avatar_upload import AvatarUpload
         from app.services.dataset_assets import LEGACY_LOCATION_ID
 
         self.models = SimpleNamespace(
@@ -203,6 +204,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             training_preview=TrainingPreview,
             evaluation=SampleEvaluationRun,
             learning=ActiveLearningRound,
+            avatar=AvatarUpload,
         )
         self.source, self.target, self.endpoint = (
             roles("source"),
@@ -216,6 +218,11 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         )
         self.endpoint_patch.start()
         self.addCleanup(self.endpoint_patch.stop)
+        avatar_endpoint = patch(
+            "app.services.avatar_storage._runtime_endpoint", return_value=self.endpoint
+        )
+        avatar_endpoint.start()
+        self.addCleanup(avatar_endpoint.stop)
         project_id, version_id = uuid.UUID(int=12), uuid.UUID(int=13)
         training_ref = {
             "schema": 1,
@@ -239,6 +246,28 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             "prefix": f"projects/{project_id}/runs/{run_id}/",
         }
         self.rows = {
+            AvatarUpload: [
+                SimpleNamespace(
+                    token="a" * 32,
+                    owner_id=uuid.UUID(int=19),
+                    sha256="b" * 64,
+                    size_bytes=123,
+                    state="retired",
+                    storage_ref={
+                        "schema": 1,
+                        "purpose": "avatars",
+                        "location_id": str(LEGACY_LOCATION_ID),
+                        "config_revision": 1,
+                        "binding_generation": 1,
+                        "endpoint_url": self.endpoint,
+                        "bucket": self.source["MINIO_AVATARS_BUCKET"],
+                        "object_key": "a" * 32 + ".webp",
+                        "storage_identity": identity(
+                            self.endpoint, self.source["MINIO_AVATARS_BUCKET"]
+                        ),
+                    },
+                )
+            ],
             TrainingDatasetVersion: [
                 SimpleNamespace(
                     id=version_id, project_id=project_id, storage_ref=dict(training_ref)
@@ -385,6 +414,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 "training_previews",
                 "sample_evaluation_runs",
                 "active_learning_rounds",
+                "avatar_uploads",
             },
         )
         target = storage_view(self.endpoint, self.target)
@@ -401,6 +431,14 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 if hasattr(row, "bucket"):
                     self.assertIn(row.bucket, self.target.values())
                 if getattr(row, "storage_ref", None) is not None:
+                    if row.storage_ref["purpose"] == "avatars":
+                        self.assertEqual(
+                            row.storage_ref["bucket"],
+                            self.target["MINIO_AVATARS_BUCKET"],
+                        )
+                        self.assertEqual(row.state, "retired")
+                        self.assertEqual(row.sha256, "b" * 64)
+                        continue
                     self.assertEqual(
                         row.storage_ref["bucket"], self.target["MINIO_TRAINING_BUCKET"]
                     )
@@ -465,6 +503,51 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         run.storage_ref = None
         await remap_storage(self.db, self.source, self.target, self.endpoint)
         self.assertIsNone(run.storage_ref)
+
+    async def test_unknown_avatar_ref_or_receipt_refuses_the_entire_mapping(self):
+        baseline = deepcopy(self.rows)
+        for field, value in [
+            ("purpose", "training-run"),
+            ("bucket", self.source["MINIO_IMPORT_BUCKET"]),
+            ("object_key", "b" * 32 + ".webp"),
+            ("storage_identity", "f" * 64),
+            ("endpoint_url", "https://elsewhere.invalid"),
+            ("extra", "unexpected"),
+        ]:
+            self.rows = deepcopy(baseline)
+            self.rows[self.models.avatar][0].storage_ref[field] = value
+            with self.subTest(field=field):
+                with self.assertRaises(WorktreeError):
+                    await remap_storage(
+                        self.db, self.source, self.target, self.endpoint
+                    )
+                self.db.flush.assert_not_awaited()
+                self.assertEqual(
+                    self.rows[self.models.binding][0].bucket,
+                    baseline[self.models.binding][0].bucket,
+                )
+        self.rows = deepcopy(baseline)
+        self.rows[self.models.avatar][0].sha256 = "not-a-receipt"
+        with self.assertRaises(WorktreeError):
+            await remap_storage(self.db, self.source, self.target, self.endpoint)
+        self.db.flush.assert_not_awaited()
+
+    def test_protected_avatar_row_preserves_all_nonphysical_facts(self):
+        from worktree_recovery_fixture import digest, protected_row
+
+        row = deepcopy(vars(self.rows[self.models.avatar][0]))
+        base = digest(protected_row("avatar_uploads", row))
+        for field in ["bucket", "storage_identity"]:
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "mapped"
+            self.assertEqual(base, digest(protected_row("avatar_uploads", changed)))
+        for field in ["token", "owner_id", "sha256", "size_bytes", "state"]:
+            changed = {**row, field: "changed"}
+            self.assertNotEqual(base, digest(protected_row("avatar_uploads", changed)))
+        for field in ["object_key", "purpose", "location_id", "endpoint_url"]:
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "changed"
+            self.assertNotEqual(base, digest(protected_row("avatar_uploads", changed)))
 
     def test_protected_training_ref_excludes_only_physical_subfields(self):
         from worktree_recovery_fixture import digest, protected_row

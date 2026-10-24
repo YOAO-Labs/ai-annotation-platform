@@ -51,6 +51,7 @@ def protected_row(table, row):
             "training_previews",
             "sample_evaluation_runs",
             "active_learning_rounds",
+            "avatar_uploads",
         }
         and result.get("storage_ref") is not None
     ):
@@ -580,6 +581,9 @@ async def seed(db, external: Path):
             now=now,
             storage=storage,
         )
+        from worktree_recovery_avatar import seed_avatars
+
+        await seed_avatars(db, actor=actor, storage=storage, now=now)
         db.add(
             StorageConnection(
                 name="Synthetic recovery secret",
@@ -856,6 +860,9 @@ async def verify_application(db, external: Path):
     from worktree_recovery_auxiliary import verify_auxiliary
 
     auxiliary = await verify_auxiliary(db, storage=storage)
+    from worktree_recovery_avatar import verify_avatars
+
+    avatars = await verify_avatars(db, storage=storage)
     ready_count, partial_count, media_count = 0, 0, 0
     sys.path.insert(0, str(ROOT / "apps/training-executor"))
     from training_executor.adapters import validate_dataset
@@ -942,6 +949,7 @@ async def verify_application(db, external: Path):
     assert replacements_rejected == 2
     return {
         **auxiliary,
+        **avatars,
         "pinned_training_versions": ready_count + partial_count,
         "pinned_training_deletions": deletion_count,
         "pinned_training_runs": run_count,

@@ -64,6 +64,8 @@ async def remap_storage(
     from app.db.models.training_preview import TrainingPreview
     from app.db.models.sample_evaluation import SampleEvaluationRun
     from app.db.models.active_learning import ActiveLearningRound
+    from app.db.models.avatar_upload import AvatarUpload
+    from app.services import avatar_storage
     from app.services import (
         training_dataset_storage,
         training_run_storage,
@@ -198,6 +200,28 @@ async def remap_storage(
                 )
             if model is TrainingStorageDeletion:
                 remap(row, "training_storage_deletions", str(row.id))
+    for row in await db.scalars(select(AvatarUpload)):
+        try:
+            owner = avatar_storage.resolve(row)
+        except ValueError:
+            raise WorktreeError("头像上传记录含未知归属或内容回执") from None
+        if (
+            owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or owner.bucket != source["MINIO_AVATARS_BUCKET"]
+        ):
+            raise WorktreeError("头像上传归属与备份源不一致")
+        bucket = target["MINIO_AVATARS_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **owner.ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            AvatarUpload.__tablename__,
+            row.token,
+        )
     for row in await db.scalars(select(ManagedOriginalRetirement)):
         if (
             row.location_id != LEGACY_LOCATION_ID

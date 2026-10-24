@@ -245,3 +245,11 @@ GET接受`limit=20`（1至100）及`offset=0`（0至1000000），返回`retireme
 通过`POST /api/v1/async-jobs/{job_id}/cancel`取消，授权同样要求当前超级管理员与全权Key。pending可直接取消；running返回`status=cancel_requested`，实际读取收尾后才终态。进程丢失或关闭不确定保留operation责任，信号/超时不会自动清空；未收尾期间不可重新启动同锚点。
 
 `context_matches`仅说明已记录锚点与配置仍适用，不承诺对象此刻未被覆盖。SHA匹配仍不是独占所有权、最小副本、可恢复备份或物理删除许可；所有结果维持`execution_permission=false`，不调整期限或声明要求。配置/定位在恢复后变化，旧观测按历史保留且不再匹配，需要显式核验新目标。
+
+## 上传头像的固定位置
+
+`POST /api/v1/auth/me/avatar` 保持原multipart图片上传和 `UserOut` 返回格式。新token在写入前保存独立归属与规范化内容摘要；上传期间账号或Key失效、头像已被其他请求改变、维护代次变化时拒绝发布。并发头像变化返回409，撤权返回403；失败候选保留内部pending事实，不通过未确认的物理删除补偿发布错误。
+
+`PATCH` / `DELETE /api/v1/auth/me/avatar` 仍选择内置头像或恢复默认，客户端不能指定 `upload:` 引用。引用变化和旧对象退休同事务提交；物理清理失败不撤销已生效的选择，cleanup队列沿保存位置重试。
+
+`GET /api/v1/avatars/{token}` 仍允许匿名读取，返回WebP及内容ETag，支持 `If-None-Match` 的304。仅独立ready记录可读；格式错误、未知token、pending或retired为404，已知归属的端点或完整字节核验失败明确拒绝，不能回退当前桶。命中ETag仍核验实际完整字节。历史只有 `users.avatar_ref`、没有上传归属记录的token同样404；需重新上传或选择内置头像，GET不执行接管或写库。
