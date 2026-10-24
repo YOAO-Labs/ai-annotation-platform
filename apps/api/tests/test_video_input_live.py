@@ -6,11 +6,12 @@ from io import BytesIO
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import subprocess
 import sys
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import asyncio
 import httpx
@@ -27,6 +28,7 @@ from tests.test_asset_storage_cleanup_runtime import (
     _required_env,
     _verified_resource_manifest,
     _verify_bucket_owner,
+    _verify_postgres,
 )
 from tests.test_assets_media_live import (
     _free_loopback_port,
@@ -54,9 +56,20 @@ pytestmark = [
 
 
 @asynccontextmanager
-async def _video_runtime(test_engine, tmp_path):
+async def _video_runtime(test_engine, tmp_path, *, source_test_engine=None):
     from app.config import settings
 
+    source_url = source_test_engine.url if source_test_engine is not None else None
+    if source_url is not None and not (
+        source_url.drivername == test_engine.url.drivername
+        and source_url.username == test_engine.url.username == "owner"
+        and source_url.host == test_engine.url.host == "127.0.0.1"
+        and source_url.port == test_engine.url.port
+        and source_url.database != test_engine.url.database
+    ):
+        pytest.fail(
+            "source and restored video DBs do not share the owned PostgreSQL target"
+        )
     control_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
         "asset_media_control_client",
@@ -67,7 +80,50 @@ async def _video_runtime(test_engine, tmp_path):
         "asset_media_worker_client",
         test_engine,
     )
-    resources = _verified_resource_manifest(test_engine, control_url)
+    if source_test_engine is None:
+        resources = _verified_resource_manifest(test_engine, control_url)
+    else:
+        source_control_url = control_url.set(database=source_url.database)
+        _verify_postgres(source_control_url)
+        resources = _verified_resource_manifest(source_test_engine, source_control_url)
+        if (
+            re.fullmatch(
+                r"aap_identity_module_restore_[0-9a-f]{12}_test",
+                test_engine.url.database or "",
+            )
+            is None
+        ):
+            pytest.fail("restored video DB is not an identity-module restore clone")
+        async with test_engine.connect() as identity_db:
+            clone_identity = (
+                await identity_db.execute(
+                    text(
+                        "SELECT current_database(), current_user, "
+                        "pg_catalog.pg_get_userbyid(d.datdba), "
+                        "pg_catalog.shobj_description(d.oid, 'pg_database') "
+                        "FROM pg_catalog.pg_database d "
+                        "WHERE d.datname = current_database()"
+                    )
+                )
+            ).one()
+        database_name, current_user, database_owner, marker = clone_identity
+        marker_prefix = "identity-module-restore:"
+        if not (
+            database_name == test_engine.url.database
+            and current_user == "owner"
+            and database_owner == "owner"
+            and isinstance(marker, str)
+            and marker.startswith(marker_prefix)
+        ):
+            pytest.fail("restored video DB owner or restore marker did not match")
+        try:
+            marker_id = UUID(marker.removeprefix(marker_prefix))
+        except ValueError:
+            pytest.fail("restored video DB marker did not contain a UUID")
+        if marker_id.version != 4 or str(marker_id) != marker.removeprefix(
+            marker_prefix
+        ):
+            pytest.fail("restored video DB marker UUID was not canonical")
     buckets = resources["buckets"]
     endpoint = (
         ("https" if settings.minio_use_ssl else "http")
