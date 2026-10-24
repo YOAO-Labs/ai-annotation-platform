@@ -12,7 +12,7 @@ import { markPointCloudStage } from "../pointCloudTiming";
 import type { GpuCameraTextureSample } from "./cameraTextureColorNode";
 
 export interface CameraTextureInput {
-  imageUrl: string;
+  imageUrl: string | null | undefined;
   calibration: SensorCalibration;
 }
 
@@ -57,6 +57,7 @@ export async function prepareCameraTextureResources(
     await Promise.all(
       cameras.map(async (camera) => {
         try {
+          if (!camera.imageUrl) return null;
           const handle = await acquireCameraBitmap(camera.imageUrl, signal, "active");
           return { camera, handle };
         } catch (error) {

@@ -1,3 +1,5 @@
+import { originalOwnerKey } from "@/api/originals";
+import { useOriginalAssetOwner } from "./useOriginalAssetOwner";
 /**
  * v0.17.x · 巨石拆分 Epic 收尾 —— 从 ThreeDWorkbench 抽出的 Three.js 场景生命周期 hook。
  *
@@ -209,6 +211,11 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
   }, []);
 
   // 实例化 / 销毁 Scene(随容器挂载一次)。
+  const originalOwner = useOriginalAssetOwner();
+  useLayoutEffect(() => {
+    sceneRef.current?.clearPointCloud();
+    cancelActivePointCloudFrameLoad();
+  }, [originalOwner, sceneRef]);
   useEffect(() => {
     const container = viewportRef.current;
     if (!container) return;
@@ -352,11 +359,18 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
     suspendCameraSaveRef.current = true;
     scene
       .loadPcd(pointCloudUrl, axisConvention, {
-        shouldCommit: () => !cancelled && loadSequence === loadSequenceRef.current,
+        shouldCommit: () =>
+          !cancelled &&
+          originalOwner === originalOwnerKey() &&
+          loadSequence === loadSequenceRef.current,
         visible: !deferPointCloudDisplayRef.current,
       })
       .then((s) => {
-        if (cancelled || loadSequence !== loadSequenceRef.current) {
+        if (
+          cancelled ||
+          originalOwner !== originalOwnerKey() ||
+          loadSequence !== loadSequenceRef.current
+        ) {
           publishPointCloudResourceTrace(pointCloudUrl, {
             type: "load-stale-result",
             status: cancelled ? "cancelled" : "superseded",
@@ -385,7 +399,11 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
         suspendCameraSaveRef.current = false;
       })
       .catch((e) => {
-        if (cancelled || loadSequence !== loadSequenceRef.current) {
+        if (
+          cancelled ||
+          originalOwner !== originalOwnerKey() ||
+          loadSequence !== loadSequenceRef.current
+        ) {
           publishPointCloudResourceTrace(pointCloudUrl, {
             type: "load-rejected-after-cancel",
             status: cancelled ? "cancelled" : "superseded",
@@ -419,7 +437,15 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
         storeRuntimeViewTransfer(continuityKey, scene.getViewState());
       }
     };
-  }, [pointCloudUrl, continuityKey, axisConvention, rendererReadyVersion, sceneRef, loadAttempt]);
+  }, [
+    originalOwner,
+    pointCloudUrl,
+    continuityKey,
+    axisConvention,
+    rendererReadyVersion,
+    sceneRef,
+    loadAttempt,
+  ]);
 
   // 同步 3D 框图层(标注 / 选中变化)。scene 在挂载 effect 里先建,本 effect 后跑。
   useEffect(() => {

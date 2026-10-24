@@ -1,3 +1,6 @@
+import { originalOwnerKey } from "@/api/originals";
+import { pointCloudManifestQueryKey } from "@/api/pointCloudOriginals";
+import { useOriginalAssetOwner } from "./useOriginalAssetOwner";
 import { CopyableError } from "@/components/ui/CopyableError";
 import {
   useCallback,
@@ -448,27 +451,30 @@ export function SceneTimeline({
       virtualizer.scrollToIndex(currentFrame - sceneStart, { align: "auto" });
   }, [cellWidth, currentFrame, expanded, playbackActive, sceneStart, virtualizer]);
 
+  const originalOwner = useOriginalAssetOwner();
   const prefetchFrame = useCallback(
     (summary: SceneTimelineFrameSummary) => {
       if (summary.state !== "available" || !summary.task_id || summary.task_id === taskId)
         return Promise.resolve();
       return queryClient
         .fetchQuery({
-          queryKey: ["task-point-cloud-manifest", summary.task_id],
+          queryKey: pointCloudManifestQueryKey(summary.task_id),
           queryFn: ({ signal }) => tasksApi.getPointCloudManifest(summary.task_id!, { signal }),
           staleTime: 5 * 60 * 1000,
         })
         .then((manifest) =>
-          prefetchPointCloudFrameAssets(manifest, {
-            depthRasters: prefetchDepthRasters,
-            ...(prefetchDecimateThreshold === undefined
-              ? {}
-              : { decimateThreshold: prefetchDecimateThreshold }),
-          }),
+          originalOwner !== originalOwnerKey()
+            ? undefined
+            : prefetchPointCloudFrameAssets(manifest, {
+                depthRasters: prefetchDepthRasters,
+                ...(prefetchDecimateThreshold === undefined
+                  ? {}
+                  : { decimateThreshold: prefetchDecimateThreshold }),
+              }),
         )
         .catch(() => {});
     },
-    [prefetchDecimateThreshold, prefetchDepthRasters, queryClient, taskId],
+    [originalOwner, prefetchDecimateThreshold, prefetchDepthRasters, queryClient, taskId],
   );
 
   const cancelManual = useCallback(() => {

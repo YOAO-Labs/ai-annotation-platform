@@ -12,6 +12,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrameNeighbors } from "@/hooks/useFrameNeighbors";
 import { Button } from "@/components/ui/Button";
+import { useCameraOriginalImage } from "./useCameraOriginalImage";
 import { useNeighborFrameThumbs } from "./useNeighborFrameThumbs";
 
 export type FramePickerMode = "propagate" | "interpolate";
@@ -170,12 +171,7 @@ export function FramePicker({
               onClick={() => setRaw(String(t.frameIndex))}
             >
               {t.imageUrl ? (
-                <img
-                  src={t.imageUrl}
-                  alt={`第 ${t.frameIndex} 帧`}
-                  className={THUMB_IMG}
-                  loading="lazy"
-                />
+                <CameraThumbnail source={t.imageUrl} frameIndex={t.frameIndex} />
               ) : (
                 <span className={THUMB_PLACEHOLDER}>—</span>
               )}
@@ -244,5 +240,14 @@ export function FramePicker({
         </Button>
       </div>
     </div>
+  );
+}
+
+function CameraThumbnail({ source, frameIndex }: { source: string; frameIndex: number }) {
+  const { url } = useCameraOriginalImage(source);
+  return url ? (
+    <img src={url} alt={`第 ${frameIndex} 帧`} className={THUMB_IMG} loading="lazy" />
+  ) : (
+    <span className={THUMB_PLACEHOLDER}>—</span>
   );
 }

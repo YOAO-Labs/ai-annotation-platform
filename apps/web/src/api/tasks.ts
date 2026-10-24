@@ -1,4 +1,6 @@
 import { apiClient } from "./client";
+import { captureOriginalOwner } from "./originals";
+import { hydratePointCloudOriginals } from "./pointCloudOriginals";
 import type { DatasetItemFilters } from "./datasets";
 import type {
   TaskResponse,
@@ -359,8 +361,14 @@ export const tasksApi = {
   getVideoManifestV2: (id: string, init?: RequestInit) =>
     apiClient.silentGet<VideoManifestV2Response>(`/tasks/${id}/video/manifest-v2`, init),
 
-  getPointCloudManifest: (id: string, init?: RequestInit) =>
-    apiClient.get<TaskPointCloudManifestResponse>(`/tasks/${id}/point-cloud/manifest`, init),
+  getPointCloudManifest: async (id: string, init?: RequestInit) => {
+    const owner = captureOriginalOwner();
+    const manifest = await apiClient.get<TaskPointCloudManifestResponse>(
+      `/tasks/${id}/point-cloud/manifest`,
+      init,
+    );
+    return hydratePointCloudOriginals(manifest, id, owner, init?.signal ?? undefined);
+  },
 
   getCameraAnnotationMembers: (
     taskId: string,

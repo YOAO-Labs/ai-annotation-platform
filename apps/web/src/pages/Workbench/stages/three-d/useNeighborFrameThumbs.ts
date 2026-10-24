@@ -1,3 +1,5 @@
+import { pointCloudManifestQueryKey } from "@/api/pointCloudOriginals";
+import { useOriginalAssetOwner } from "./useOriginalAssetOwner";
 /**
  * v0.15.20 · FramePicker 的 Layer 2 相机图缩略图数据源。
  *
@@ -25,7 +27,7 @@ function frontCameraImage(cameras: PointCloudCameraOut[]): string | null {
   const front = cameras.find(
     (c) => c.image_url && cameraAnchor(c.calibration, c.role || c.name) === "top",
   );
-  if (front) return front.image_url;
+  if (front) return front.image_url ?? null;
   return cameras.find((c) => c.image_url)?.image_url ?? null;
 }
 
@@ -35,6 +37,7 @@ export function useNeighborFrameThumbs(
   k: number,
   enabled: boolean,
 ): FrameThumb[] {
+  useOriginalAssetOwner();
   const { data: neighbors } = useFrameNeighbors(enabled ? taskId : null, k);
 
   const frames = useMemo<{ taskId: string; frameIndex: number; isCurrent: boolean }[]>(() => {
@@ -56,7 +59,7 @@ export function useNeighborFrameThumbs(
 
   const results = useQueries({
     queries: frames.map((f) => ({
-      queryKey: ["task-point-cloud-manifest", f.taskId],
+      queryKey: pointCloudManifestQueryKey(f.taskId),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         tasksApi.getPointCloudManifest(f.taskId, { signal }),
       enabled,

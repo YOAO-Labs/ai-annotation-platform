@@ -1,3 +1,5 @@
+import { originalOwnerKey } from "@/api/originals";
+import { useOriginalAssetOwner } from "@/pages/Workbench/stages/three-d/useOriginalAssetOwner";
 /**
  * v0.15.18 · 邻帧点云叠加:按邻帧 task 拉 manifest(point_cloud_url)+ 加载下采样 PCD。
  *
@@ -21,15 +23,18 @@ export function useNeighborPointClouds(
   targetCount: number,
   enabled: boolean,
 ): { items: NeighborPcd[]; isLoading: boolean } {
+  const owner = useOriginalAssetOwner();
   const list = enabled ? neighbors : [];
   const results = useQueries({
     queries: list.map((n) => ({
-      queryKey: ["neighbor-pcd", n.taskId, convention, targetCount],
+      queryKey: ["neighbor-pcd", owner, n.taskId, convention, targetCount],
       queryFn: async ({ signal }: { signal: AbortSignal }): Promise<NeighborPcd | null> => {
         const manifest = await tasksApi.getPointCloudManifest(n.taskId, { signal });
         const url = manifest.point_cloud_url;
         if (!url) return null;
         const positions = await loadNeighborPcdPositions(url, convention, targetCount, signal);
+        if (signal.aborted || owner !== originalOwnerKey())
+          throw new DOMException("Original owner changed", "AbortError");
         return { taskId: n.taskId, frameIndex: n.frameIndex, positions };
       },
       enabled,

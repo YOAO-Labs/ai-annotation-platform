@@ -40,7 +40,7 @@ interface FloatingCameraPanelProps {
   /** 相机 role(canonical),作 user config cameraPanels 的 key 与稳定标识。 */
   role: string;
   name: string;
-  imageUrl: string;
+  imageUrl: string | null | undefined;
   calibration?: SensorCalibration | null;
   boxes: SceneBox[];
   highlightedIds: Set<string>;

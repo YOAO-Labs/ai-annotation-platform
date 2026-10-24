@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useAuthStore } from "@/stores/authStore";
 import type {
   BoxPsr,
   PointCloudViewState,
@@ -614,6 +615,48 @@ describe("usePointCloudScene camera continuity", () => {
     settings.remove();
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" })));
     expect(scene.setTransformMode).toHaveBeenCalledWith("scale");
+    view.unmount();
+  });
+  it("clears old-session geometry and fences a decoder even before its late result resolves", async () => {
+    useAuthStore.getState().setAuth("owner-first", { id: "point-cloud-owner" } as never);
+    const viewportRef = { current: document.createElement("div") };
+    const sceneRef = { current: null };
+    const view = renderHook(() =>
+      usePointCloudScene({
+        viewportRef,
+        sceneRef: sceneRef as never,
+        pcdDecimate: 100,
+        pointSize: 0.06,
+        showGrid: true,
+        showAxisGizmo: true,
+        cameraDamping: 0.1,
+        persistCameraView: false,
+        pointCloudUrl: "owned-frame.pcd",
+        continuityKey: "owned-scene",
+        axisConvention: "iso_8855",
+        boxes: [],
+        selectedId: null,
+        selectedPsrEditable: false,
+        pointcloudCamera: null,
+        onWorkbenchLayoutChange: vi.fn(),
+        onViewModeChange: vi.fn(),
+        onTransformPreview: vi.fn(),
+        onTransformCommit: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(view.result.current.loadedPointCloudUrl).toBe("owned-frame.pcd"));
+    const scene = mockState.instances[0];
+    const oldOptions = scene.loadPcd.mock.calls[0][2] as { shouldCommit(): boolean };
+    expect(oldOptions.shouldCommit()).toBe(true);
+    const loads = scene.loadPcd.mock.calls.length;
+    act(() => useAuthStore.getState().setToken("owner-refreshed"));
+    expect(scene.clearPointCloud).not.toHaveBeenCalled();
+    expect(scene.loadPcd).toHaveBeenCalledTimes(loads);
+    act(() =>
+      useAuthStore.getState().setAuth("owner-second-login", { id: "point-cloud-owner" } as never),
+    );
+    expect(scene.clearPointCloud).toHaveBeenCalled();
+    expect(oldOptions.shouldCommit()).toBe(false);
     view.unmount();
   });
 });
