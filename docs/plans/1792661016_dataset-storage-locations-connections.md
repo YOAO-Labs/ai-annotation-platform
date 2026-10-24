@@ -618,3 +618,18 @@ Web保留按目标回执、会话租约、逐文件即时接收，改认证Blob�
 人工环境应用0227并刷新同一所属API、两个Worker和Beat，保留Web3100/API8100，最终doctor健康，两个Worker各注册71项且队列保持；实际purge任务派发成功，旧应用lifecycle规则已不存在。24对象和12源文件完整SHA与前基线相同；除迁移、新增空表、用户活动行与追加审计外，原业务表摘要保持，Job状态仍为45 completed/21 failed/1 cancelled。一次性test库、Redis及九桶销毁后独立确认不存在，浏览器关闭，四棵干净且补丁等价的隔离树/分支移除；任务私有探针、凭据、日志、截图及测试/构建缓存按归属清理，人工环境及规范身份保留。
 
 完整E02仍为active，不归档，完整用途切换继续关闭。下一片先补核测试seed的namespace清理对新owner/permit的合同，再处理项目指南图片等其余当前桶消费者；本片实际测试清理使用整个已验证一次性环境销毁，未宣称旧namespace seed清理已支持新owner。独立Task原件、持久RLE、掩码导入输入及绕过既有Asset归属的媒体读取仍另片；不重复建设已交付的Asset、缓存与训练归属。E10真实框架消费、生产独占/物理回收和未指定的跨站点/迁移目标继续独立推进。
+
+## E02-B10-A Design — 测试命名空间清理保留附件责任
+
+基于 `7e791a1f3`，继续原实施/提交授权。当前 `_cleanup_e2e_fixtures` 先删业务行，再按当前annotations桶的整个annotation前缀删文件；新增CommentAttachmentUpload不随FK删除，保存桶、pending与真实读取permit均被绕过。只读复核确认这不是生产GC缺陷，而是隔离测试夹具清理合同缺口。本片不新增迁移、公共API、生产强制删除开关、UI或后台任务。
+
+仅在既有非production、E2E开关开启且实际DB后缀为\_test/\_e2e的保护内执行。候选只按精确fixture Project UUID选择owner快照，包含Comment/Annotation已不存在的记录；不以上传者邮箱、未知JSON或当前桶推断归属。原业务锚点在所有物理阶段成功前保持。历史上已丢失Project/User锚点而不能归回namespace的旧owner不猜测接管，使用整个已验证一次性mode销毁。
+
+1. 完整预检scope内owner的严格位置、不可变回执和状态；任何pending拒绝且零物理删除，不根据年龄假设上传结束。ready转retired并提交，原owner和fixture继续保留，首次退休时间不变。显式测试夹具销毁可清理终态附件，不修改生产90天/7天策略或事实。
+2. 逐个冻结回执通过storage_access.run注册测试删除permit，短锁复核同一owner/state/ref及原读/写/删permit后提交，再沿保存桶精确条件删除并确认实际收尾。未知关闭、正在读取、维护阻断或删除失败均保留所有owner/业务锚点并明确失败；成功也暂不删owner。不得跨网络持User/Project/Comment/owner锁。
+3. 既有媒体和旧格式评论前缀清理也移至最终DB锁之前。前缀清理永远不删除严格 `comment-attachments/{annotation_uuid}/{upload_uuid}` 键；它们只能由已登记owner授权。保存桶外同键陷阱及无owner规范键保留并明确报告残留，不据当前桶猜删。旧格式仅沿本fixture已解析annotation前缀，保留邻居和普通数据。
+4. 所有物理阶段完成后，按账号→Project的顺序取NOWAIT锁，重新核对精确scope、owner集合与permit；新增候选或未知活动拒绝，不追删变化集合。只在同一最终事务删除已完成owner、原fixture及已有FK子行，残留断言包括owner；重新设置事务局部审计豁免，提交后才允许调用方重建fixture，避免带锁进入后续网络写。失败和并发冲突保留可重试锚点。
+
+主树负责计划、文档、验证与真实一次性HTTP/MinIO验收；一个隔离修改者负责专用测试helper、seed集成及行为回归，独立提交后等价集成。不修改生产附件消费者。验证覆盖ready/retired、原Comment/Annotation消失、pending零I/O、打开读句柄/permit、其它写删permit、独立保存桶与当前桶陷阱、未知规范键、删除失败重试、scope变化、幂等重建及邻居保留；运行现有seed/附件相关回归。DB仅主树通过已核实一次性test环境执行，不使用默认annotation_test；保留人工3100/8100及其原件、两个Worker/Beat，不重建镜像。全部任务测试资源/产物按归属清理，正常hooks/diff检查后记录Outcome。
+
+项目指南图片的下一片只读盘点并行进行；本设计不代替指南图片完整交付，完整E02及用途切换仍为执行中/关闭。
