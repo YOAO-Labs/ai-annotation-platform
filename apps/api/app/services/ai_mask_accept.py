@@ -8,10 +8,23 @@ from datetime import datetime, timezone
 from typing import Any
 
 from aap_protocol_v2 import native_mask_candidate_id
-from sqlalchemy import delete, select
+from sqlalchemy import select
+from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
+from aap_labeling.ai_mask_accept_contract import (
+    AiMaskDecisionData,
+    ExpireAiMaskDecisions,
+    FindAiMaskDecision,
+    RecordAiMaskDecision,
+    RefineAiMaskAnnotation,
+    AI_MASK_ACCEPT_PROTOCOL,
+)
+from app.services.labeling_mask_edit import (
+    MaskOwnerCommandError,
+    ai_mask_accept_command,
+    mask_task_fence,
+)
 from app.services.project_access import get_workspace_project
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
@@ -74,7 +87,7 @@ def ai_mask_accept_request_digest(data: AiMaskAcceptRequest) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def _replay_response(decision: AiMaskAcceptDecision) -> AiMaskAcceptResponse:
+def _replay_response(decision: AiMaskDecisionData) -> AiMaskAcceptResponse:
     snapshot = dict(decision.response_json or {})
     snapshot["replayed"] = True
     return AiMaskAcceptResponse.model_validate(snapshot)
@@ -82,30 +95,34 @@ def _replay_response(decision: AiMaskAcceptDecision) -> AiMaskAcceptResponse:
 
 async def _find_decision(
     db: AsyncSession, *, task_id: uuid.UUID, idempotency_key: str
-) -> AiMaskAcceptDecision | None:
-    return (
-        await db.execute(
-            select(AiMaskAcceptDecision).where(
-                AiMaskAcceptDecision.task_id == task_id,
-                AiMaskAcceptDecision.idempotency_key == idempotency_key,
-            )
-        )
-    ).scalar_one_or_none()
+) -> AiMaskDecisionData | None:
+    result = await ai_mask_accept_command(
+        db,
+        FindAiMaskDecision(
+            schema=AI_MASK_ACCEPT_PROTOCOL,
+            operation="find_decision",
+            task_id=task_id,
+            idempotency_key=idempotency_key,
+        ),
+    )
+    decision = result.decision
+    return decision if decision is not None and decision.found else None
 
 
 async def expire_accept_decisions(
     db: AsyncSession, *, now: datetime | None = None
 ) -> None:
     """Delete idempotency snapshots whose 24-hour retention has elapsed."""
-    await db.execute(
-        delete(AiMaskAcceptDecision).where(
-            AiMaskAcceptDecision.expires_at <= (now or datetime.now(timezone.utc))
-        )
+    await ai_mask_accept_command(
+        db,
+        ExpireAiMaskDecisions(
+            schema=AI_MASK_ACCEPT_PROTOCOL, operation="expire_decisions", now=now
+        ),
     )
 
 
 def _validate_replay(
-    decision: AiMaskAcceptDecision,
+    decision: AiMaskDecisionData,
     request_digest: str,
     current_user: User | IdentityActorFacts,
     *,
@@ -117,7 +134,7 @@ def _validate_replay(
             reason="idempotency_conflict",
             message="idempotency key was already used for a different request",
         )
-    if decision.expires_at <= datetime.now(timezone.utc):
+    if decision.expires_at is None or decision.expires_at <= datetime.now(timezone.utc):
         raise AiMaskAcceptError(
             status_code=409,
             reason="idempotency_expired",
@@ -683,16 +700,41 @@ async def accept_ai_mask_candidate(
             source.track_id,
             reject_identity_change=True,
         )
-        source.annotation_type = geometry_type
-        source.tool_unit_id = "region"
-        source.class_name = data.class_name
-        source.geometry = geometry
-        source.track_id = track_id
-        source.confidence = score
-        source.parent_prediction_id = prediction.id
-        source.version = int(source.version or 1) + 1
+        try:
+            refined = await ai_mask_accept_command(
+                db,
+                RefineAiMaskAnnotation(
+                    schema=AI_MASK_ACCEPT_PROTOCOL,
+                    operation="refine_annotation",
+                    **mask_task_fence(task, current_user.id),
+                    annotation_id=source.id,
+                    expected_version=expected_version,
+                    video_segment_id=data.video_segment_id,
+                    annotation_type=geometry_type,
+                    prediction_id=prediction.id,
+                    class_name=data.class_name,
+                    geometry=geometry,
+                    track_id=track_id,
+                    confidence=score,
+                ),
+            )
+        except MaskOwnerCommandError as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            raise AiMaskAcceptError(
+                status_code=exc.status_code,
+                reason=str(detail.get("reason", "annotation_target_changed")),
+                message=str(detail.get("message", exc)),
+            ) from exc
+        set_committed_value(source, "annotation_type", geometry_type)
+        set_committed_value(source, "tool_unit_id", "region")
+        set_committed_value(source, "class_name", data.class_name)
+        set_committed_value(source, "geometry", geometry)
+        set_committed_value(source, "track_id", track_id)
+        set_committed_value(source, "confidence", score)
+        set_committed_value(source, "parent_prediction_id", prediction.id)
+        set_committed_value(source, "version", refined.version)
+        set_committed_value(source, "updated_at", refined.updated_at)
         annotation = source
-        await db.flush()
         # The create branch records through AnnotationService.create; the refine
         # branch mutates the source directly and must record here.
         await record_annotation_actor(db, task, current_user.id)
@@ -741,22 +783,33 @@ async def accept_ai_mask_candidate(
         content_digest=content_digest,
         replayed=False,
     )
-    decision = AiMaskAcceptDecision(
-        task_id=task.id,
-        idempotency_key=data.idempotency_key,
-        request_digest=request_digest,
-        candidate_id=candidate.candidate_id,
-        content_digest=content_digest,
-        prediction_id=prediction.id,
-        prediction_created_at=prediction.created_at,
-        annotation_id=annotation.id,
-        source_annotation_id=data.target.source_annotation_id,
-        source_version=source_version,
-        result_version=annotation.version,
-        actor_id=current_user.id,
-        response_json=response.model_dump(mode="json"),
-    )
-    db.add(decision)
+    try:
+        await ai_mask_accept_command(
+            db,
+            RecordAiMaskDecision(
+                schema=AI_MASK_ACCEPT_PROTOCOL,
+                operation="record_decision",
+                **mask_task_fence(task, current_user.id),
+                idempotency_key=data.idempotency_key,
+                request_digest=request_digest,
+                candidate_id=candidate.candidate_id,
+                content_digest=content_digest,
+                prediction_id=prediction.id,
+                prediction_created_at=prediction.created_at,
+                annotation_id=annotation.id,
+                source_annotation_id=data.target.source_annotation_id,
+                source_version=source_version,
+                result_version=annotation.version,
+                response_json=response.model_dump(mode="json"),
+            ),
+        )
+    except MaskOwnerCommandError as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        raise AiMaskAcceptError(
+            status_code=exc.status_code,
+            reason=str(detail.get("reason", "idempotency_conflict")),
+            message=str(detail.get("message", exc)),
+        ) from exc
     await db.flush()
     return response
 

@@ -12,9 +12,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
 from app.services.project_access import get_workspace_project
-from app.db.models.annotation_operation import (
-    AnnotationLineageEdge,
-    AnnotationOperation,
+from app.db.models.annotation_operation import AnnotationOperation
+from sqlalchemy.orm.attributes import set_committed_value
+from aap_labeling.mask_edit_contract import (
+    ApplyMaskMutations,
+    AnnotationLineage,
+    CreateMaskAnnotation,
+    DeactivateMaskAnnotation,
+    FindOperation,
+    MASK_EDIT_PROTOCOL,
+    UpdateMaskAnnotation,
+    WriteAnnotationOperation,
+)
+from app.services.labeling_mask_edit import (
+    MaskOwnerCommandError,
+    mask_edit_command,
+    mask_task_fence,
 )
 from app.db.models.dataset import VideoSegment
 from app.db.models.project import Project
@@ -682,6 +695,20 @@ class MaskMutationService:
             )
         return task
 
+    async def _owner(self, command):
+        try:
+            return await mask_edit_command(self.db, command)
+        except MaskOwnerCommandError as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            reason = str(detail.pop("reason", "mask_write_conflict"))
+            message = str(detail.pop("message", exc))
+            raise _MaskMutationError(
+                status_code=exc.status_code,
+                reason=reason,
+                message=message,
+                **detail,
+            ) from exc
+
     async def _idempotent_replay(
         self,
         task_id: uuid.UUID,
@@ -689,25 +716,25 @@ class MaskMutationService:
         payload: MaskMutationCommitRequest,
         digest: str,
     ) -> MaskMutationCommitResponse | None:
-        operation = (
-            await self.db.execute(
-                select(AnnotationOperation).where(
-                    AnnotationOperation.task_id == task_id,
-                    AnnotationOperation.actor_id == actor_id,
-                    AnnotationOperation.idempotency_key == payload.idempotency_key,
-                )
+        operation = await self._owner(
+            FindOperation(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="find_operation",
+                task_id=task_id,
+                actor_id=actor_id,
+                idempotency_key=payload.idempotency_key,
             )
-        ).scalar_one_or_none()
-        if operation is None:
+        )
+        if not operation.found:
             return None
         if operation.request_digest != digest:
             raise _MaskMutationError(
                 status_code=409,
                 reason="idempotency_conflict",
                 message="idempotency key was already used with another request",
-                operation_id=str(operation.id),
+                operation_id=str(operation.operation_id),
             )
-        response = dict(operation.response_json)
+        response = dict(operation.response_json or {})
         response["idempotent_replay"] = True
         return MaskMutationCommitResponse.model_validate(response)
 
@@ -1864,19 +1891,21 @@ class MaskMutationService:
         created_from: list[tuple[Annotation, Annotation]] = []
         deleted: list[Annotation] = []
         final_geometries: dict[uuid.UUID, dict] = {}
+        changes = []
         for mutation in payload.mutations:
             if isinstance(mutation, MaskUpdateMutation):
                 annotation = by_id[mutation.annotation_id]
                 geometry, track_id = prepare_compact_track_identity(
                     mutation.geometry.model_dump(mode="json", by_alias=True)
                 )
-                annotation.geometry = geometry
-                if payload.operation != "slice_mask":
-                    annotation.track_id = track_id
-                annotation.annotation_type = str(geometry.get("type"))
-                if payload.operation != "slice_mask":
-                    annotation.user_id = actor.id
-                annotation.version = int(annotation.version or 1) + 1
+                changes.append(
+                    UpdateMaskAnnotation(
+                        action="update",
+                        annotation_id=annotation.id,
+                        geometry=geometry,
+                        track_id=track_id,
+                    )
+                )
                 final_geometries[annotation.id] = geometry
                 updated.append(annotation)
             elif isinstance(mutation, MaskCreateMutation):
@@ -1910,16 +1939,72 @@ class MaskMutationService:
                     if payload.operation == "slice_mask"
                     else None,
                 )
-                self.db.add(annotation)
+                changes.append(
+                    CreateMaskAnnotation(
+                        action="create",
+                        annotation_id=annotation.id,
+                        source_annotation_id=source.id,
+                        geometry=geometry,
+                        track_id=track_id,
+                    )
+                )
                 created.append(annotation)
                 if payload.operation == "slice_mask":
                     created_from.append((source, annotation))
             else:
                 annotation = by_id[mutation.annotation_id]
-                annotation.is_active = False
-                annotation.version = int(annotation.version or 1) + 1
+                changes.append(
+                    DeactivateMaskAnnotation(
+                        action="deactivate", annotation_id=annotation.id
+                    )
+                )
                 deleted.append(annotation)
 
+        persisted = await self._owner(
+            ApplyMaskMutations(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="apply_mask_mutations",
+                **mask_task_fence(task, actor.id),
+                mutation_kind=payload.operation,
+                expected_versions=expected_versions,
+                changes=changes,
+            )
+        )
+        result_by_id = {row.annotation_id: row for row in persisted.annotations}
+        for annotation in updated:
+            row = result_by_id[annotation.id]
+            for field in (
+                "geometry",
+                "annotation_type",
+                "track_id",
+                "user_id",
+                "version",
+                "is_active",
+                "updated_at",
+            ):
+                set_committed_value(annotation, field, getattr(row, field))
+        for annotation in created:
+            row = result_by_id[annotation.id]
+            for field in (
+                "annotation_type",
+                "track_id",
+                "user_id",
+                "geometry",
+                "confidence",
+                "attributes",
+                "attributes_meta",
+                "z_order",
+                "parent_annotation_id",
+                "version",
+                "is_active",
+                "updated_at",
+            ):
+                setattr(annotation, field, getattr(row, field))
+        for annotation in deleted:
+            row = result_by_id[annotation.id]
+            set_committed_value(annotation, "is_active", row.is_active)
+            set_committed_value(annotation, "version", row.version)
+            set_committed_value(annotation, "updated_at", row.updated_at)
         await self.db.flush()
         if created_from:
             from app.services.accepted_inputs import copy_annotation_input_sources
@@ -1969,7 +2054,7 @@ class MaskMutationService:
             for annotation in [*updated, *created, *deleted]
         }
         result_ids = [item.id for item in [*updated, *created]]
-        lineage: list[AnnotationLineageEdge] = []
+        lineage: list[AnnotationLineage] = []
         relation = {
             "slice_mask": "split",
             "split_components": "split",
@@ -1992,8 +2077,7 @@ class MaskMutationService:
             for source_id in sorted(source_ids, key=str):
                 for result_id in result_ids:
                     lineage.append(
-                        AnnotationLineageEdge(
-                            operation_id=operation_id,
+                        AnnotationLineage(
                             source_annotation_id=source_id,
                             result_annotation_id=result_id,
                             relation=relation,
@@ -2005,8 +2089,7 @@ class MaskMutationService:
         elif payload.operation == "overlap":
             for annotation in updated:
                 lineage.append(
-                    AnnotationLineageEdge(
-                        operation_id=operation_id,
+                    AnnotationLineage(
                         source_annotation_id=annotation.id,
                         result_annotation_id=annotation.id,
                         relation=relation,
@@ -2017,8 +2100,7 @@ class MaskMutationService:
                 )
             for annotation in deleted:
                 lineage.append(
-                    AnnotationLineageEdge(
-                        operation_id=operation_id,
+                    AnnotationLineage(
                         source_annotation_id=annotation.id,
                         result_annotation_id=None,
                         relation="overlap_erased",
@@ -2030,8 +2112,7 @@ class MaskMutationService:
         else:
             for annotation in updated:
                 lineage.append(
-                    AnnotationLineageEdge(
-                        operation_id=operation_id,
+                    AnnotationLineage(
                         source_annotation_id=annotation.id,
                         result_annotation_id=annotation.id,
                         relation=relation,
@@ -2069,7 +2150,7 @@ class MaskMutationService:
                 restore_expires_at=now + _SLICE_RESTORE_TTL,
             )
             await protect_mask_slice_versions(
-                self.db, operation_report, slice_receipt.restore_expires_at
+                self.db, task_id, operation_report, slice_receipt.restore_expires_at
             )
         operation = AnnotationOperation(
             id=operation_id,
@@ -2089,10 +2170,6 @@ class MaskMutationService:
             status="committed",
             response_json={},
         )
-        self.db.add(operation)
-        await self.db.flush([operation])
-        self.db.add_all(lineage)
-
         after_snapshot = [
             {
                 "id": str(annotation.id),
@@ -2156,5 +2233,26 @@ class MaskMutationService:
             slice_restore=slice_receipt,
         )
         operation.response_json = response.model_dump(mode="json")
+        await self._owner(
+            WriteAnnotationOperation(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="write_operation",
+                **mask_task_fence(task, actor.id),
+                operation_id=operation_id,
+                kind=operation.kind,
+                idempotency_key=operation.idempotency_key,
+                request_digest=operation.request_digest,
+                scope_fingerprint=operation.scope_fingerprint,
+                source_versions=operation.source_versions,
+                result_versions=operation.result_versions,
+                report=operation.report,
+                response_json=operation.response_json,
+                created_at=operation.created_at,
+                completed_at=operation.completed_at,
+                lineage=lineage,
+                original_operation_id=None,
+                original_report=None,
+            )
+        )
         await self.db.flush()
         return response

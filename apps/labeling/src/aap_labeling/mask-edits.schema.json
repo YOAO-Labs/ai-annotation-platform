@@ -1,0 +1,1180 @@
+{
+  "$defs": {
+    "AnnotationLineage": {
+      "additionalProperties": false,
+      "properties": {
+        "source_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Annotation Id"
+        },
+        "result_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Result Annotation Id"
+        },
+        "relation": {
+          "title": "Relation",
+          "type": "string"
+        },
+        "source_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Version"
+        },
+        "result_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Result Version"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        }
+      },
+      "required": [
+        "source_annotation_id",
+        "result_annotation_id",
+        "relation",
+        "source_version",
+        "result_version",
+        "frame_index"
+      ],
+      "title": "AnnotationLineage",
+      "type": "object"
+    },
+    "AnnotationOperationData": {
+      "additionalProperties": false,
+      "properties": {
+        "found": {
+          "title": "Found",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Operation Id"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Kind"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Idempotency Key"
+        },
+        "request_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Digest"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Report"
+        },
+        "response_json": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Response Json"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created At"
+        }
+      },
+      "required": [
+        "found",
+        "operation_id",
+        "task_id",
+        "actor_id",
+        "kind",
+        "idempotency_key",
+        "request_digest",
+        "report",
+        "response_json",
+        "created_at"
+      ],
+      "title": "AnnotationOperationData",
+      "type": "object"
+    },
+    "ApplyMaskMutations": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "apply_mask_mutations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "mutation_kind": {
+          "enum": [
+            "slice_mask",
+            "split_components",
+            "copy_component",
+            "copy_keyframe",
+            "join_masks",
+            "overlap",
+            "delete_small_islands",
+            "fill_small_holes",
+            "resolve_same_class_overlap",
+            "mask_repair_rollback"
+          ],
+          "title": "Mutation Kind",
+          "type": "string"
+        },
+        "expected_versions": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Expected Versions",
+          "type": "object"
+        },
+        "changes": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "create": "#/$defs/CreateMaskAnnotation",
+                "deactivate": "#/$defs/DeactivateMaskAnnotation",
+                "update": "#/$defs/UpdateMaskAnnotation"
+              },
+              "propertyName": "action"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/UpdateMaskAnnotation"
+              },
+              {
+                "$ref": "#/$defs/CreateMaskAnnotation"
+              },
+              {
+                "$ref": "#/$defs/DeactivateMaskAnnotation"
+              }
+            ]
+          },
+          "title": "Changes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "schema",
+        "operation",
+        "mutation_kind",
+        "expected_versions",
+        "changes"
+      ],
+      "title": "ApplyMaskMutations",
+      "type": "object"
+    },
+    "ApplyMaskMutationsData": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/MaskAnnotationData"
+          },
+          "title": "Annotations",
+          "type": "array"
+        }
+      },
+      "required": ["annotations"],
+      "title": "ApplyMaskMutationsData",
+      "type": "object"
+    },
+    "ApplyPolygonSlice": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "apply_polygon_slice",
+          "title": "Operation",
+          "type": "string"
+        },
+        "source_annotation_id": {
+          "format": "uuid",
+          "title": "Source Annotation Id",
+          "type": "string"
+        },
+        "created_annotation_id": {
+          "format": "uuid",
+          "title": "Created Annotation Id",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "source_geometry": {
+          "additionalProperties": true,
+          "title": "Source Geometry",
+          "type": "object"
+        },
+        "created_geometry": {
+          "additionalProperties": true,
+          "title": "Created Geometry",
+          "type": "object"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "schema",
+        "operation",
+        "source_annotation_id",
+        "created_annotation_id",
+        "expected_version",
+        "source_geometry",
+        "created_geometry"
+      ],
+      "title": "ApplyPolygonSlice",
+      "type": "object"
+    },
+    "ApplyRestoreData": {
+      "additionalProperties": false,
+      "properties": {
+        "result_versions": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Result Versions",
+          "type": "object"
+        },
+        "original_report": {
+          "additionalProperties": true,
+          "title": "Original Report",
+          "type": "object"
+        }
+      },
+      "required": ["result_versions", "original_report"],
+      "title": "ApplyRestoreData",
+      "type": "object"
+    },
+    "ApplySliceData": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/MaskAnnotationData"
+        },
+        "created": {
+          "$ref": "#/$defs/MaskAnnotationData"
+        }
+      },
+      "required": ["source", "created"],
+      "title": "ApplySliceData",
+      "type": "object"
+    },
+    "ApplySliceRestore": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "apply_slice_restore",
+          "title": "Operation",
+          "type": "string"
+        },
+        "original_operation_id": {
+          "format": "uuid",
+          "title": "Original Operation Id",
+          "type": "string"
+        },
+        "target": {
+          "enum": ["before", "after"],
+          "title": "Target",
+          "type": "string"
+        },
+        "no_op": {
+          "title": "No Op",
+          "type": "boolean"
+        },
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/RestoreSliceAnnotation"
+          },
+          "title": "Annotations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "schema",
+        "operation",
+        "original_operation_id",
+        "target",
+        "no_op",
+        "annotations"
+      ],
+      "title": "ApplySliceRestore",
+      "type": "object"
+    },
+    "CreateMaskAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "create",
+          "title": "Action",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "source_annotation_id": {
+          "format": "uuid",
+          "title": "Source Annotation Id",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        }
+      },
+      "required": ["action", "annotation_id", "source_annotation_id", "geometry", "track_id"],
+      "title": "CreateMaskAnnotation",
+      "type": "object"
+    },
+    "DeactivateMaskAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "deactivate",
+          "title": "Action",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        }
+      },
+      "required": ["action", "annotation_id"],
+      "title": "DeactivateMaskAnnotation",
+      "type": "object"
+    },
+    "FindOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "find_operation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "actor_id", "idempotency_key"],
+      "title": "FindOperation",
+      "type": "object"
+    },
+    "MaskAnnotationData": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "action": {
+          "enum": ["update", "create", "deactivate"],
+          "title": "Action",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "video_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Video Segment Id"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "attributes_meta": {
+          "additionalProperties": true,
+          "title": "Attributes Meta",
+          "type": "object"
+        },
+        "z_order": {
+          "title": "Z Order",
+          "type": "integer"
+        },
+        "parent_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Annotation Id"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "annotation_id",
+        "action",
+        "version",
+        "annotation_type",
+        "track_id",
+        "user_id",
+        "video_segment_id",
+        "tool_unit_id",
+        "class_name",
+        "geometry",
+        "confidence",
+        "attributes",
+        "attributes_meta",
+        "z_order",
+        "parent_annotation_id",
+        "is_active",
+        "updated_at"
+      ],
+      "title": "MaskAnnotationData",
+      "type": "object"
+    },
+    "ReadOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_operation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "operation_id", "lock"],
+      "title": "ReadOperation",
+      "type": "object"
+    },
+    "RestoreSliceAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "expected_geometry": {
+          "additionalProperties": true,
+          "title": "Expected Geometry",
+          "type": "object"
+        },
+        "expected_active": {
+          "title": "Expected Active",
+          "type": "boolean"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "annotation_id",
+        "expected_version",
+        "expected_geometry",
+        "expected_active",
+        "geometry",
+        "active"
+      ],
+      "title": "RestoreSliceAnnotation",
+      "type": "object"
+    },
+    "UpdateMaskAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "update",
+          "title": "Action",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        }
+      },
+      "required": ["action", "annotation_id", "geometry", "track_id"],
+      "title": "UpdateMaskAnnotation",
+      "type": "object"
+    },
+    "WriteAnnotationOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "write_operation",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "scope_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Scope Fingerprint",
+          "type": "string"
+        },
+        "source_versions": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Source Versions",
+          "type": "object"
+        },
+        "result_versions": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Result Versions",
+          "type": "object"
+        },
+        "report": {
+          "additionalProperties": true,
+          "title": "Report",
+          "type": "object"
+        },
+        "response_json": {
+          "additionalProperties": true,
+          "title": "Response Json",
+          "type": "object"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created At"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        },
+        "lineage": {
+          "items": {
+            "$ref": "#/$defs/AnnotationLineage"
+          },
+          "title": "Lineage",
+          "type": "array"
+        },
+        "original_operation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Original Operation Id"
+        },
+        "original_report": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Original Report"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "schema",
+        "operation",
+        "operation_id",
+        "kind",
+        "idempotency_key",
+        "request_digest",
+        "scope_fingerprint",
+        "source_versions",
+        "result_versions",
+        "report",
+        "response_json",
+        "created_at",
+        "completed_at",
+        "lineage"
+      ],
+      "title": "WriteAnnotationOperation",
+      "type": "object"
+    },
+    "WriteOperationData": {
+      "additionalProperties": false,
+      "properties": {
+        "stored": {
+          "title": "Stored",
+          "type": "boolean"
+        }
+      },
+      "required": ["stored"],
+      "title": "WriteOperationData",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-mask-edits/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "apply_mask_mutations": "#/$defs/ApplyMaskMutations",
+          "apply_polygon_slice": "#/$defs/ApplyPolygonSlice",
+          "apply_slice_restore": "#/$defs/ApplySliceRestore",
+          "find_operation": "#/$defs/FindOperation",
+          "read_operation": "#/$defs/ReadOperation",
+          "write_operation": "#/$defs/WriteAnnotationOperation"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/FindOperation"
+        },
+        {
+          "$ref": "#/$defs/ReadOperation"
+        },
+        {
+          "$ref": "#/$defs/ApplyPolygonSlice"
+        },
+        {
+          "$ref": "#/$defs/ApplyMaskMutations"
+        },
+        {
+          "$ref": "#/$defs/ApplySliceRestore"
+        },
+        {
+          "$ref": "#/$defs/WriteAnnotationOperation"
+        }
+      ],
+      "title": "Request"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AnnotationOperationData"
+        },
+        {
+          "$ref": "#/$defs/ApplySliceData"
+        },
+        {
+          "$ref": "#/$defs/ApplyMaskMutationsData"
+        },
+        {
+          "$ref": "#/$defs/ApplyRestoreData"
+        },
+        {
+          "$ref": "#/$defs/WriteOperationData"
+        }
+      ],
+      "title": "Data"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "_Reply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-mask-edits/v1",
+  "x-postgresql-functions": ["aap_labeling_v1.mask_edit_command(jsonb)"]
+}
