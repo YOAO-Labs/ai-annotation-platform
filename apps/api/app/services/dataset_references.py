@@ -564,8 +564,13 @@ async def _reference_state(db, item_id, actor, *, task_id=None, task_authorizer=
     else:
         from app.api.v1.tasks._shared import _assert_task_visible
 
+        from app.services.original_sources import resolve_task_relation
+
+        relation = await resolve_task_relation(db, task_id)
+        if relation.item_id != item_id:
+            raise HTTPException(404, "Task not found")
         task = await db.get(Task, task_id, populate_existing=True)
-        if task is None or task.dataset_item_id != item_id:
+        if task is None:
             raise HTTPException(404, "Task not found")
         await (task_authorizer or _assert_task_visible)(db, task, actor)
     ref = await db.get(DatasetReference, item_id, populate_existing=True)
