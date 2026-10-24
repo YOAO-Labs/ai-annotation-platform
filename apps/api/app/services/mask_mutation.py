@@ -43,11 +43,14 @@ from app.services.mask_slice_restore import (
 from app.services.annotation_propagation import _new_track_id
 from app.services.annotation_track_identity import prepare_compact_track_identity
 from app.services.audit import AuditAction, AuditService
+from app.services.content_snapshot import ContentError
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     load_coco_rle,
     prepare_mask_payload_for_write,
+    raster_mask_storage_contract_error,
 )
+from app.services.raster_object_storage import RasterObjectStorageError
 from app.services.project_access import is_privileged_for_project
 from app.services.video_collaboration import (
     assert_task_lock_for_legacy_video,
@@ -85,6 +88,15 @@ class MaskMutationError(RuntimeError):
         super().__init__(message)
         self.status_code = status_code
         self.detail = {"reason": reason, "message": message, **detail}
+
+
+def _mutation_storage_error(exc):
+    error = (
+        exc
+        if isinstance(exc, RasterMaskContractError)
+        else raster_mask_storage_contract_error(exc)
+    )
+    return MaskMutationError(status_code=error.status_code, **error.detail)
 
 
 class _AlgebraBudget:
@@ -825,6 +837,12 @@ class MaskMutationService:
             try:
                 rle = await load_coco_rle(reference)
                 height, width, counts = validate_coco_rle(rle)
+            except (
+                RasterMaskContractError,
+                RasterObjectStorageError,
+                ContentError,
+            ) as exc:
+                raise _mutation_storage_error(exc) from exc
             except Exception as exc:
                 raise MaskMutationError(
                     status_code=422,
@@ -1181,6 +1199,12 @@ class MaskMutationService:
                 bbox = coco_rle_bbox_norm(rle)
                 if bbox:
                     materialized.append((annotation, rle, bbox))
+            except (
+                RasterMaskContractError,
+                RasterObjectStorageError,
+                ContentError,
+            ) as exc:
+                raise _mutation_storage_error(exc) from exc
             except Exception as exc:
                 raise MaskMutationError(
                     status_code=422,
