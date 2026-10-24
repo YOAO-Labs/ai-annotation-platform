@@ -148,6 +148,7 @@ export function createDevSidebar(
         { text: "点云联合标注数据模型", link: "/dev/reference/point-cloud-data-model" },
         { text: "点云导出格式", link: "/dev/reference/lidar-export-formats" },
         { text: "Data Manager 查询与聚合", link: "/dev/reference/data-manager-query" },
+        { text: "数据集工作台规模测量", link: "/dev/reference/dataset-workbench-benchmark" },
         { text: "列表筛选与搜索规范", link: "/dev/reference/filtering" },
         { text: "设计系统", link: "/dev/reference/design-system" },
         { text: "代码规范", link: "/dev/reference/conventions" },
