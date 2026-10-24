@@ -199,7 +199,7 @@ def test_vips_header_cleanup_failure_keeps_physical_uncertainty(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyvips", fake_vips)
     stage = SimpleNamespace(file=SimpleNamespace(fileno=lambda: 123))
 
-    with pytest.raises(RuntimeError) as failure:
+    with pytest.raises(Exception) as failure:
         media._pyramid_dimensions_from_stage(stage)
 
     assert failure.value.storage_operation_unsettled is True
@@ -224,6 +224,42 @@ def test_vips_header_decode_wrapper_preserves_physical_uncertainty(monkeypatch):
 
     assert failure.value.code == "decode_failed"
     assert failure.value.storage_operation_unsettled is True
+
+
+def test_vips_header_errors_do_not_keep_native_image_in_traceback(monkeypatch):
+    import weakref
+    from app.services.image_pyramid import ImagePyramidError
+
+    image_refs = []
+
+    class NativeImage:
+        width = 100
+        height = 100
+
+        def get_typeof(self, _name):
+            raise RuntimeError("header unavailable")
+
+    def new_image(*_args, **_kwargs):
+        image = NativeImage()
+        image_refs.append(weakref.ref(image))
+        return image
+
+    fake_vips = SimpleNamespace(
+        Image=SimpleNamespace(new_from_file=new_image),
+        cache_set_max=MagicMock(),
+        cache_set_max_mem=MagicMock(),
+        cache_set_max_files=MagicMock(),
+    )
+    monkeypatch.setitem(sys.modules, "pyvips", fake_vips)
+    stage = SimpleNamespace(file=SimpleNamespace(fileno=lambda: 123))
+
+    with pytest.raises(ImagePyramidError) as failure:
+        media._pyramid_dimensions_from_stage(stage)
+
+    assert failure.value.code == "decode_failed"
+    assert image_refs[0]() is None
+    assert failure.value.__context__ is None
+    assert failure.value.__cause__ is None
 
 
 @pytest.mark.parametrize("capture_failure", [False, True])

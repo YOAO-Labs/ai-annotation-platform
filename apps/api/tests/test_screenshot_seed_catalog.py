@@ -458,11 +458,14 @@ async def test_catalog_ignores_soft_deleted_annotations(httpx_client, db_session
     assert response.status_code == 200, response.text
 
 
-async def test_catalog_includes_ready_optional_large_image_fixture(
-    httpx_client, db_session
-):
-    projects, _ = await _ready_profile(db_session)
-    owner = projects["pointcloud_demo"].owner_id
+async def _optional_large_image_fixture(db, owner, *, failure=None):
+    from app.config import settings
+    from app.db.models.image_pyramid import ImagePyramidOutput
+    from app.services import image_pyramid as pyramids
+    from app.services import image_pyramid_originals as originals
+    from app.services import image_pyramid_storage as physical
+    from app.services.dataset_assets import register_item_asset
+
     project = Project(
         id=uuid.uuid4(),
         display_id="P-LARGE-IMG",
@@ -481,9 +484,9 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
         created_by=owner,
         metadata_={"seed": {"managed_by": "large-image-seed", "manifest_version": 1}},
     )
-    db_session.add_all([project, dataset])
-    await db_session.flush()
-    db_session.add(ProjectDataset(project_id=project.id, dataset_id=dataset.id))
+    db.add_all([project, dataset])
+    await db.flush()
+    db.add(ProjectDataset(project_id=project.id, dataset_id=dataset.id))
     item = DatasetItem(
         id=uuid.uuid4(),
         dataset_id=dataset.id,
@@ -502,8 +505,8 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
             }
         },
     )
-    db_session.add(item)
-    await db_session.flush()
+    db.add(item)
+    await db.flush()
     task = Task(
         id=uuid.uuid4(),
         project_id=project.id,
@@ -516,13 +519,13 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
     asset = ImagePyramidAsset(
         id=uuid.uuid4(),
         dataset_item_id=item.id,
-        profile_version="v1",
+        profile_version=settings.image_pyramid_profile_version,
         active_generation=1,
     )
-    db_session.add_all([task, asset])
-    await db_session.flush()
-    db_session.add(
-        ImagePyramidGeneration(
+    db.add_all([task, asset])
+    await db.flush()
+    if failure == "legacy":
+        generation = ImagePyramidGeneration(
             asset_id=asset.id,
             generation=1,
             source_identity="etag:test:bytes:130764157",
@@ -531,7 +534,7 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
             width=item.width,
             height=item.height,
             max_level=15,
-            normalization_version="v1",
+            normalization_version=settings.image_pyramid_normalization_version,
             manifest_key="image-pyramids/a/1/manifest.json",
             overview_key="image-pyramids/a/1/overview.webp",
             overview_width=2048,
@@ -539,8 +542,130 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
             tile_count=694,
             retained_bytes=1234,
         )
+        db.add(generation)
+        await db.flush()
+        return task, generation, None
+
+    await register_item_asset(
+        db, item, sha256=item.content_hash, size_bytes=item.file_size, etag='"fixture"'
     )
-    await db_session.flush()
+    source = await originals.pin(db, "dataset_item", item.id)
+    original_ref = originals.receipt(source)
+    source_identity = (
+        "managed:"
+        + hashlib.sha256(pyramids.canonical_manifest_bytes(original_ref)).hexdigest()
+    )
+    source_fingerprint = "sha256:" + source.sha256
+    output_id = uuid.uuid4()
+    output = ImagePyramidOutput(
+        id=output_id,
+        asset_id=asset.id,
+        generation=1,
+        lease_token=uuid.uuid4(),
+        storage_ref=await physical.allocate(db, output_id),
+        state="building",
+    )
+    db.add(output)
+    await db.flush()
+    owner = physical.resolve(output)
+    levels = pyramids.pyramid_levels(item.width, item.height)
+    overview_level = next(
+        level for level in levels if max(level["width"], level["height"]) <= 512
+    )
+    overview_bytes = b"verified-fixture-overview"
+    overview_digest = pyramids.sha256_digest(overview_bytes)
+    manifest_bytes = pyramids.canonical_manifest_bytes(
+        pyramids.build_manifest(
+            generation=1,
+            source_fingerprint=source_fingerprint,
+            width=item.width,
+            height=item.height,
+            overview_width=overview_level["width"],
+            overview_height=overview_level["height"],
+            overview_digest=overview_digest,
+        )
+    )
+    tile_bytes = b"verified-fixture-tile"
+    objects = {
+        owner.key(f"tiles/{level['level']}/{x}/{y}.webp"): {
+            "sha256": hashlib.sha256(tile_bytes).hexdigest(),
+            "size_bytes": len(tile_bytes),
+        }
+        for level in levels
+        for x in range(level["columns"])
+        for y in range(level["rows"])
+    }
+    tile_count = len(objects)
+    if failure == "missing_tile":
+        objects.pop(next(iter(objects)))
+    objects[owner.key("manifest.json")] = {
+        "sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "size_bytes": len(manifest_bytes),
+    }
+    objects[owner.key("overview.webp")] = {
+        "sha256": hashlib.sha256(overview_bytes).hexdigest(),
+        "size_bytes": len(overview_bytes),
+    }
+    output.inventory = {"schema": 1, "objects": objects}
+    output.state = "ready"
+    await db.flush()
+    if failure == "retiring_output":
+        output.state = "retiring"
+        await db.flush()
+    if failure == "changed_original":
+        original_ref = dict(original_ref, sha256="a" * 64)
+    generation = ImagePyramidGeneration(
+        asset_id=asset.id,
+        generation=1,
+        source_identity=source_identity,
+        original_ref=original_ref,
+        auth_ref=originals.system_authorization("dataset_item", item.id, source),
+        output_id=None if failure == "missing_output" else output.id,
+        source_fingerprint="sha256:" + "a" * 64
+        if failure == "fingerprint"
+        else source_fingerprint,
+        status="ready",
+        width=item.width,
+        height=item.height,
+        max_level=len(levels) - 1,
+        normalization_version=settings.image_pyramid_normalization_version,
+        manifest_key="image-pyramids/a/1/manifest.json"
+        if failure == "fake_key"
+        else owner.key("manifest.json"),
+        manifest_digest=pyramids.sha256_digest(manifest_bytes),
+        overview_key=owner.key("overview.webp"),
+        overview_digest=overview_digest,
+        overview_width=overview_level["width"],
+        overview_height=overview_level["height"],
+        tile_size=pyramids.PYRAMID_TILE_SIZE,
+        overlap=pyramids.PYRAMID_OVERLAP,
+        format=pyramids.PYRAMID_FORMAT,
+        tile_count=tile_count,
+        retained_bytes=sum(receipt["size_bytes"] for receipt in objects.values()),
+    )
+    db.add(generation)
+    await db.flush()
+    if failure == "maintenance":
+        from app.db.models.storage_maintenance import StorageMaintenanceGate
+
+        gate = await db.get(StorageMaintenanceGate, source.location_id)
+        if gate is None:
+            gate = StorageMaintenanceGate(
+                location_id=source.location_id, state="active", revision=1
+            )
+            db.add(gate)
+        gate.state = "stopped"
+        await db.flush()
+    return task, generation, output
+
+
+async def test_catalog_includes_ready_optional_large_image_fixture(
+    httpx_client, db_session
+):
+    projects, _ = await _ready_profile(db_session)
+    task, _, _ = await _optional_large_image_fixture(
+        db_session, projects["pointcloud_demo"].owner_id
+    )
 
     response = await httpx_client.get(
         "/api/v1/__test/seed/catalog", params={"profile": "screenshots"}
@@ -550,6 +675,56 @@ async def test_catalog_includes_ready_optional_large_image_fixture(
     large = response.json()["projects"]["large_image_demo"]
     assert large["display_id"] == "P-LARGE-IMG"
     assert large["tasks"]["cosmic_cliffs"]["id"] == str(task.id)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "legacy",
+        "missing_output",
+        "missing_tile",
+        "retiring_output",
+        "changed_original",
+        "fingerprint",
+        "fake_key",
+        "maintenance",
+    ],
+)
+async def test_catalog_rejects_unqualified_optional_large_image_fixture(
+    httpx_client, db_session, failure
+):
+    projects, _ = await _ready_profile(db_session)
+    await _optional_large_image_fixture(
+        db_session, projects["pointcloud_demo"].owner_id, failure=failure
+    )
+
+    response = await httpx_client.get(
+        "/api/v1/__test/seed/catalog", params={"profile": "screenshots"}
+    )
+
+    assert response.status_code == 409, response.text
+    assert any(
+        "cosmic-cliffs pyramid is not ready" in issue
+        for issue in response.json()["detail"]["issues"]
+    )
+
+
+async def test_catalog_saved_output_survives_current_purpose_bucket_change(
+    httpx_client, db_session, monkeypatch
+):
+    projects, _ = await _ready_profile(db_session)
+    await _optional_large_image_fixture(
+        db_session, projects["pointcloud_demo"].owner_id
+    )
+    monkeypatch.setattr(
+        storage_service, "media_cache_bucket", "another-current-cache-bucket"
+    )
+
+    response = await httpx_client.get(
+        "/api/v1/__test/seed/catalog", params={"profile": "screenshots"}
+    )
+
+    assert response.status_code == 200, response.text
 
 
 async def test_catalog_rejects_unexpected_task_in_managed_project(

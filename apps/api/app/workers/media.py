@@ -84,7 +84,7 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
     except ImportError as exc:
         raise ImagePyramidError("generator_unavailable") from exc
 
-    image = None
+    image, dimensions, failure = None, None, None
     try:
         image = pyvips.Image.new_from_file(
             f"/proc/self/fd/{stage.file.fileno()}",
@@ -98,14 +98,17 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
         if orientation in {5, 6, 7, 8}:
             width, height = height, width
         validate_dimensions(width, height)
-        return width, height
-    except ImagePyramidError:
-        raise
-    except Exception as exc:
-        error = ImagePyramidError("decode_failed")
+        dimensions = width, height
+    except ImagePyramidError as exc:
+        failure = ImagePyramidError(exc.code)
         if getattr(exc, "storage_operation_unsettled", False):
-            mark_unsettled(error)
-        raise error from exc
+            mark_unsettled(failure)
+    except Exception as exc:
+        failure = ImagePyramidError("decode_failed")
+        if getattr(exc, "storage_operation_unsettled", False):
+            mark_unsettled(failure)
+    except BaseException as exc:
+        failure = mark_unsettled(exc)
     finally:
         try:
             image = None
@@ -113,8 +116,13 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
             pyvips.cache_set_max_mem(0)
             pyvips.cache_set_max_files(0)
             gc.collect()
-        except BaseException as exc:
-            raise mark_unsettled(exc)
+        except BaseException:
+            failure = mark_unsettled(ImagePyramidError("decode_failed"))
+    if failure is not None:
+        # An exception raised inside a libvips method may retain its image in
+        # traceback frames. Export only the stable error after those frames end.
+        raise failure
+    return dimensions
 
 
 async def _pyramid_dimensions(db, kind, identifier) -> tuple[int, int]:
