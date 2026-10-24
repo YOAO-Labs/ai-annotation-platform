@@ -1681,3 +1681,5 @@ handler 取消后，订阅数与连接占用均归零，所有自有资源清理
 Notifications owner 只持公开 Identity 资料列、Workspace 两项固定能力和 Jobs 三列事实；API／函数账号不能调用私有 helper。公共授权源与 inbox profile 拒绝非迁移角色取得 owner 成员资格，显式撤销并检查 PUBLIC EXECUTE；验收器使用实际 guard 进行事务内负向探针并检查回滚清洁。普通 API 仍需公开通知关系用于单条读取、投递和 WS，不在本操作提前撤销。
 
 下一门槛为一个干净源码上的真实受限账号／Node／API／LAN 与完整 0324 迁移组合验收；当前冷工件随完整运行边界批量验证。完整 Notifications、逐条投递策略及 WS owner 仍未闭合，主工作树与日常环境未切换；训练和资产扩展继续暂缓，Go 保持实验。
+
+首轮真实组合在前三项分页案例以类型不存在失败；实际 LOGIN／Node、API／LAN、私有 helper 拒绝、三项 ACL 负向探针与完整迁移阶段分别已通过，原整轮仍保持失败。适配器把 SQL 关键字别名错误限定为 `pg_catalog.boolean`／`pg_catalog.integer`；改用原生 `bool`／`int4`。独占、断网的最小 PostgreSQL 探针绑定实际适配器语句，先取得 `42704`，修正后 PREPARE／EXECUTE 返回一行；两种别名均被实际拒绝，自有容器清理通过。探针自身的启动临时服务及 Docker 错误大小写两次夹具失败另行保留，不计为产品验收。

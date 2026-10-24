@@ -34,9 +34,9 @@ class NotificationInboxQueryPostgresData:
                 "SELECT * FROM aap_notifications_v1.inbox_page("
                 "CAST(:actor_id AS pg_catalog.uuid), "
                 "CAST(:platform_role AS pg_catalog.text), "
-                "CAST(:unread_only AS pg_catalog.boolean), "
-                "CAST(:limit AS pg_catalog.integer), "
-                "CAST(:offset AS pg_catalog.integer))"
+                "CAST(:unread_only AS pg_catalog.bool), "
+                "CAST(:limit AS pg_catalog.int4), "
+                "CAST(:offset AS pg_catalog.int4))"
             )
         )
         result = await self.session.execute(
