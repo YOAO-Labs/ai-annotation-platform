@@ -10,13 +10,16 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.annotation import Annotation
+from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services import training_datasets as service
 from app.services.dataset import DatasetService
+from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.dataset_source_access import capture_dataset_write
 from app.services.storage import storage_service
 from app.workers import training_dataset as worker
@@ -24,6 +27,51 @@ from tests.factory import create_project
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_source_changes import accept_all_files, picture, rescan
 from tests.test_dataset_source_training_immutability import object_bytes, frozen_objects
+
+
+@pytest.fixture
+async def committed_rle_bindings(test_engine):
+    """Commit static allocation prerequisites before the business transaction."""
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with sessions() as db:
+        had_location = await db.get(StorageLocation, LEGACY_LOCATION_ID) is not None
+        original_purposes = set(await db.scalars(select(StorageBinding.purpose)))
+        await ensure_legacy_bindings(db)
+        created_purposes = (
+            set(await db.scalars(select(StorageBinding.purpose))) - original_purposes
+        )
+        await db.commit()
+    try:
+        yield
+    finally:
+        # Registered before db_session: its business rollback and independent
+        # raster-owner cleanup finish before this fixture removes its own rows.
+        async with sessions() as db:
+            if created_purposes:
+                await db.execute(
+                    delete(StorageBinding).where(
+                        StorageBinding.purpose.in_(created_purposes)
+                    )
+                )
+            if not had_location:
+                await db.execute(
+                    delete(StorageLocation).where(
+                        StorageLocation.id == LEGACY_LOCATION_ID
+                    )
+                )
+            await db.commit()
+
+
+@pytest.fixture(autouse=True)
+def _require_owned_rle_bindings(request):
+    if (
+        request.node.originalname
+        == "test_reference_freeze_pins_labels_and_retains_originals_after_source_removal"
+        and request.node.callspec.params["selection"].get("bridge")
+    ):
+        # Resolve the async prerequisite from synchronous fixture setup, before
+        # pytest starts the test loop or any explicit business-session fixture.
+        request.getfixturevalue("committed_rle_bindings")
 
 
 @pytest.fixture

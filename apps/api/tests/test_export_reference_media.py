@@ -54,6 +54,18 @@ from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_references import reference_world as reference_world
 from tests.test_s3_references import s3_world as s3_world
 from tests.test_sftp_references import sftp_world as sftp_world
+from tests.test_training_dataset_references import (
+    committed_rle_bindings as committed_rle_bindings,
+)
+
+
+@pytest.fixture(autouse=True)
+def _require_owned_rle_bindings(request):
+    if (
+        request.node.originalname
+        == "test_all_async_image_formats_embed_verified_bytes_and_share_paths"
+    ):
+        request.getfixturevalue("committed_rle_bindings")
 
 
 async def make_export(
