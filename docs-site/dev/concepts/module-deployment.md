@@ -71,7 +71,7 @@ last_reviewed: 2026-10-24
 | Jobs：领域固定查询与继续迁移读取                    | 五项跨帧／预测时间 Native 能力与语言无关合同已实现                                            | 跨帧 API、admin 预测聚合及 12 处 worker／QC／修复／视频质量读取已迁移                                      | [领域查询](#jobs-domain-queries)：67 项不同 PostgreSQL／API 案例与 Node 通过；当前冷工件、去重复用／历史接口及完整恢复通过                        | 保留原去重锁、独立分页／总数、autoflush 和事务；训练／资产继续暂缓，完整 Jobs 与私表权限退出未闭合                                                                                                                                                                                                                                                               |
 | Jobs：项目／批次／所选任务导出派发                  | 复用既有私网队列合同、原 kwargs 与 export 路由                                                | 三个标注导出入口已迁移，保留提交／审计／执行 ID 绑定和失败差异                                             | [导出派发](#jobs-export-dispatch)：33 项纯检查、39 项 PostgreSQL／API 用例与当前冷组合通过，含六个真实包下载和完整恢复                            | 仅迁移派发，不扩大数据集／存储；没有新 options、canvas、取消或自动交接保证，完整 Jobs 继续跟踪                                                                                                                                                                                                                                                                   |
 | Jobs：普通运行创建权限                              | LAN／worktree 撤销表与列 INSERT，拒绝继承旁路，保留既有创建 view／视频摘要                    | 两处终态筛选种子改为 pending 创建后同事务投影，原字段／审计保持                                            | [创建权限](#jobs-creation-credentials)：7 项数据库／普通账号／CLI 用例、27 项纯检查及 24 子检查通过；当前安装 API 创建／回滚和完整恢复通过        | 私表 SELECT／UPDATE 和其他 Jobs 操作仍待收口；DELETE 按下一行单独验收，不新增 owner 凭据或改动暂缓领域                                                                                                                                                                                                                                                           |
-| Jobs：普通运行删除权限                              | 测试库限定的固定项目清理能力保留 Workspace 退役守卫；LAN／worktree 在宽授权后撤销 DELETE      | 原 E2E 删除位置迁移，命名空间、保存点、提交与 409 保持；不可用返回 503 停止清理                            | [删除权限](#jobs-delete-credentials)：原生与当前冷工件资格正在汇总                                                                                | 私表 SELECT／UPDATE、其余 producer 与恢复仍未闭合；截图多领域夹具继续使用自有测试库 owner，不扩大暂缓领域                                                                                                                                                                                                                                                        |
+| Jobs：普通运行删除权限                              | 测试库限定的固定项目清理能力保留 Workspace 退役守卫；LAN／worktree 在宽授权后撤销 DELETE      | 原 E2E 删除位置迁移，命名空间、保存点、提交与 409 保持；不可用返回 503 停止清理                            | [删除权限](#jobs-delete-credentials)：19 项不同原生案例、62 项纯检查及 24 子检查通过；当前冷工件／完整恢复通过                                    | 私表 SELECT／UPDATE、其余 producer 与恢复仍未闭合；截图多领域夹具继续使用自有测试库 owner，不扩大暂缓领域                                                                                                                                                                                                                                                        |
 | Audit：同事务业务事件追加                           | 既有 typed owner 保留；通用追加独立包、版本化合同与固定 SQL 已实现                            | AuditService 与普通追加构造器已迁移；保留 caller 提交／回滚、快照和 ORM 缓存，无追加后私表回读             | [追加 owner](#audit-append-owner)：12 项 PG、20 项纯检查及受限临时 owner／Node 通过；完整追加授权与 Node 已在独占 PostgreSQL 验收                 | 当前 LAN 分区树仍归 API，严格配置会拒绝该布局；维护所有权、未来分区权限及组合工件待收口，本组不代表完整 Audit                                                                                                                                                                                                                                                    |
 | Audit：HTTP 请求元数据                              | 响应后 Celery 与同步回退使用相同追加 owner；超长 request ID 仅在此元数据中省略                | middleware／worker 保留原响应、短 ID、取消及孤儿 actor 匿名重试                                            | [元数据边界](#audit-http-metadata)：11 项聚焦检查；既有三次真实 Celery 资格单列，不叠加                                                           | broker 不可用、重复／丢失、提交结果不明和恢复仍需真实验收；业务审计 request ID 的独立边界尚未修复                                                                                                                                                                                                                                                                |
 | Audit：查询、筛选与导出                             | 全局列表／导出使用固定查询 owner；项目范围通过公开事件关系组合                                | super-admin 全局与 project-admin 范围已迁移，保留筛选、游标、总数和导出顺序                                | [全局查询](#audit-global-query-owner)资格保持；[读取组合](#support-read-relations)补充项目隔离及合法复合行键原生回归                              | 剩余读取、冷进程真实消费及完整模块继续验收；不得提前撤销所有 Audit 私表 SELECT                                                                                                                                                                                                                                                                                   |
@@ -2031,8 +2031,34 @@ SELECT／UPDATE、完整 Jobs／Workspace 和其他消息形状／领域恢复�
 连接前提已在 DEV 中明确，未以项目删除扩大它们的精确 job-ID 清理范围。
 
 并行子任务分别完成 caller 与 Python／Node 原生验收，父线集成合同、迁移和授权。
-限定原生、冷工件与恢复证据正在汇总；完整 Jobs、主工作树／日常拓扑采用、生产容量
-和替代语言 provider 不在本组关闭范围。训练与资产实现扩展继续暂缓。
+19 项不同原生案例全部通过：实际普通 LOGIN／Node 的 ABI、私表删除 42501、全部
+kind／status 和 JSONB 形状、精确当前范围／保留历史、事务／保存点／提交、项目忙、
+异常守卫回复、继承 DELETE 拒绝、自身及 PUBLIC 撤权重施，以及原播种／清理和实际
+筛选 CLI。视频未退役案例在同一外层事务中切换实际调用角色，验证 23514 与全行不变，
+最后回滚整组夹具；未伪造真实路由退役证明。首次夹具误把旧输入当新受理行并试图
+直接退役，围栏正确拒绝后影响两个播种案例，失败记录保留；修正后只补跑失败／
+未执行的九项，复用此前通过十项。3933 项其他输入及六个已通过新案例函数体保持。
+纯检查共 62 项及 24 子检查，Node 自检通过；首次混合根目录误选 pytest 配置导致
+九项 API 异步用例未执行，已按 API 配置单独补跑通过，未重复累计。
+
+源码 `6d3aedfdd` 的 API／worker 各匹配 3896 项 COPY 输入、2109 项运行文件和五项
+固定夹具，队列匹配 30 项输入／26 项安装资源；均重新构建并通过离线非 editable
+安装核对。Identity／publisher 的 218／74 项输入不变，复用原镜像。冷组合首次通过，
+0 失败／错误／跳过，106.730 秒，4299 项源码输入保持。恢复前后，普通 API 容器
+都验证私表 DELETE 为 false，在 caller 事务内通过新能力删除 pending 和原 completed
+行，回滚后确认新行不存在、原完成行及 result／progress 完整恢复。原创建围栏、行锁／
+局部刷新、五项领域查询、去重／历史、六个真实导出包、队列故障与取消／重放继续通过。
+完整 `0330 → 0189 → 0330`、37 项安装函数／冻结回滚与清理通过；实际非测试库直接
+调用的拒绝路径未单独验收，库名围栏和仅测试库授权已做源码核对。OpenAPI 精确保持，
+文档构建通过。
+
+规范收据 `.worktree/jobs-delete-qualification.json` 的 SHA-256 为
+`db6de07b3dc6c6bfc15ebbee370de335ce53958a8938935d35a29145ee339a1b`，绑定
+90 份原始记录。两个子工作树的 32 份检查文件、补丁等价和源 bundle 已归档核验，再
+移除干净 worktree 及精确分支；主工作树与四个共享链接目标保持，自有资源清理无误。
+本组关闭普通 DELETE 与限定冷工件／恢复边界；完整 Jobs、SELECT／UPDATE、其他
+消息形状／领域恢复、主工作树／日常拓扑采用、生产容量和替代语言 provider 继续跟踪。
+训练与资产实现扩展继续暂缓。
 
 ## Notifications 即时发布与模块组合 {#notification-publication-owner}
 
