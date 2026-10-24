@@ -919,7 +919,7 @@ function InsightsContent({
                     : compared.data.source_comparison_status === "partial"
                       ? "部分共同内容缺少完整来源证据，无法确认其来源关系。"
                       : "没有可比较的共同内容来源证据。"}
-                  来源变化可以与训练语义未变化同时成立；记录来自各版本的冻结清单。
+                  来源变化可以与训练语义未变化同时成立；记录来自各版本已保存的冻结事实。来源身份变化不能单独证明文件发生了物理搬迁，也不表示当前来源在线。
                 </p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   {Object.entries(changes)

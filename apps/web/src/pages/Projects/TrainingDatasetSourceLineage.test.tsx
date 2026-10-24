@@ -69,3 +69,58 @@ it("shows absent historical provenance as unknown with no live lookup", async ()
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
   expect(screen.queryByText("来源 ID")).not.toBeInTheDocument();
 });
+
+it.each(["dataset_asset", "task_original"] as const)(
+  "explains frozen managed %s without inventing reference history",
+  async (ownerKind) => {
+    const user = userEvent.setup();
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    render(
+      <TrainingDatasetSourceLineage
+        lineage={{
+          kind: "managed_original",
+          status: "recorded",
+          reasons: [],
+          evidence: null,
+          managed_evidence: {
+            schema: 1,
+            owner_kind: ownerKind,
+            content_id: "frozen-original",
+            location_id: "frozen-location",
+            sha256: "a".repeat(64),
+            size_bytes: 4096,
+          },
+        }}
+      />,
+    );
+    expect(screen.queryByText("原件类型")).not.toBeVisible();
+    await user.click(screen.getByText("冻结来源"));
+    expect(
+      screen.getByText(ownerKind === "dataset_asset" ? "数据集原件" : "任务自有原件"),
+    ).toBeVisible();
+    expect(screen.getByText("4,096")).toBeVisible();
+    expect(screen.getByText(/不查询当前来源是否在线/)).toBeVisible();
+    expect(screen.queryByText("扫描完成时间")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "复制冻结内容 ID" }));
+    await waitFor(() => expect(copy).toHaveBeenCalledWith("frozen-original"));
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  },
+);
+
+it("keeps missing managed evidence explicitly unrecorded", async () => {
+  const user = userEvent.setup();
+  render(
+    <TrainingDatasetSourceLineage
+      lineage={{
+        kind: "unknown",
+        status: "unrecorded",
+        reasons: ["managed_source_unrecorded"],
+        evidence: null,
+        managed_evidence: null,
+      }}
+    />,
+  );
+  await user.click(screen.getByText("冻结来源"));
+  expect(screen.getByText(/托管原件证据未保留/)).toBeVisible();
+  expect(screen.queryByText("原件类型")).not.toBeInTheDocument();
+});

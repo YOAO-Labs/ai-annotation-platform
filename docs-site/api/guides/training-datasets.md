@@ -65,6 +65,10 @@ POST /api/v1/projects/{project_id}/training-datasets/{version_id}/storage-pin
 
 相同持久事实保持预检摘要稳定；创建前来源事实变化须重新预检。已创建版本重试保留旧证据，来源后续修改或停用不补写历史。来源字段进入原始快照/清单/包摘要；训练语义和规范化验证比较仍按内容、标签和切分解释。旧无合同版本不回填。
 
+冻结样本详情的 `source_lineage` 另用 `kind=accepted_reference|managed_original|unknown` 区分证据类型。引用证据仍在 `evidence`；托管证据在 `managed_evidence`，严格包含 `schema=1`、`owner_kind=dataset_asset|task_original`、`content_id`、`location_id`、`sha256` 和 `size_bytes`，其余分支为 null。托管证据来自已保存的快照原件合同，须匹配清单成员及快照摘要，不新增包字段或查询当前来源。未保存证据时 `status=unrecorded`；明确声明的无效证明返回 409。
+
+版本比较对同 SHA 的全部成员保留来源身份的多重集合，托管来源按原件类型、内容 ID 和位置 ID 判断关系变化。来源关系不改变标签／划分的训练语义判定，也不证明物理搬迁。`media_state/media_checked_at` 独立表示保留副本最近一次读取观测，不能据此判断当前原件来源在线。
+
 ### 按数据集筛选定义冻结
 
 预检与创建均可传 `dataset_filter` 对象，字段沿用[数据集组合筛选](datasets.md#组合筛选与个人动态视图)，必须同时指定已关联当前项目的 `dataset_id`。Scene、来源、文件名、媒体类型、扩展名、尺寸和已存可用性观测可组合；未知字段或非法范围422，失效/跨数据集 Scene、来源或未关联数据集404。未传或显式 null 保留原行为；不传个人视图ID、分页或布局作为范围。
@@ -109,7 +113,7 @@ POST /api/v1/projects/{project_id}/training-datasets/{version_id}/storage-pin
 
 类别和样本页默认 25、最多 100 项，返回 `items`、过滤后 `total`、`limit` 和 `offset`。`kind` 为 `all`、`positive`、`negative`、`excluded` 或 `unavailable`；`change` 为 `all`、`added`、`removed`、`labels_changed`、`split_changed`、`multiplicity_changed`、`task_ids_changed`、`reintroduced`、`unchanged`、`unknown`、`source_relation_changed`、`source_evidence_updated` 或 `source_unknown`。非 `all` 变化必须提供基线。移除项返回基线 `source_version_id` 和成员 `version_id`，预览应使用该身份。
 
-样本详情新增可空 `source_lineage={status,reasons,evidence}`，状态为 `recorded/partial/unrecorded`；`evidence` 为上述冻结白名单或null。历史合同缺失、未记录引用来源、采纳修订/扫描/验证时间不足分别解释；未入包记录继续返回详情，来源原因 `not_in_package`。详情只读保留版本，不查询当前来源补历史。
+样本详情的可空 `source_lineage={kind,status,reasons,evidence,managed_evidence}`，状态为 `recorded/partial/unrecorded`；两类证据沿上述冻结白名单或为 null。历史合同缺失、未记录原件来源、采纳修订/扫描/验证时间不足分别解释；未入包记录继续返回详情，来源原因 `not_in_package`。详情只读保留版本，不查询当前来源补历史。
 
 比较新增 `source_comparison_status=complete|partial|unavailable`，与既有训练语义 `status` 分离。仅共同SHA比较来源：完整关系多重集合不同列为 `source_relation_changed`，关系相同但证据不同列为 `source_evidence_updated`，任一侧部分/未记录列为 `source_unknown`。这些分类可与 `unchanged` 重叠，并参与现有分页前筛选；双方仍须属于当前授权项目。
 

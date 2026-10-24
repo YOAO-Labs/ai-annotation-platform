@@ -1,5 +1,6 @@
 """Adapt verified asset reads to the existing immutable training snapshot."""
 
+from copy import deepcopy
 import uuid
 
 from sqlalchemy import select
@@ -14,6 +15,52 @@ from app.services import storage_access
 from app.services.dataset_references import reference_context, reference_snapshot
 from app.services.reference_keys import parse_reference
 from app.services.training_dataset_bridge import TrainingDatasetError
+
+
+def frozen_source_evidence(snapshot, manifest, member, source, snapshot_digest):
+    """Project retained provenance only; never resolve a current original or locator."""
+    from training_contract.lineage import source_lineage_evidence
+
+    lineage = source_lineage_evidence(manifest, member)
+    result = {**lineage, "kind": "unknown", "managed_evidence": None}
+    if member.get("asset_reference") is not None:
+        result["kind"] = "accepted_reference"
+        return result
+    if "managed_original_contract" not in snapshot:
+        return result
+    if (
+        type(snapshot["managed_original_contract"]) is not int
+        or snapshot["managed_original_contract"] != 1
+    ):
+        raise TrainingDatasetError("frozen_source_mismatch", "未知的托管冻结来源合同")
+    if not source or source.get("original") is None:
+        result["reasons"] = ["managed_source_unrecorded"]
+        return result
+    from app.services.training_dataset_originals import validate_receipt
+
+    try:
+        receipt = validate_receipt(source["original"])
+    except ContentError as exc:
+        raise TrainingDatasetError(
+            "frozen_source_mismatch", "托管冻结来源证据无效"
+        ) from exc
+    if (
+        str(source.get("task_id")) != str(member["task_id"])
+        or manifest.get("source_digest") != snapshot_digest
+        or receipt["sha256"] != member.get("sha256")
+        or type(member.get("size_bytes")) is not int
+        or receipt["size_bytes"] != member.get("size_bytes")
+    ):
+        raise TrainingDatasetError(
+            "frozen_source_mismatch", "托管冻结来源证据与清单不一致"
+        )
+    return {
+        "kind": "managed_original",
+        "status": "recorded",
+        "reasons": [],
+        "evidence": None,
+        "managed_evidence": deepcopy(receipt),
+    }
 
 
 async def capture_source_lineage(db, context):

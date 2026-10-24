@@ -214,4 +214,174 @@ async def test_historical_detail_is_explicitly_unknown_and_not_fabricated(
         "status": "unrecorded",
         "reasons": ["not_in_package"],
         "evidence": None,
+        "kind": "unknown",
+        "managed_evidence": None,
     }
+
+
+def attach_managed(snapshot, manifest, receipts=None):
+    snapshot["managed_original_contract"] = 1
+    for index, (source, member) in enumerate(
+        zip(snapshot["samples"], manifest["samples"], strict=True)
+    ):
+        if member.get("asset_reference") is not None:
+            continue
+        source["original"] = {
+            "schema": 1,
+            "owner_kind": "dataset_asset",
+            "content_id": identifier("original"),
+            "location_id": identifier("managed-location"),
+            "sha256": member["sha256"],
+            "size_bytes": member["size_bytes"],
+            **((receipts[index] if isinstance(receipts, list) else receipts) or {}),
+        }
+    manifest["source_digest"] = content_digest(snapshot)
+    manifest["content_digest"] = content_digest(
+        {key: value for key, value in manifest.items() if key != "content_digest"}
+    )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("owner_kind", "task_original"),
+        ("content_id", identifier("another-content")),
+        ("location_id", identifier("another-location")),
+    ],
+)
+def test_managed_frozen_identity_changes_independently_of_training_semantics(
+    field, value
+):
+    before = inputs([{"content": "same", "split": "val"}])
+    attach_managed(*before)
+    after = copy.deepcopy(before)
+    attach_managed(*after, {field: value})
+    a, b = [
+        analysis.derive(*record, None, content_digest(record[0]))
+        for record in (before, after)
+    ]
+    result = analysis.compare(a, b)
+    assert result["counts"]["source_relation_changed"] == 1
+    assert result["counts"]["source_unknown"] == 0
+    assert result["counts"]["unchanged"] == 1
+    assert result["counts"]["labels_changed"] == result["counts"]["split_changed"] == 0
+    assert result["semantic_validation_changed"] is False
+    assert result["evaluation_benchmark_changed"] is False
+
+
+@pytest.mark.parametrize(
+    "bad", ["extra", "sha", "size", "contract", "source_digest", "duplicate_task"]
+)
+def test_explicit_managed_proof_cannot_mismatch_or_expose_private_fields(bad):
+    snapshot, manifest = inputs([{"content": "same"}])
+    attach_managed(snapshot, manifest)
+    if bad == "extra":
+        snapshot["samples"][0]["original"]["bucket"] = "private-bucket"
+    elif bad == "sha":
+        snapshot["samples"][0]["original"]["sha256"] = sha("wrong")
+    elif bad == "size":
+        snapshot["samples"][0]["original"]["size_bytes"] += 1
+    elif bad == "contract":
+        snapshot["managed_original_contract"] = True
+    elif bad == "duplicate_task":
+        snapshot["samples"].append(copy.deepcopy(snapshot["samples"][0]))
+    manifest["source_digest"] = (
+        sha("wrong") if bad == "source_digest" else content_digest(snapshot)
+    )
+    with pytest.raises(TrainingDatasetError, match="托管"):
+        analysis.derive(snapshot, manifest, None, content_digest(snapshot))
+
+
+def test_managed_source_multiset_preserves_duplicates_and_mixed_reference_evidence():
+    before = inputs([{"content": "same"}, {"content": "same", "task": "duplicate"}])
+    attach(*before, [lineage(), lineage("another")])
+    # Keep one reference and one already frozen managed original in the same version.
+    for record in before:
+        record["samples"][1].pop("asset_reference", None)
+        record["samples"][1].pop("source_lineage", None)
+    attach_managed(*before)
+    after = copy.deepcopy(before)
+    after[0]["samples"][1]["original"]["location_id"] = identifier("changed")
+    after[1]["source_digest"] = content_digest(after[0])
+    a, b = [
+        analysis.derive(*record, None, content_digest(record[0]))
+        for record in (before, after)
+    ]
+    assert analysis.compare(a, b)["counts"]["source_relation_changed"] == 1
+    assert analysis.compare(a, b)["counts"]["multiplicity_changed"] == 0
+    for record in before:
+        record["samples"].reverse()
+    before[1]["source_digest"] = content_digest(before[0])
+    reordered = analysis.derive(*before, None, content_digest(before[0]))
+    assert analysis.compare(a, reordered)["counts"]["source_relation_changed"] == 0
+
+
+@pytest.mark.parametrize("owner_kind", ["dataset_asset", "task_original"])
+async def test_managed_detail_uses_frozen_projection_and_does_not_resolve_live_original(
+    db_session, super_admin, httpx_client, monkeypatch, owner_kind
+):
+    from app.services import original_sources
+
+    owner, token = super_admin
+    project, data = await version(db_session, owner)
+    snapshot, manifest = copy.deepcopy(data.snapshot), copy.deepcopy(data.manifest)
+    attach_managed(snapshot, manifest, {"owner_kind": owner_kind})
+    data.snapshot, data.manifest, data.snapshot_digest = (
+        snapshot,
+        manifest,
+        content_digest(snapshot),
+    )
+    await db_session.flush()
+
+    async def unexpected(*args, **kwargs):
+        raise AssertionError(
+            "Frozen explanation must not resolve a current Task/Source"
+        )
+
+    monkeypatch.setattr(original_sources, "resolve_task", unexpected)
+    task = manifest["samples"][0]["task_id"]
+    path = f"/api/v1/projects/{project.id}/training-datasets/{data.id}/insights/samples/{task}"
+    response = await httpx_client.get(
+        path, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert response.status_code == 200, response.text
+    source = response.json()["source_lineage"]
+    assert source["kind"] == "managed_original" and source["status"] == "recorded"
+    assert source["managed_evidence"] == snapshot["samples"][0]["original"]
+    assert source["evidence"] is None
+    assert "source_key" not in response.text and "mutable-inputs" not in response.text
+    assert data.snapshot == snapshot and data.manifest == manifest
+
+
+@pytest.mark.parametrize("changed", [None, "sha256", "size_bytes", "included"])
+async def test_cache_schema_upgrade_preserves_only_matching_media_observations(
+    db_session, super_admin, changed
+):
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from app.db.models.training_dataset_analysis import TrainingDatasetAnalyzedSample
+
+    owner, _ = super_admin
+    project, data = await version(db_session, owner)
+    _, cached, _ = await analysis.ensure_analysis(db_session, project.id, data.id)
+    row = await db_session.scalar(
+        select(TrainingDatasetAnalyzedSample).where(
+            TrainingDatasetAnalyzedSample.version_id == data.id
+        )
+    )
+    row.media_state, row.media_checked_at = (
+        "verified",
+        datetime(2026, 10, 24, tzinfo=timezone.utc),
+    )
+    if changed == "sha256":
+        row.sha256 = sha("other")
+    elif changed == "size_bytes":
+        row.size_bytes += 1
+    elif changed == "included":
+        row.included = not row.included
+    cached.input_digest = sha("previous-schema")
+    await db_session.flush()
+    await analysis.ensure_analysis(db_session, project.id, data.id)
+    await db_session.refresh(row)
+    assert row.media_state == ("verified" if changed is None else "unchecked")
+    assert (row.media_checked_at is not None) is (changed is None)

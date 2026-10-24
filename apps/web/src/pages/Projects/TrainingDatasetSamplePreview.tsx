@@ -204,7 +204,7 @@ function SamplePreviewContent({
         {sample.width ?? "未知"} × {sample.height ?? "未知"}
       </p>
       <p className="mb-4 text-xs text-muted-foreground">
-        图片经冻结身份与字节校验后生成预览；实例来自训练包对应的冻结标注。预览按比例缩小。
+        本页读取训练版本保留的图片副本，不读取实时来源。图片经完整身份与字节校验后生成预览；实例来自对应的冻结标注。来源证据与副本当前可读性分别判断，预览按比例缩小。
       </p>
       {value && <TrainingDatasetSourceLineage lineage={value.source_lineage} />}
       {mediaLoading && (

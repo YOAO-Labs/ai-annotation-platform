@@ -37,7 +37,8 @@ from training_contract.dataset import (
     instance_rle_evidence,
     INSTANCE_RLE_LIMITS,
 )
-from training_contract.lineage import source_lineage_evidence, validate_source_lineage
+from training_contract.lineage import validate_source_lineage
+from app.services.training_dataset_sources import frozen_source_evidence
 from app.services.training_dataset_insight_adapters import (
     adapter_cache_identity,
     adapter_for_profile,
@@ -45,7 +46,7 @@ from app.services.training_dataset_insight_adapters import (
     unsupported_capabilities,
 )
 
-ANALYSIS_SCHEMA = 6
+ANALYSIS_SCHEMA = 7
 HASH = re.compile(r"^[a-f0-9]{64}$")
 CHANGES = {
     "added",
@@ -150,6 +151,10 @@ def derive(
             "analysis_classes", "冻结类别表不可用", status_code=409
         )
     frozen = {str(s["task_id"]): s for s in snapshot.get("samples", [])}
+    if "managed_original_contract" in snapshot and len(frozen) != len(
+        snapshot.get("samples", [])
+    ):
+        raise TrainingDatasetError("frozen_source_mismatch", "托管冻结来源成员身份重复")
     try:
         contract = contract_of(manifest)
         profile = contract_profile(manifest)
@@ -334,16 +339,25 @@ def derive(
                     "unknown_source_members": 0,
                 },
             )
-            lineage = source_lineage_evidence(manifest, member)
+            lineage = frozen_source_evidence(
+                snapshot, manifest, member, source, snapshot_digest
+            )
             if lineage["status"] != "recorded":
                 content["unknown_source_members"] += 1
             else:
-                evidence = lineage["evidence"]
+                evidence = lineage["evidence"] or lineage["managed_evidence"]
                 content["source_relations"].append(
                     content_digest(
                         {
-                            key: evidence[key]
-                            for key in ("source_id", "location_id", "path_digest")
+                            "kind": lineage["kind"],
+                            **{
+                                key: evidence[key]
+                                for key in (
+                                    ("owner_kind", "content_id", "location_id")
+                                    if lineage["kind"] == "managed_original"
+                                    else ("source_id", "location_id", "path_digest")
+                                )
+                            },
                         }
                     )
                 )
@@ -763,7 +777,24 @@ async def ensure_analysis(db, project_id, version_id):
             else "冻结元数据不完整，分析不可用"
         )
         raise HTTPException(status_code=409, detail=message) from exc
+    media_observations = {}
     if cached:
+        observed = (
+            await db.execute(
+                select(
+                    TrainingDatasetAnalyzedSample.task_id,
+                    TrainingDatasetAnalyzedSample.sha256,
+                    TrainingDatasetAnalyzedSample.size_bytes,
+                    TrainingDatasetAnalyzedSample.included,
+                    TrainingDatasetAnalyzedSample.media_state,
+                    TrainingDatasetAnalyzedSample.media_checked_at,
+                ).where(
+                    TrainingDatasetAnalyzedSample.version_id == version.id,
+                    TrainingDatasetAnalyzedSample.media_state != "unchecked",
+                )
+            )
+        ).all()
+        media_observations = {tuple(row[:4]): tuple(row[4:]) for row in observed}
         await db.execute(
             delete(TrainingDatasetAnalysis)
             .where(TrainingDatasetAnalysis.version_id == version.id)
@@ -771,6 +802,12 @@ async def ensure_analysis(db, project_id, version_id):
         )
         db.expunge(cached)
     rows = result.pop("samples")
+    for row in rows:
+        identity = tuple(
+            row[key] for key in ("task_id", "sha256", "size_bytes", "included")
+        )
+        if identity in media_observations:
+            row["media_state"], row["media_checked_at"] = media_observations[identity]
     cached = TrainingDatasetAnalysis(
         version_id=version.id, input_digest=fingerprint, summary=result
     )

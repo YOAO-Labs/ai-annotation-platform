@@ -263,10 +263,22 @@ class TrainingDatasetFrozenSourceLineage(BaseModel):
     location_config_revision: int
 
 
+class TrainingDatasetFrozenManagedSource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    schema_version: Literal[1] = Field(alias="schema")
+    owner_kind: Literal["dataset_asset", "task_original"]
+    content_id: uuid.UUID
+    location_id: uuid.UUID
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    size_bytes: int = Field(gt=0)
+
+
 class TrainingDatasetSourceLineageEvidence(BaseModel):
+    kind: Literal["accepted_reference", "managed_original", "unknown"] = "unknown"
     status: Literal["recorded", "partial", "unrecorded"]
     reasons: list[str]
     evidence: TrainingDatasetFrozenSourceLineage | None
+    managed_evidence: TrainingDatasetFrozenManagedSource | None = None
 
 
 class TrainingDatasetSampleDetail(BaseModel):

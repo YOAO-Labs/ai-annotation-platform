@@ -10,10 +10,12 @@ const reasons: Record<string, string> = {
   accepted_revision_unknown: "采纳修订证据不完整",
   scan_time_unknown: "扫描完成时间未保留",
   verification_time_unknown: "内容验证时间未保留",
+  managed_source_unrecorded: "此成员的托管原件证据未保留",
 };
 
 export function TrainingDatasetSourceLineage({ lineage }: Props) {
   const evidence = lineage?.evidence;
+  const managed = lineage?.managed_evidence;
   return (
     <details className="mb-4 rounded-lg border border-border p-3">
       <summary className="cursor-pointer text-sm font-medium">
@@ -27,7 +29,7 @@ export function TrainingDatasetSourceLineage({ lineage }: Props) {
         </span>
       </summary>
       <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-        来自此版本的冻结清单。来源后续变更不会改写这些记录；未保留的历史事实无法确认。
+        来自此版本已保存的冻结记录。来源后续变更不会改写这些记录；未保留的历史事实无法确认。本页不查询当前来源是否在线。
       </p>
       {(lineage?.reasons.length || !lineage) && (
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -36,6 +38,39 @@ export function TrainingDatasetSourceLineage({ lineage }: Props) {
             : "历史版本未保存来源证据"}
           。
         </p>
+      )}
+      {managed && (
+        <dl className="mt-3 grid min-w-0 gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-xs text-muted-foreground">原件类型</dt>
+            <dd className="mt-1">
+              {managed.owner_kind === "dataset_asset" ? "数据集原件" : "任务自有原件"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">原图字节数</dt>
+            <dd className="mt-1 tabular-nums">{managed.size_bytes.toLocaleString("zh-CN")}</dd>
+          </div>
+          {[
+            ["内容 ID", managed.content_id, "id"],
+            ["位置 ID", managed.location_id, "id"],
+            ["原图 SHA-256", managed.sha256, "hash"],
+          ].map(([label, value, kind]) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-xs text-muted-foreground">{label}</dt>
+              <dd className="mt-1 flex min-w-0 items-center gap-1">
+                <span className="min-w-0 truncate font-mono" title={value}>
+                  {value}
+                </span>
+                <CopyValueButton
+                  value={value}
+                  kind={kind === "hash" ? "hash" : "id"}
+                  label={`复制冻结${label}`}
+                />
+              </dd>
+            </div>
+          ))}
+        </dl>
       )}
       {evidence && (
         <dl className="mt-3 grid min-w-0 gap-3 text-sm sm:grid-cols-2">

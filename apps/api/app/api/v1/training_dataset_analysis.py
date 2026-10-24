@@ -7,7 +7,8 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
+from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from starlette.background import BackgroundTask
@@ -225,7 +226,7 @@ async def sample_detail(
     limit: int = Query(500, ge=1, le=1000),
     offset: int = Query(0, ge=0, le=2147483647),
 ):
-    await authorized_analysis(db, project, user, version_id)
+    version, _, _ = await authorized_analysis(db, project, user, version_id)
     row = await sample_row(db, version_id, task_id)
     manifest = await db.scalar(
         select(TrainingDatasetVersion.manifest).where(
@@ -235,7 +236,7 @@ async def sample_detail(
     )
     if manifest is None:
         raise HTTPException(status_code=404, detail="数据版本已删除")
-    from training_contract.lineage import source_lineage_evidence
+    from app.services.training_dataset_sources import frozen_source_evidence
 
     member = next(
         (
@@ -247,14 +248,49 @@ async def sample_detail(
     )
     if member is None and row.included:
         raise HTTPException(status_code=409, detail="冻结清单缺少该成员")
+    frozen, source = {}, None
+    if member is not None and member.get("asset_reference") is None:
+        matched = func.jsonb_path_query_first(
+            TrainingDatasetVersion.snapshot,
+            literal("$.samples[*] ? (@.task_id == $task_id)").cast(JSONPATH),
+            func.jsonb_build_object("task_id", str(task_id)),
+        ).cast(JSONB)
+        projection = await db.scalar(
+            select(
+                func.jsonb_build_object(
+                    "contract_present",
+                    TrainingDatasetVersion.snapshot.has_key(
+                        "managed_original_contract"
+                    ),
+                    "contract",
+                    TrainingDatasetVersion.snapshot["managed_original_contract"],
+                    "member",
+                    func.jsonb_build_object(
+                        "task_id", matched["task_id"], "original", matched["original"]
+                    ),
+                )
+            ).where(
+                TrainingDatasetVersion.id == version_id,
+                TrainingDatasetVersion.project_id == project.id,
+            )
+        )
+        if projection is None:
+            raise HTTPException(status_code=404, detail="数据版本已删除")
+        if projection["contract_present"]:
+            frozen["managed_original_contract"] = projection["contract"]
+        source = projection["member"]
     try:
         lineage = (
-            source_lineage_evidence(manifest, member)
+            frozen_source_evidence(
+                frozen, manifest, member, source, version.snapshot_digest
+            )
             if member is not None
             else {
                 "status": "unrecorded",
                 "reasons": ["not_in_package"],
                 "evidence": None,
+                "kind": "unknown",
+                "managed_evidence": None,
             }
         )
     except ValueError as exc:

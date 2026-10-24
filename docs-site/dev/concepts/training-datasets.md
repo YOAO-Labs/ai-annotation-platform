@@ -150,6 +150,8 @@ Worker 优先从版本输出 owner 读取保留媒体，除快照归属与实际
 
 分析缓存schema更新，历史比较仅读冻结snapshot/manifest。每个SHA保留关系与证据的多重集合，独立产生 `source_relation_changed/source_evidence_updated/source_unknown`，不影响原有标签/切分/重复次数及规范化语义比较。新 `source_comparison_status` 表达来源覆盖程度；旧 `status` 仍表达训练语义可确认性。样本详情新增可空 `source_lineage`；未入包记录保留原详情行为并说明未记录。运行/模型继续绑定既有原始摘要及版本关系，不增加同义血缘资源或内容摘要去重机制。
 
+托管来源说明投影已有 `snapshot.managed_original_contract=1` 和成员 `original` 的六项安全事实，不改写导出清单或训练包。证明须与成员 Task、SHA、大小及清单的 `source_digest` 对应；明确声明却无效的证明拒绝分析，历史未记录保持未知。详情查询只从 JSONB 投影对应成员的证明，不加载整份标注或查询当前原件。来源关系使用带类型的 `owner_kind/content_id/location_id` 身份，保持同 SHA 多成员的次数。分析缓存重建仅为 Task、SHA、大小和入包状态均一致的成员保留最近副本读取观测；来源记录与副本读取结果独立，均不构成当前外部来源健康证明。
+
 API 预检逐项执行有界严格读取并及时关闭临时快照，报告引用数量及预计新增原图字节。Worker 将自身真实 Celery 节点传入 resolver，使用该节点已核验的 anchor，不能借用 API 节点的挂载证明。原图满足固定内容与尺寸后写入既有 training 版本前缀；失败/取消重试先核验已保留媒体的快照摘要、实际字节 SHA 及固定 Asset SHA。没有保留副本时才读取当前来源。
 
 标注和类别仍由同一 PG 语句固定。构建期间来源改写会失败，标注改写不会改变所选快照；ready 后的预览和 ZIP 永远只读取冻结字节。引用单图沿用 E05 严格读取的 64 MiB、3200 万像素、JPEG/PNG/WebP 限额。当前不引入节点缓存或跨版本内容复用。

@@ -49946,6 +49946,54 @@
         "title": "TrainingDatasetDistributionBin",
         "type": "object"
       },
+      "TrainingDatasetFrozenManagedSource": {
+        "additionalProperties": false,
+        "properties": {
+          "content_id": {
+            "format": "uuid",
+            "title": "Content Id",
+            "type": "string"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "owner_kind": {
+            "enum": [
+              "dataset_asset",
+              "task_original"
+            ],
+            "title": "Owner Kind",
+            "type": "string"
+          },
+          "schema": {
+            "const": 1,
+            "title": "Schema",
+            "type": "integer"
+          },
+          "sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "exclusiveMinimum": 0.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema",
+          "owner_kind",
+          "content_id",
+          "location_id",
+          "sha256",
+          "size_bytes"
+        ],
+        "title": "TrainingDatasetFrozenManagedSource",
+        "type": "object"
+      },
       "TrainingDatasetFrozenMask": {
         "properties": {
           "annotation_id": {
@@ -51467,6 +51515,26 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/TrainingDatasetFrozenSourceLineage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "default": "unknown",
+            "enum": [
+              "accepted_reference",
+              "managed_original",
+              "unknown"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "managed_evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingDatasetFrozenManagedSource"
               },
               {
                 "type": "null"
