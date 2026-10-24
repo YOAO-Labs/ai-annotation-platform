@@ -59,6 +59,7 @@ def build_mots_sequence(
     class_ids: dict[str, int],
     source_frames: list[int],
     frame_base: int,
+    checkpoint=None,
 ) -> tuple[str, dict[str, Any]]:
     if frame_base not in {0, 1}:
         raise ValueError("MOTS frame base must be 0 or 1")
@@ -68,6 +69,8 @@ def build_mots_sequence(
     rows: list[tuple[int, int, str]] = []
     track_manifest: dict[str, dict[str, Any]] = {}
     for annotation_id, class_name, geometry in tracks:
+        if checkpoint is not None:
+            checkpoint()
         if not class_name or class_name not in class_ids:
             continue
         track_number = track_numbers[annotation_id]
@@ -79,6 +82,8 @@ def build_mots_sequence(
             "source_annotation_id": str(annotation_id),
         }
         for output_index, source_frame in enumerate(source_frames):
+            if checkpoint is not None:
+                checkpoint()
             resolved = resolve_track_at_frame(geometry, source_frame)
             if resolved is None:
                 continue

@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from app.services.exporting.contracts import export_contracts, video_source_contract
+from app.services.exporting.contracts import export_contracts
 
 import asyncio
 import hashlib
@@ -26,6 +26,8 @@ import json
 import math
 import os
 import tempfile
+import threading
+import time
 import uuid
 import zipfile
 from copy import deepcopy
@@ -125,11 +127,13 @@ VIDEO_EXPORT_FORMATS = {
 }
 
 
-async def _hydrate_mask_geometry_for_export(geometry: dict) -> dict:
+async def _hydrate_mask_geometry_for_export(geometry: dict, check_cancel=None) -> dict:
     if geometry.get("type") != "video_track_mask":
         return geometry
     hydrated = deepcopy(geometry)
     for keyframe in hydrated.get("keyframes") or []:
+        if check_cancel is not None:
+            await check_cancel()
         rle = await load_coco_rle(keyframe.get("mask") or {})
         keyframe["mask_rle"] = rle
         keyframe["bbox"] = coco_rle_bbox_norm(rle)
@@ -447,6 +451,7 @@ async def build_export_zip(
     reference_media=None,
     lidar_media=None,
     image_media=None,
+    video_media=None,
     check_cancel: Callable[[], Awaitable[object]] | None = None,
 ) -> tuple[str, int, int]:
     """生成镜像目录 ZIP 到磁盘临时文件，返回 (zip 路径, label 文件数, size_bytes)。
@@ -460,8 +465,11 @@ async def build_export_zip(
     图像 targets ∈ {coco, yolo-det, yolo-obb, yolo-seg, aap_json}（`yolo` 兼容旧 = yolo-det）。
     VOC 走旧同步路径，不在此处。
     """
-    if image_media is not None and lidar_media is not None:
+    if sum(
+        value is not None for value in (image_media, lidar_media, video_media)
+    ) > 1 or (video_media is not None and reference_media is not None):
         raise ValueError("image_export_inputs_changed")
+    frozen_media = video_media or image_media or lidar_media
     paths = (
         image_media.media_paths
         if image_media is not None
@@ -475,23 +483,27 @@ async def build_export_zip(
         )
     )
     svc = (
-        image_media.service(db)
-        if image_media is not None
-        else (
-            lidar_media.service(db)
-            if lidar_media is not None
-            else ExportService(db, task_ids=task_ids, media_paths=paths)
-        )
+        frozen_media.service(db)
+        if frozen_media is not None
+        else ExportService(db, task_ids=task_ids, media_paths=paths)
     )
+    svc.check_cancel = check_cancel
     project = (
-        image_media.project
-        if image_media is not None
-        else (
-            lidar_media.project
-            if lidar_media is not None
-            else await svc.db.get(Project, project_id)
-        )
+        frozen_media.project
+        if frozen_media is not None
+        else await svc.db.get(Project, project_id)
     )
+
+    if video_media is not None:
+        if (
+            project.id != project_id
+            or project.data_type != "video"
+            or list(targets) != video_media.targets
+        ):
+            raise ValueError("video_export_inputs_changed")
+        from app.services.exporting.video_budget import check
+
+        check(video_media)
 
     if image_media is not None and (
         project.id != project_id
@@ -539,6 +551,8 @@ async def build_export_zip(
                 video_frame_mode=video_frame_mode,
                 format_options=format_options or {},
                 video_scope=video_scope,
+                video_media=video_media,
+                check_cancel=check_cancel,
             )
 
         if project.data_type == "lidar":
@@ -1847,47 +1861,22 @@ async def _build_lidar_export_zip(
 
 # ── v0.10.31 · Phase 4 视频导出组装 ──────────────────────────────────
 
-_FETCH_VIDEOS_TEMPLATE = '''#!/usr/bin/env python3
-"""按 manifest.json 的预签名 URL 把视频回源到 videos/<相对路径>。
-
-纯标准库，无需 MinIO 密钥（URL 已带 7 天签名）。本地已有视频则跳过。
-"""
-import json
-import os
-import sys
-import urllib.request
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def main() -> int:
-    with open(os.path.join(HERE, "manifest.json"), "r", encoding="utf-8") as f:
-        manifest = json.load(f)
-    ok = 0
-    fail = 0
-    for it in manifest.get("videos", []):
-        rel = it.get("rel_path")
-        url = it.get("presigned_url")
-        if not rel or not url:
-            continue
-        dest = os.path.join(HERE, "videos", *rel.split("/"))
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        if os.path.exists(dest):
-            ok += 1
-            continue
-        try:
-            urllib.request.urlretrieve(url, dest)
-            ok += 1
-        except Exception as exc:  # noqa: BLE001
-            print("[x] 下载失败 %s: %s" % (rel, exc))
-            fail += 1
-    print("[done] 视频回源 成功 %d，失败 %d，输出目录 videos/" % (ok, fail))
-    return 0 if fail == 0 else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
+_FETCH_VIDEOS_TEMPLATE = (
+    FETCH_IMAGES_TEMPLATE.replace(
+        'MANIFEST = "images_manifest.json"', 'MANIFEST = "manifest.json"'
+    )
+    .replace('ITEMS = "images"', 'ITEMS = "videos"')
+    .replace("MAX_BYTES = 256 * 1024 * 1024", "MAX_BYTES = 5 * 1024**3")
+    .replace("> 20000:", "> 1000:")
+    .replace(
+        '"images/" + str(item.get("rel_path")', '"videos/" + str(item.get("rel_path")'
+    )
+    .replace(
+        'paths = item.get("archive_paths")',
+        'paths = None\n        if "archive_paths" in item or "archive_path" in item or item.get("storage_mode") == "embedded":\n            raise Invalid("invalid_video_paths")',
+    )
+    .replace("; images/", "; videos/")
+)
 
 
 _FETCH_FRAMES_TEMPLATE = '''#!/usr/bin/env python3
@@ -1903,6 +1892,8 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import fetch_videos as media
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -1917,11 +1908,16 @@ def main() -> int:
         seq = it.get("sequence")
         frames = it.get("grid_source_frames") or []
         start = int(it.get("frame_start_number", 1))
-        if not rel or not seq or not frames:
+        if not rel or not seq:
             continue
-        video_path = os.path.join(HERE, "videos", *rel.split("/"))
-        if not os.path.exists(video_path):
-            print("[x] 视频缺失（先跑 fetch_videos.py）: %s" % rel)
+        try:
+            local = "videos/" + rel
+            video_path = media.safe_destination(local)
+            with media.destination_parent(local) as (parent, destination):
+                if not media.file_matches(parent, destination, it["size_bytes"], it["sha256"]):
+                    raise ValueError("video_receipt_mismatch")
+        except Exception:
+            print("[x] 视频缺失或内容核验失败（先跑 fetch_videos.py）")
             fail += 1
             continue
         raw_specs = it.get("frame_outputs")
@@ -1952,6 +1948,8 @@ def main() -> int:
                 output_start = int(spec.get("start_number", start))
                 padding = max(1, int(spec.get("padding", 6)))
                 extension = str(spec.get("extension", "jpg")).lstrip(".") or "jpg"
+                if not 0 <= output_start <= 1 or not 1 <= padding <= 10 or extension != "jpg":
+                    raise ValueError("invalid_frame_output")
                 selected_frames = (
                     frames
                     if spec.get("source_frames") is None
@@ -1959,18 +1957,25 @@ def main() -> int:
                 )
                 if not selected_frames:
                     continue
+                if len(selected_frames) > 1000000 or any(type(frame) is not int or not 0 <= frame < 1000000 for frame in selected_frames):
+                    raise ValueError("invalid_source_frames")
                 select_expr = "+".join(
                     "eq(n\\\\,%d)" % fr for fr in selected_frames
                 )
-                out_dir = os.path.join(HERE, *rel_out.split("/"))
-                os.makedirs(out_dir, exist_ok=True)
-                cmd = [
-                    "ffmpeg", "-y", "-loglevel", "error", "-i", video_path,
-                    "-vf", "select='%s'" % select_expr, "-fps_mode", "passthrough",
-                    "-start_number", str(output_start),
-                    os.path.join(out_dir, "%%0%dd.%s" % (padding, extension)),
-                ]
-                subprocess.run(cmd, check=True)
+                with media.destination_parent(rel_out + "/frame.jpg") as (_parent, frame_path):
+                    out_dir = os.path.dirname(frame_path)
+                # A permitted million-frame grid must not become a single
+                # command argument exceeding the operating system's argv limit.
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix="aap-video-select-", suffix=".txt") as selection:
+                    selection.write("select='%s'" % select_expr)
+                    selection.flush()
+                    cmd = [
+                        "ffmpeg", "-y", "-loglevel", "error", "-i", video_path,
+                        "-filter_script:v", selection.name, "-fps_mode", "passthrough",
+                        "-start_number", str(output_start),
+                        os.path.join(out_dir, "%%0%dd.%s" % (padding, extension)),
+                    ]
+                    subprocess.run(cmd, check=True)
             ok += 1
         except Exception as exc:  # noqa: BLE001
             print("[x] 抽帧失败 %s: %s" % (seq, exc))
@@ -1996,6 +2001,50 @@ def _video_meta(item: DatasetItem | None) -> dict:
     return v if isinstance(v, dict) else {}
 
 
+async def _video_call(call, *args, check_cancel=None, **kwargs):
+    """Checkpoint CPU writers on the owner loop, draining their real thread.
+
+    Cancellation must stop a writer before the ZIP temporary file can disappear.
+    The SQL callback stays on its original event loop and never enters the thread.
+    """
+    if check_cancel is None:
+        return call(*args, **kwargs)
+    from app.services import export_media_transfer as transfer
+
+    await check_cancel()
+    loop, stop = asyncio.get_running_loop(), threading.Event()
+    checked, calls = time.monotonic(), 0
+
+    def checkpoint():
+        nonlocal checked, calls
+        if stop.is_set():
+            raise asyncio.CancelledError()
+        calls += 1
+        if calls % 128 or time.monotonic() - checked < 0.25:
+            return
+        coroutine = check_cancel()
+        try:
+            pending = asyncio.run_coroutine_threadsafe(coroutine, loop)
+        except BaseException:
+            coroutine.close()
+            raise
+        pending.result()
+        checked = time.monotonic()
+
+    pending = transfer._submit(call, *args, checkpoint=checkpoint, **kwargs)
+    try:
+        result = await asyncio.shield(pending)
+    except BaseException as interrupted:
+        stop.set()
+        try:
+            await transfer.drain(pending)
+        except BaseException as later:
+            transfer._uncertainty(interrupted, later)
+        raise
+    await check_cancel()
+    return result
+
+
 async def _build_video_export_zip(
     svc: ExportService,
     project,
@@ -2008,6 +2057,8 @@ async def _build_video_export_zip(
     video_frame_mode: str,
     format_options: dict[str, Any] | None = None,
     video_scope: VideoExportScope | None = None,
+    video_media=None,
+    check_cancel=None,
 ) -> tuple[str, int, int]:
     """视频项目 zip（v0.10.43 多目标）：单目标落根、>1 目标各落 `{target}/`；
     manifest.json + fetch_videos.py 共享落根（MOT/KITTI 另带 fetch_frames.py）。
@@ -2021,6 +2072,10 @@ async def _build_video_export_zip(
             raise UnsupportedExportError(f"unsupported video export format: {tg}")
 
     format_options = format_options or {}
+
+    async def format_call(call, *args, **kwargs):
+        return await _video_call(call, *args, check_cancel=check_cancel, **kwargs)
+
     metadata = export_contracts(project, targets)
     sampling = metadata["source"]["video_sampling"]
     multi = len(targets) > 1
@@ -2068,15 +2123,21 @@ async def _build_video_export_zip(
 
     manifest_videos: list[dict] = []
     now = datetime.now(timezone.utc)
-    expires_iso = datetime.fromtimestamp(
-        now.timestamp() + PRESIGN_EXPIRES_SECONDS, tz=timezone.utc
-    ).isoformat()
+    expires_iso = (
+        video_media.expires_at.isoformat()
+        if video_media is not None
+        else datetime.fromtimestamp(
+            now.timestamp() + PRESIGN_EXPIRES_SECONDS, tz=timezone.utc
+        ).isoformat()
+    )
 
     with _open_export_zip(tmp_path) as zf:
         zf.writestr(
             "data_contract.json", json.dumps(metadata, ensure_ascii=False, indent=2)
         )
         for target in targets:
+            if check_cancel is not None:
+                await check_cancel()
             prefix = f"{target}/" if multi else ""
             if target == "video_json":
                 zf.writestr(
@@ -2128,26 +2189,47 @@ async def _build_video_export_zip(
                     ):
                         bboxes_by_task.setdefault(ann.task_id, []).append(ann)
             for t in tasks:
-                item = (
-                    dataset_items.get(t.dataset_item_id) if t.dataset_item_id else None
+                if check_cancel is not None:
+                    await check_cancel()
+                item = svc.item_for_task(t, dataset_items)
+                seq = (
+                    video_media.sequence_paths[t.id]
+                    if video_media is not None
+                    else _video_seq_name(t, item)
                 )
-                seq = _video_seq_name(t, item)
-                vmeta = _video_meta(item)
+                vmeta = (
+                    video_media.video_metadata(t.id)
+                    if video_media is not None
+                    else _video_meta(item)
+                )
                 source_fps = vmeta.get("fps")
                 img_w = int(
-                    (item.width if item else None) or vmeta.get("width") or FALLBACK_W
+                    vmeta["width"]
+                    if video_media is not None
+                    else (item.width if item else None)
+                    or vmeta.get("width")
+                    or FALLBACK_W
                 )
                 img_h = int(
-                    (item.height if item else None) or vmeta.get("height") or FALLBACK_H
+                    vmeta["height"]
+                    if video_media is not None
+                    else (item.height if item else None)
+                    or vmeta.get("height")
+                    or FALLBACK_H
                 )
                 step = derive_step(source_fps, sampling)
 
                 track_anns = tracks_by_task.get(t.id, [])
                 bbox_anns = bboxes_by_task.get(t.id, [])
-                track_geometry_by_id = {
-                    ann.id: await _hydrate_mask_geometry_for_export(ann.geometry or {})
-                    for ann in track_anns
-                }
+                track_geometry_by_id = {}
+                for ann in track_anns:
+                    if check_cancel is not None:
+                        await check_cancel()
+                    track_geometry_by_id[
+                        ann.id
+                    ] = await _hydrate_mask_geometry_for_export(
+                        ann.geometry or {}, check_cancel
+                    )
                 mask_track_annotations = [
                     ann
                     for ann in track_anns
@@ -2171,8 +2253,11 @@ async def _build_video_export_zip(
                     max_kf = max(
                         max_kf, int((ann.geometry or {}).get("frame_index", 0))
                     )
-                frame_count = int(vmeta.get("frame_count") or (max_kf + 1))
-                frame_count = max(frame_count, max_kf + 1)
+                frame_count = (
+                    int(vmeta["frame_count"])
+                    if video_media is not None
+                    else max(int(vmeta.get("frame_count") or (max_kf + 1)), max_kf + 1)
+                )
                 selected_source_frames = derive_sampled_frames(frame_count, step)
                 if video_scope is not None:
                     selected_source_frames = video_scope.filter_frames(
@@ -2191,7 +2276,8 @@ async def _build_video_export_zip(
                         mp = "mot/" if multi else ""
                         zf.writestr(
                             f"{mp}{seq}/gt/gt.txt",
-                            build_mot_gt(
+                            await format_call(
+                                build_mot_gt,
                                 track_args,
                                 frame_count=frame_count,
                                 step=step,
@@ -2216,7 +2302,8 @@ async def _build_video_export_zip(
                         kp = "kitti/" if multi else ""
                         zf.writestr(
                             f"{kp}labels/{seq}.txt",
-                            build_kitti_labels(
+                            await format_call(
+                                build_kitti_labels,
                                 track_args,
                                 frame_count=frame_count,
                                 step=step,
@@ -2228,7 +2315,8 @@ async def _build_video_export_zip(
 
                 if has_yolo_frames:
                     yp = "yolo-frames-det/" if multi else ""
-                    labels = build_yolo_frame_det_labels(
+                    labels = await format_call(
+                        build_yolo_frame_det_labels,
                         [
                             (
                                 ann.class_name,
@@ -2249,6 +2337,8 @@ async def _build_video_export_zip(
                         source_frames=selected_source_frames,
                     )
                     for frame_no, (lines, attrs_per_line) in sorted(labels.items()):
+                        if check_cancel is not None:
+                            await check_cancel()
                         base = f"{yp}labels/{seq}/{frame_no:06d}"
                         zf.writestr(f"{base}.txt", "\n".join(lines))
                         file_count += 1
@@ -2262,7 +2352,8 @@ async def _build_video_export_zip(
 
                 if has_yolo_frames_seg:
                     yp = "yolo-frames-seg/" if multi else ""
-                    seg_labels = build_yolo_frame_seg_labels(
+                    seg_labels = await format_call(
+                        build_yolo_frame_seg_labels,
                         [
                             (ann.class_name, ann.geometry or {}, ann.attributes or {})
                             for ann in track_anns
@@ -2279,6 +2370,8 @@ async def _build_video_export_zip(
                         source_frames=selected_source_frames,
                     )
                     for frame_no, (lines, attrs_per_line) in sorted(seg_labels.items()):
+                        if check_cancel is not None:
+                            await check_cancel()
                         base = f"{yp}labels/{seq}/{frame_no:06d}"
                         zf.writestr(f"{base}.txt", "\n".join(lines))
                         file_count += 1
@@ -2332,6 +2425,8 @@ async def _build_video_export_zip(
                     davis_prefix = "davis/" if multi else ""
                     object_ids = derive_davis_object_ids(mask_tracks)
                     for output_index, source_frame in enumerate(selected_source_frames):
+                        if check_cancel is not None:
+                            await check_cancel()
                         zf.writestr(
                             f"{davis_prefix}Annotations/Full-Resolution/{seq}/{output_index:05d}.png",
                             build_davis_palette_png(
@@ -2377,6 +2472,8 @@ async def _build_video_export_zip(
                         )
                     }
                     for source_frame in youtube_sparse_frames:
+                        if check_cancel is not None:
+                            await check_cancel()
                         zf.writestr(
                             f"{youtube_prefix}Annotations/{seq}/"
                             f"{frame_name_by_source[source_frame]}.png",
@@ -2415,7 +2512,8 @@ async def _build_video_export_zip(
                 if has_mots:
                     mots_prefix = "mots/" if multi else ""
                     mots_path = f"{mots_prefix}instances/{seq}.txt"
-                    mots_text, mots_meta = build_mots_sequence(
+                    mots_text, mots_meta = await format_call(
+                        build_mots_sequence,
                         [
                             (
                                 ann.id,
@@ -2440,38 +2538,60 @@ async def _build_video_export_zip(
 
                 # manifest 视频条目（含网格帧号供 fetch_frames.py 抽帧）。
                 dataset_name = _dataset_name_for_task(t, item)
-                video_source = video_source_contract(
-                    project, t, item, vmeta, video_scope
-                )
-                video_rel = relative_path_from_file_path(
-                    video_source["source_key"], dataset_name, item
-                )
-                presigned = storage_service.generate_download_url(
-                    video_source["source_key"],
-                    expires_in=PRESIGN_EXPIRES_SECONDS,
-                    bucket=storage_service.datasets_bucket,
-                )
+                video_source = svc.video_source(project, t, item, vmeta, video_scope)
+                if video_media is not None:
+                    video_rel = video_media.paths[t.id]
+                    receipt = video_media.entry(t.id)
+                    presigned = receipt["presigned_url"]
+                else:
+                    video_rel = relative_path_from_file_path(
+                        video_source["source_key"], dataset_name, item
+                    )
+                    presigned = storage_service.generate_download_url(
+                        video_source["source_key"],
+                        expires_in=PRESIGN_EXPIRES_SECONDS,
+                        bucket=storage_service.datasets_bucket,
+                    )
+                    receipt = {}
                 frame_output_dirs: list[str] = []
-                if has_mot or has_kitti:
-                    frame_output_dirs.append(f"{seq}/img1")
+                frame_outputs = []
+                for enabled, target, base in (
+                    (has_mot, "mot", 1),
+                    (has_kitti, "kitti", 0),
+                ):
+                    if enabled:
+                        directory = f"{target}/" if multi else ""
+                        frame_output_dirs.append(f"{directory}{seq}/img1")
+                        frame_outputs.append(
+                            {
+                                "dir": frame_output_dirs[-1],
+                                "start_number": base,
+                                "padding": 6,
+                                "extension": "jpg",
+                            }
+                        )
+                other_frame_dirs = []
                 if has_yolo_frames:
                     yp = "yolo-frames-det/" if multi else ""
-                    frame_output_dirs.append(f"{yp}images/{seq}")
+                    other_frame_dirs.append(f"{yp}images/{seq}")
                 if has_yolo_frames_seg:
                     yp = "yolo-frames-seg/" if multi else ""
-                    frame_output_dirs.append(f"{yp}images/{seq}")
+                    other_frame_dirs.append(f"{yp}images/{seq}")
                 if has_coco_frames_seg:
                     cp = "coco-frames-seg/" if multi else ""
-                    frame_output_dirs.append(f"{cp}images/{seq}")
-                frame_outputs = [
-                    {
-                        "dir": output_dir,
-                        "start_number": frame_start_number,
-                        "padding": 6,
-                        "extension": "jpg",
-                    }
-                    for output_dir in frame_output_dirs
-                ]
+                    other_frame_dirs.append(f"{cp}images/{seq}")
+                frame_output_dirs.extend(other_frame_dirs)
+                frame_outputs.extend(
+                    [
+                        {
+                            "dir": output_dir,
+                            "start_number": frame_start_number,
+                            "padding": 6,
+                            "extension": "jpg",
+                        }
+                        for output_dir in other_frame_dirs
+                    ]
+                )
                 if has_davis:
                     davis_prefix = "davis/" if multi else ""
                     davis_images = f"{davis_prefix}JPEGImages/Full-Resolution/{seq}"
@@ -2516,7 +2636,16 @@ async def _build_video_export_zip(
                         "task_display_id": t.display_id,
                         "rel_path": video_rel,
                         "presigned_url": presigned,
-                        "expires_at": expires_iso,
+                        "expires_at": receipt.get("expires_at", expires_iso),
+                        **(
+                            {
+                                "sha256": receipt["sha256"],
+                                "size_bytes": receipt["size_bytes"],
+                                "metadata_receipt": video_media.metadata_receipts[t.id],
+                            }
+                            if video_media is not None
+                            else {}
+                        ),
                         "video_metadata": vmeta,
                         "sampling": sampling,
                         "step": step,
@@ -2535,7 +2664,8 @@ async def _build_video_export_zip(
             zf.writestr(
                 f"{cp}annotations.json",
                 json.dumps(
-                    build_coco_frames_seg(
+                    await format_call(
+                        build_coco_frames_seg,
                         coco_seq_records,
                         cat_map,
                         frame_start_number=frame_start_number,

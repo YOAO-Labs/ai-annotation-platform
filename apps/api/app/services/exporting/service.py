@@ -351,6 +351,8 @@ def _coco_keypoints(geometry: dict, w: int, h: int) -> tuple[list[float], int] |
 
 
 class ExportService:
+    trusted_video_metadata = False
+
     def __init__(
         self,
         db: AsyncSession,
@@ -361,6 +363,17 @@ class ExportService:
         self.db = db
         self.task_ids = task_ids
         self.media_paths = media_paths or {}
+        self.check_cancel = None
+
+    async def _checkpoint(self):
+        if self.check_cancel is not None:
+            await self.check_cancel()
+
+    def video_metadata(self, task, item):
+        return _video_metadata(item)
+
+    def video_source(self, project, task, item, metadata, scope=None):
+        return video_source_contract(project, task, item, metadata, scope)
 
     async def _load_data(
         self,
@@ -655,12 +668,13 @@ class ExportService:
         exported_tasks = []
         video_metadata_by_task: dict[uuid.UUID, dict] = {}
         for index, task in enumerate(tasks):
+            await self._checkpoint()
             item = (
                 dataset_items.get(task.dataset_item_id)
                 if task.dataset_item_id
                 else None
             )
-            video = _video_metadata(item)
+            video = self.video_metadata(task, item)
             video_metadata_by_task[task.id] = video
             exported_tasks.append(
                 {
@@ -672,7 +686,7 @@ class ExportService:
                     "sequence_order": task.sequence_order,
                     "batch_id": str(task.batch_id) if task.batch_id else None,
                     "video_metadata": video,
-                    "source": video_source_contract(
+                    "source": self.video_source(
                         project, task, item, video, video_scope
                     ),
                     "order": index,
@@ -683,6 +697,7 @@ class ExportService:
         flattened_keyframes = []
         legacy_video_bbox = []
         for ann in annotations:
+            await self._checkpoint()
             task = task_by_id.get(ann.task_id)
             if not task:
                 continue
@@ -711,14 +726,32 @@ class ExportService:
                         (kf["frame_index"] for kf in keyframes),
                         default=0,
                     )
-                    frame_count = int(
-                        video_metadata_by_task.get(ann.task_id, {}).get(
-                            "frame_count", max_keyframe + 1
+                    if self.trusted_video_metadata:
+                        frame_count = video_metadata_by_task[ann.task_id]["frame_count"]
+                        if type(frame_count) is not int or frame_count <= 0:
+                            raise ValueError("video_export_metadata_invalid")
+                    else:
+                        frame_count = int(
+                            video_metadata_by_task.get(ann.task_id, {}).get(
+                                "frame_count", max_keyframe + 1
+                            )
+                            or max_keyframe + 1
                         )
-                        or max_keyframe + 1
-                    )
-                    frame_count = max(frame_count, max_keyframe + 1)
-                    if video_scope is None:
+                        frame_count = max(frame_count, max_keyframe + 1)
+                    if self.trusted_video_metadata:
+                        start = video_scope.from_frame if video_scope else 0
+                        end = video_scope.to_frame if video_scope else frame_count - 1
+                        if not 0 <= start <= end < frame_count:
+                            raise ValueError("video_export_scope_changed")
+                        frames = []
+                        for frame_index in range(start, end + 1):
+                            if frame_index % 128 == 0:
+                                await self._checkpoint()
+                            resolved = resolve_track_at_frame(geometry, frame_index)
+                            if resolved is not None:
+                                frames.append(resolved)
+                        track["frames"] = frames
+                    elif video_scope is None:
                         track["frames"] = resolved_track_frames(
                             geometry,
                             frame_mode="all_frames",
@@ -1239,7 +1272,9 @@ class ExportService:
         mask_objects: dict[str, dict] = _PortableMaskObjects()
         for t in tasks:
             ann_entries: list[AAPAnnotationEntry] = []
+            await self._checkpoint()
             for ann in ann_by_task.get(t.id, []):
+                await self._checkpoint()
                 geometry = transform_box_geometry_axis_frame(
                     ann.geometry or {},
                     dataset_convention=axis_by_task.get(t.id),
@@ -1273,6 +1308,7 @@ class ExportService:
                 # 走 to_internal_shape() 反推内部 geometry + class_name.
                 pred_unit = getattr(pred, "tool_unit_id", None) or "bbox"
                 for raw_shape in pred.result or []:
+                    await self._checkpoint()
                     internal = to_internal_shape(raw_shape)
                     geometry = internal.get("geometry") or {}
                     if not geometry:
@@ -1308,9 +1344,9 @@ class ExportService:
                 item = (
                     dataset_items.get(t.dataset_item_id) if t.dataset_item_id else None
                 )
-                vmeta = _video_metadata(item)
+                vmeta = self.video_metadata(t, item)
                 video_block = {
-                    **video_source_contract(project, t, item, vmeta, video_scope),
+                    **self.video_source(project, t, item, vmeta, video_scope),
                     "fps": vmeta.get("fps"),
                     "frame_count": vmeta.get("frame_count"),
                     "duration_ms": vmeta.get("duration_ms"),
