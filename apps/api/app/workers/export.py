@@ -610,6 +610,7 @@ async def _run_export(
     lock_acquired = False
     reference_media = None
     owned_media = False
+    owned_image = False
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -644,6 +645,7 @@ async def _run_export(
                     from app.workers.lidar_export import run_owned
 
                     owned_media = True
+                    owned_image = True
                     await db.rollback()
                     await run_owned(
                         db,
@@ -934,6 +936,15 @@ async def _run_export(
                 if owned_media:
                     # The owned branch fences its exact lease before every
                     # terminal write; the generic handler must not overwrite it.
+                    if isinstance(exc, ExportCancelled):
+                        return
+                    if owned_image:
+                        terminal_status = await db.scalar(
+                            select(AsyncJob.status).where(AsyncJob.id == job_uuid)
+                        )
+                        await db.rollback()
+                        if terminal_status in {"cancelled", "completed"}:
+                            return
                     raise
                 if isinstance(exc, ExportBuildInProgress):
                     raise

@@ -75,6 +75,8 @@ async def _guard(db, receipt, task_id):
     from app.workers.export import _reauthorize_export_final_write
 
     row = await _job(db, receipt.job_id)
+    if receipt._input_snapshot.get("schema") == 3:
+        await check_cancelled(db, receipt.job_id)
     _attempt(row, receipt, task_id)
     batch_id = receipt._input_snapshot["batch_id"]
     await _reauthorize_export_final_write(

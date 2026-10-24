@@ -1,6 +1,6 @@
 """Reference export identity, portable paths and publication boundaries."""
 
-from contextlib import nullcontext
+from contextlib import asynccontextmanager, nullcontext
 import hashlib
 import io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,6 +32,7 @@ from app.services import (
     dataset_references,
     export_media_bundles,
     export_media_storage,
+    export_media_transfer,
     managed_original_creation,
     managed_original_reader,
 )
@@ -148,6 +149,23 @@ async def make_image_export(db, world, *, targets, opts):
 
 
 @pytest.fixture
+def borrowed_image_business_sessions(db_session, monkeypatch):
+    """Keep physical/authority algorithms real inside the outer test rollback.
+
+    These cases do not qualify independent transaction visibility or lock-free
+    physical work. Those boundaries belong to the committed worker/transfer
+    suites and the disposable runtime acceptance probe.
+    """
+
+    @asynccontextmanager
+    async def borrowed(db):
+        assert db is db_session
+        yield db_session
+
+    monkeypatch.setattr(export_media_transfer, "_session", borrowed)
+
+
+@pytest.fixture
 def image_transport(monkeypatch):
     """Exercise actual Creation/reader/copy algorithms against isolated providers."""
     creation, source, copy = CreationClient(), Provider(), MediaClient()
@@ -166,6 +184,7 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
     monkeypatch,
     tmp_path,
     image_transport,
+    borrowed_image_business_sessions,
 ):
     _, project, task, content = reference_world
     duplicate = Task(
@@ -443,11 +462,14 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
     mutation,
     monkeypatch,
     export_objects,
+    borrowed_image_business_sessions,
 ):
     _, project, _, content = reference_world
+    project_id, source_id = project.id, content[5].id
     job, _, receipt = await make_image_export(
         db_session, reference_world, targets=["coco"], opts={}
     )
+    job_id = job.id
 
     class Context:
         async def __aenter__(self):
@@ -488,7 +510,7 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
 
             await db.execute(
                 update(DatasetSource)
-                .where(DatasetSource.id == content[5].id)
+                .where(DatasetSource.id == source_id)
                 .values(enabled=False)
             )
         elif mutation.startswith("cancel"):
@@ -505,7 +527,7 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
         await original_guard(db, job_id, ids, **kwargs)
 
     monkeypatch.setattr(worker, "_reauthorize_export_final_write", guard)
-    notifications = AsyncMock()
+    notifications = AsyncMock(return_value=None)
     monkeypatch.setattr(worker, "_emit_export_notification", notifications)
     with (
         pytest.raises((ContentError, OSError))
@@ -513,18 +535,18 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
         else nullcontext()
     ):
         await worker._run_export(
-            project_id=str(project.id),
+            project_id=str(project_id),
             batch_id=None,
             targets=["coco"],
             opts={},
-            async_job_id=str(job.id),
+            async_job_id=str(job_id),
             celery_task_id="test-export",
             worker_node_id="worker:content@test",
         )
-    job = await db_session.get(AsyncJob, job.id, populate_existing=True)
+    job = await db_session.get(AsyncJob, job_id, populate_existing=True)
     assert len(uploaded) == 1 and not deleted
     output = await db_session.scalar(
-        select(ExportOutput).where(ExportOutput.job_id == job.id)
+        select(ExportOutput).where(ExportOutput.job_id == job_id)
     )
     assert output is not None and output.state == "pending"
     assert output.id == receipt.zip_output_id
@@ -541,7 +563,7 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
     assert not job.result.get("download_url")
     assert (
         await db_session.scalar(
-            select(ExportArtifact).where(ExportArtifact.project_id == project.id)
+            select(ExportArtifact).where(ExportArtifact.project_id == project_id)
         )
         is None
     )
