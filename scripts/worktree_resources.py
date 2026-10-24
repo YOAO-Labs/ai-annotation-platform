@@ -165,6 +165,41 @@ JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.cross_frame_job_count(uuid,text)",
     "aap_jobs_v1.latest_batch_prediction_times(uuid[])",
 )
+_JOBS_CREATION_RUNTIME_ACL = """
+DO $jobs_creation_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_columns text;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_class
+        WHERE oid IN ('public.async_jobs'::regclass,
+                      'aap_jobs_v1.async_job_creation'::regclass)
+          AND pg_catalog.pg_has_role(v_runtime, relowner, 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'The runtime role must not own or inherit Jobs creation authority';
+    END IF;
+    EXECUTE format('REVOKE INSERT ON TABLE public.async_jobs FROM %I, PUBLIC',
+                   v_runtime);
+    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum)
+    INTO v_columns FROM pg_catalog.pg_attribute
+    WHERE attrelid = 'public.async_jobs'::regclass
+      AND attnum > 0 AND NOT attisdropped;
+    IF v_columns IS NOT NULL THEN
+        EXECUTE format('REVOKE INSERT (%s) ON TABLE public.async_jobs FROM %I, PUBLIC',
+                       v_columns, v_runtime);
+    END IF;
+    IF pg_catalog.has_table_privilege(v_runtime, 'public.async_jobs', 'INSERT')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.async_jobs', 'INSERT') THEN
+        RAISE EXCEPTION 'The runtime role still has effective private Jobs INSERT privileges';
+    END IF;
+    IF NOT pg_catalog.has_table_privilege(v_runtime, 'aap_jobs_v1.async_job_creation', 'SELECT')
+       OR NOT pg_catalog.has_table_privilege(v_runtime, 'aap_jobs_v1.async_job_creation', 'INSERT') THEN
+        RAISE EXCEPTION 'The runtime role is missing the Jobs creation capability';
+    END IF;
+END
+$jobs_creation_acl$;
+"""
 _IDENTITY_PRIVATE_RUNTIME_ACL = """
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
@@ -1314,6 +1349,7 @@ class LocalResources:
                     self._validate_runtime_role(
                         observed, self._runtime_credentials(required=True)
                     )
+                await connection.exec_driver_sql(_JOBS_CREATION_RUNTIME_ACL)
                 await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
                 notification_result = await connection.execute(
                     text(

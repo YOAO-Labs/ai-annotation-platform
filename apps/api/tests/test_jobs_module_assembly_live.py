@@ -237,6 +237,7 @@ async def _run():
     from aap_jobs.row_lock_contract import JOBS_ROW_LOCK_PROTOCOL
     from app.config import settings
     from app.services.jobs_lifecycle_data import job_lock_statement
+    from app.services import async_job as async_job_svc
 
     job_id = uuid.UUID(sys.argv[1])
     expected_database = sys.argv[2]
@@ -307,7 +308,61 @@ async def _run():
             )
             if not domain_subject_matches:
                 raise RuntimeError("domain_subject")
+            privileges = (
+                await db.execute(text(
+                    "SELECT pg_catalog.has_table_privilege(current_user,"
+                    "'public.async_jobs','INSERT'), "
+                    "pg_catalog.has_any_column_privilege(current_user,"
+                    "'public.async_jobs','INSERT'), "
+                    "pg_catalog.has_table_privilege(current_user,"
+                    "'aap_jobs_v1.async_job_creation','SELECT'), "
+                    "pg_catalog.has_table_privilege(current_user,"
+                    "'aap_jobs_v1.async_job_creation','INSERT')"
+                ))
+            ).one()
+            if tuple(privileges) != (False, False, True, True):
+                raise RuntimeError("creation_privileges")
+            created = await async_job_svc.create_job(
+                db, kind="audit_archive", user_id=actor_id, project_id=row.project_id,
+                payload={"probe": "jobs-creation"},
+            )
+            created_id = created.id
+            pending_shape = (
+                inspect(created).persistent and created.status == "pending"
+                and created.progress_pct == 0 and created.result == {}
+                and created.started_at is None and created.completed_at is None
+                and created.error_message is None
+            )
+            if not pending_shape:
+                raise RuntimeError("creation_shape")
+            try:
+                async with db.begin_nested():
+                    await db.execute(text(
+                        "INSERT INTO public.async_jobs (id) "
+                        "SELECT CAST(:id AS uuid) WHERE false"
+                    ), {"id": created_id})
+            except Exception as error:
+                private_insert_sqlstate = _sqlstate(error)
+                if private_insert_sqlstate != "42501":
+                    raise
+            else:
+                raise RuntimeError("private_insert_allowed")
             await db.rollback()
+            rolled_back = await db.scalar(text(
+                "SELECT count(*) FROM aap_jobs_v1.async_job_creation "
+                "WHERE id=CAST(:id AS uuid)"
+            ), {"id": created_id})
+            if rolled_back != 0:
+                raise RuntimeError("creation_rollback")
+            creation_acl = {
+                "private_table_insert": privileges[0],
+                "private_column_insert": privileges[1],
+                "creation_view_select": privileges[2],
+                "creation_view_insert": privileges[3],
+                "pending_shape": pending_shape,
+                "private_insert_sqlstate": private_insert_sqlstate,
+                "caller_rollback": True,
+            }
 
         lowered = [statement.lower() for statement in statements]
         function_calls = {
@@ -351,6 +406,7 @@ async def _run():
             "function_calls": function_calls,
             "domain_function_calls": domain_function_calls,
             "domain_subject_matches": domain_subject_matches,
+            "creation_acl": creation_acl,
             "private_table_from": private_table_from,
             "partial_refresh": partial_refresh,
             "same_orm_identity": same_identity,
@@ -434,6 +490,15 @@ def _assert_api_row_access_probe(
         "latest_batch_prediction_times": 1,
     }
     assert evidence["domain_subject_matches"] is True
+    assert evidence["creation_acl"] == {
+        "private_table_insert": False,
+        "private_column_insert": False,
+        "creation_view_select": True,
+        "creation_view_insert": True,
+        "pending_shape": True,
+        "private_insert_sqlstate": "42501",
+        "caller_rollback": True,
+    }
     assert evidence["private_table_from"] == 0
     assert evidence["partial_refresh"] is True
     assert evidence["same_orm_identity"] is True

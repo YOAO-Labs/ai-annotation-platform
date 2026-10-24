@@ -170,7 +170,7 @@ async def test_lan_jobs_creation_facade_view_and_video_summary_preserve_transact
                 kind="export",
                 payload={"acceptance_id": str(rolled_back_id)},
             )
-            assert rolled_back.id == rolled_back_id
+            rolled_back_id = rolled_back.id
             assert await _creation_view_row(writer, rolled_back_id) is not None
             await writer.rollback()
         async with runtime.connect() as observer:
@@ -320,7 +320,9 @@ async def test_lan_jobs_grants_reject_inherited_private_insert_and_restore_clean
                 await connection.exec_driver_sql(
                     f"REVOKE {quoted_bypass} FROM {quoted_consumer}"
                 )
-                await connection.exec_driver_sql(f"DROP OWNED BY {quoted_bypass}")
+                await connection.exec_driver_sql(
+                    f"REVOKE INSERT ON TABLE public.async_jobs FROM {quoted_bypass}"
+                )
             await _drop_role(test_engine, bypass)
 
     restored = await _grants(test_engine, _LAN_GRANTS, _CONSUMER_ROLE)
@@ -344,57 +346,63 @@ async def test_local_runtime_reapplication_clears_async_job_column_insert(
     quoted_role = test_engine.dialect.identifier_preparer.quote_identifier(role)
     runtime_engine = None
     credentials = _credentials_path(backend)
+    assert not credentials.exists()
     try:
         await backend.owned_runtime_role("create")
         await backend.grant_runtime()
         runtime_engine = create_async_engine(
             backend.runtime_url(), hide_parameters=True
         )
-        async with test_engine.begin() as connection:
-            await connection.exec_driver_sql(
-                f"GRANT INSERT (id) ON TABLE public.async_jobs TO {quoted_role}"
-            )
-        async with runtime_engine.connect() as connection:
-            assert await connection.scalar(text("SELECT current_user")) == role
-            assert await connection.scalar(text("SELECT session_user")) == role
-            assert await connection.scalar(
-                text(
-                    "SELECT pg_catalog.has_any_column_privilege(current_user,"
-                    "'public.async_jobs','INSERT')"
+        for grant_target in (quoted_role, "PUBLIC"):
+            async with test_engine.begin() as connection:
+                await connection.exec_driver_sql(
+                    f"GRANT INSERT (id) ON TABLE public.async_jobs TO {grant_target}"
                 )
-            )
+            async with runtime_engine.connect() as connection:
+                assert await connection.scalar(text("SELECT current_user")) == role
+                assert await connection.scalar(text("SELECT session_user")) == role
+                assert await connection.scalar(
+                    text(
+                        "SELECT pg_catalog.has_any_column_privilege(current_user,"
+                        "'public.async_jobs','INSERT')"
+                    )
+                )
 
-        await backend.grant_runtime()
-        async with runtime_engine.connect() as connection:
-            assert await connection.scalar(text("SELECT current_user")) == role
-            assert await connection.scalar(text("SELECT session_user")) == role
-            assert not await connection.scalar(
-                text(
-                    "SELECT pg_catalog.has_table_privilege(current_user,"
-                    "'public.async_jobs','INSERT')"
+            await backend.grant_runtime()
+            async with runtime_engine.connect() as connection:
+                assert await connection.scalar(text("SELECT current_user")) == role
+                assert await connection.scalar(text("SELECT session_user")) == role
+                assert not await connection.scalar(
+                    text(
+                        "SELECT pg_catalog.has_table_privilege(current_user,"
+                        "'public.async_jobs','INSERT')"
+                    )
                 )
-            )
-            assert not await connection.scalar(
-                text(
-                    "SELECT pg_catalog.has_any_column_privilege(current_user,"
-                    "'public.async_jobs','INSERT')"
+                assert not await connection.scalar(
+                    text(
+                        "SELECT pg_catalog.has_any_column_privilege(current_user,"
+                        "'public.async_jobs','INSERT')"
+                    )
                 )
-            )
-            assert await connection.scalar(
-                text(
-                    "SELECT pg_catalog.has_table_privilege(current_user,"
-                    "'aap_jobs_v1.async_job_creation','INSERT')"
+                assert await connection.scalar(
+                    text(
+                        "SELECT pg_catalog.has_table_privilege(current_user,"
+                        "'aap_jobs_v1.async_job_creation','INSERT')"
+                    )
                 )
-            )
-            assert await connection.scalar(
-                text(
-                    "SELECT pg_catalog.has_function_privilege(current_user,:summary,'EXECUTE')"
-                ),
-                {"summary": _VIDEO_SUMMARY},
-            )
+                assert await connection.scalar(
+                    text(
+                        "SELECT pg_catalog.has_function_privilege(current_user,:summary,'EXECUTE')"
+                    ),
+                    {"summary": _VIDEO_SUMMARY},
+                )
     finally:
         if runtime_engine is not None:
             await runtime_engine.dispose()
+        async with test_engine.begin() as connection:
+            await connection.exec_driver_sql(
+                "REVOKE INSERT (id) ON TABLE public.async_jobs FROM PUBLIC"
+            )
         if await _role_row(test_engine, role) is not None:
             async with test_engine.begin() as connection:
                 await connection.exec_driver_sql(f"DROP OWNED BY {quoted_role}")

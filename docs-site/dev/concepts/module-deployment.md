@@ -70,6 +70,7 @@ last_reviewed: 2026-10-24
 | Jobs：领域单行读取、按主键行锁及字段刷新            | 两项固定行锁能力与无锁字段刷新绑定已实现                                                      | 21 处普通读取、9 处按主键行锁已迁移；原 get／refresh 两阶段保持                                            | [行访问](#jobs-row-access)：114 项不同数据库／调用方用例、117 项纯检查及 24 项子检查；当前冷工件、实际行访问与完整恢复通过                        | 其余过滤／聚合、领域读取、锁定刷新和未支持 ORM 形状仍待收口；不能全局收回私表权限                                                                                                                                                                                                                                                                                |
 | Jobs：领域固定查询与继续迁移读取                    | 五项跨帧／预测时间 Native 能力与语言无关合同已实现                                            | 跨帧 API、admin 预测聚合及 12 处 worker／QC／修复／视频质量读取已迁移                                      | [领域查询](#jobs-domain-queries)：67 项不同 PostgreSQL／API 案例与 Node 通过；当前冷工件、去重复用／历史接口及完整恢复通过                        | 保留原去重锁、独立分页／总数、autoflush 和事务；训练／资产继续暂缓，完整 Jobs 与私表权限退出未闭合                                                                                                                                                                                                                                                               |
 | Jobs：项目／批次／所选任务导出派发                  | 复用既有私网队列合同、原 kwargs 与 export 路由                                                | 三个标注导出入口已迁移，保留提交／审计／执行 ID 绑定和失败差异                                             | [导出派发](#jobs-export-dispatch)：33 项纯检查、39 项 PostgreSQL／API 用例与当前冷组合通过，含六个真实包下载和完整恢复                            | 仅迁移派发，不扩大数据集／存储；没有新 options、canvas、取消或自动交接保证，完整 Jobs 继续跟踪                                                                                                                                                                                                                                                                   |
+| Jobs：普通运行创建权限                              | LAN／worktree 撤销表与列 INSERT，拒绝继承旁路，保留既有创建 view／视频摘要                    | 两处终态筛选种子改为 pending 创建后同事务投影，原字段／审计保持                                            | [创建权限](#jobs-creation-credentials)：7 项数据库／普通账号／CLI 用例、27 项纯检查及 24 子检查通过；当前冷工件待验收                             | 私表 SELECT／UPDATE／DELETE 和其他 Jobs 操作仍待收口；不新增 owner 凭据或改动暂缓领域                                                                                                                                                                                                                                                                            |
 | Audit：同事务业务事件追加                           | 既有 typed owner 保留；通用追加独立包、版本化合同与固定 SQL 已实现                            | AuditService 与普通追加构造器已迁移；保留 caller 提交／回滚、快照和 ORM 缓存，无追加后私表回读             | [追加 owner](#audit-append-owner)：12 项 PG、20 项纯检查及受限临时 owner／Node 通过；完整追加授权与 Node 已在独占 PostgreSQL 验收                 | 当前 LAN 分区树仍归 API，严格配置会拒绝该布局；维护所有权、未来分区权限及组合工件待收口，本组不代表完整 Audit                                                                                                                                                                                                                                                    |
 | Audit：HTTP 请求元数据                              | 响应后 Celery 与同步回退使用相同追加 owner；超长 request ID 仅在此元数据中省略                | middleware／worker 保留原响应、短 ID、取消及孤儿 actor 匿名重试                                            | [元数据边界](#audit-http-metadata)：11 项聚焦检查；既有三次真实 Celery 资格单列，不叠加                                                           | broker 不可用、重复／丢失、提交结果不明和恢复仍需真实验收；业务审计 request ID 的独立边界尚未修复                                                                                                                                                                                                                                                                |
 | Audit：查询、筛选与导出                             | 全局列表／导出使用固定查询 owner；项目范围通过公开事件关系组合                                | super-admin 全局与 project-admin 范围已迁移，保留筛选、游标、总数和导出顺序                                | [全局查询](#audit-global-query-owner)资格保持；[读取组合](#support-read-relations)补充项目隔离及合法复合行键原生回归                              | 剩余读取、冷进程真实消费及完整模块继续验收；不得提前撤销所有 Audit 私表 SELECT                                                                                                                                                                                                                                                                                   |
@@ -1972,6 +1973,31 @@ UPDATE／DELETE、旧 invoker 校验和其他执行／恢复仍须各自证明�
 导出尚不在原可取消集合内；本批保持现状。动态队列、自定义 options、canvas、
 提交与发布之间的窗口、普通运行角色的私表兼容权限及完整 Jobs 继续跟踪。
 训练／主动学习与数据集／存储实现扩展等待功能合并。
+
+## Jobs 普通运行创建权限 {#jobs-creation-credentials}
+
+LAN 和 worktree 授权在宽授权之后清除普通运行账号及 PUBLIC 对 `async_jobs`
+的表级、所有当前列级 INSERT，并核对有效权限；继承 INSERT 或持有／继承 Jobs
+表／创建 view 所有权的账号会被拒绝。保留既有创建 view 的 SELECT／INSERT 和
+视频摘要能力，不改变私表 SELECT／UPDATE／DELETE 或现有 invoker 校验。
+没有新增服务、角色、选择器、SQL 协议或 owner 凭据。
+
+筛选种子的两个终态初始行先通过原 pending ORM 创建路径写入，再在同一调用方
+事务中应用原 status／progress／result／error 字段。原空 started_at／completed_at、
+payload、manifest、Identity invitation flush 和审计 origin 保持，最终字段有显式断言。
+普通生产创建入口继续复用现有 facade／view 与视频摘要能力。
+
+父线七项不同数据库用例首次全部通过，0 失败／错误／跳过，22.048 秒，3924 项
+源码输入不变：实际 LAN 普通 LOGIN 创建、私表原生 INSERT 42501、非法终态 view
+写入 44000、创建及视频摘要的 caller 提交／回滚；继承写角色被拒并恢复；生成的
+普通 worktree LOGIN 重复授权清除自身及 PUBLIC 的旧列 INSERT；原筛选种子的三项
+行为检查和实际普通 E2E 账号筛选 CLI。完整迁移往返、36 项冻结函数、权限重施和
+资源清理通过。纯脚本检查为 27 项及 24 子检查；扩展冷夹具的 21 项纯检查通过。
+
+当前安装工件和冷组合仍待验收：实际 API 容器须核对表／列 INSERT 拒绝，经既有
+facade 创建 pending 后由 caller 回滚，并在完整数据库恢复后重复；已有跨帧和导出
+的真实派发／下载／取消边界保持。此前证据保留原始源码检查点。主工作树和日常
+环境未采用，训练／主动学习与数据集／存储扩展继续等待功能合并。
 
 ## Notifications 即时发布与模块组合 {#notification-publication-owner}
 

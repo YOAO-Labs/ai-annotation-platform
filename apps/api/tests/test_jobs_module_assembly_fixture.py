@@ -167,6 +167,15 @@ def _row_access_probe_evidence(**changes):
             "latest_batch_prediction_times": 1,
         },
         "domain_subject_matches": True,
+        "creation_acl": {
+            "private_table_insert": False,
+            "private_column_insert": False,
+            "creation_view_select": True,
+            "creation_view_insert": True,
+            "pending_shape": True,
+            "private_insert_sqlstate": "42501",
+            "caller_rollback": True,
+        },
         "private_table_from": 0,
         "partial_refresh": True,
         "same_orm_identity": True,
@@ -243,4 +252,16 @@ def test_api_row_access_probe_rejects_private_table_reads():
             stack, job_id=uuid.uuid4(), database="restored_test"
         )
 
+    assert stack.calls == ["verify", "docker"]
+
+
+@pytest.mark.parametrize("field", ["private_table_insert", "private_column_insert"])
+def test_api_row_access_probe_rejects_private_job_insert_privileges(field):
+    evidence = _row_access_probe_evidence()
+    evidence["creation_acl"][field] = True
+    stack = _RowAccessProbeStack(evidence)
+    with pytest.raises(AssertionError):
+        _assert_api_row_access_probe(
+            stack, job_id=uuid.uuid4(), database="restored_test"
+        )
     assert stack.calls == ["verify", "docker"]

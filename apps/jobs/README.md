@@ -22,12 +22,17 @@ commit. Domain execution leases and business authorization stay with their
 existing owners.
 
 The strict `jobs-lifecycle-grants.sql` profile permits only this creation
-relation and eight public functions. Compatibility initializers require the
-caller's preexisting private INSERT right; legacy column edits and explicit
-timestamps require the corresponding private UPDATE plus primary-key SELECT.
-These checks resolve the actual PostgreSQL invoker, never a client JSON field.
-The API retains private Jobs access for consumers not yet migrated. This is a
-capability slice, not complete Jobs credential closure or runtime recovery.
+relation and eight public functions. Ordinary LAN and worktree runtime profiles
+revoke private table and column INSERT from the runtime and PUBLIC, and reject
+inherited INSERT or Jobs creation ownership. They keep SELECT/INSERT on the
+creation view and the existing video-summary function. Migration/test owners
+may still use legacy initializers with their own private INSERT right.
+
+Legacy column edits and explicit timestamps require the corresponding private
+UPDATE plus primary-key SELECT. These checks resolve the actual PostgreSQL
+invoker, never a client JSON field. The API retains SELECT/UPDATE/DELETE for
+consumers not yet migrated. Creation-right closure does not complete Jobs
+credential closure or runtime recovery.
 
 ## Transactional row locks and refreshes
 

@@ -695,6 +695,23 @@ class BucketUpgradeTests(unittest.TestCase):
             'GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation TO "app"',
             statements,
         )
+        creation_acl = next(
+            statement
+            for statement in statements
+            if statement.lstrip().startswith("DO $jobs_creation_acl$")
+        )
+        self.assertLess(
+            statements.index(
+                'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "app"'
+            ),
+            statements.index(creation_acl),
+        )
+        self.assertLess(
+            statements.index(
+                'GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation TO "app"'
+            ),
+            statements.index(creation_acl),
+        )
         self.assertIn(
             "REVOKE ALL ON FUNCTION "
             "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text) "
