@@ -1,0 +1,333 @@
+{
+  "$comment": "The API reads Identity actor status once before calling Jobs. The page and total are separate ordered statements in the caller's transaction; ORM autoflush and identity refresh are preserved.",
+  "$defs": {
+    "AsyncJobListRow": {
+      "additionalProperties": false,
+      "description": "Fixed row returned to hydrate the existing API AsyncJob ORM mapper.",
+      "properties": {
+        "celery_task_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Celery Task Id"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Message"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 40,
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "title": "Payload"
+        },
+        "progress_pct": {
+          "title": "Progress Pct",
+          "type": "integer"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "result": {
+          "title": "Result"
+        },
+        "retained_project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retained Project Id"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started At"
+        },
+        "status": {
+          "maxLength": 20,
+          "title": "Status",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "project_id",
+        "retained_project_id",
+        "user_id",
+        "status",
+        "progress_pct",
+        "payload",
+        "result",
+        "error_message",
+        "celery_task_id",
+        "started_at",
+        "completed_at",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "AsyncJobListRow",
+      "type": "object"
+    }
+  },
+  "$id": "aap-jobs-async-job-list-query/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One page/count input, with caller-normalized filters and Identity snapshot.",
+  "properties": {
+    "actor_id": {
+      "format": "uuid",
+      "title": "Actor Id",
+      "type": "string"
+    },
+    "kinds": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Kinds",
+      "type": "array"
+    },
+    "limit": {
+      "maximum": 200,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    },
+    "offset": {
+      "minimum": 0,
+      "title": "Offset",
+      "type": "integer"
+    },
+    "platform_role": {
+      "title": "Platform Role",
+      "type": "string"
+    },
+    "project_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Project Id"
+    },
+    "search_pattern": {
+      "anyOf": [
+        {
+          "maxLength": 202,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Search Pattern"
+    },
+    "statuses": {
+      "items": {
+        "enum": ["pending", "running", "completed", "failed", "cancelled"],
+        "type": "string"
+      },
+      "title": "Statuses",
+      "type": "array"
+    }
+  },
+  "required": ["actor_id", "platform_role", "limit", "offset"],
+  "title": "AAP Jobs async-job list query",
+  "type": "object",
+  "x-borrowed-transaction": {
+    "autoflush": "preserve the caller setting at both ORM query boundaries",
+    "commit": false,
+    "page_identity_map": "populate_existing=True",
+    "rollback": false,
+    "workspace_project_enrichment": "API-owned after page and total"
+  },
+  "x-filter-semantics": {
+    "empty_statuses_or_kinds": "no filter",
+    "project_id": "matches coalesced current or retained project scope",
+    "search": {
+      "jsonb_text_keys": [
+        "prompt",
+        "batch_display_id",
+        "task_display_id",
+        "model_key",
+        "ml_backend_name",
+        "error_type"
+      ],
+      "non_object_payload": "each ->> lookup yields no match, as in the ORM query",
+      "normalization": "Python str.strip(); no filter when empty",
+      "pattern": "one unescaped %text% ILIKE pattern"
+    }
+  },
+  "x-identity-snapshot": {
+    "inactive_actor": "return empty items and total before Jobs call",
+    "passed_fields": ["actor_id", "platform_role"],
+    "reads_per_list_request": 1,
+    "source": "IdentityAccountLockData.read_actor_status"
+  },
+  "x-page-semantics": {
+    "empty_page_still_counts": true,
+    "limit": {
+      "maximum": 200,
+      "minimum": 1
+    },
+    "offset": {
+      "minimum": 0
+    },
+    "order": ["created_at DESC", "id DESC"],
+    "page_then_total": true,
+    "separate_statements": true
+  },
+  "x-policy": {
+    "export": "reviewer membership or manager-owned project; super-admin remains global",
+    "global_unscoped_kinds": ["audit_archive", "dataset_import"],
+    "owner": "non-super-admin rows require matching user_id",
+    "project_scope": "coalesce(project_id, retained_project_id)",
+    "super_admin": "all existing project scopes; global jobs retain kind policy",
+    "unknown_kinds": "preserved as open strings and only visible under normal scope rules",
+    "workspace_facts": [
+      "aap_workspace_v1.actor_project_memberships(uuid)",
+      "aap_workspace_project_query_v1.project_search_scope(uuid,text)"
+    ]
+  },
+  "x-postgresql-functions": {
+    "aap_jobs_v1._async_job_list_rows": {
+      "arguments": "uuid, text, text[], text[], uuid, text",
+      "returns": "SETOF public.async_jobs (private helper)"
+    },
+    "aap_jobs_v1.async_job_list_page": {
+      "arguments": "uuid, text, text[], text[], uuid, text, integer, integer",
+      "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)"
+    },
+    "aap_jobs_v1.async_job_list_total": {
+      "arguments": "uuid, text, text[], text[], uuid, text",
+      "returns": "bigint"
+    }
+  },
+  "x-result": {
+    "row_schema": "#/$defs/AsyncJobListRow"
+  },
+  "x-row-columns": [
+    "id",
+    "kind",
+    "project_id",
+    "retained_project_id",
+    "user_id",
+    "status",
+    "progress_pct",
+    "payload",
+    "result",
+    "error_message",
+    "celery_task_id",
+    "started_at",
+    "completed_at",
+    "created_at",
+    "updated_at"
+  ],
+  "x-row-key": ["id"],
+  "x-row-types": {
+    "celery_task_id": "character varying(64)",
+    "completed_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone",
+    "error_message": "text",
+    "id": "uuid",
+    "kind": "character varying(40)",
+    "payload": "jsonb",
+    "progress_pct": "integer",
+    "project_id": "uuid",
+    "result": "jsonb",
+    "retained_project_id": "uuid",
+    "started_at": "timestamp with time zone",
+    "status": "character varying(20)",
+    "updated_at": "timestamp with time zone",
+    "user_id": "uuid"
+  },
+  "x-security": {
+    "api_async_jobs_revoke": false,
+    "api_execute": ["aap_jobs_v1.async_job_list_page", "aap_jobs_v1.async_job_list_total"],
+    "functions": "stable security_definer",
+    "private_helper_execute": false,
+    "public_execute": false,
+    "search_path": ["pg_catalog", "pg_temp"]
+  }
+}
