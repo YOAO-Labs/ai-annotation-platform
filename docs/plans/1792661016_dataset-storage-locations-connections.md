@@ -1228,3 +1228,19 @@ Worker 已接入一次 claim 的独立副本流程；实际冻结输入再次执
 真实离线演练已通过：源环境先销毁，165 张表／172 行及九桶 72 对象在新随机目标恢复；两个 bundle 的四个 PCD／PNG 副本与两个 ZIP 完整核对，旧媒体 URL、期限和冻结事实不变，准确的 G1 缓存索引失效。演练仅合成离线资格，不提供生产 RPO／RTO；两套随机环境已验证清理。修正旧训练夹具的显式内部授权调用，并冻结源公共 URL 路径前缀用于恢复核验。
 
 产品与 API／架构说明、CHANGELOG 已同步；docs build、OpenAPI snapshot check 和 codegen 检查通过。最终汇总回归、主工作树合入、0234 人工环境刷新及数据指纹复核仍待完成，因此此处仍不作为 G1 Outcome，也不归档整项 E02／B13。
+
+## E02-B13-B3-G1 Outcome — LiDAR 独立媒体交付
+
+主集成与最终回归 `570f3f2a8`；冻结序列化为 `772b9f28a`，退休与恢复为 `46d9c6182`、`41820c005`，有界来源读取与下载 origin 为 `e03d63206`、`d2e2db3fe`。迁移 0234 新增独立 ExportMediaBundle，与预分配 ZIP 配对发布。KITTI、pointmask、COCO 多相机的实际原件沿登记位置完整核验，冻结业务输入、准确请求授权及一次租约；精确媒体副本、ZIP、缓存和 Job 继承共同七天截止。来源／权限／消息／标注／校准变化拒绝发布；未知物理工作保留耐久责任。
+
+最终按当前用例集汇总，29 个相关后端测试文件中的 1317 项均已通过，无未验证用例；恢复工具另有 73 项 unittest 通过。覆盖模型约束、三种 PCD 与原始点序、当前桶陷阱、完整对象篡改、冻结与预算、授权变更、取消排空、缓存、退休和恢复。正常提交 hooks、Ruff／format、OpenAPI 无漂移、codegen、docs build 及 diff 检查通过；未运行远端 CI。
+
+真实 ASGI HTTP→隔离 Celery→MinIO 完成五个任务：项目／批次三格式导出、固定截止缓存复用，以及同长度原件篡改和入队后撤 Key 的明确失败。七条媒体回执完整核对 SHA／大小，十次生成下载脚本实际读取公共网关并核验；三条含 NaN 的 PCD 记录生成精确 12 字节 label。ASGI 请求不冒充独立 TCP API 服务或本片浏览器验收。
+
+真实离线恢复先销毁源，再恢复 165 表／172 行、九桶 72 对象；两个 bundle 的四个 PCD／PNG 副本及两个 ZIP 内容、冻结事实和共同截止保持，准确失效含历史链接的 G1 缓存。旧 ZIP 中签名链接保持历史值，不宣称已迁移链接或生产 RPO／RTO。两套随机恢复环境已销毁并查验。
+
+人工环境经原监督服务刷新到本 checkout 与 0234，两 Worker 各 73 项任务注册、职责队列及新清理分支实际派发通过，绑定 Beat active，3100／8100 均 200。12 表 155 行完整指纹、24 对象完整 SHA 和 12 个源文件与本片前一致；清理后的最终复核仍相同。未重建镜像、安装依赖、修改共享配置或分配发布版本。
+
+test 数据库、Redis 和九桶已销毁并独立确认不存在；临时 Celery 全部退出，读取操作归零。六棵干净隔离树的来源提交均核对 patch 等价后移除，六个任务分支及本片测试／构建缓存、私有探针和下载产物按归属清理。保留人工环境、虚拟环境、共享依赖、生成类型及工作树身份。
+
+用户资料已同步到 `docs-site/user-guide/reference/export-formats.md`、`docs-site/user-guide/projects/batch.md`，API 与架构资料位于 `docs-site/api/` 和 `docs-site/dev/concepts/`，README 与 CHANGELOG Unreleased 同步。NuScenes 的 raw lidar.bin／map、独立 NuScenes 导出及其全部相机仍待 G2；完整 E02／B13、完整用途切换与整套 epic 均继续执行，不归档本活动计划。
