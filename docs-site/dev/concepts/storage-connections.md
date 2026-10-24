@@ -37,7 +37,7 @@ ManagedOriginalCreation显式区分dataset/task作用域。Task分配保存proje
 
 严格图片内容入口与数据集质量检查使用 `original_sources` 冻结当前关系及保存位置。Task直接Item与primary_lidar必须一致；Dataset选择唯一present托管原件，不把缓存纳入候选，也不要求历史核验记录已有Creation。物理读取前、取得耐久读取许可后及响应前，分别重核当前权限、原凭证、关系、位置和维护修订；业务行锁不跨物理读取。原地引用的来源读取与完整缓存命中同样在许可取得后复核原凭证，响应前比较完整引用context并锁定同一Gate代次；撤权不把合格缓存误记损坏，也不会回退读源。
 
-`managed_original_reader` 只接受端点、保存桶/键、完整SHA和大小，以及调用者显式预算。它建立独立客户端，从目标当前HEAD取得条件，验证错误If-Match确实失败，完整读取并核对摘要、EOF及最终HEAD，再真实关闭Body和客户端。历史写入VersionId不参与目标GET。返回的BinaryStage拥有临时文件和4槽准入名额，取消和超时等待实际I/O退出；关闭无法确认时保留未收尾许可。图片适配器在同一文件上解码并移交给响应，不重新下载或复制。视频、点云、签名URL、模型及导出等其余调用者仍需各自接入和验收。
+`managed_original_reader` 只接受端点、保存桶/键、完整SHA和大小，以及调用者显式预算。它建立独立客户端，从目标当前HEAD取得条件，验证错误If-Match确实失败，完整读取并核对摘要、EOF及最终HEAD，再真实关闭Body和客户端。历史写入VersionId不参与目标GET。返回的BinaryStage拥有临时文件和对应准入名额，取消和超时等待实际I/O退出；关闭无法确认时保留未收尾许可。图片适配器在同一文件上解码并移交给响应，不重新下载或复制。通用二进制消费者使用下文独立预算；原生视频及其余当前用途定位仍有各自门禁。
 
 ### 认证通用原件交付
 
@@ -45,7 +45,9 @@ ManagedOriginalCreation显式区分dataset/task作用域。Task分配保存proje
 
 `original_binary` 按 Task、精确相机 link 或 DatasetItem 冻结来源；`originals` 路由提供零物理 I/O 的身份及绑定 content UUID/SHA 的完整下载。相机只借当前 Task 可见性读取其明确 camera\_ 链接；不借此开放任意 Item。Item 入口仍要求 Dataset 管理权限，并校验路径中的 dataset_id。来源、原请求凭证和 Gate 在准入后与交付前复核；引用图片继续使用既有严格图片入口。
 
-`original_binary_response` 复用严格 reader，单文件512MiB、独立两槽，槽覆盖复制与响应到真实文件关闭，声明大小的最大同时暂存为1GiB。匿名临时文件不产生命名缓存；取消、超时及发送失败等待在途线程收尾。复制和响应各120秒为合作式期限，真实收尾可能更长。octet-stream attachment 不执行图片解码，也不支持 Range/HEAD 或条件304；大文件明确413，不隐式回退签名地址。既有图片四槽独立保留。浏览器 DTO、会话资产生命周期及原生视频 Range 仍需后续接入，不把下载接口当作播放协议。
+`original_binary_response` 复用严格 reader，单文件512MiB、独立两槽，槽覆盖复制与响应到真实文件关闭，声明大小的最大同时暂存为1GiB。匿名临时文件不产生命名缓存；响应前断连、取消、超时及发送失败等待在途线程收尾。复制和响应各120秒为合作式期限，真实收尾可能更长。octet-stream attachment 不执行图片解码，也不支持 Range/HEAD 或条件304；大文件明确413，不隐式回退签名地址。既有图片四槽独立保留，原生视频 Range 仍使用独立链路。
+
+非视频 DTO 与点云 manifest 只提供延迟身份路径，未知历史不导致整页列取失败。显示消费者按账号/session、资源及内容 UUID/SHA 管理 Blob、Bitmap、RGBA 与 GPU 资源；取消一个共享消费者不终止仍有前景消费者的读取。图片预取最多保留两份、原始字节共64MiB，前景读取仍受512MiB单文件与既有解码预算约束。普通切帧保留就绪几何至原子替换，owner退休则销毁旧资源并取消待写回视角。SVG 使用不透明的 data URL，普通位图使用可撤销 Blob URL；格式探测只决定显示 MIME，不转换原件。必需金字塔预览不触发完整原件下载。缓存不提供当前在线或持续授权的证明，原生视频与完整用途切换仍独立推进。
 
 ### 存储连接器
 

@@ -28,7 +28,7 @@ last_reviewed: 2026-10-24
 
 ## 认证通用原件下载
 
-下列新增接口读取托管原件的完整二进制，不进行图片解码。工作台现有签名地址与原生视频播放尚未迁移；调用者须明确使用认证客户端，不能将需要 Bearer 的路径直接放进原生 `<img>` 或 `<video>`。
+下列接口读取托管原件的完整二进制，不进行图片解码。图片工作台、审核与数据管理预览、数据集原件下载，以及点云与相机使用认证客户端；不能将需要 Bearer 的路径直接放进原生 `<img>` 或 `<video>`。原生视频播放仍使用独立链路。
 
 | 资源        | 身份路径（GET）                                            | 下载路径（GET）                                   | 授权                                                 |
 | ----------- | ---------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------- |
@@ -37,6 +37,10 @@ last_reviewed: 2026-10-24
 | DatasetItem | `/datasets/{dataset_id}/items/{item_id}/original-identity` | `/datasets/{dataset_id}/items/{item_id}/original` | `datasets:read` 与当前 Dataset 管理权限              |
 
 身份响应包含 `owner_kind=dataset_asset|task_original`、`content_id`、`sha256`、`size_bytes`、`media_type`、`verification_state=verified`、`original_availability=unchecked` 和 `download_path`。这里的 `media_type` 是 image/video/point_cloud/other 等业务类别；身份查询不访问对象，既不证明当前在线，也不执行下载预算检查。响应不返回端点、桶或对象键。
+
+非视频托管 Task/Item 的业务 DTO 返回 `file_url=null` 与平台相对 `original_identity_path`，不签发原件地址，也不在列取时逐项解析归属。未知历史原件仍可列取业务信息，身份解析另行明确报错。原地引用继续用既有 `storage_mode/content_sha256` 图片合同，视频 DTO 保留其播放分支。
+
+点云 manifest 同样返回 `point_cloud_url=null`、`expires_in=0` 与主原件身份路径；相机保留真实 `link_id`、独立身份路径、尺寸及标定，`image_url=null`。主原件缺失不吞掉合法相机或 Scene/姿态元数据。浏览器只按精确 Task/link 查询身份，再使用内容 UUID/SHA 的下载路径；旧签名字段不参与回退。
 
 下载必须同时提交 `content_id` UUID 与小写64位 `sha256`；可直接使用身份中的平台相对 `download_path`。旧身份或关联变化返回409，不按当前用途桶猜读。服务器从保存位置完整读取并核对 SHA、大小和当前目标条件，再复核原请求凭证、当前权限、精确关联及维护门禁；核验失败不发送原件字节。知道可见 Task 不能用于读取其他 Task 的相机链接；知道 Item ID 不能绕过路径中的 Dataset 归属。
 
@@ -59,7 +63,7 @@ Dataset原件通过Task的直接DatasetItem关联或唯一 `primary_lidar` 关�
 
 托管原件使用该记录保存的平台位置、桶和键，拒绝禁用或配置偏离的位置，不读取当前用途桶来猜测原件。每次先观察目标当前对象，确认条件读取有效，再完整核对大小、SHA及读取前后观测。历史写入ETag/VersionId只保留来源证据，不作为离线恢复目标的版本选择器。可覆盖S3 key也必须完成这些核验。
 
-既有 `/files/tasks/{task_id}/file-url` 保留签名响应格式，并执行相同任务可见性检查。数据集关联任务与点云任务从 datasets 用途桶签名，独立图片任务从默认用途桶签名。该旧地址仍有签名有效期窗口，不具备新快照接口的严格保证。托管任务继续使用已有工作台链路；原地引用任务的旧 file-url 返回409 `reference_requires_verified_content`，工作台必须使用严格内容接口。训练冻结、后台图片导出、后台图片预标及同步交互/预测测试及批量图片 Mask 修复通过各自严格快照合同消费引用，不使用旧签名地址。
+已弃用的 `/files/tasks/{task_id}/file-url` 在当前任务可见性检查后统一返回409 `original_requires_authenticated_download`，不再签发原件地址；视频原生 manifest 是独立入口。原地引用工作台使用严格图片内容接口。训练冻结、后台图片导出、后台图片预标及同步交互/预测测试及批量图片 Mask 修复通过各自严格快照合同消费引用，不使用旧签名地址。
 
 ## 响应、预算与清理
 

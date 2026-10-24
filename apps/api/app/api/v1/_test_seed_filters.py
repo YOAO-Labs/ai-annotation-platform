@@ -397,6 +397,7 @@ async def _create_item(
     scene_id: UUID | None = None,
     frame_index: int | None = None,
     metadata: dict[str, Any] | None = None,
+    original_payload: bytes | None = None,
 ):
     from app.db.models.dataset import DatasetItem
 
@@ -414,6 +415,10 @@ async def _create_item(
     )
     db.add(item)
     await db.flush()
+    if original_payload is not None:
+        from app.api.v1._test_seed import _register_fixture_original
+
+        await _register_fixture_original(db, item, original_payload)
     return item
 
 
@@ -505,7 +510,11 @@ def _bbox_annotation(
 
 
 async def _seed_image_semantics(
-    db: AsyncSession, ids: _FilterIds, users: dict[str, Any], image_key: str
+    db: AsyncSession,
+    ids: _FilterIds,
+    users: dict[str, Any],
+    image_key: str,
+    image_payload: bytes,
 ) -> FilteringImageManifest:
     from app.db.models.project_member import ProjectMember
     from app.db.models.project_task_view import ProjectTaskView
@@ -620,6 +629,7 @@ async def _seed_image_semantics(
             file_name=f"{key}.svg",
             file_path=image_key,
             file_type="image",
+            original_payload=image_payload,
         )
         task = await _create_task(
             db,
@@ -988,7 +998,11 @@ async def _seed_video_review(
 
 
 async def _seed_paging(
-    db: AsyncSession, ids: _FilterIds, users: dict[str, Any], image_key: str
+    db: AsyncSession,
+    ids: _FilterIds,
+    users: dict[str, Any],
+    image_key: str,
+    image_payload: bytes,
 ) -> FilteringPagingManifest:
     from app.db.models.project_member import ProjectMember
 
@@ -1042,6 +1056,7 @@ async def _seed_paging(
         file_name="paging.svg",
         file_path=image_key,
         file_type="image",
+        original_payload=image_payload,
     )
     task = await _create_task(
         db,
@@ -1196,6 +1211,7 @@ async def _seed_lidar(
             height=None,
             scene_id=scene.id,
             frame_index=frame_index,
+            original_payload=frames[frame_index if frame_index < 2 else 1],
         )
         camera_item = await _create_item(
             db,
@@ -1208,6 +1224,7 @@ async def _seed_lidar(
             scene_id=scene.id,
             frame_index=frame_index,
             metadata={"calibration": calibration},
+            original_payload=camera,
         )
         batch = visible_batch if frame_index < 2 else hidden_batch
         task = await _create_task(
@@ -1627,9 +1644,9 @@ async def build_filtering_seed(
         Body=video_source.read_bytes(),
         ContentType="video/webm",
     )
-    image = await _seed_image_semantics(db, ids, users, image_key)
+    image = await _seed_image_semantics(db, ids, users, image_key, image_svg)
     video = await _seed_video_review(db, ids, users, video_key)
-    paging = await _seed_paging(db, ids, users, image_key)
+    paging = await _seed_paging(db, ids, users, image_key, image_svg)
     lidar = await _seed_lidar(db, ids, users, ids.storage_prefix)
     operations = await _seed_operations(db, ids, users)
     await db.commit()

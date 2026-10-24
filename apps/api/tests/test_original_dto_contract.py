@@ -33,6 +33,7 @@ async def test_unknown_task_metadata_uses_lazy_identity_in_every_serializer_call
     task = await create_task(db_session, project_id=project.id)
     task.file_path = "unknown-legacy/image.png"
     await db_session.flush()
+    await db_session.refresh(task, ["updated_at"])
     project_id, task_id = project.id, task.id
     headers = {"Authorization": f"Bearer {token}"}
     if surface == "data_manager":
@@ -116,6 +117,7 @@ async def test_video_dto_keeps_its_explicit_playback_migration_branch(
     task.file_path = item.file_path
     task.dataset_item_id = item.id if dataset_bound else None
     await db_session.flush()
+    await db_session.refresh(task, ["updated_at"])
     signed = []
 
     def sign(key, **kwargs):

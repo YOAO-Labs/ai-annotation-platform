@@ -4,7 +4,7 @@ import { useOriginalAssetOwner } from "./useOriginalAssetOwner";
  * v0.15.20 · FramePicker 的 Layer 2 相机图缩略图数据源。
  *
  * neighbors(k) 反查 ±k 邻帧的 (task_id, frame_index),逐帧拉 PointCloudManifest
- * ——复用 ["task-point-cloud-manifest", taskId] 缓存键,与 usePointCloudManifest 同源去重
+ * Shares the owner-scoped manifest key with usePointCloudManifest.
  * (当前帧不重复请求,邻帧拉取后若导航过去亦命中缓存)。每帧取前向相机
  * (cameraAnchor==="top",无则首个有图相机)的 image_url 作缩略图。
  * 某帧无相机图 → imageUrl=null(FramePicker 该格占位);整条无图 → filmstrip 隐藏,回落 Layer 1。

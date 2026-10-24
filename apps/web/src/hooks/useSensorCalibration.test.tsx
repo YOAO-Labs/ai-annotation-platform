@@ -10,6 +10,9 @@ import type {
   TaskPointCloudManifestResponse,
 } from "@/api/generated";
 import { tasksApi } from "@/api/tasks";
+import { pointCloudManifestQueryKey } from "@/api/pointCloudOriginals";
+import { useAuthStore } from "@/stores/authStore";
+import type { MeResponse } from "@/api/auth";
 import { sensorCalibrationKey, useSensorCalibration } from "./useSensorCalibration";
 
 const calibration: SensorCalibration = {
@@ -24,7 +27,10 @@ function makeWrapper(queryClient: QueryClient) {
   };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  useAuthStore.getState().logout();
+});
 
 describe("useSensorCalibration", () => {
   it("history head 和 PATCH 响应会同步当前 manifest 缓存", async () => {
@@ -69,7 +75,7 @@ describe("useSensorCalibration", () => {
       created_at: "2026-08-27T09:00:00Z",
     };
     queryClient.setQueryData(sensorCalibrationKey("task-1", "camera_front"), history);
-    queryClient.setQueryData(["task-point-cloud-manifest", "task-1"], manifest);
+    queryClient.setQueryData(pointCloudManifestQueryKey("task-1"), manifest);
     vi.spyOn(tasksApi, "updateSensorCalibration").mockResolvedValue(updated);
 
     const view = renderHook(
@@ -85,10 +91,9 @@ describe("useSensorCalibration", () => {
 
     await waitFor(() =>
       expect(
-        queryClient.getQueryData<TaskPointCloudManifestResponse>([
-          "task-point-cloud-manifest",
-          "task-1",
-        ])?.cameras[0]?.calibration_revision,
+        queryClient.getQueryData<TaskPointCloudManifestResponse>(
+          pointCloudManifestQueryKey("task-1"),
+        )?.cameras[0]?.calibration_revision,
       ).toBe(2),
     );
     await act(async () => {
@@ -109,12 +114,65 @@ describe("useSensorCalibration", () => {
       items: [updated, ...history.items],
     });
     expect(
-      queryClient.getQueryData<TaskPointCloudManifestResponse>([
-        "task-point-cloud-manifest",
-        "task-1",
-      ])?.cameras[0],
+      queryClient.getQueryData<TaskPointCloudManifestResponse>(pointCloudManifestQueryKey("task-1"))
+        ?.cameras[0],
     ).toEqual(
       expect.objectContaining({ calibration_revision: 3, calibration_digest: updated.digest }),
     );
+  });
+
+  it("does not publish a late calibration response into a new session's manifest", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    useAuthStore.getState().setAuth("same-token", { id: "alice" } as MeResponse);
+    let complete!: (value: SensorCalibrationRevisionOut) => void;
+    vi.spyOn(tasksApi, "updateSensorCalibration").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const view = renderHook(
+      () =>
+        useSensorCalibration({
+          taskId: "task-1",
+          cameraRole: "camera_front",
+          projectId: "project-1",
+          enabled: false,
+        }),
+      { wrapper: makeWrapper(queryClient) },
+    );
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = view.result.current.update.mutateAsync({
+        calibration,
+        expected_revision: 1,
+        expected_digest: "a".repeat(64),
+      });
+    });
+    await waitFor(() => expect(complete).toBeTypeOf("function"));
+    act(() => {
+      useAuthStore.getState().logout();
+      useAuthStore.getState().setAuth("same-token", { id: "alice" } as MeResponse);
+    });
+    const currentManifest = { cameras: [{ role: "camera_front", calibration_revision: 99 }] };
+    queryClient.setQueryData(pointCloudManifestQueryKey("task-1"), currentManifest);
+    await act(async () => {
+      complete({
+        dataset_item_id: "camera-1",
+        revision: 2,
+        digest: "b".repeat(64),
+        calibration,
+        created_at: "2026-10-24T00:00:00Z",
+      });
+      await pending;
+    });
+    expect(queryClient.getQueryData(pointCloudManifestQueryKey("task-1"))).toEqual(currentManifest);
+    expect(
+      queryClient.getQueryData(sensorCalibrationKey("task-1", "camera_front")),
+    ).toBeUndefined();
+    view.unmount();
+    queryClient.clear();
   });
 });

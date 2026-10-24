@@ -66,6 +66,8 @@ async def upload_complete(
 @router.get(
     "/tasks/{task_id}/file-url",
     response_model=TaskFileUrlResponse,
+    deprecated=True,
+    summary="旧原件签名入口（请使用认证下载）",
     dependencies=[Depends(require_scopes("tasks:read"))],
 )
 async def get_file_url(
@@ -73,6 +75,7 @@ async def get_file_url(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Check current visibility, then reject the retired original signature path."""
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")

@@ -24,6 +24,7 @@ interface BrowserPointCloudViewState {
 declare global {
   interface Window {
     __pointCloudColorWorkerCount?: number;
+    __pointCloudWorkerLog?: Array<{ kinds: string[]; terminated: boolean }>;
   }
 }
 
@@ -174,12 +175,22 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
       releaseTargetPcd = resolve;
     });
     page.on("close", () => releaseTargetPcd?.());
-    await page.route("**/*.pcd*", async (route) => {
-      const path = new URL(route.request().url()).pathname;
-      pcdRequestPaths.push(path);
-      if (path.endsWith("-1.pcd")) await targetPcdGate;
-      await route.continue().catch(() => undefined);
-    });
+    const originalPaths = new Set(
+      lidar.lidar_task_ids.map((id) => `/api/v1/files/tasks/${id}/original`),
+    );
+    await page.route(
+      (url) => originalPaths.has(url.pathname),
+      async (route) => {
+        const url = new URL(route.request().url());
+        expect(route.request().method()).toBe("GET");
+        expect(url.searchParams.get("content_id")).toMatch(/^[0-9a-f-]{36}$/);
+        expect(url.searchParams.get("sha256")).toMatch(/^[0-9a-f]{64}$/);
+        pcdRequestPaths.push(url.pathname + url.search);
+        if (url.pathname === `/api/v1/files/tasks/${lidar.lidar_task_ids[1]}/original`)
+          await targetPcdGate;
+        await route.continue().catch(() => undefined);
+      },
+    );
 
     const timelineRequests: string[] = [];
     const annotationReads: string[] = [];
@@ -430,14 +441,32 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
       localStorage.setItem("aap.experiment.pointCloudWebGpuRenderer", "1");
       const NativeWorker = window.Worker;
       const WrappedWorker = function (...args: ConstructorParameters<typeof Worker>) {
+        const worker = new NativeWorker(...args);
         if (String(args[0]).includes("pointcloud.worker")) {
           window.__pointCloudColorWorkerCount = (window.__pointCloudColorWorkerCount ?? 0) + 1;
+          const entry = { kinds: [] as string[], terminated: false };
+          (window.__pointCloudWorkerLog ??= []).push(entry);
+          const post = worker.postMessage.bind(worker);
+          worker.postMessage = ((
+            message: { kind?: string },
+            transfer?: Transferable[] | StructuredSerializeOptions,
+          ) => {
+            if (message.kind && !entry.kinds.includes(message.kind)) entry.kinds.push(message.kind);
+            if (Array.isArray(transfer)) post(message, transfer);
+            else post(message, transfer);
+          }) as Worker["postMessage"];
+          const terminate = worker.terminate.bind(worker);
+          worker.terminate = () => {
+            entry.terminated = true;
+            terminate();
+          };
         }
-        return new NativeWorker(...args);
+        return worker;
       } as typeof Worker;
       WrappedWorker.prototype = NativeWorker.prototype;
       window.Worker = WrappedWorker;
       window.__pointCloudColorWorkerCount = 0;
+      window.__pointCloudWorkerLog = [];
       const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData;
       Object.defineProperty(window, "__pointCloudGetImageDataCount", {
         configurable: true,
@@ -510,8 +539,26 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     await expect
       .poll(() => page.evaluate(() => window.__pointCloudColorWorkerCount ?? 0))
       .toBeGreaterThan(0);
+    // Foreground and prefetch each own a decoder. GPU camera coloring also
+    // owns one depth worker per lane; legacy coloring owns one color worker.
+    const workerLimit = backend === "legacy-webgl2" ? 3 : 4;
+    if (backend !== "legacy-webgl2") {
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const workers = window.__pointCloudWorkerLog ?? [];
+            return {
+              decode: workers.filter((entry) => entry.kinds.includes("decode_pcd")).length,
+              depth: workers.filter((entry) => entry.kinds.includes("build_depth_rasters")).length,
+              color: workers.filter((entry) => entry.kinds.includes("colorize")).length,
+              terminated: workers.filter((entry) => entry.terminated).length,
+            };
+          }),
+        )
+        .toEqual({ decode: 2, depth: 2, color: 0, terminated: 0 });
+    }
     expect(await page.evaluate(() => window.__pointCloudColorWorkerCount ?? 0)).toBeLessThanOrEqual(
-      3,
+      workerLimit,
     );
     if (backend !== "legacy-webgl2") {
       await expect
@@ -537,7 +584,7 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
       page.getByTestId("tri-view-renderer-panel").locator(":scope > canvas"),
     ).toHaveCount(0);
     expect(await page.evaluate(() => window.__pointCloudColorWorkerCount ?? 0)).toBeLessThanOrEqual(
-      3,
+      workerLimit,
     );
     if (process.env.PLAYWRIGHT_POINTCLOUD_WEBGPU === "1") {
       await expect(backendBadge).toHaveText("WebGPU");
@@ -1366,7 +1413,6 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
           scene_name: "e2e-camera-continuity",
           frame_index: frameIndex,
           scene_total_frames: 2,
-          point_cloud_url: `${String(body.point_cloud_url)}#frame-${frameIndex}`,
         },
       });
     });

@@ -577,6 +577,25 @@ async def test_owned_filtering_fixture_is_namespaced_and_converges(
     manifest_a = body_a.json()
     assert manifest_a["image"]["project_id"]
 
+    from app.services import original_sources
+
+    image_source = await original_sources.resolve_task(
+        db_session, uuid.UUID(manifest_a["image"]["task_ids"]["cross_object"])
+    )
+    assert image_source.media_type == "image" and image_source.size_bytes > 0
+    for task_id in manifest_a["lidar"]["task_ids"]:
+        source = await original_sources.resolve_task(db_session, uuid.UUID(task_id))
+        assert source.media_type == "point_cloud" and source.size_bytes > 0
+        camera_links = [
+            link for link in source.relation.links if link.role.startswith("camera_")
+        ]
+        assert camera_links
+        for link in camera_links:
+            camera_source = await original_sources.resolve_task_link(
+                db_session, uuid.UUID(task_id), link.id
+            )
+            assert camera_source.media_type == "image" and camera_source.size_bytes > 0
+
     project_a_id = uuid.UUID(manifest_a["image"]["project_id"])
     assert (
         await db_session.scalar(

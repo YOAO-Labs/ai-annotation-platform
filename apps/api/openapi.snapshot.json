@@ -11398,6 +11398,17 @@
             "title": "Model Versions",
             "type": "array"
           },
+          "original_identity_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Identity Path"
+          },
           "outside_range_count": {
             "default": 0,
             "title": "Outside Range Count",
@@ -12522,6 +12533,17 @@
           },
           "metadata": {
             "$ref": "#/components/schemas/DatasetItemMetadata"
+          },
+          "original_identity_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Identity Path"
           },
           "thumbnail_url": {
             "anyOf": [
@@ -31961,12 +31983,42 @@
             "title": "Height"
           },
           "image_url": {
-            "title": "Image Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "link_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Id"
           },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "original_identity_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Identity Path"
           },
           "role": {
             "title": "Role",
@@ -31987,8 +32039,7 @@
         "required": [
           "name",
           "role",
-          "dataset_item_id",
-          "image_url"
+          "dataset_item_id"
         ],
         "title": "PointCloudCameraOut",
         "type": "object"
@@ -47159,6 +47210,17 @@
             ],
             "title": "Last Reopened At"
           },
+          "original_identity_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Identity Path"
+          },
           "overlap": {
             "default": 1,
             "title": "Overlap",
@@ -47414,14 +47476,32 @@
             ],
             "title": "Frame Index"
           },
+          "original_identity_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Identity Path"
+          },
           "point_cloud_format": {
             "default": "pcd",
             "title": "Point Cloud Format",
             "type": "string"
           },
           "point_cloud_url": {
-            "title": "Point Cloud Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Point Cloud Url"
           },
           "scene_id": {
             "anyOf": [
@@ -47465,7 +47545,6 @@
         },
         "required": [
           "task_id",
-          "point_cloud_url",
           "cameras",
           "expires_in"
         ],
@@ -72239,6 +72318,8 @@
     },
     "/api/v1/files/tasks/{task_id}/file-url": {
       "get": {
+        "deprecated": true,
+        "description": "Check current visibility, then reject the retired original signature path.",
         "operationId": "get_file_url_api_v1_files_tasks__task_id__file_url_get",
         "parameters": [
           {
@@ -72279,7 +72360,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get File Url",
+        "summary": "旧原件签名入口（请使用认证下载）",
         "tags": [
           "files"
         ]
