@@ -237,7 +237,7 @@ def _receipt(value):
         or not isinstance(value["sha256"], str)
         or _SHA.fullmatch(value["sha256"]) is None
         or type(value["size_bytes"]) is not int
-        or not 0 < value["size_bytes"] <= MAX_OBJECT_BYTES
+        or not 0 <= value["size_bytes"] <= MAX_OBJECT_BYTES
     ):
         _reject("invalid_receipt")
     return dict(value)

@@ -756,3 +756,68 @@ async def test_read_copy_requires_live_building_claim_and_never_reads_original(
     assert failure.value.code == "export_media_bundle_lease_lost"
     assert not runtime.permits and not runtime.provider.calls
     assert runtime.resolve_calls == 0 and transfer._slots._value == 2
+
+
+def empty_source(runtime):
+    runtime.source = replace(
+        runtime.source,
+        object_key="original/raw.bin",
+        size_bytes=0,
+        sha256=hashlib.sha256(b"").hexdigest(),
+    )
+    runtime.provider.raw = runtime.provider.actual = b""
+    key = physical.prefix_for(runtime.snapshot.id) + runtime.snapshot.relative
+    runtime.snapshot._inventory["objects"][key] = {
+        "sha256": runtime.source.sha256,
+        "size_bytes": 0,
+    }
+    return key
+
+
+async def test_empty_raw_transfers_through_real_reader_put_readback_and_closes_before_admission(
+    runtime,
+):
+    key = empty_source(runtime)
+    result = await runtime.copy(inspect=False)
+    assert result.size == 0 and result.original_sha == hashlib.sha256(b"").hexdigest()
+    assert result.inspection is None
+    assert runtime.client.current(key)["data"] == b""
+    assert runtime.provider.bodies[0].requests == [1]
+    assert runtime.provider.bodies[0].closed and runtime.provider.closed == 1
+    assert all(body.closed for body in runtime.client.bodies)
+    assert runtime.client.close_count == 1 and all(
+        stage.file.closed for stage in runtime.stages
+    )
+    assert all(permit.settled for permit in runtime.permits)
+    assert transfer._slots._value == 2
+    assert runtime.snapshot.inventory_reads == 0
+
+
+@pytest.mark.parametrize("damage", ["source_extra", "source_hash", "output_extra"])
+async def test_empty_raw_requires_source_and_saved_copy_full_hash_and_eof(
+    runtime, damage
+):
+    empty_source(runtime)
+    if damage == "source_extra":
+        runtime.provider.actual = b"x"
+    elif damage == "source_hash":
+        runtime.source = replace(runtime.source, sha256="a" * 64)
+        key = physical.prefix_for(runtime.snapshot.id) + runtime.snapshot.relative
+        runtime.snapshot._inventory["objects"][key]["sha256"] = "a" * 64
+    else:
+
+        def corrupt(value):
+            value["Body"].write(b"x")
+            value["Body"].seek(0)
+            return value
+
+        runtime.client.mutate_get = corrupt
+    with pytest.raises((ContentError, physical.ExportMediaStorageError)):
+        await runtime.copy(inspect=False)
+    assert all(body.closed for body in runtime.provider.bodies)
+    assert all(body.closed for body in runtime.client.bodies)
+    assert all(stage.file.closed for stage in runtime.stages)
+    assert (
+        all(permit.settled for permit in runtime.permits)
+        and transfer._slots._value == 2
+    )

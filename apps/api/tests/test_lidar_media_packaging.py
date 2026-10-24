@@ -450,17 +450,23 @@ async def test_kitti_still_requires_canonical_trusted_axis_and_removes_failed_zi
 
 
 @pytest.mark.parametrize("targets", [["nuscenes"], ["pointmask", "nuscenes"]])
+@pytest.mark.parametrize("empty", [False, True])
 async def test_nuscenes_uses_owned_raw_map_cameras_and_frozen_pcd(
-    world, monkeypatch, targets
+    world, monkeypatch, targets, empty
 ):
     world.data["primary_lidar"] = world.data["primary_lidar"].replace(
         b"nan 0 0", b"0 0 0"
     )
+    if empty:
+        world.data["primary_lidar"] = (
+            "VERSION .7\nFIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nWIDTH 0\nHEIGHT 1\nPOINTS 0\nDATA ascii\n"
+        ).encode()
+        world.annotations = []
     world.entries["primary_lidar"].update(
         sha256=hashlib.sha256(world.data["primary_lidar"]).hexdigest(),
         size_bytes=len(world.data["primary_lidar"]),
     )
-    for role, payload in (("raw_lidar", b"r" * 80), ("map", b"map")):
+    for role, payload in (("raw_lidar", b"" if empty else b"r" * 80), ("map", b"map")):
         world.entries[role] = {
             "size_bytes": len(payload),
             "sha256": hashlib.sha256(payload).hexdigest(),
@@ -524,18 +530,11 @@ async def test_nuscenes_uses_owned_raw_map_cameras_and_frozen_pcd(
         }
         assert b"--base-url" in result.read(prefix + "fetch_nuscenes_media.py")
         if "pointmask" in targets:
-            assert (
-                len(
-                    result.read(
-                        next(
-                            name
-                            for name in result.namelist()
-                            if name.endswith(".label")
-                        )
-                    )
+            assert len(
+                result.read(
+                    next(name for name in result.namelist() if name.endswith(".label"))
                 )
-                == 16
-            )
+            ) == (0 if empty else 16)
     assert world.pcd_calls == [world.task.id] and frames[0].scene_name == "frozen scene"
     assert {"raw_lidar", "map", "camera_front", "camera_back"}.issubset(
         world.entry_calls

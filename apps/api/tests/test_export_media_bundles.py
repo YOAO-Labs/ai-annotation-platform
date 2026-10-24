@@ -801,3 +801,40 @@ async def test_modern_nuscenes_rejects_partial_or_unowned_sources_and_counts_aux
             logical_sources=logical,
         )
     assert not db.rows
+
+
+@pytest.mark.parametrize("role", ["raw_lidar", "map", "camera_front", "primary_lidar"])
+async def test_only_raw_lidar_may_have_an_empty_delivery_original(role):
+    from app.services.exporting.lidar_sources import canonical_identity
+
+    project, frozen, logical = modern_nuscenes_inputs()
+    for entry in frozen["media"]:
+        if entry["role"] != role:
+            continue
+        previous = entry["source_key"]
+        entry["source"].update(size_bytes=0, sha256=hashlib.sha256(b"").hexdigest())
+        entry["source_key"] = digest(canonical_identity(entry["source"]))
+        for paths in logical.values():
+            for path, key in list(paths.items()):
+                if key == previous:
+                    paths[path] = entry["source_key"]
+    options = dict(
+        project_id=project,
+        job_id=uuid.uuid4(),
+        input_snapshot=frozen,
+        input_digest=digest(frozen),
+        logical_sources=logical,
+    )
+    if role == "raw_lidar":
+        receipt = await bundles.allocate(FakeDB(), **options)
+        assert receipt.object_count == 5
+        assert (
+            sum(
+                facts["size_bytes"] == 0
+                for facts in receipt.inventory["objects"].values()
+            )
+            == 2
+        )
+    else:
+        with pytest.raises(bundles.ExportMediaBundleError):
+            await bundles.allocate(FakeDB(), **options)

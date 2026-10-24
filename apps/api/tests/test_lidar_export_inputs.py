@@ -155,7 +155,9 @@ async def setup(db, *, direct=True, primary=True):
     return project, dataset, item, asset, replica, task, cameras, annotation
 
 
-async def attach_nuscenes(db, dataset, item, cameras, *, scene=None, map_owner=None):
+async def attach_nuscenes(
+    db, dataset, item, cameras, *, scene=None, map_owner=None, raw_data=b"r" * 80
+):
     """Create actual independent auxiliary receipts before binding business rows."""
     from app.services import auxiliary_originals as auxiliary
     from app.services import managed_original_creation as creation
@@ -200,7 +202,7 @@ async def attach_nuscenes(db, dataset, item, cameras, *, scene=None, map_owner=N
             db, allocation, written, kind=kind, source_contract=contract
         )
 
-    raw_owner = await create("raw_lidar", source, b"r" * 80)
+    raw_owner = await create("raw_lidar", source, raw_data)
     map_owner = map_owner or await create("map", map_source(), b"shared-map")
     item.metadata_ = {
         **(item.metadata_ or {}),
@@ -639,12 +641,15 @@ async def test_duplicate_task_frame_labels_are_rejected_instead_of_overwritten(
 
 
 @pytest.mark.parametrize("targets", [("nuscenes",), ("kitti", "nuscenes")])
+@pytest.mark.parametrize("raw_data", [b"r" * 80, b""])
 async def test_nuscenes_capture_owns_all_media_and_checks_exact_auxiliary_pointer(
-    input_db, auxiliary_client, monkeypatch, targets
+    input_db, auxiliary_client, monkeypatch, targets, raw_data
 ):
     db = input_db
     project, dataset, item, _, _, task, cameras, _ = await setup(db)
-    _, raw_owner, map_owner = await attach_nuscenes(db, dataset, item, cameras)
+    _, raw_owner, map_owner = await attach_nuscenes(
+        db, dataset, item, cameras, raw_data=raw_data
+    )
     from app.services.storage import storage_service
 
     def forbidden(*args, **kwargs):

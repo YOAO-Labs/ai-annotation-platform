@@ -149,7 +149,9 @@ async def prepare(db, bundle_snapshot, *, guard) -> Delivery:
                 receipt.original_sha != source["sha256"]
                 or type(receipt.size) is not int
                 or receipt.size != source["size_bytes"]
-                or not 0 < receipt.size <= MAX_PCD_BYTES
+                or not (0 if source["media_type"] == "raw_lidar" else 1)
+                <= receipt.size
+                <= MAX_PCD_BYTES
             ):
                 _reject()
             if source["media_type"] == "point_cloud":

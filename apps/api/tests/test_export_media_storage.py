@@ -723,3 +723,81 @@ def test_saved_media_signing_honors_public_gateway_without_changing_signature(
     monkeypatch.setattr(client, "generate_presigned_url", lambda *a, **kw: raw)
     expected = raw if not public else public + raw[len(physical._runtime_endpoint()) :]
     assert physical.signed_url(client, row, RELATIVE) == expected
+
+
+def test_empty_object_put_readback_uses_saved_owner_exact_hash_eof_and_real_closes(
+    monkeypatch,
+):
+    client, row = Client(), record()
+    key = physical.prefix_for(BUNDLE) + RELATIVE
+    row.inventory["objects"][key] = receipt(b"")
+    monkeypatch.setattr(physical, "create_client", lambda: client)
+    reads = []
+
+    def track(value):
+        body = value["Body"]
+        original = body.read
+
+        def read(size):
+            reads.append(size)
+            return original(size)
+
+        body.read = read
+        return value
+
+    client.mutate_get = track
+    with tempfile.TemporaryFile() as source:
+        with physical.open_storage(row) as owned:
+            assert physical.write_object(
+                owned, row, RELATIVE, source.fileno()
+            ) == receipt(b"")
+            assert physical.verify_object(owned, row, RELATIVE) == receipt(b"")
+            assert physical.verify_inventory(owned, row) == row.inventory
+            assert physical.list_objects(owned, row) == {key: 0}
+        assert not source.closed and source.tell() == 0
+    assert reads == [1, 1, 1]
+    assert all(body.closed and body.close_count == 1 for body in client.bodies)
+    assert client.close_count == 1
+    put = next(params for method, params in client.calls if method == "put")
+    assert put["Bucket"] == "saved-export-bucket" and put["ContentLength"] == 0
+    assert put["IfNoneMatch"] == "*" and client.current(key)["data"] == b""
+
+
+@pytest.mark.parametrize("damage", ["hash", "extra_body", "nonbytes_body", "length"])
+def test_empty_readback_does_not_confuse_zero_length_with_verified_eof(damage):
+    row, client = record(), Client()
+    key = physical.prefix_for(BUNDLE) + RELATIVE
+    row.inventory["objects"][key] = receipt(b"")
+    client.add(key, b"")
+    if damage == "hash":
+        row.inventory["objects"][key]["sha256"] = "a" * 64
+    else:
+
+        def change(value):
+            if damage == "extra_body":
+                value["Body"].write(b"x")
+                value["Body"].seek(0)
+            elif damage == "nonbytes_body":
+                value["Body"].read = lambda size: None
+            else:
+                value["ContentLength"] = 1
+            return value
+
+        client.mutate_get = change
+    with pytest.raises(physical.ExportMediaStorageError, match="核验") as error:
+        physical.verify_object(client, row, RELATIVE)
+    assert error.value.code.endswith("integrity_mismatch")
+    assert all(body.closed and body.close_count == 1 for body in client.bodies)
+
+
+def test_empty_put_cannot_publish_a_nonempty_hash_without_a_write():
+    row, client = record(), Client()
+    row.inventory["objects"][physical.prefix_for(BUNDLE) + RELATIVE] = {
+        "sha256": hashlib.sha256(b"nonempty").hexdigest(),
+        "size_bytes": 0,
+    }
+    with tempfile.TemporaryFile() as source:
+        with pytest.raises(physical.ExportMediaStorageError):
+            physical.write_object(client, row, RELATIVE, source.fileno())
+        assert not source.closed
+    assert not client.calls

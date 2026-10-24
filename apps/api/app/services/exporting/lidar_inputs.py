@@ -696,7 +696,9 @@ async def _collect(db, project_id, batch_id, targets, options, *, lock):
                 or source.location_id is None
                 or source.endpoint_url is None
                 or type(source.size_bytes) is not int
-                or not 0 < source.size_bytes <= MAX_IMAGE_BYTES
+                or not (0 if expected_type == "raw_lidar" else 1)
+                <= source.size_bytes
+                <= MAX_IMAGE_BYTES
             ):
                 reject("lidar_export_original_unsupported", 422)
             key = source_key(source)

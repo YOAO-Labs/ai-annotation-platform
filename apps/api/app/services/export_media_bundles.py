@@ -233,7 +233,9 @@ def _sources(data, project_id):
         if (
             source.get("media_type") != media_type
             or type(size) is not int
-            or not 0 < size <= physical.MAX_OBJECT_BYTES
+            or not (0 if media_type == "raw_lidar" else 1)
+            <= size
+            <= physical.MAX_OBJECT_BYTES
         ):
             reject("invalid", 422)
         key = _sha(entry["source_key"])

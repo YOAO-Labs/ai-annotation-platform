@@ -774,3 +774,31 @@ def test_auxiliary_canonical_identity_deduplicates_owner_without_changing_g1_key
     assert canonical_identity(source) != canonical_identity(
         {**other, "ownership_facts": {"id": "different-map"}}
     )
+
+
+async def test_nuscenes_empty_raw_keeps_delivery_role_and_full_receipt(world):
+    from app.services.exporting.lidar_sources import canonical_identity
+
+    task = add_task(world)
+    add_nuscenes_auxiliary(world, task, map_owner=uuid.uuid4())
+    raw = next(row for row in world.data["media"] if row["role"] == "raw_lidar")
+    raw["source"].update(size_bytes=0, sha256=hashlib.sha256(b"").hexdigest())
+    raw["source_key"] = hashlib.sha256(
+        json.dumps(canonical_identity(raw["source"]), sort_keys=True).encode()
+    ).hexdigest()
+    world.source_bytes[raw["source_key"]] = b""
+    delivery = await prepare(world)
+    receipt = delivery.entry(task, "raw_lidar")
+    assert (
+        receipt["size_bytes"] == 0
+        and receipt["sha256"] == hashlib.sha256(b"").hexdigest()
+    )
+    assert len(world.calls) == 3
+    assert (
+        next(
+            inspect
+            for binding, _, inspect in world.calls
+            if binding["role"] == "raw_lidar"
+        )
+        is None
+    )

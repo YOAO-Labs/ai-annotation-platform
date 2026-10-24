@@ -169,7 +169,7 @@ def _spec(source):
         or type(source.maintenance_revision) is not int
         or source.maintenance_revision < 1
         or type(source.size_bytes) is not int
-        or not 0 < source.size_bytes <= physical.MAX_OBJECT_BYTES
+        or not 0 <= source.size_bytes <= physical.MAX_OBJECT_BYTES
     ):
         reject()
     return reader.ObjectSpec(

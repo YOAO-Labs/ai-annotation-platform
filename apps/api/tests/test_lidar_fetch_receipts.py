@@ -609,3 +609,32 @@ def test_trusted_media_requires_source_receipts_without_falling_back_to_other_fi
     result = world.run("--base-url", world.server.origin)
     assert result.returncode == 1
     assert not world.server.requests and not world.destination.exists()
+
+
+@pytest.fixture
+def raw_fetcher(tmp_path, media_server):
+    yield from _fetcher(tmp_path, media_server, "media")
+
+
+@pytest.mark.parametrize("damage", [None, "hash", "extra_body", "length"])
+def test_empty_nuscenes_raw_download_checks_empty_sha_size_and_transport_eof(
+    raw_fetcher, damage
+):
+    world = raw_fetcher
+    world.server.body = b""
+    item = world.write(kind="lidar", rel_path=world.relative)
+    if damage == "hash":
+        item[world.sha_field] = "a" * 64
+    elif damage == "extra_body":
+        world.server.sent, world.server.length = b"x", None
+    elif damage == "length":
+        world.server.length = 1
+    world.write(items=[item])
+    result = world.run()
+    assert result.returncode == (1 if damage else 0)
+    assert len(world.server.requests) == 1
+    if damage:
+        assert not world.destination.exists()
+    else:
+        assert world.destination.read_bytes() == b""
+        assert world.run().returncode == 0 and len(world.server.requests) == 1

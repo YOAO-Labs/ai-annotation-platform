@@ -45,6 +45,9 @@ async def worker_db(input_db):
         lambda sync: _migration(sync, "0224_export_output_storage").upgrade()
     )
     await connection.run_sync(lambda sync: _migration(sync).upgrade())
+    await connection.run_sync(
+        lambda sync: _migration(sync, "0236_export_media_empty_raw").upgrade()
+    )
     await db.commit()
     return db
 
