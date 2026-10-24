@@ -151,6 +151,7 @@ class InsertPredictionResultData(_ClosedModel):
     created_at: datetime
     tool_unit_id: StrictStr
     total_predictions: StrictInt
+    task_updated_at: datetime
 
 
 class InsertTestSeedPredictionData(_ClosedModel):

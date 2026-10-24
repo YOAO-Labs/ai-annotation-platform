@@ -878,6 +878,7 @@ class PredictionService:
         make_transient_to_detached(prediction)
         self.db.add(prediction)
         set_committed_value(task, "total_predictions", data.total_predictions)
+        set_committed_value(task, "updated_at", data.task_updated_at)
         await self.db.flush()
         return ApplyPredictionResultReceipt(
             id=data.prediction_id,

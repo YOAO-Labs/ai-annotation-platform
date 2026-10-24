@@ -527,9 +527,21 @@
         "total_predictions": {
           "title": "Total Predictions",
           "type": "integer"
+        },
+        "task_updated_at": {
+          "format": "date-time",
+          "title": "Task Updated At",
+          "type": "string"
         }
       },
-      "required": ["operation", "prediction_id", "created_at", "tool_unit_id", "total_predictions"],
+      "required": [
+        "operation",
+        "prediction_id",
+        "created_at",
+        "tool_unit_id",
+        "total_predictions",
+        "task_updated_at"
+      ],
       "title": "InsertPredictionResultData",
       "type": "object"
     },

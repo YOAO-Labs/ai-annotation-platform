@@ -21,6 +21,7 @@ DECLARE
     v_dismissed_at timestamptz;
     v_tool_unit_id text;
     v_total_predictions integer;
+    v_task_updated_at timestamptz;
     v_changed boolean := false;
     v_shapes jsonb;
     v_rejected jsonb;
@@ -137,15 +138,18 @@ BEGIN
             );
 
             UPDATE public.tasks AS task
-            SET total_predictions = COALESCE(task.total_predictions, 0) + 1
+            SET total_predictions = COALESCE(task.total_predictions, 0) + 1,
+                updated_at = transaction_timestamp()
             WHERE task.id = v_task_id AND task.project_id = v_project_id
-            RETURNING task.total_predictions INTO v_total_predictions;
+            RETURNING task.total_predictions, task.updated_at
+            INTO v_total_predictions, v_task_updated_at;
             v_data := jsonb_build_object(
                 'operation', v_operation,
                 'prediction_id', v_prediction_id,
                 'created_at', v_created_at,
                 'tool_unit_id', v_tool_unit_id,
-                'total_predictions', v_total_predictions
+                'total_predictions', v_total_predictions,
+                'task_updated_at', v_task_updated_at
             );
         END IF;
 
