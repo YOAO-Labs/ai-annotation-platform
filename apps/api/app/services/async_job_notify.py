@@ -32,6 +32,7 @@ TERMINAL_NOTIFY_KINDS = {
     "dataset_scan",
     "dataset_registration",
     "storage_usage",
+    "video_asset_retry",
     "managed_original_verification",
     "dataset_quality",
     "dataset_quality_review",

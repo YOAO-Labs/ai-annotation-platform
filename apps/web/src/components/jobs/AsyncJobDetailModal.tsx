@@ -19,6 +19,7 @@ import {
   exportDownloadState,
   JOB_KIND_LABEL,
   JOB_STATUS_LABEL,
+  VIDEO_ASSET_LABEL,
   jobNumber,
   jobProgressText,
   jobResultSummary,
@@ -229,6 +230,12 @@ export function AsyncJobDetailModal({
                 {job.project_name ?? job.project_display_id ?? "未关联项目"}
                 {datasetName ? ` · ${datasetName}` : ""}
               </p>
+              {job.kind === "video_asset_retry" && (
+                <p className="mb-0 mt-1 text-xs text-muted-foreground">
+                  重试目标：
+                  {VIDEO_ASSET_LABEL[jobString(job.payload, "asset_type") ?? ""] ?? "视频资产"}
+                </p>
+              )}
             </div>
             <Badge
               variant={

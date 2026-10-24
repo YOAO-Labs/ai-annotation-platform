@@ -17,6 +17,14 @@ vi.mock("@/lib/clipboard", () => ({ copyToClipboard: vi.fn() }));
 const mockPushToast = vi.fn();
 const mockInvalidateQueries = vi.fn();
 const mockRetryMutate = vi.fn();
+vi.mock("@/components/jobs/AsyncJobDetailModal", () => ({
+  AsyncJobDetailModal: ({ jobId, onClose }: { jobId: string; onClose: () => void }) => (
+    <div role="dialog" aria-label="视频资产重试详情">
+      <span>{jobId}</span>
+      <button onClick={onClose}>关闭任务</button>
+    </div>
+  ),
+}));
 
 // --- useQueryClient ---
 vi.mock("@tanstack/react-query", async () => {
@@ -99,7 +107,7 @@ describe("StoragePage", () => {
     mockUseStorageBuckets.mockClear();
     mockUseDatasets.mockClear();
     mockPushToast.mockReset();
-    mockInvalidateQueries.mockReset();
+    mockInvalidateQueries.mockReset().mockResolvedValue(undefined);
     mockRetryMutate.mockReset();
     mockUseDatasets.mockReturnValue({ data: { items: [], total: 0 } });
     mockUseVideoAssetFailures.mockReturnValue({
@@ -201,6 +209,23 @@ describe("StoragePage", () => {
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-source-locations"] });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-bindings"] });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-buckets"] });
+  });
+
+  it("重试后打开共享任务详情，关闭时刷新失败列表", () => {
+    mockUseVideoAssetFailures.mockReturnValue({
+      data: { items: [SAMPLE_VIDEO_FAILURE], total: 1 },
+    });
+    mockRetryMutate.mockImplementation((_payload, options) =>
+      options.onSuccess({ job_id: "retry-job" }),
+    );
+    renderUI();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("retry-job");
+    fireEvent.click(screen.getByRole("button", { name: "关闭任务" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["storage-video-asset-failures"],
+    });
   });
 
   it("视频资产加载中 → 显示加载态文字", () => {

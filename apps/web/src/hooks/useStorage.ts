@@ -57,6 +57,7 @@ export function useRetryVideoAsset() {
     onSuccess: (_data, _variables, revision) => {
       if (getAuthSessionRevision() !== revision) return;
       qc.invalidateQueries({ queryKey: ["storage-video-asset-failures"] });
+      void qc.invalidateQueries({ queryKey: ["async-jobs"] });
     },
   });
 }

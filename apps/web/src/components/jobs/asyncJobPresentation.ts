@@ -1,5 +1,13 @@
 import type { AsyncJob, AsyncJobStatus } from "@/api/asyncJobs";
 
+export const VIDEO_ASSET_LABEL: Record<string, string> = {
+  probe: "视频元数据",
+  poster: "视频海报",
+  frame_timetable: "帧时间表",
+  chunk: "视频分块",
+  frame: "帧缓存",
+};
+
 export const JOB_KIND_LABEL: Record<string, string> = {
   batch_predict: "批量预标",
   video_tracker: "视频追踪",
@@ -7,6 +15,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   audit_archive: "审计归档",
   predictions_import: "预测导入",
   prediction_retry: "失败预测重试",
+  video_asset_retry: "视频资产重试",
   dataset_import: "数据集导入",
   dataset_scan: "目录观测扫描",
   storage_usage: "存储对象盘点",
@@ -113,6 +122,7 @@ export function jobStage(job: AsyncJob): string {
   const phase = jobString(job.result, "stage") ?? jobString(job.payload, "stage");
   const labels: Record<string, string> = {
     queued: "等待执行",
+    dispatch_pending: "派发尚未确认",
     preflight: "核验图片与接入影响",
     registering: "登记业务样本",
     collecting: "枚举文件",
@@ -154,6 +164,11 @@ export function exportDownloadState(result: Record<string, unknown>, now = Date.
 export function jobProgressText(
   job: Pick<AsyncJob, "kind" | "status" | "progress_pct" | "result">,
 ): string {
+  if (job.kind === "video_asset_retry" && ["pending", "running"].includes(job.status)) {
+    return job.result?.stage === "dispatch_pending"
+      ? "派发尚未确认，可回到视频资产失败列表重试"
+      : "处理完成后显示本次资产的实际结果";
+  }
   if (job.kind === "managed_original_verification" && ["pending", "running"].includes(job.status)) {
     return job.result?.cancel_requested === true
       ? "已请求取消，等待底层读取收尾"

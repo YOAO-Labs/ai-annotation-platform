@@ -532,6 +532,9 @@ async def publish(db, output, authority, token, result, inventory, gate_revision
         if current.kind == "chunk":
             slot.generation_mode = result["generation_mode"]
             slot.diagnostics = deepcopy(result["diagnostics"])
+    from app.services.video_asset_retry_jobs import sync_output
+
+    await sync_output(db, current)
     await db.flush()
     originals.clock(authority)
     return current

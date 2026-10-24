@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { exportDownloadState, jobResultSummary, jobProgressText } from "./asyncJobPresentation";
 
 describe("后台任务结果", () => {
+  it("视频资产处理不展示虚构百分比，并解释派发未确认", () => {
+    const job = {
+      kind: "video_asset_retry",
+      status: "running",
+      progress_pct: 0,
+      result: {},
+    } as Parameters<typeof jobProgressText>[0];
+    expect(jobProgressText(job)).toBe("处理完成后显示本次资产的实际结果");
+    expect(
+      jobProgressText({ ...job, status: "pending", result: { stage: "dispatch_pending" } }),
+    ).toContain("可回到视频资产失败列表重试");
+    expect(
+      jobResultSummary({ kind: job.kind, result: { success_count: 0, failed_count: 1 } }),
+    ).toBe("成功 0 / 失败 1");
+  });
   it("目录扫描只报告观测数量，不伪造精确进度", () => {
     const job = {
       kind: "dataset_scan",

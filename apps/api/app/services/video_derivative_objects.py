@@ -111,6 +111,9 @@ async def claim(db, output, ttl_seconds=900):
     output.lease_token = token
     output.lease_expires_at = utcnow() + timedelta(seconds=ttl_seconds)
     await db.flush()
+    from app.services.video_asset_retry_jobs import sync_output
+
+    await sync_output(db, output)
     return token
 
 
@@ -367,6 +370,9 @@ async def _expire_building(db, now, limit):
             output.error_code = output.error_code or "lease_expired"
             output.updated_at = age
             flag_modified(output, "updated_at")
+            from app.services.video_asset_retry_jobs import sync_output
+
+            await sync_output(db, output)
             await db.commit()
         except (ContentError, physical.VideoDerivativeStorageError):
             await db.rollback()

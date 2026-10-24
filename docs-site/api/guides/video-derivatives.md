@@ -3,7 +3,7 @@ title: 视频派生媒体
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-25
 ---
 
 # 视频派生媒体
@@ -13,6 +13,10 @@ Task 的 `/tasks/{task_id}/video/...` 和可见 Task 支撑的 `/videos/{dataset
 读取沿用现有 Task 可见性，不新增 `annotations:read` scope；Task 的帧重试仍要求原有写权限，facade 保持自己的原有检查。后台工作冻结具体 Task、原请求凭据和准确来源，执行中重新核对当前权限。Dataset 回填与 Storage 维护保留各自管理权限及生命周期检查。
 
 ## 元数据与时序
+
+存储管理的 `POST /api/v1/storage/video-assets/retry` 返回 `202`，包含 `job_id`、`asset_type`、`dataset_item_id` 和 `status`。正常受理为 `queued`；队列投递无法确认时为 `dispatch_pending`，仍返回可查询的任务，不能据此断定执行失败。可由原重试入口重新派发尚未认领的输出；本人对同一输出和资产类型的活动请求复用任务，其他发起者获得各自可见的任务。详情使用 `GET /api/v1/async-jobs/{job_id}`，仅本人或超级管理员可见；该任务不提供通用取消或失败预测重试动作。
+
+任务状态跟随既有输出的认领、发布、失败和过期收尾，`kind=video_asset_retry`。只返回安全 ID、目标类型及成功／失败计数，不公开原件定位或凭据。metadata ready 不代表所有派生资产成功，海报和时间表分别按本次请求结果判定；普通 Worker 返回也不等于资产成功。执行端状态未知且仍有未收尾访问时，任务保留等待状态，沿用现有输出维护机制，不承诺立即判定崩溃失败。chunk／frame 缺可信元数据时，仍先准备元数据并返回原有 `503 video_metadata_preparing`，此次不登记目标资产重试任务。
 
 manifest 返回 `metadata_generation_id`，整段 `video_url` 和 `fallback_video_url` 为空。旧未登记派生结果触发新 metadata output，提交后排队，返回 `503 {"detail":{"code":"video_metadata_preparing"}}`；客户端有限次轮询。未知原件、撤权、维护门禁和关闭不确定不降级为旧路径。
 

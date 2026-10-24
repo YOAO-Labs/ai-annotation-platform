@@ -79,9 +79,10 @@ export interface VideoAssetRetryPayload {
 }
 
 export interface VideoAssetRetryResponse {
-  status: "queued";
+  status: "queued" | "dispatch_pending";
   asset_type: VideoAssetKind;
   dataset_item_id: string;
+  job_id: string;
 }
 
 export const storageApi = {

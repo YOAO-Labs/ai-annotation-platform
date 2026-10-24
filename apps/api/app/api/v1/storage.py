@@ -153,9 +153,10 @@ class VideoAssetRetryRequest(BaseModel):
 
 
 class VideoAssetRetryResponse(BaseModel):
-    status: Literal["queued"]
+    status: Literal["queued", "dispatch_pending"]
     asset_type: VideoAssetKind
     dataset_item_id: uuid.UUID
+    job_id: uuid.UUID
 
 
 def _task_context(
@@ -390,6 +391,7 @@ async def retry_video_asset(
 ):
     from app.services import video_derivative_originals as originals
     from app.services import video_derivatives as derivatives
+    from app.services import video_asset_retry_jobs as retry_jobs
     from app.services.content_snapshot import ContentError
 
     item = await db.get(DatasetItem, payload.dataset_item_id)
@@ -457,11 +459,22 @@ async def retry_video_asset(
             force=not (active is not None and active.state == "building"),
         )
         output_id = output.id
+        job = await retry_jobs.observe(db, output, current_user.id, payload.asset_type)
+        job_id = job.id
         await db.commit()
+        dispatch_status = "queued"
         if needed:
-            derivatives.dispatch([output_id])
+            try:
+                derivatives.dispatch([output_id])
+            except Exception:
+                await retry_jobs.dispatch_pending(db, job_id)
+                await db.commit()
+                dispatch_status = "dispatch_pending"
     except ContentError as exc:
         raise HTTPException(exc.status, detail={"code": exc.code}) from None
     return VideoAssetRetryResponse(
-        status="queued", asset_type=payload.asset_type, dataset_item_id=item.id
+        status=dispatch_status,
+        asset_type=payload.asset_type,
+        dataset_item_id=item.id,
+        job_id=job_id,
     )

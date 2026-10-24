@@ -38,6 +38,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 超级管理员可在外部位置详情使用[位置访问维护](./docs-site/user-guide/datasets/storage-connections.md#位置访问维护)，关闭新访问、等待未收尾记录归零后确认停止，再按新修订恢复。部署须先核实所有 API/Worker 已采用访问登记协议；维护只涵盖该逻辑位置，不代表共享目录或整台存储静止。
 
+存储页的视频资产失败支持重试后打开共享任务详情，查看元数据、海报、时间表、分块或帧缓存的实际处理结果；后台任务及终态通知可重新进入，关闭详情后刷新失败列表。队列投递未确认时保留等待和原入口重试，详见[视频派生媒体 API](./docs-site/api/guides/video-derivatives.md)。
+
 新托管上传、ZIP、连接器复制及目录托管复制使用[条件创建与直传隔离](./docs-site/user-guide/datasets/storage-connections.md#新托管原件的创建与直传隔离)：浏览器只写暂存区，后端保存实际写回执并完整回读后才关联最终原件。原上传 URL 重放不覆盖已接受原件；业务回滚或结果不明保留独立创建责任，历史扫描不补造创建证明。
 
 兼容的[独立 Task 上传接口](./docs-site/api/guides/tasks-and-annotations.md#独立任务原件上传)同样先暂存、再完整核验封存，单文件最多5GiB，要求当前项目管理权限与原上传发起者。Task与原件责任分开保留；数据集导入继续沿用已有DatasetItem归属。[严格图片读取](./docs-site/api/guides/verified-content.md#图片任务)与数据集质量检查使用原件记录保存的位置，完整核对字节；独立Task图片也支持该认证读取接口。[认证通用原件下载](./docs-site/api/guides/verified-content.md#认证通用原件下载)支持Task、相机关联及DatasetItem的完整二进制，单文件最多512MiB，身份查询不代表对象在线。图片工作台、审核与数据管理预览、点云和相机已使用认证原件读取，托管原件 DTO 不再签发原件地址；另有[视频原件准备与范围读取 API](./docs-site/api/guides/verified-content.md#视频原件准备与范围读取)，完整核验后以短租约复用临时文件处理HEAD和Range。视频工作台已接入原件准备、租约更新和失效恢复；视频元数据、海报和精确帧派生使用[独立输出归属](./docs-site/api/guides/video-derivatives.md)，其余下游消费者继续推进，完整用途切换保持关闭。

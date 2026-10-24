@@ -55789,8 +55789,16 @@
             "title": "Dataset Item Id",
             "type": "string"
           },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
           "status": {
-            "const": "queued",
+            "enum": [
+              "queued",
+              "dispatch_pending"
+            ],
             "title": "Status",
             "type": "string"
           }
@@ -55798,7 +55806,8 @@
         "required": [
           "status",
           "asset_type",
-          "dataset_item_id"
+          "dataset_item_id",
+          "job_id"
         ],
         "title": "VideoAssetRetryResponse",
         "type": "object"

@@ -1,7 +1,8 @@
 import { StorageUsagePanel } from "./StorageUsagePanel";
 import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AsyncJobDetailModal } from "@/components/jobs/AsyncJobDetailModal";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -34,6 +35,9 @@ function assetDetail(asset: VideoAssetFailureItem): string {
 
 function VideoAssetFailuresPanel() {
   const capture = useSessionGuard();
+  const qc = useQueryClient();
+  const [jobId, setJobId] = useState<string | null>(null);
+  const heading = useRef<HTMLHeadingElement | null>(null);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
   const offset = page * pageSize;
@@ -61,8 +65,10 @@ function VideoAssetFailuresPanel() {
         format: asset.format === "jpeg" ? "jpeg" : asset.format === "webp" ? "webp" : null,
       },
       {
-        onSuccess: () => {
-          if (current()) pushToast({ msg: "已加入 media 重试队列", kind: "success" });
+        onSuccess: (response) => {
+          if (!current()) return;
+          if (response.job_id) setJobId(response.job_id);
+          else pushToast({ msg: "重试任务已创建，请刷新查看处理结果", kind: "success" });
         },
         onError: (err) =>
           current() && pushToast({ msg: "重试失败", sub: (err as Error).message, kind: "error" }),
@@ -78,7 +84,9 @@ function VideoAssetFailuresPanel() {
       <Card>
         <div className="flex justify-between gap-3 border-b border-border px-4 py-3.5">
           <div>
-            <h3 className={CARD_TITLE_CLASS}>视频资产失败</h3>
+            <h3 ref={heading} tabIndex={-1} className={CARD_TITLE_CLASS}>
+              视频资产失败
+            </h3>
             <p className="mt-[3px] text-xs text-muted-foreground">
               probe、poster、时间表和帧缓存失败会在这里集中处理。
             </p>
@@ -174,6 +182,16 @@ function VideoAssetFailuresPanel() {
           }}
         />
       </Card>
+      {jobId && (
+        <AsyncJobDetailModal
+          jobId={jobId}
+          returnFocusRef={heading}
+          onClose={() => {
+            setJobId(null);
+            void qc.invalidateQueries({ queryKey: ["storage-video-asset-failures"] });
+          }}
+        />
+      )}
     </div>
   );
 }

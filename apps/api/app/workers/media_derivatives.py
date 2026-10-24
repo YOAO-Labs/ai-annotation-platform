@@ -310,6 +310,9 @@ async def fail(factory, identifier, token, code):
             if current.kind == "chunk":
                 slot.generation_mode, slot.diagnostics = None, {}
         current.state, current.error_code = "retiring", code
+        from app.services.video_asset_retry_jobs import sync_output
+
+        await sync_output(db, current)
         await db.commit()
 
 

@@ -216,10 +216,12 @@ async def test_http_backfill_freezes_exact_request_and_commits_before_dispatch(
 
 
 async def test_storage_retry_persists_exact_authority_before_dispatch(monkeypatch):
+    from app.services import video_asset_retry_jobs
+
     value = SimpleNamespace(
         id=uuid.uuid4(), file_type="video", video_building_output_id=None
     )
-    authority, source, actor = object(), object(), object()
+    authority, source, actor = object(), object(), SimpleNamespace(id=uuid.uuid4())
     request = Request({"type": "http", "method": "POST", "path": "/retry"})
     output_id, events = uuid.uuid4(), []
     db = SimpleNamespace(
@@ -233,6 +235,9 @@ async def test_storage_retry_persists_exact_authority_before_dispatch(monkeypatc
     monkeypatch.setattr(originals, "check", AsyncMock(return_value=source))
     prepare = AsyncMock(return_value=(SimpleNamespace(id=output_id), True))
     monkeypatch.setattr(derivatives, "prepare", prepare)
+    job_id = uuid.uuid4()
+    observe = AsyncMock(return_value=SimpleNamespace(id=job_id))
+    monkeypatch.setattr(video_asset_retry_jobs, "observe", observe)
     dispatch = MagicMock(side_effect=lambda _ids: events.append("dispatch"))
     monkeypatch.setattr(derivatives, "dispatch", dispatch)
     result = await storage.retry_video_asset(
@@ -242,6 +247,8 @@ async def test_storage_retry_persists_exact_authority_before_dispatch(monkeypatc
         actor,
     )
     assert result.status == "queued"
+    assert result.job_id == job_id
+    observe.assert_awaited_once_with(db, prepare.return_value[0], actor.id, "poster")
     originals.authorize_policy.assert_awaited_once_with(
         db, "storage", value.id, actor, request
     )
