@@ -59,6 +59,39 @@ async def _bounded_async(chunks, *, limit: int) -> bytes:
     return bytes(body)
 
 
+def _post_sync(origin: str, token: str, body: bytes, execution_id: str) -> None:
+    try:
+        import httpx
+
+        with httpx.Client(
+            timeout=_REQUEST_TIMEOUT_SECONDS,
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
+            with client.stream(
+                "POST",
+                f"{origin}{JOBS_QUEUE_PATH}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                content=body,
+            ) as response:
+                response_body = _bounded(response.iter_bytes(), limit=_MAX_REPLY_BYTES)
+                status_code = response.status_code
+        reply = decode_queue_reply(response_body)
+        if (
+            status_code != 200
+            or not reply.accepted
+            or reply.execution_id != execution_id
+        ):
+            raise JobsQueueUnavailable()
+    except JobsQueueUnavailable:
+        raise
+    except Exception:
+        raise JobsQueueUnavailable() from None
+
+
 class JobsQueueClient:
     """Dispatch to the owner; an accepted reply means broker publish returned."""
 
@@ -114,6 +147,24 @@ class JobsQueueClient:
         except Exception:
             raise JobsQueueUnavailable() from None
 
+    def dispatch_job_sync(
+        self,
+        task_name: str,
+        execution_id: str,
+        args: list,
+        kwargs: dict | None = None,
+        options: dict | None = None,
+    ) -> str:
+        body = encode_dispatch_request(
+            task_name,
+            execution_id,
+            args,
+            kwargs=kwargs,
+            options=options,
+        )
+        _post_sync(self.origin, self.token, body, execution_id)
+        return execution_id
+
 
 class JobsQueueExecutionControl:
     """Synchronous revoke adapter for the existing execution-control protocol."""
@@ -123,35 +174,4 @@ class JobsQueueExecutionControl:
 
     def request_cancel(self, execution_id: str) -> None:
         body = encode_revoke_request(execution_id)
-        try:
-            import httpx
-
-            with httpx.Client(
-                timeout=_REQUEST_TIMEOUT_SECONDS,
-                follow_redirects=False,
-                trust_env=False,
-            ) as client:
-                with client.stream(
-                    "POST",
-                    f"{self.origin}{JOBS_QUEUE_PATH}",
-                    headers={
-                        "Authorization": f"Bearer {self.token}",
-                        "Content-Type": "application/json",
-                    },
-                    content=body,
-                ) as response:
-                    response_body = _bounded(
-                        response.iter_bytes(), limit=_MAX_REPLY_BYTES
-                    )
-                    status_code = response.status_code
-            reply = decode_queue_reply(response_body)
-            if (
-                status_code != 200
-                or not reply.accepted
-                or reply.execution_id != execution_id
-            ):
-                raise JobsQueueUnavailable()
-        except JobsQueueUnavailable:
-            raise
-        except Exception:
-            raise JobsQueueUnavailable() from None
+        _post_sync(self.origin, self.token, body, execution_id)
