@@ -6171,6 +6171,16 @@
       },
       "BucketsResponse": {
         "properties": {
+          "breakdown": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageUsageBreakdown"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "bucket_count": {
             "title": "Bucket Count",
             "type": "integer"
@@ -45379,6 +45389,16 @@
       },
       "StorageOverview": {
         "properties": {
+          "breakdown": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageUsageBreakdown"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "bucket_count": {
             "title": "Bucket Count",
             "type": "integer"
@@ -46121,6 +46141,159 @@
           "measured_at"
         ],
         "title": "StorageSourceUsage",
+        "type": "object"
+      },
+      "StorageUsageBreakdown": {
+        "properties": {
+          "bucket_count": {
+            "title": "Bucket Count",
+            "type": "integer"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/StorageUsageCategory"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "conflict_object_count": {
+            "title": "Conflict Object Count",
+            "type": "integer"
+          },
+          "coverage": {
+            "enum": [
+              "none",
+              "partial",
+              "complete"
+            ],
+            "title": "Coverage",
+            "type": "string"
+          },
+          "deduplication_basis": {
+            "const": "endpoint_bucket_key",
+            "default": "endpoint_bucket_key",
+            "title": "Deduplication Basis",
+            "type": "string"
+          },
+          "has_stale_data": {
+            "title": "Has Stale Data",
+            "type": "boolean"
+          },
+          "includes_versions": {
+            "default": false,
+            "title": "Includes Versions",
+            "type": "boolean"
+          },
+          "is_estimate": {
+            "default": true,
+            "title": "Is Estimate",
+            "type": "boolean"
+          },
+          "measured_bucket_count": {
+            "title": "Measured Bucket Count",
+            "type": "integer"
+          },
+          "measured_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured From"
+          },
+          "measured_through": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Through"
+          },
+          "sampled_object_count": {
+            "title": "Sampled Object Count",
+            "type": "integer"
+          },
+          "sampled_size_bytes": {
+            "title": "Sampled Size Bytes",
+            "type": "integer"
+          },
+          "scope": {
+            "const": "configured_platform_buckets_current_objects",
+            "default": "configured_platform_buckets_current_objects",
+            "title": "Scope",
+            "type": "string"
+          },
+          "source": {
+            "const": "s3_list_objects_v2_and_saved_ownership",
+            "default": "s3_list_objects_v2_and_saved_ownership",
+            "title": "Source",
+            "type": "string"
+          },
+          "total_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Size Bytes"
+          }
+        },
+        "required": [
+          "categories",
+          "sampled_size_bytes",
+          "sampled_object_count",
+          "total_size_bytes",
+          "conflict_object_count",
+          "measured_bucket_count",
+          "bucket_count",
+          "measured_from",
+          "measured_through",
+          "has_stale_data",
+          "coverage"
+        ],
+        "title": "StorageUsageBreakdown",
+        "type": "object"
+      },
+      "StorageUsageCategory": {
+        "properties": {
+          "category": {
+            "enum": [
+              "managed_original",
+              "preview_cache",
+              "training_version",
+              "temporary",
+              "other_platform",
+              "unclassified"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "object_count": {
+            "title": "Object Count",
+            "type": "integer"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category",
+          "object_count",
+          "size_bytes"
+        ],
+        "title": "StorageUsageCategory",
         "type": "object"
       },
       "StudyBudgets": {

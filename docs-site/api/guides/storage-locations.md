@@ -212,6 +212,12 @@ GET 只查询数据库，不读源文件、不 HEAD/LIST 对象、不启动扫�
 
 首次无成功值时计数和时间为 null；真空桶成功值为零。超过 24 小时或最近失败/取消为 stale，继续返回原成功值和原时间。`measured_bucket_count/bucket_count` 表示覆盖；只有全部桶都有成功值时才返回 `total_object_count/total_size_bytes` 合计，否则为 null。`physical_total_bytes`、`physical_available_bytes`、`quota_bytes` 仍为 null。`inventory_job_id/inventory_status` 指向最近盘点；任务过期清理后 ID 可为 null，但成功快照保留。
 
+响应的 `breakdown` 给出同一平台范围的对象分类快照。`categories` 固定包含 `managed_original`、`preview_cache`、`training_version`、`temporary`、`other_platform`、`unclassified`，每项含 `object_count/size_bytes`，取实际 LIST 大小。同一 endpoint／bucket／key 只计一次；跨类别归属冲突计入 `unclassified` 并增加 `conflict_object_count`。
+
+`breakdown.measured_bucket_count/bucket_count` 是拥有有效分类快照的桶覆盖；`sampled_object_count/sampled_size_bytes` 是这些桶的小计，全部桶有有效分类后 `total_size_bytes` 才非 null。`coverage=none|partial|complete` 同时表达桶缺测或未归类对象：全部桶已测但仍有未归类时为 partial，实际字节合计仍可已知。`measured_from/measured_through` 表示采样窗口，`has_stale_data` 表示含过期成功值。旧快照或旧检查点缺少分类证据时不从桶角色补造，原对象总量继续有效。旧服务响应也可能没有 `breakdown`，客户端应按未知处理。
+
+固定口径为 `scope=configured_platform_buckets_current_objects`、`source=s3_list_objects_v2_and_saved_ownership`、`deduplication_basis=endpoint_bucket_key`、`includes_versions=false`、`is_estimate=true`。分类不返回对象地址或逐对象清单，不证明内容完整性，也不授予清理权限；外部源规模不纳入。分项与桶总量属于同批对象，不得重复相加。
+
 调用方兼容说明：此 GET 已从实时统计变为快照读取；应处理 nullable 计数和新增状态，不能将未知值渲染为零或依赖每次 GET 重新盘点。ML overview.storage 使用相同结构。按桶去重并完整覆盖九用途，不能按角色重复相加。后台任务取消、崩溃与授权/配置变化不会发布未完整桶的累计数。更多口径和预算见[桶布局与快照](/dev/reference/storage-buckets#平台对象占用快照)。
 
 ## 托管原件保留预演

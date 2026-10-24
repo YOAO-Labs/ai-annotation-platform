@@ -372,6 +372,9 @@ class DatasetSourcePreview(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     __table_args__ = (
+        Index(
+            "ix_source_preview_usage_locator", func.md5(bucket), func.md5(object_key)
+        ),
         ForeignKeyConstraint(
             ["source_id", "path_digest"],
             ["dataset_source_items.source_id", "dataset_source_items.path_digest"],

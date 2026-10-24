@@ -1,5 +1,9 @@
 import { apiClient } from "./client";
-import type { StorageBindingOut, StorageProbeOut } from "./generated/types.gen";
+import type {
+  StorageBindingOut,
+  StorageProbeOut,
+  StorageUsageBreakdown,
+} from "./generated/types.gen";
 
 export interface StorageHealthResponse {
   status: string;
@@ -36,6 +40,7 @@ export interface BucketsResponse {
   inventory_job_id: string | null;
   inventory_status: string | null;
   location_id: string;
+  breakdown?: StorageUsageBreakdown | null;
 }
 
 export type VideoAssetKind = "probe" | "poster" | "frame_timetable" | "chunk" | "frame";

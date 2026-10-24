@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { listStyles } from "@/components/ui/listStyles";
 import { ManagedOriginalReclamationPanel } from "./ManagedOriginalReclamationPanel";
+import { StorageUsageBreakdown } from "./StorageUsageBreakdown";
 
 const ROLES: Record<string, string> = {
   annotations: "标注资产",
@@ -23,6 +24,7 @@ const ROLES: Record<string, string> = {
 };
 const ERRORS: Record<string, string> = {
   object_listing_failed: "对象列举失败",
+  object_classification_failed: "对象分类失败",
   inventory_budget_exceeded: "达到盘点预算",
   configuration_changed: "存储配置已变化",
   access_revoked: "执行权限已失效",
@@ -169,6 +171,7 @@ function StorageUsageOwner() {
                 )}
               </div>
             )}
+            <StorageUsageBreakdown value={data.breakdown} />
             <details className="border-t border-border">
               <summary ref={summaryRef} className="cursor-pointer px-4 py-3 text-sm font-medium">
                 查看各桶统计与时间

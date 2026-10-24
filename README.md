@@ -50,7 +50,7 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 存储连接编辑使用修订号防止旧表单覆盖新配置；参数或凭据变更先验证认证与目录列举，失败保留原配置，详见[连接管理](./docs-site/user-guide/datasets/storage-connections.md)。
 
-存储管理的[平台对象占用](./docs-site/user-guide/datasets/storage-connections.md#平台对象占用与后台盘点)通过后台分页盘点九种用途并按实际桶去重；刷新页面只读取持久快照，失败或取消保留上次成功值与时间，统计对象字节不代表底层磁盘容量。
+存储管理的[平台对象占用](./docs-site/user-guide/datasets/storage-connections.md#平台对象占用与后台盘点)通过后台分页盘点九种用途并按实际桶去重，按保存归属展示原件、预览与缓存、训练版本文件、临时产物等分项，无法证明归属的字节单列。刷新页面只读取持久快照，失败或取消保留上次成功值与时间；外部源索引规模独立计量，对象字节不代表底层磁盘容量。
 
 维护者可运行[一致备份与隔离恢复演练](./docs-site/ops/deploy/storage-recovery.md)，在两套随机资源中验证数据库、九用途对象、独立密钥及冻结内容。源销毁后再恢复并对账，原人工环境保留；结果只说明本地合成演练。
 

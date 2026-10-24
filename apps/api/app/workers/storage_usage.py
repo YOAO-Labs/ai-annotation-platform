@@ -19,6 +19,7 @@ from app.db.models.storage_usage import (
     StorageUsageSnapshot as Snapshot,
 )
 from app.services import async_job as jobs, storage_usage as svc
+from app.services import storage_usage_categories as categories
 from app.workers.celery_app import celery_app
 from app.workers.dataset_quality import _session
 
@@ -52,9 +53,22 @@ def list_page(name, token):
     ):
         raise ValueError("invalid_inventory_page")
     sizes = [obj["Size"] for obj in objects]
-    if any(not isinstance(size, int) or size < 0 for size in sizes):
+    keys = [obj["Key"] for obj in objects]
+    if (
+        any(type(size) is not int or size < 0 for size in sizes)
+        or any(
+            not isinstance(key, str) or not key or len(key.encode()) > 1024
+            for key in keys
+        )
+        or len(set(keys)) != len(keys)
+    ):
         raise ValueError("invalid_inventory_page")
-    return {"count": len(objects), "bytes": sum(sizes), "token": next_token}
+    return {
+        "count": len(objects),
+        "bytes": sum(sizes),
+        "token": next_token,
+        "objects": [{"key": key, "size": size} for key, size in zip(keys, sizes)],
+    }
 
 
 def _publish(job_id, task_id):
@@ -112,7 +126,7 @@ async def process_page(db, job_id, task_id, generation):
     inventory.checkpoint = checkpoint
     await db.commit()
     # No database lock is held while waiting for the provider. Publication is fenced again.
-    error, page = None, None
+    error, page, page_categories = None, None, None
     if checkpoint.get("pages", 0) >= svc.MAX_PAGES:
         error = "inventory_budget_exceeded"
     else:
@@ -122,6 +136,14 @@ async def process_page(db, job_id, task_id, generation):
             )
         except Exception:
             error = "object_listing_failed"
+        if page is not None and "objects" in page:
+            try:
+                page_categories = await categories.classify(
+                    db, target["name"], page["objects"]
+                )
+            except Exception:
+                await db.rollback()
+                error = "object_classification_failed"
     inventory = await svc.fenced(db, job_id, task_id, generation)
     if inventory is None:
         await db.rollback()
@@ -138,6 +160,12 @@ async def process_page(db, job_id, task_id, generation):
             "pages": checkpoint.get("pages", 0) + 1,
             "started_at": checkpoint.get("started_at") or svc.now().isoformat(),
             "token": page["token"],
+            "category_totals": categories.merge(
+                checkpoint.get("category_totals")
+                if checkpoint.get("pages", 0)
+                else categories.empty(),
+                page_categories,
+            ),
         }
         if not page["token"]:
             from datetime import datetime
@@ -150,6 +178,12 @@ async def process_page(db, job_id, task_id, generation):
                 checkpoint["started_at"]
             )
             row.measured_at = svc.now()
+            row.category_totals = categories.stamp(
+                checkpoint["category_totals"],
+                row.object_count,
+                row.total_size_bytes,
+                row.measured_at,
+            )
             row.attempt_status, row.error_code = "completed", None
             inventory.success_count += 1
     if error or not page["token"]:

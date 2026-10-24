@@ -130,7 +130,12 @@ def test_provider_page_counts_directory_markers_and_rejects_loop(monkeypatch):
         "IsTruncated": False,
     }
     monkeypatch.setattr(worker, "_client", lambda: client)
-    assert worker.list_page("bucket", None) == {"count": 2, "bytes": 9, "token": None}
+    assert worker.list_page("bucket", None) == {
+        "count": 2,
+        "bytes": 9,
+        "token": None,
+        "objects": [{"key": "folder/", "size": 9}, {"key": "empty/", "size": 0}],
+    }
     client.list_objects_v2.assert_called_once_with(Bucket="bucket", MaxKeys=1000)
     client.list_objects_v2.return_value = {
         "IsTruncated": True,

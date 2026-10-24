@@ -16,6 +16,7 @@ class StorageUsageSnapshot(Base):
     scope_key: Mapped[str] = mapped_column(String(64), primary_key=True)
     object_count: Mapped[int | None] = mapped_column(BigInteger)
     total_size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    category_totals: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     measurement_started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )

@@ -27,6 +27,7 @@ from app.services.dataset_assets import (
 )
 from app.services.dataset_content import key_authority
 from app.services.storage import storage_service
+from app.services.storage_usage_categories import summarize
 
 ACTIVE = {"pending", "running"}
 LEASE_SECONDS = 120
@@ -119,6 +120,14 @@ async def read_usage(db):
         location_id=LEGACY_LOCATION_ID,
         inventory_job_id=inventory.async_job_id if inventory else None,
         inventory_status=inventory.status if inventory else None,
+        breakdown=summarize(
+            [
+                (rows[target["key"]], item.status)
+                for target, item in zip(scope, items)
+                if target["key"] in rows
+            ],
+            len(scope),
+        ),
     )
 
 

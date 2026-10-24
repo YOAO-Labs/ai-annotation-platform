@@ -9,6 +9,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     String,
     Text,
     UniqueConstraint,
@@ -115,6 +116,9 @@ class DatasetAssetLocation(Base):
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
+        Index(
+            "ix_asset_location_usage_locator", func.md5(bucket), func.md5(object_key)
+        ),
         UniqueConstraint(
             "asset_id",
             "location_id",
