@@ -303,7 +303,7 @@ async def test_undo_gc_redo_and_reference_retention(
         .values(expires_at=datetime.now(timezone.utc) + timedelta(days=1))
     )
     await protect_mask_slice_versions(
-        db_session, operation.report, receipt.restore_expires_at
+        db_session, task.id, operation.report, receipt.restore_expires_at
     )
     retained = (
         await db_session.execute(
