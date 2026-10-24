@@ -6,6 +6,7 @@ import asyncio
 from datetime import UTC, datetime
 import json
 import os
+from pathlib import Path
 import secrets
 import subprocess
 import time
@@ -537,6 +538,7 @@ async def test_cold_notifications_owner_behind_api_bridge(
                             False,
                         ]
                         raw_frames = []
+                        legacy_ids = []
                         for index, payload in enumerate(payloads):
                             row = await _insert_notification(
                                 seed,
@@ -551,6 +553,7 @@ async def test_cold_notifications_owner_behind_api_bridge(
                             received = await asyncio.wait_for(socket.recv(), 5)
                             assert received.encode("utf-8") == frame_bytes
                             raw_frames.append(frame_bytes)
+                            legacy_ids.append(row.id)
                         node_peer = (
                             ROOT
                             / "apps/notifications/conformance/node/realtime_event_provider.mjs"
@@ -714,6 +717,99 @@ async def test_cold_notifications_owner_behind_api_bridge(
                             for item in inbox_response.json()["items"]
                         )
 
+                        import sys
+
+                        sdk_source = (ROOT / "packages/python-sdk/src").resolve()
+                        sdk_path = str(sdk_source)
+                        previous_path_index = (
+                            sys.path.index(sdk_path) if sdk_path in sys.path else None
+                        )
+                        if previous_path_index is not None:
+                            sys.path.pop(previous_path_index)
+                        previous_sdk_modules = {
+                            name: module
+                            for name, module in tuple(sys.modules.items())
+                            if name == "ai_annotation"
+                            or name.startswith("ai_annotation.")
+                        }
+                        for name in previous_sdk_modules:
+                            sys.modules.pop(name, None)
+                        sys.path.insert(0, sdk_path)
+                        try:
+                            import ai_annotation
+                            from ai_annotation.notification_models import (
+                                Notification as SdkNotification,
+                            )
+                            from ai_annotation.stream_models import (
+                                NotificationSyncEvent as SdkNotificationSyncEvent,
+                            )
+
+                            assert (
+                                Path(ai_annotation.__file__)
+                                .resolve()
+                                .is_relative_to(sdk_source)
+                            )
+                            with ai_annotation.Client(
+                                base_url=stack.api_origin,
+                                api_key=token,
+                                timeout=10,
+                            ) as sdk:
+                                sdk_page = sdk.notifications.list(limit=100)
+                                sdk_items = {item.id: item for item in sdk_page.items}
+                                assert durable.id in sdk_items
+                                assert sdk_items[durable.id].payload == {
+                                    "offline": True
+                                }
+                                for notification_id, payload in zip(
+                                    legacy_ids, payloads, strict=True
+                                ):
+                                    assert sdk_items[notification_id].payload == payload
+
+                                async with sdk.streams.notifications() as sdk_events:
+                                    await _wait_for_subscribers(
+                                        redis_publisher, channel, 1
+                                    )
+                                    assert (
+                                        await redis_publisher.publish(
+                                            channel, raw_frames[0]
+                                        )
+                                        == 1
+                                    )
+                                    sdk_notification = await asyncio.wait_for(
+                                        anext(sdk_events), 5
+                                    )
+                                    assert isinstance(sdk_notification, SdkNotification)
+                                    assert sdk_notification.id == legacy_ids[0]
+                                    assert sdk_notification.payload == payloads[0]
+
+                                    assert (
+                                        await redis_publisher.publish(
+                                            channel,
+                                            b'{"type":"notifications.sync","marker":"sdk-stream"}',
+                                        )
+                                        == 1
+                                    )
+                                    sdk_sync = await asyncio.wait_for(
+                                        anext(sdk_events), 5
+                                    )
+                                    assert isinstance(
+                                        sdk_sync, SdkNotificationSyncEvent
+                                    )
+                                    assert sdk_sync.marker == "sdk-stream"
+                            await _wait_for_subscribers(redis_publisher, channel, 0)
+                        finally:
+                            for name in tuple(sys.modules):
+                                if name == "ai_annotation" or name.startswith(
+                                    "ai_annotation."
+                                ):
+                                    sys.modules.pop(name, None)
+                            sys.modules.update(previous_sdk_modules)
+                            sys.path.remove(sdk_path)
+                            if previous_path_index is not None:
+                                sys.path.insert(
+                                    min(previous_path_index, len(sys.path)), sdk_path
+                                )
+
                         socket = await websockets.connect(
                             _websocket_url(stack.api_origin, token),
                             proxy=None,
@@ -775,6 +871,11 @@ async def test_cold_notifications_owner_behind_api_bridge(
                             "precommit_event_delivered_after_commit": True,
                             "current_scope_revocation_and_role_drift": True,
                             "owner_restart_durable_inbox_reconciled": True,
+                            "sdk_source_import": str(
+                                sdk_source.relative_to(ROOT.resolve())
+                            ),
+                            "sdk_list_preserves_legacy_payloads": len(payloads),
+                            "sdk_stream_parses_notification_and_sync": True,
                             "heartbeat_elapsed_seconds": round(heartbeat_elapsed, 3),
                             "disabled_actor_rejected": True,
                         }
