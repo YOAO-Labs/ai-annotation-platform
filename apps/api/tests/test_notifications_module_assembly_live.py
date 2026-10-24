@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
+from pathlib import Path
 import secrets
+import subprocess
 from types import SimpleNamespace
 import uuid
 
@@ -97,6 +100,59 @@ async def _assert_no_published(pubsub, *, timeout=0.5):
             timeout=min(0.1, max(0, deadline - asyncio.get_running_loop().time())),
         )
         assert not (message and message.get("type") == "message")
+
+
+async def _publish_from_node_consumer(
+    stack, api_container_id, token, request, *, expected_published
+):
+    raw_request = json.dumps(request, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )
+    provider = (
+        Path(__file__).resolve().parents[3]
+        / "apps/notifications/conformance/node/publication_provider.mjs"
+    )
+    environment = {
+        name: os.environ[name]
+        for name in (
+            "PATH",
+            "HOME",
+            "DOCKER_CONFIG",
+            "DOCKER_CONTEXT",
+            "DOCKER_HOST",
+            "DOCKER_TLS_VERIFY",
+            "DOCKER_CERT_PATH",
+            "XDG_CONFIG_HOME",
+        )
+        if name in os.environ
+    }
+    environment.update(
+        {
+            "AAP_PUBLICATION_PEER_CONTAINER": api_container_id,
+            "AAP_PUBLICATION_PEER_PROJECT": stack.project_name,
+            "AAP_PUBLICATION_PEER_ORIGIN": (
+                "http://identity-notification-publisher:8181"
+            ),
+            "AAP_PUBLICATION_PEER_TOKEN": token,
+            "AAP_PUBLICATION_PEER_EXPECTED": str(expected_published).lower(),
+        }
+    )
+    result = await asyncio.to_thread(
+        subprocess.run,
+        ["node", str(provider), "--container-http"],
+        input=raw_request,
+        capture_output=True,
+        timeout=45,
+        check=False,
+        env=environment,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+    response = json.loads(result.stdout)
+    assert response["protocol"] == "aap-notifications-immediate-publication/v1"
+    assert response["published"] is expected_published
+    assert response["request_sha256"] == hashlib.sha256(raw_request).hexdigest()
+    assert response["transport"] == "owned-container HTTP byte bridge, no owner SDK"
+    return response
 
 
 async def _feedback_issue(client, *, project_id, task_id, body):
@@ -470,7 +526,69 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         max_size=None,
                     )
                     await _wait_for_subscribers(publisher_admin, channel, 2)
+                    api_container_id = containers["identity-api"]["Id"]
                     try:
+                        node_sync = {
+                            "type": "notifications.sync",
+                            "reason": "node_peer",
+                            "native": [9007199254740993, None, False, "中文"],
+                        }
+                        positive_request = {
+                            "schema": "aap-notifications-immediate-publication/v1",
+                            "user_id": str(actor.id),
+                            "authorization": None,
+                            "message": node_sync,
+                        }
+                        positive_result = await _publish_from_node_consumer(
+                            stack,
+                            api_container_id,
+                            publication_token,
+                            positive_request,
+                            expected_published=True,
+                        )
+                        observer_event = await _next_published(owner_subscriber)
+                        socket_event = json.loads(
+                            await asyncio.wait_for(socket.recv(), 5)
+                        )
+                        assert positive_result["published"] is True
+                        assert observer_event == node_sync
+                        assert socket_event == node_sync
+                        assert observer_event["native"][0] == 9007199254740993
+
+                        denied_id = uuid.uuid4()
+                        denied_request = {
+                            "schema": "aap-notifications-immediate-publication/v1",
+                            "user_id": str(actor.id),
+                            "authorization": {
+                                "restricted": True,
+                                "project_id": None,
+                                "export_required": False,
+                                "member": False,
+                                "reviewer": False,
+                                "owner": False,
+                                "super_admin": False,
+                            },
+                            "message": {
+                                "id": str(denied_id),
+                                "type": "feedback.reply_created",
+                                "target_type": "feedback_reply",
+                                "target_id": str(uuid.uuid4()),
+                                "payload": {"reply_id": str(denied_id)},
+                                "created_at": datetime.now(timezone.utc).isoformat(),
+                            },
+                        }
+                        denied_result = await _publish_from_node_consumer(
+                            stack,
+                            api_container_id,
+                            publication_token,
+                            denied_request,
+                            expected_published=False,
+                        )
+                        assert denied_result["published"] is False
+                        await _assert_no_published(owner_subscriber)
+                        with pytest.raises(TimeoutError):
+                            await asyncio.wait_for(socket.recv(), 0.5)
+
                         preferences = await _request(
                             api, "GET", "/api/v1/notification-preferences"
                         )
@@ -980,6 +1098,8 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                         "source_revision"
                                     ],
                                     "api_same_origin_socket_bridge": True,
+                                    "node_consumer_publication_byte_preserved": True,
+                                    "node_consumer_scope_denial_suppressed": True,
                                     "ordinary_api_publication": True,
                                     "preference_read_and_sync": True,
                                     "notification_read_delete_and_sync": True,
