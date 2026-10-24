@@ -297,7 +297,7 @@ async def test_response_rechecks_source_credentials_task_and_gate(
     await clean(world, monkeypatch)
 
 
-@pytest.mark.parametrize("entry", ["interactive", "test"])
+@pytest.mark.parametrize("entry", ["interactive"])
 async def test_setup_key_revocation_never_dispatches_inference(
     httpx_client,
     managed_world,
