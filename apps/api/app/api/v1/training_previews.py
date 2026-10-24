@@ -85,6 +85,31 @@ async def create(
     return result
 
 
+@router.post(
+    "/{preview_id}/storage-pin",
+    response_model=TrainingPreviewOut,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def pin_legacy_preview_storage(
+    preview_id: uuid.UUID,
+    request: Request,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.training_auxiliary_storage_adoption import pin
+
+    preview = await pin(
+        db,
+        "training-preview",
+        preview_id,
+        user,
+        project,
+        getattr(request.state, "api_key_id", None),
+    )
+    return await service.output(preview, include_report=False)
+
+
 @router.get("/{preview_id}", response_model=TrainingPreviewOut)
 async def get(
     preview_id: uuid.UUID,

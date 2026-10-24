@@ -76867,6 +76867,64 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/active-learning-rounds/{round_id}/storage-pin": {
+      "post": {
+        "operationId": "pin_legacy_round_storage_api_v1_projects__project_id__active_learning_rounds__round_id__storage_pin_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "round_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Round Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoundOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Pin Legacy Round Storage",
+        "tags": [
+          "active-learning"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/active-learning-rounds:preview": {
       "post": {
         "operationId": "preview_api_v1_projects__project_id__active_learning_rounds_preview_post",
@@ -85842,6 +85900,64 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/sample-evaluations/{run_id}/storage-pin": {
+      "post": {
+        "operationId": "pin_legacy_evaluation_storage_api_v1_projects__project_id__sample_evaluations__run_id__storage_pin_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SampleEvaluationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Pin Legacy Evaluation Storage",
+        "tags": [
+          "sample-evaluations"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/task-datasets": {
       "get": {
         "operationId": "list_project_task_datasets_api_v1_projects__project_id__task_datasets_get",
@@ -88795,6 +88911,64 @@
           }
         ],
         "summary": "Image",
+        "tags": [
+          "training-previews"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/training-previews/{preview_id}/storage-pin": {
+      "post": {
+        "operationId": "pin_legacy_preview_storage_api_v1_projects__project_id__training_previews__preview_id__storage_pin_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "preview_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Preview Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingPreviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Pin Legacy Preview Storage",
         "tags": [
           "training-previews"
         ]

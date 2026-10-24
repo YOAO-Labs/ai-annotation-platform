@@ -9,6 +9,7 @@
 
 | Method | Path |
 |---|---|
+| POST | `/{round_id}/storage-pin` |
 | GET | `/pool` |
 | POST | `:preview` |
 | GET | `/{round_id}` |
@@ -616,6 +617,7 @@
 
 | Method | Path |
 |---|---|
+| POST | `/{run_id}/storage-pin` |
 | GET | `/qualification` |
 | GET | `/compare` |
 | GET | `/{evaluation_id}` |
@@ -940,6 +942,7 @@
 | Method | Path |
 |---|---|
 | GET | `/capabilities` |
+| POST | `/{preview_id}/storage-pin` |
 | GET | `/{preview_id}` |
 | POST | `/{preview_id}/cancel` |
 | DELETE | `/{preview_id}` |
@@ -1035,4 +1038,4 @@
 
 ---
 
-_共 93 模块 / 598 路由_
+_共 93 模块 / 601 路由_

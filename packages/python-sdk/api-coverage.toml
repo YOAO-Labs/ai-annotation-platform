@@ -247,6 +247,9 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/projects/{project_id}/training-datasets/{version_id}/retry" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/projects/{project_id}/training-datasets/{version_id}/storage-pin" = { status = "excluded", reason = "maintenance-risk" }
 "POST /api/v1/projects/{project_id}/training-runs/{run_id}/storage-pin" = { status = "excluded", reason = "maintenance-risk" }
+"POST /api/v1/projects/{project_id}/training-previews/{preview_id}/storage-pin" = { status = "excluded", reason = "maintenance-risk" }
+"POST /api/v1/projects/{project_id}/sample-evaluations/{run_id}/storage-pin" = { status = "excluded", reason = "maintenance-risk" }
+"POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/storage-pin" = { status = "excluded", reason = "maintenance-risk" }
 "GET /api/v1/projects/{project_id}/training-datasets/{version_id}/download" = { status = "excluded", reason = "web-only" }
 "DELETE /api/v1/projects/{project_id}/training-datasets/{version_id}" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/projects/{project_id}/training-datasets/{version_id}/insights" = { status = "excluded", reason = "web-only" }

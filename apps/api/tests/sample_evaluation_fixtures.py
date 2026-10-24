@@ -31,6 +31,11 @@ class Body(io.BytesIO):
 
 class Objects:
     def __init__(self):
+        from app.config import settings
+
+        self.meta = SimpleNamespace(
+            endpoint_url=f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+        )
         self.objects = {}
         self.deleted = []
 
@@ -220,6 +225,9 @@ async def evaluation(db, owner, world):
     )
     db.add(run)
     await db.flush()
+    from app.services.sample_evaluation_storage import allocate
+
+    await allocate(db, run)
     for frozen in spec["samples"]:
         db.add(
             Sample(

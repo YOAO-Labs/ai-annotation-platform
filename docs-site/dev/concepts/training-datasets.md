@@ -389,6 +389,12 @@ API 预检逐项执行有界严格读取并及时关闭临时快照，报告引�
 
 #### 存储桶规划与前缀布局
 
+训练数据版本、实验、预览、逐样本评估和主动学习轮次分别持有不可变内部 `storage_ref`。共享 owner 领域校验实际 endpoint、物理身份、purpose 与规范根前缀；薄适配器再约束预览文件名、评估 attempt+内容 SHA、选样 ordinal。只有新建事务显式分配，重试／重放不为旧 NULL 自动补齐。输出与输入数据版本、来源模型的 owner 独立，冻结 spec、内容摘要与执行器 wire 不携带物理信息。
+
+辅助输出的历史接管复用有界 Reader、共享进程容量和耐久 `storage_access` permit：终态及封存代际围栏、预览全部 CPU 租约与签名 PUT 期限通过后，仅从持久绑定的当前副本核验。完整条件读取与读后清单／HEAD重核完成，再复核权限／Key、全部父子行指纹、绑定及 Gate 代次。取消等物理关闭；未知关闭不释放责任。旧评估报告的独立发布回执与当前共享 Sample 证据分开，不能重写旧语义状态来通过接管。
+
+Preview 原行、EvaluationRun 的删除意图行分别承担耐久清理责任；I/O 前释放 CPU／业务锁，删除失败或未知归属保留原行。主动学习只保留现有报告、图片与引用，没有物理删除入口。受控离线恢复对五类 owner 只映射 bucket／storage_identity，其他嵌套事实不变；完整用途切换仍未开放。
+
 `MINIO_TRAINING_BUCKET` 环境变量默认配置为 `training`，存储桶内部禁止配置自动过期删除，共包含五类受管对象前缀：
 
 - **数据版本素材**：`projects/{project_id}/datasets/{version_id}/media/`

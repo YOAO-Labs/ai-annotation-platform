@@ -184,6 +184,9 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         from app.db.models.training_storage_deletion import TrainingStorageDeletion
         from app.db.models.training_dataset import TrainingDatasetVersion
         from app.db.models.training_run import TrainingRun
+        from app.db.models.training_preview import TrainingPreview
+        from app.db.models.sample_evaluation import SampleEvaluationRun
+        from app.db.models.active_learning import ActiveLearningRound
         from app.services.dataset_assets import LEGACY_LOCATION_ID
 
         self.models = SimpleNamespace(
@@ -197,6 +200,9 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             retirement=ManagedOriginalRetirement,
             version=TrainingDatasetVersion,
             run=TrainingRun,
+            training_preview=TrainingPreview,
+            evaluation=SampleEvaluationRun,
+            learning=ActiveLearningRound,
         )
         self.source, self.target, self.endpoint = (
             roles("source"),
@@ -317,6 +323,32 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 )
             ],
         }
+        for model, purpose, namespace, identifier in [
+            (TrainingPreview, "training-preview", "previews", uuid.UUID(int=15)),
+            (
+                SampleEvaluationRun,
+                "sample-evaluation",
+                "sample-evaluations",
+                uuid.UUID(int=16),
+            ),
+            (
+                ActiveLearningRound,
+                "active-learning",
+                "active-learning",
+                uuid.UUID(int=17),
+            ),
+        ]:
+            self.rows[model] = [
+                SimpleNamespace(
+                    id=identifier,
+                    project_id=project_id,
+                    storage_ref={
+                        **training_ref,
+                        "purpose": purpose,
+                        "prefix": f"projects/{project_id}/{namespace}/{identifier}/",
+                    },
+                )
+            ]
         self.db = SimpleNamespace(
             get=AsyncMock(
                 return_value=SimpleNamespace(
@@ -350,6 +382,9 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 "managed_original_retirements",
                 "training_dataset_versions",
                 "training_runs",
+                "training_previews",
+                "sample_evaluation_runs",
+                "active_learning_rounds",
             },
         )
         target = storage_view(self.endpoint, self.target)
@@ -384,7 +419,14 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unknown_training_owner_is_not_adopted_or_mapped(self):
         baseline = deepcopy(self.rows)
-        for model in [self.models.version, self.models.run, self.models.deletion]:
+        for model in [
+            self.models.version,
+            self.models.run,
+            self.models.deletion,
+            self.models.training_preview,
+            self.models.evaluation,
+            self.models.learning,
+        ]:
             for index in range(len(baseline[model])):
                 for field, value in [
                     ("bucket", "foreign"),
@@ -427,7 +469,14 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
     def test_protected_training_ref_excludes_only_physical_subfields(self):
         from worktree_recovery_fixture import digest, protected_row
 
-        for model in [self.models.version, self.models.run, self.models.deletion]:
+        for model in [
+            self.models.version,
+            self.models.run,
+            self.models.deletion,
+            self.models.training_preview,
+            self.models.evaluation,
+            self.models.learning,
+        ]:
             table = model.__tablename__
             for row in self.rows[model]:
                 original = {"id": str(row.id), "storage_ref": row.storage_ref}

@@ -36,6 +36,29 @@ router = APIRouter(
 WRITE = [Depends(require_scopes("datasets:write"))]
 
 
+@router.post(
+    "/{run_id}/storage-pin", response_model=SampleEvaluationOut, dependencies=WRITE
+)
+async def pin_legacy_evaluation_storage(
+    run_id: uuid.UUID,
+    request: Request,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.training_auxiliary_storage_adoption import pin
+
+    run = await pin(
+        db,
+        "sample-evaluation",
+        run_id,
+        user,
+        project,
+        getattr(request.state, "api_key_id", None),
+    )
+    return await service.output(db, run)
+
+
 async def attempt_for(db, run, attempt_id):
     attempt = await db.get(Attempt, attempt_id)
     if not attempt or attempt.run_id != run.id:

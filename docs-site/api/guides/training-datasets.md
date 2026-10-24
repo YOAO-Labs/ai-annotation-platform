@@ -315,7 +315,7 @@ POST /api/v1/projects/{project_id}/training-runs/{run_id}/storage-pin
 
 每次最多核验 10000 次执行、100000 个对象、实际读取 64 GiB，协作截止 600 秒；与数据版本核验共用每个 API 进程的一个名额，忙时返回 `429`。条件读取后复核完整清单与对象观测；等待实际收尾后，最终再次比较当前权限与 API Key、实验配置与全部执行清单、候选绑定和位置维护代次，一致才原子固定归属。任何变化、预算不足或关闭不确定都不保存归属；未确认收尾时保留责任与占位。
 
-固定的是当前保留副本的核验事实，不证明历史位置、独占所有权或未来不可变。新删除意图复制实验归属；旧空归属的实验清理意图拒绝物理删除，保持待核对。该能力不开放整个 training 用途切换；增强预览、逐样本评估及主动学习自身输出仍待独立处理。
+固定的是当前保留副本的核验事实，不证明历史位置、独占所有权或未来不可变。新删除意图复制实验归属；旧空归属的实验清理意图拒绝物理删除，保持待核对。该能力不开放整个 training 用途切换；辅助输出使用下文的独立归属。
 
 ### 执行观测、日志与恢复
 
@@ -372,6 +372,7 @@ POST /api/v1/projects/{project_id}/training-runs/{run_id}/storage-pin
 | GET    | `/capabilities`                | 当前 CPU 协议、镜像、在线／忙闲状态与固定资源策略              |
 | POST   | 空                             | 创建冻结预览，返回 `202`；相同主体、请求 UUID 和内容可精确重试 |
 | GET    | `/{preview_id}`                | 当前状态与经字节验证的完整报告                                 |
+| POST   | `/{preview_id}/storage-pin`    | 显式核验并固定历史终态预览的当前保留副本                       |
 | POST   | `/{preview_id}/cancel`         | 排队立即取消；运行中等待进程退出确认                           |
 | DELETE | `/{preview_id}`                | 立即过期并隐藏，保留上传窗口关闭前的清理墓碑                   |
 | GET    | `/{preview_id}/images/{index}` | 读取 0–3 号经完整校验的 PNG；认证私有流、禁止缓存              |
@@ -383,6 +384,28 @@ POST /api/v1/projects/{project_id}/training-runs/{run_id}/storage-pin
 每次报告读取核验实际 JSON 大小、SHA 和预览／输入元数据，图片另核验完整字节、PNG 格式及尺寸。纯解析缓存不代替存储验证或授权。跨项目或不存在返回 `404`，未完成／能力不匹配返回 `409`，过期图片返回 `410`，损坏或不符证据返回 `422`。结果 24 小时过期；清理等待最后一次 60 秒 PUT 授权关闭，期间保留数据引用。
 
 执行器通过原有 `X-Training-Executor-Token` 调用 `/api/v1/internal/training/previews/claim`、`/{preview_id}/heartbeat`、`uploads` 和 `finish`。claim 的 `purpose` 固定为 `augmentation-preview`，资源为节点的 `augmentation-preview/cpu-0`；协议与策略摘要及镜像必须匹配。回报以原 claim 的执行器、boot 和 CPU 租约凭据 fencing；`finish.process_exited` 必须为 true。失联、取消和过期不直接释放未知进程的租约，撤权后允许有效 fence 确认停止，但禁止发布成功。
+
+### 辅助产物归属与历史核验
+
+新预览、逐样本评估和主动学习轮次分别在创建事务固定自己的输出根前缀；所有尝试及重试复用原归属。它们与输入训练版本、来源模型及原始候选各自独立。报告读取（包括解析缓存命中）、预览 PNG、主动学习 PNG 复用或重建及候选报告清理，都先检查保存端点、桶和准确的文件／attempt／ordinal。未知归属在物理 I/O 前返回 `409`；主动学习不会先读原图补造副本。归属不进入公开响应、冻结 spec 或执行器请求。
+
+历史归属为空时仍可读取元数据、取消并按准确 fence 确认失败或退出；成功预览的普通详情返回 `report=null`，显式图片和报告读取仍拒绝。主动学习的 DB 报告和人工决定不依赖图片归属。新执行、上传、成功发布、评估报告读取、图片读取及物理删除须先固定归属，普通 GET 和重试不自动接管。
+
+以下操作无请求体，成功返回 `200` 与现有资源摘要，要求当前项目管理权及 `annotations:read`、`datasets:read`、`datasets:write`：
+
+```text
+POST /api/v1/projects/{project_id}/training-previews/{preview_id}/storage-pin
+POST /api/v1/projects/{project_id}/sample-evaluations/{run_id}/storage-pin
+POST /api/v1/projects/{project_id}/active-learning-rounds/{round_id}/storage-pin
+```
+
+预览须为成功、失败、取消或过期，且没有任何 CPU 租约引用，最后签名 PUT 已到期。评估／轮次及当前尝试须终态；历史尝试只接受终态，或非当前、更旧 generation、claim 已清空且 completed_at 已保存的封存 `lost`。正常评估终态残留 claim 不算活动任务。这是 DB 发布围栏的证明，不证明旧线程或远程进程物理关闭，部署方仍须确认停写窗口。
+
+候选只取已持久登记的 training 绑定。全前缀中的每个实际对象须由独立上传／发布回执或冻结派生 SHA 解释，核验完整条件读取、SHA、独立大小（存在时）、metadata、PNG 尺寸及语义。预览名称限于该次冻结 count；已发布对象缺失、未知额外对象或读中变化均拒绝。失败／取消的未发布对象可缺失，存在则核验；主动学习已保存 media、请求、证据或成功候选要求 PNG 存在，其余冻结成员的合法残留 PNG 也可核验。旧评估报告凭独立发布回执及冻结身份核对；当前报告另核对当前 Sample 证据，不把重试后共享行当作旧尝试的证据。
+
+沿用共享的每进程一个核验名额、100000 对象、64 GiB 实际读取和 600 秒协作截止；评估／选样最多 10000 次尝试。预览自身上限为 4 张各 24 MiB PNG 和 8 MiB 报告。取消等待真实收尾，关闭不确定则保留占位与耐久访问记录；发布前再次比较权限／Key、全部记录、绑定和维护代次。已有可解析 pin 幂等返回原事实，不再次读取对象。
+
+预览原行保留至 CPU 与 PUT 窗口结束、保存前缀删除成功；评估的 `deletion_requested_at` 原行保留至保存前缀清理成功，并继续检查主动学习引用。未知归属不执行物理删除，单项失败保留待重试。主动学习没有新增删除入口。证据只说明当前保留副本，不代表历史位置、独占权限、真实框架执行资格或整个用途可切换。
 
 ## 项目训练配方与克隆
 

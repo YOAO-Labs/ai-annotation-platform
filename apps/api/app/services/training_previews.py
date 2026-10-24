@@ -792,10 +792,15 @@ async def cancel(db, preview):
         await jobs.request_cancel(db, preview.async_job_id)
 
 
-async def output(preview):
+async def output(preview, *, include_report=True):
     expired = preview.expires_at <= now()
     report = None
-    if preview.status == "succeeded" and not expired:
+    if (
+        include_report
+        and preview.storage_ref is not None
+        and preview.status == "succeeded"
+        and not expired
+    ):
         try:
             report = await asyncio.to_thread(read_report, preview)
         except HTTPException:

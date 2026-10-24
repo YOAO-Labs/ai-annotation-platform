@@ -44,7 +44,14 @@ def protected_row(table, row):
     }
     if (
         table
-        in {"training_dataset_versions", "training_runs", "training_storage_deletions"}
+        in {
+            "training_dataset_versions",
+            "training_runs",
+            "training_storage_deletions",
+            "training_previews",
+            "sample_evaluation_runs",
+            "active_learning_rounds",
+        }
         and result.get("storage_ref") is not None
     ):
         result["storage_ref"] = {
@@ -560,6 +567,19 @@ async def seed(db, external: Path):
             Key=run_deletion_ref["prefix"] + f"attempts/{uuid.uuid4()}/last.pt",
             Body=b"retained run output until reviewed",
         )
+        from worktree_recovery_auxiliary import seed_auxiliary
+
+        await seed_auxiliary(
+            db,
+            project=project,
+            actor=actor,
+            dataset=ready,
+            run=run,
+            attempt=attempt,
+            png=green,
+            now=now,
+            storage=storage,
+        )
         db.add(
             StorageConnection(
                 name="Synthetic recovery secret",
@@ -833,6 +853,9 @@ async def verify_application(db, external: Path):
             run_artifact_count += 1
         run_count += 1
     assert (run_count, run_artifact_count) == (1, 1)
+    from worktree_recovery_auxiliary import verify_auxiliary
+
+    auxiliary = await verify_auxiliary(db, storage=storage)
     ready_count, partial_count, media_count = 0, 0, 0
     sys.path.insert(0, str(ROOT / "apps/training-executor"))
     from training_executor.adapters import validate_dataset
@@ -918,6 +941,7 @@ async def verify_application(db, external: Path):
     assert (ready_count, partial_count, unavailable, media_count) == (1, 1, 2, 3)
     assert replacements_rejected == 2
     return {
+        **auxiliary,
         "pinned_training_versions": ready_count + partial_count,
         "pinned_training_deletions": deletion_count,
         "pinned_training_runs": run_count,

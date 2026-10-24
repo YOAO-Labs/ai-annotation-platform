@@ -457,13 +457,13 @@ def test_report_semantics_remain_pure_and_reject_mismatched_evidence(owned, fiel
     assert owned.client.calls == []
 
 
-async def test_unknown_owner_returns_409_for_output_and_image_route(owned, monkeypatch):
+async def test_unknown_owner_preserves_metadata_but_refuses_image_route(
+    owned, monkeypatch
+):
     row = owned.preview
     evidence(owned)
     row.status, row.storage_ref = "succeeded", None
-    with pytest.raises(HTTPException) as error:
-        await previews.output(row)
-    assert error.value.status_code == 409
+    assert (await previews.output(row)).report is None
     monkeypatch.setattr(api, "lock_owner", AsyncMock())
     monkeypatch.setattr(api, "load", AsyncMock(return_value=row))
     db = SimpleNamespace(commit=AsyncMock())

@@ -394,9 +394,21 @@ async def test_deletion_intent_blocks_resurrection_and_purge_io_holds_no_domain_
         active = db
         assert await service.purge_requested(db, world.run.id)
         assert await db.get(Run, world.run.id) is None
-    late = {"key": service.report_prefix(world.run) + f"{world.attempt.id}/late.json"}
+    import hashlib
+
+    sha = hashlib.sha256(b"late").hexdigest()
+    late = {
+        "key": service.report_prefix(world.run) + f"{world.attempt.id}/{sha}.json",
+        "sha256": sha,
+    }
     world.objects.put_object(Bucket="test", Key=late["key"], Body=b"late")
-    await worker.cleanup_candidate(world.factory, world.run.id, world.attempt.id, late)
+    await worker.cleanup_candidate(
+        world.factory,
+        world.run.id,
+        world.attempt.id,
+        late,
+        storage_ref=world.run.storage_ref,
+    )
     assert late["key"] not in world.objects.objects
 
 
