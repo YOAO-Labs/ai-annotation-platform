@@ -1,7 +1,8 @@
 # Labeling
 
-This package owns task control, manual Annotation writes and SceneTrack domain
-contracts, the Project class-usage query manager, and video-worker finalization.
+This package owns task and batch control, manual and bulk Annotation writes,
+compact-video editing, SceneTrack domain contracts, the Project class-usage
+query manager, and video-worker finalization.
 The base package depends on Pydantic and the portable preannotation-results,
 assets-media and mask-content contracts. It does not depend on the platform API,
 SQLAlchemy, Celery, an object-storage SDK or ML implementations. PostgreSQL and
@@ -99,9 +100,38 @@ grants together; `infra/docker/labeling-annotation-writes-grants.sql` supplies a
 dedicated trusted caller with exactly these three functions. The existing task
 control credential keeps its two-function profile.
 
-Bulk content changes, slice/Mask operations, whole-track commands, imports,
-cross-frame writes and human video candidate decisions remain separate caller
-migrations. This write group does not close the complete Labeling module.
+Slice/Mask operations, whole-scene-track commands, imports, cross-frame writes
+and human video candidate decisions remain separate caller migrations. This
+write group does not close the complete Labeling module.
+
+## Bulk editing, compact video and batch control
+
+The closed contracts `aap-labeling-annotation-bulk/v1`,
+`aap-labeling-video-bbox-editing/v1` and `aap-labeling-batch-control/v1` use
+`annotation_bulk_command(jsonb)`, `video_bbox_editing_command(jsonb)` and
+`batch_control_command(jsonb)` in `aap_labeling_v1`. Portable clients borrow
+an execution callback; the API keeps its current connection, authorization and
+commit. No transaction lock is transferred over HTTP.
+
+Bulk edits retain whole-track class checks, camera-member updates, attribute
+provenance and one version/revision advance. Workspace configuration is read
+through its existing public capability. Compact-video policies cover conversion,
+aggregation, splitting, merging and joining; existing geometry imports remain
+compatible. Actor evidence and statistics stay in the original API workflow.
+
+Batch commands own creation, maintenance, assignment, lifecycle, admin locks,
+counters and the existing reset/cleanup writes. Current Identity and Workspace
+authority stays in the application workflow. Prediction deactivation and parent
+detachment remain separate updates because Mask history records both; cleanup
+counts retain camera members. Prediction deletion itself is a separate boundary.
+
+After matching migrations and owner/runtime grants, dedicated trusted callers
+use `infra/docker/labeling-editing-grants.sql` for exactly the two editing
+functions, or `infra/docker/labeling-batch-control-grants.sql` for exactly the
+batch command. Previous task-control and manual-write credentials are unchanged.
+The new roles have no direct table access, role membership, CREATE or TEMP.
+Saved Native checks are registered with the owned-database verifier; source and
+basic checks do not establish native permission, recovery or module qualification.
 
 ## Video worker finalization
 

@@ -42,13 +42,6 @@ from app.db.models.prediction import (
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import AnnotationDraft
-from app.services.video_tracks import (
-    frame_is_outside,
-    normalize_outside_ranges,
-    resolved_track_frames,
-    resolve_track_at_frame,
-    sorted_keyframes,
-)
 
 # v0.16.x 拆分：传播纯逻辑簇已抽到 annotation_propagation.py，此处 import 回来给
 # 端点/类方法自用，并保持 `from app.services.annotation import ...` 旧入口经 re-export 不变。
@@ -86,6 +79,7 @@ from app.services.scene_track_domain import (
 )
 from app.services.labeling_annotation_data import annotation_write_command
 from app.services.labeling_annotation_bulk_data import annotation_bulk_command
+from app.services.labeling_video_bbox_editing import LabelingVideoBBoxEditingService
 
 logger = logging.getLogger("app.services.annotation")
 
@@ -2273,110 +2267,19 @@ class AnnotationService:
         frame_count: int | None = None,
         max_created: int = VIDEO_BBOX_CONVERSION_LIMIT,
     ) -> tuple[Annotation | None, list[Annotation], bool, list[int]]:
-        # A2 · lock the task before any annotation row is created/updated.
-        await record_annotation_actor(self.db, task, user_id)
-        geometry = annotation.geometry or {}
-        if geometry.get("type") != "video_track_bbox":
-            raise ValueError("annotation must be a video_track_bbox")
-
-        frames: list[dict]
-        removed_frame_indexes: list[int] = []
-        deleted_source = False
-
-        if scope == "frame":
-            if frame_index is None:
-                raise ValueError("frame_index is required for frame scope")
-            keyframes = sorted_keyframes(geometry)
-            if operation == "split":
-                exact = next(
-                    (
-                        kf
-                        for kf in keyframes
-                        if int(kf.get("frame_index", 0)) == frame_index
-                    ),
-                    None,
-                )
-                if not exact or frame_is_outside(geometry, frame_index):
-                    raise ValueError("frame split requires an exact visible keyframe")
-                frames = [
-                    {
-                        "frame_index": frame_index,
-                        "bbox": exact.get("bbox") or {},
-                        "source": exact.get("source", "manual"),
-                    }
-                ]
-                removed_frame_indexes = [frame_index]
-            else:
-                resolved = resolve_track_at_frame(geometry, frame_index)
-                if not resolved:
-                    raise ValueError("track has no bbox at the requested frame")
-                frames = [resolved]
-        elif scope == "track":
-            frames = resolved_track_frames(
-                geometry,
-                frame_mode=frame_mode,
-                frame_count=frame_count,
-            )
-            if operation == "split":
-                removed_frame_indexes = [int(frame["frame_index"]) for frame in frames]
-        else:
-            raise ValueError("scope must be one of: frame, track")
-
-        if not frames:
-            raise ValueError("track conversion produced no frames")
-        if len(frames) > max_created:
-            raise ValueError(
-                f"track conversion would create more than {max_created} bboxes"
-            )
-
-        created: list[Annotation] = []
-        for frame in frames:
-            bbox = frame.get("bbox") or {}
-            created_ann = Annotation(
-                id=uuid.uuid4(),
-                task_id=task.id,
-                project_id=task.project_id,
-                video_segment_id=annotation.video_segment_id,
-                user_id=user_id,
-                source=annotation.source,
-                annotation_type="video_bbox",
-                class_name=annotation.class_name,
-                geometry={
-                    "type": "video_bbox",
-                    "frame_index": int(frame.get("frame_index", 0)),
-                    "x": bbox.get("x", 0),
-                    "y": bbox.get("y", 0),
-                    "w": bbox.get("w", 0),
-                    "h": bbox.get("h", 0),
-                },
-                confidence=annotation.confidence,
-                parent_annotation_id=annotation.id,
-                attributes=dict(annotation.attributes or {}),
-            )
-            self.db.add(created_ann)
-            created.append(created_ann)
-
-        if operation == "split":
-            if scope == "frame":
-                remaining = [
-                    kf
-                    for kf in sorted_keyframes(geometry)
-                    if int(kf.get("frame_index", 0)) != frame_index
-                ]
-                if remaining:
-                    annotation.geometry = {**geometry, "keyframes": remaining}
-                    annotation.version += 1
-                else:
-                    annotation.is_active = False
-                    deleted_source = True
-            else:
-                annotation.is_active = False
-                deleted_source = True
-
-        await self.db.flush()
-        await self._update_task_stats(task.id)
-        source = None if deleted_source else annotation
-        return source, created, deleted_source, removed_frame_indexes
+        return await LabelingVideoBBoxEditingService(
+            self.db
+        ).convert_video_track_to_bboxes(
+            task=task,
+            annotation=annotation,
+            user_id=user_id,
+            operation=operation,
+            scope=scope,
+            frame_index=frame_index,
+            frame_mode=frame_mode,
+            frame_count=frame_count,
+            max_created=max_created,
+        )
 
     async def compose_video_tracks(
         self,
@@ -2389,290 +2292,15 @@ class AnnotationService:
         delete_sources: bool = True,
         gap_mode: str = "interpolate",
     ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        # A2 · lock the task before any annotation row is created/updated.
-        await record_annotation_actor(self.db, task, user_id)
-        if operation == "aggregate_bboxes":
-            updated, created, deleted = await self._aggregate_video_bboxes(
-                task=task,
-                annotations=annotations,
-                user_id=user_id,
-                delete_sources=delete_sources,
-            )
-        elif operation == "split_track":
-            updated, created, deleted = await self._split_video_track(
-                task=task,
-                annotations=annotations,
-                user_id=user_id,
-                frame_index=frame_index,
-            )
-        elif operation == "merge_tracks":
-            updated, created, deleted = await self._merge_video_tracks(
-                task=task,
-                annotations=annotations,
-            )
-        elif operation == "join_tracks":
-            updated, created, deleted = await self._join_video_tracks(
-                task=task,
-                annotations=annotations,
-                gap_mode=gap_mode,
-            )
-        else:
-            raise ValueError("unsupported composition operation")
-
-        await self.db.flush()
-        await self._update_task_stats(task.id)
-        return updated, created, deleted
-
-    async def _aggregate_video_bboxes(
-        self,
-        *,
-        task: Task,
-        annotations: list[Annotation],
-        user_id: uuid.UUID,
-        delete_sources: bool,
-    ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        if not annotations:
-            raise ValueError("annotation_ids is required")
-        if any((ann.geometry or {}).get("type") != "video_bbox" for ann in annotations):
-            raise ValueError("aggregate_bboxes only accepts video_bbox annotations")
-        class_names = {ann.class_name for ann in annotations}
-        if len(class_names) != 1:
-            raise ValueError("video_bbox annotations must share one class")
-
-        frames: dict[int, Annotation] = {}
-        for ann in annotations:
-            frame = int((ann.geometry or {}).get("frame_index", 0))
-            if frame in frames:
-                raise ValueError("video_bbox annotations must not share a frame_index")
-            frames[frame] = ann
-
-        ordered = [frames[frame] for frame in sorted(frames)]
-        keyframes = [
-            _composition_keyframe(
-                int(ann.geometry.get("frame_index", 0)),
-                ann.geometry,
-                source="manual",
-            )
-            for ann in ordered
-        ]
-        created_track_id = _new_track_id()
-        created = Annotation(
-            id=uuid.uuid4(),
-            task_id=task.id,
-            project_id=task.project_id,
-            video_segment_id=ordered[0].video_segment_id,
-            user_id=user_id,
-            source=ordered[0].source,
-            annotation_type="video_track_bbox",
-            class_name=ordered[0].class_name,
-            geometry={
-                "type": "video_track_bbox",
-                "track_id": created_track_id,
-                "keyframes": keyframes,
-                "outside": [],
-            },
-            track_id=created_track_id,
-            confidence=ordered[0].confidence,
-            attributes=dict(ordered[0].attributes or {}),
-        )
-        self.db.add(created)
-
-        deleted_ids: list[uuid.UUID] = []
-        if delete_sources:
-            for ann in ordered:
-                ann.is_active = False
-                deleted_ids.append(ann.id)
-        return [], [created], deleted_ids
-
-    async def _split_video_track(
-        self,
-        *,
-        task: Task,
-        annotations: list[Annotation],
-        user_id: uuid.UUID,
-        frame_index: int | None,
-    ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        if frame_index is None:
-            raise ValueError("frame_index is required for split_track")
-        if len(annotations) != 1:
-            raise ValueError("split_track requires exactly one annotation")
-        source = annotations[0]
-        geometry = source.geometry or {}
-        if geometry.get("type") != "video_track_bbox":
-            raise ValueError("split_track only accepts a video_track_bbox annotation")
-        if not resolve_track_at_frame(geometry, frame_index):
-            raise ValueError("split_track requires a visible frame")
-
-        keyframes = sorted_keyframes(geometry)
-        before_keyframes = [
-            dict(kf) for kf in keyframes if int(kf.get("frame_index", 0)) <= frame_index
-        ]
-        if not any(
-            int(kf.get("frame_index", 0)) == frame_index for kf in before_keyframes
-        ):
-            resolved = resolve_track_at_frame(geometry, frame_index)
-            if not resolved:
-                raise ValueError("split_track requires a visible frame")
-            before_keyframes.append(
-                _composition_keyframe(frame_index, resolved.get("bbox") or {})
-            )
-        before_keyframes.sort(key=lambda kf: int(kf.get("frame_index", 0)))
-
-        next_frame = frame_index + 1
-        next_resolved = resolve_track_at_frame(geometry, next_frame)
-        after_keyframes = [
-            dict(kf) for kf in keyframes if int(kf.get("frame_index", 0)) > frame_index
-        ]
-        if next_resolved and not any(
-            int(kf.get("frame_index", 0)) == next_frame for kf in after_keyframes
-        ):
-            after_keyframes.insert(
-                0, _composition_keyframe(next_frame, next_resolved.get("bbox") or {})
-            )
-        after_keyframes.sort(key=lambda kf: int(kf.get("frame_index", 0)))
-        if not _track_visible_keyframes(
-            {"type": "video_track_bbox", "keyframes": after_keyframes}
-        ):
-            raise ValueError("split_track requires a visible tail segment")
-
-        source.geometry = {
-            **geometry,
-            "keyframes": before_keyframes,
-            "outside": _clip_outside_ranges(geometry, start=None, end=frame_index),
-        }
-        source.version += 1
-
-        tail_track_id = _new_track_id()
-        tail = Annotation(
-            id=uuid.uuid4(),
-            task_id=task.id,
-            project_id=task.project_id,
-            video_segment_id=source.video_segment_id,
-            user_id=user_id,
-            source=source.source,
-            annotation_type="video_track_bbox",
-            class_name=source.class_name,
-            geometry={
-                "type": "video_track_bbox",
-                "track_id": tail_track_id,
-                "semantic_label": geometry.get("semantic_label"),
-                "keyframes": after_keyframes,
-                "outside": _clip_outside_ranges(geometry, start=next_frame, end=None),
-            },
-            track_id=tail_track_id,
-            confidence=source.confidence,
-            parent_annotation_id=source.id,
-            attributes=dict(source.attributes or {}),
-        )
-        self.db.add(tail)
-        return [source], [tail], []
-
-    async def _merge_video_tracks(
-        self,
-        *,
-        task: Task,
-        annotations: list[Annotation],
-    ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        # merge_tracks 默认把 gap 区间标 outside 后合并.
-        return self._combine_two_video_tracks(
+        return await LabelingVideoBBoxEditingService(self.db).compose_video_tracks(
+            task=task,
             annotations=annotations,
-            operation="merge_tracks",
-            fill_gap_outside=True,
+            user_id=user_id,
+            operation=operation,
+            frame_index=frame_index,
+            delete_sources=delete_sources,
+            gap_mode=gap_mode,
         )
-
-    async def _join_video_tracks(
-        self,
-        *,
-        task: Task,
-        annotations: list[Annotation],
-        gap_mode: str,
-    ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        # v0.10.30 · D-2.5 · 两条帧号不重叠的 track 之间补 gap 后合并.
-        # gap_mode="outside" 与 merge_tracks 行为一致 (gap 标 outside);
-        # gap_mode="interpolate" 不写 gap outside, gap 端点间靠现有线性插值连接.
-        return self._combine_two_video_tracks(
-            annotations=annotations,
-            operation="join_tracks",
-            fill_gap_outside=(gap_mode == "outside"),
-        )
-
-    def _combine_two_video_tracks(
-        self,
-        *,
-        annotations: list[Annotation],
-        operation: str,
-        fill_gap_outside: bool,
-    ) -> tuple[list[Annotation], list[Annotation], list[uuid.UUID]]:
-        """merge / join 共用的两条 track 合并落库路径.
-
-        校验恰好两条同 class 的 video_track 且帧号区间不重叠, 合并 keyframes
-        (frame_index 唯一), 透传 survivor 既有 geometry (含 semantic_label) 与两条
-        track 的 outside; ``fill_gap_outside`` 决定是否把 gap 区间额外标 outside.
-        落库约定: survivor 保留并 version+1, removed 置 is_active=False.
-        """
-        if len(annotations) != 2:
-            raise ValueError(f"{operation} requires exactly two annotations")
-        if any(
-            (ann.geometry or {}).get("type") != "video_track_bbox"
-            for ann in annotations
-        ):
-            raise ValueError(f"{operation} only accepts video_track_bbox annotations")
-        if annotations[0].class_name != annotations[1].class_name:
-            raise ValueError(f"{operation} requires tracks with the same class")
-
-        ranges: list[tuple[int, int, Annotation]] = []
-        for ann in annotations:
-            visible = _track_visible_keyframes(ann.geometry or {})
-            if not visible:
-                raise ValueError(f"{operation} requires visible keyframes")
-            frames = [int(kf.get("frame_index", 0)) for kf in visible]
-            ranges.append((min(frames), max(frames), ann))
-        ranges.sort(key=lambda item: item[0])
-        first_start, first_end, first = ranges[0]
-        second_start, second_end, second = ranges[1]
-        if first_end >= second_start:
-            raise ValueError(f"{operation} requires non-overlapping tracks")
-
-        survivor = annotations[0]
-        removed = annotations[1]
-        keyframes = [
-            dict(kf)
-            for ann in annotations
-            for kf in sorted_keyframes(ann.geometry or {})
-        ]
-        frame_counts: dict[int, int] = {}
-        for kf in keyframes:
-            frame = int(kf.get("frame_index", 0))
-            frame_counts[frame] = frame_counts.get(frame, 0) + 1
-        if any(count > 1 for count in frame_counts.values()):
-            raise ValueError(f"{operation} requires unique keyframe frame_index values")
-        keyframes.sort(key=lambda kf: int(kf.get("frame_index", 0)))
-
-        outside = [
-            range_
-            for ann in annotations
-            for range_ in ((ann.geometry or {}).get("outside") or [])
-        ]
-        if fill_gap_outside and first_end + 1 <= second_start - 1:
-            outside.append(
-                {
-                    "from": first_end + 1,
-                    "to": second_start - 1,
-                    "source": "manual",
-                }
-            )
-
-        survivor.geometry = {
-            **(survivor.geometry or {}),
-            "type": "video_track_bbox",
-            "track_id": (survivor.geometry or {}).get("track_id") or _new_track_id(),
-            "keyframes": keyframes,
-            "outside": normalize_outside_ranges(outside),
-        }
-        survivor.track_id = survivor.geometry["track_id"]
-        survivor.version += 1
-        removed.is_active = False
-        return [survivor], [], [removed.id]
 
     async def save_draft(
         self, task_id: uuid.UUID, user_id: uuid.UUID, result: dict

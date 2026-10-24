@@ -613,13 +613,27 @@ GRANT SELECT (
 ) ON public.tasks TO :"labeling_owner";
 GRANT SELECT (
         id, project_id, dataset_id, display_id, annotator_id, reviewer_id,
-        name, status, admin_locked, assigned_user_ids
+        name, description, status, priority, deadline, assigned_user_ids,
+        total_tasks, completed_tasks, review_tasks, approved_tasks, rejected_tasks,
+        created_by, created_at, updated_at, review_feedback, reviewed_at,
+        reviewed_by, admin_locked, admin_lock_reason, admin_locked_at,
+        admin_locked_by
+    ),
+    INSERT (
+        id, project_id, dataset_id, display_id, name, description, status,
+        priority, deadline, assigned_user_ids, created_by, annotator_id, reviewer_id
     ),
     UPDATE (
         id, dataset_id, total_tasks, completed_tasks, review_tasks, updated_at,
-        annotator_id, reviewer_id, assigned_user_ids
+        annotator_id, reviewer_id, assigned_user_ids, name, description, status,
+        priority, deadline, review_feedback,
+        reviewed_at, reviewed_by, admin_locked, admin_lock_reason,
+        admin_locked_at, admin_locked_by
     ), DELETE
     ON public.task_batches TO :"labeling_owner";
+GRANT SELECT (sequence_order),
+    UPDATE (batch_id, sequence_order, assignee_is_override, total_predictions)
+    ON public.tasks TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id), DELETE
     ON public.predictions TO :"labeling_owner";
 GRANT SELECT (object_key, created_at), DELETE
@@ -1219,6 +1233,10 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid)
     TO :"assets_owner", :"labeling_owner", :"jobs_owner", :"workflow_role";
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_project_row(uuid)
+    TO :"labeling_owner";
+GRANT SELECT (project_id, user_id, role) ON aap_workspace_v1.project_member_facts
+    TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
     TO :"inference_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
@@ -2516,6 +2534,12 @@ ALTER FUNCTION aap_labeling_v1.annotation_statistics_command(jsonb)
 ALTER FUNCTION aap_labeling_v1.scene_track_domain_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.annotation_write_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.annotation_bulk_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.video_bbox_editing_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.batch_control_command(jsonb)
     OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 

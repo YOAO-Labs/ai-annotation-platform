@@ -110,8 +110,32 @@ Mask 修订触发器及快照函数保留原调用者权限和版本／快照规
 `infra/docker/labeling-annotation-writes-grants.sql`，仅得到这三个函数，不得到原表／序列、
 角色成员、CREATE、TEMP 或其他模块能力。原任务控制账号仍只有其两项函数。
 
-本组不替代批量内容、切片／Mask、完整轨迹操作、导入、跨帧及视频人工候选的后续迁移。
+本组不替代切片／Mask、完整场景轨迹操作、导入、跨帧及视频人工候选的后续迁移。
 源码、消费者和集中验收分别记录在[唯一台账](/dev/concepts/module-deployment#剩余工作台账)。
+
+## 批量编辑、视频框与批次控制 {#bulk-video-and-batch-control}
+
+批量标注使用 `aap-labeling-annotation-bulk/v1` 和
+`aap_labeling_v1.annotation_bulk_command(jsonb)`，保留完整轨迹改类检查、相机成员
+更新、属性来源及版本规则；项目配置复用 Workspace 的公开读取能力。
+
+视频框转换与组合使用 `aap-labeling-video-bbox-editing/v1` 和
+`video_bbox_editing_command(jsonb)`，覆盖轨迹转框、框聚合、切分、合并及连接。
+当前 Task／来源围栏与原有几何规则保留，API 按原顺序记录一次贡献者并更新一次统计。
+
+批次创建、维护、分派、状态、管理锁、计数与重置使用
+`aap-labeling-batch-control/v1` 和 `batch_control_command(jsonb)`。
+当前账号与项目管理权、分派预览版本和业务协调继续由原调用方持有。清理预测时，停用
+AI 标注与解除父预测引用保持两次更新，以保留 Mask 版本和历史；清理统计仍包含相机
+成员，不能替换成人工标注统计的口径。预测行删除本身仍是单独的迁移边界。
+
+这些命令借用同一业务连接与事务，不新增产品环境变量或独立提交点。迁移与 owner／
+runtime 授权必须匹配；专用可信账号分别由 `infra/docker/labeling-editing-grants.sql`
+开放两项编辑函数，以及 `infra/docker/labeling-batch-control-grants.sql` 开放一项批次
+函数。原任务控制与人工写入账号的执行范围保持。命令不能代替用户授权。
+
+新增原生回归已接入自有数据库验收器；源码基础检查不等同于真实角色、并发、回滚、冷
+装配或恢复通过。完整模块的剩余范围与验收状态由唯一台账记录。
 
 ## 视频 worker 的最终写入
 

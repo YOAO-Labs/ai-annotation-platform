@@ -65,9 +65,24 @@ def test_module_cold_case_selects_api_bootstrap_credentials(test_path):
             verifier.JOBS_LIFECYCLE_FUNCTIONS,
             "0327_jobs_lifecycle",
         ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_EDITING"],
+            ("aap_labeling_v1.annotation_bulk_command(jsonb)",),
+            "0339_labeling_annotation_bulk",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_EDITING"],
+            ("aap_labeling_v1.video_bbox_editing_command(jsonb)",),
+            "0340_labeling_video_bbox_editing",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_BATCH_CONTROL"],
+            ("aap_labeling_v1.batch_control_command(jsonb)",),
+            "0341_labeling_batch_control",
+        ),
     ],
 )
-def test_jobs_capability_logins_have_no_temporary_grant(
+def test_capability_logins_have_no_temporary_grant(
     monkeypatch, role, functions, artifact
 ):
     captured = []
@@ -81,10 +96,12 @@ def test_jobs_capability_logins_have_no_temporary_grant(
     arguments["database"] = "jobs_fixture_test"
     verifier._create_module_roles(**arguments)
     sql = captured[0]
-    assert (
-        f"CREATE ROLE {role} LOGIN PASSWORD 'fixture-value' "
-        "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
-    ) in sql
+    # main() creates mapped capability logins after the base roles.
+    if role not in verifier.IDENTITY_CLIENT_ROLES.values():
+        assert (
+            f"CREATE ROLE {role} LOGIN PASSWORD 'fixture-value' "
+            "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
+        ) in sql
     assert role in verifier.MODULE_ROLES
     temporary_grant = sql.split("GRANT TEMPORARY ON DATABASE", 1)[1]
     assert role not in temporary_grant

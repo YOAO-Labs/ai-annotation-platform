@@ -3195,6 +3195,15 @@ AAP_WORKSPACE_CAPACITY_LIVE=1 apps/api/.venv/bin/python \
 不手工把日常库填入测试选择器。[运行协议](docs-site/api/guides/labeling-runtime.md#人工标注与关联写入)
 说明当前范围，完整 Labeling 的剩余写入及资格继续由唯一台账跟踪。
 
+批量编辑、视频框转换／组合及批次控制分别使用 `annotation_bulk_command(jsonb)`、
+`video_bbox_editing_command(jsonb)` 和 `batch_control_command(jsonb)`。专用可信调用
+账号使用 `infra/docker/labeling-editing-grants.sql`（两项编辑函数）或
+`infra/docker/labeling-batch-control-grants.sql`（一项批次函数）；原账号授权不扩大。
+API 继续借用同一业务事务，不新增产品 DSN 配置。验收器的
+`AAP_MODULE_DATA_LABELING_EDITING_URL` 和 `AAP_MODULE_DATA_LABELING_BATCH_CONTROL_URL`
+仅用于自有测试数据库，不指向日常库。操作与清理口径见
+[运行协议](docs-site/api/guides/labeling-runtime.md#bulk-video-and-batch-control)。
+
 ### 宿主机转发诊断
 
 在 macOS 上使用已存在的不可变 Docker Python 镜像。镜像必须提供
