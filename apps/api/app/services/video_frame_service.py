@@ -383,11 +383,15 @@ async def _chunks(db, ctx, chunk_ids):
         output, enqueue = await _prepare(
             db, ctx, "chunk", derivatives.chunk_spec(ctx.generation, identifier)
         )
+        # Each durable attempt releases its Item/source locks before the next
+        # slot. The final batch fence still decides delivery and dispatch.
+        await db.commit()
         requested.append(output)
         if enqueue:
             queue.append(output.id)
     for spec in await _warmup_specs(db, ctx, chunk_ids):
         output, enqueue = await _prepare(db, ctx, "chunk", spec)
+        await db.commit()
         if enqueue:
             queue.append(output.id)
     await db.commit()
@@ -429,6 +433,9 @@ async def _frames(db, ctx, indices, width, format_, *, force=False):
             derivatives.frame_spec(ctx.generation, index, width, format_),
             force=force,
         )
+        # A prefetch may contain hundreds of slots. Retain committed ownership,
+        # rather than one Item UPDATE lock, across the rest of that batch.
+        await db.commit()
         outputs.append(output)
         if enqueue:
             queue.append(output.id)
