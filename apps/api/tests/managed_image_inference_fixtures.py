@@ -14,7 +14,7 @@ import re
 from types import SimpleNamespace
 import uuid
 
-from PIL import Image
+from PIL import Image, ImageDraw
 import pytest
 from sqlalchemy import select, text
 
@@ -245,13 +245,27 @@ async def db_session(sync_world):
 
 
 async def attach_managed(
-    db, project, actor, *, task=None, size=(3, 2), origin="direct", item=None
+    db,
+    project,
+    actor,
+    *,
+    task=None,
+    size=(3, 2),
+    origin="direct",
+    item=None,
+    roi_marker=False,
 ):
     """Register genuine saved owners; only their physical source read is faked."""
     assert origin in {"direct", "primary", "task"}
     world = db.info["managed_image_world"]
     output = io.BytesIO()
     with Image.new("RGB", size, (23, 42, 61)) as image:
+        if roi_marker:
+            width, height = size
+            ImageDraw.Draw(image).rectangle(
+                (width // 4, height // 4, width * 3 // 4 - 1, height * 3 // 4 - 1),
+                fill=(100, 150, 200),
+            )
         image.save(output, "PNG")
     raw = output.getvalue()
     task = task or await create_task(db, project_id=project.id)
