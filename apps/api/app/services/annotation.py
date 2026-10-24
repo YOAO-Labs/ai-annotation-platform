@@ -16,9 +16,18 @@ from sqlalchemy import select, func
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_labeling.annotation_write_contract import (
+    ANNOTATION_WRITE_PROTOCOL,
+    BindSceneTrackMember,
+    CreateAnnotation,
+    DeleteAnnotation,
+    ReadCreateReceipt,
+    UpdateAnnotation,
+    WriteCreateReceipt,
+)
+
 from app.db.models.annotation import Annotation
 from app.services.project_access import get_workspace_project
-from app.db.models.annotation_operation import AnnotationOperation
 from app.db.models.scene_track import SceneTrack
 from app.db.models.prediction import (
     INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
@@ -67,14 +76,13 @@ from app.services.scene_track_domain import (
     SceneTrackIntegrityError,
     bind_annotation_to_scene_track,
     ensure_scene_track,
-    reclassify_single_member_scene_track,
     touch_annotation_scene_track,
 )
+from app.services.labeling_annotation_data import annotation_write_command
 
 logger = logging.getLogger("app.services.annotation")
 
 VIDEO_BBOX_CONVERSION_LIMIT = 5000
-ANNOTATION_CREATE_OPERATION_KIND = "create_annotation"
 
 
 def _orphan_user_attribute_keys(
@@ -226,6 +234,15 @@ class AnnotationService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def _load_after_write(self, annotation_id: uuid.UUID) -> Annotation:
+        return (
+            await self.db.execute(
+                select(Annotation)
+                .where(Annotation.id == annotation_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+
     async def _validate_class_name(
         self, project_id: uuid.UUID | None, tool_unit_id: str, class_name: str
     ) -> None:
@@ -320,7 +337,9 @@ class AnnotationService:
         require_verified_mask_content: bool = False,
     ) -> Annotation:
         task = await self.db.get(Task, task_id)
-        if task is not None and not require_verified_mask_content:
+        if task is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if not require_verified_mask_content:
             verified_mask_content = (
                 verified_mask_content
                 or await preflight_mask_payload_for_write(self.db, task, geometry)
@@ -328,11 +347,9 @@ class AnnotationService:
         # A2 · record before any Annotation/SceneTrack lock: this takes the task
         # row lock first, keeps the global Task -> Annotation order, and rolls
         # back with the mutation if the mutation fails.
-        if task is not None:
-            await record_annotation_actor(self.db, task, user_id)
-        source = "prediction_based" if parent_prediction_id else "manual"
+        await record_annotation_actor(self.db, task, user_id)
 
-        if task and task.project_id:
+        if task.project_id:
             await self._validate_class_name(task.project_id, tool_unit_id, class_name)
 
         if parent_annotation_id is not None:
@@ -352,42 +369,56 @@ class AnnotationService:
         geometry, track_id = prepare_compact_track_identity(geometry)
         if geometry.get("type") == "box_3d" and track_id is None:
             track_id = _new_track_id()
-        annotation = Annotation(
-            id=uuid.uuid4(),
-            task_id=task_id,
-            project_id=task.project_id if task else None,
-            video_segment_id=video_segment_id,
-            user_id=user_id,
-            source=source,
-            annotation_type=str(geometry.get("type") or annotation_type),
-            tool_unit_id=tool_unit_id,
-            class_name=class_name,
-            geometry=geometry,
-            track_id=track_id,
-            confidence=confidence,
-            parent_prediction_id=parent_prediction_id,
-            parent_annotation_id=parent_annotation_id,
-            lead_time=lead_time,
-            attributes=attributes or {},
-            temporal_role="keyframe" if geometry.get("type") == "box_3d" else "sample",
+        annotation_id = uuid.uuid4()
+        project_id = task.project_id
+        resolved_annotation_type = str(geometry.get("type") or annotation_type)
+
+        await annotation_write_command(
+            self.db,
+            CreateAnnotation(
+                schema=ANNOTATION_WRITE_PROTOCOL,
+                operation="create",
+                annotation_id=annotation_id,
+                task_id=task_id,
+                project_id=project_id,
+                actor_id=user_id,
+                annotation_type=resolved_annotation_type,
+                tool_unit_id=tool_unit_id,
+                class_name=class_name,
+                geometry=geometry,
+                confidence=confidence,
+                parent_prediction_id=parent_prediction_id,
+                parent_annotation_id=parent_annotation_id,
+                video_segment_id=video_segment_id,
+                lead_time=lead_time,
+                attributes=attributes or {},
+                track_id=track_id,
+            ),
         )
-        self.db.add(annotation)
-        if task is not None:
-            try:
-                await bind_annotation_to_scene_track(
+        if geometry.get("type") == "box_3d":
+            from app.services.labeling_scene import resolve_task_scene_frames
+
+            scene_frame = (await resolve_task_scene_frames(self.db, [task_id]))[task_id]
+            if scene_frame.scene_id is not None and scene_frame.frame_index is not None:
+                await annotation_write_command(
                     self.db,
-                    annotation=annotation,
-                    task=task,
-                    temporal_role="keyframe",
-                    interval_source="manual",
-                    actor_id=user_id,
+                    BindSceneTrackMember(
+                        schema=ANNOTATION_WRITE_PROTOCOL,
+                        operation="bind_scene_track_member",
+                        annotation_id=annotation_id,
+                        task_id=task_id,
+                        project_id=project_id,
+                        actor_id=user_id,
+                        expected_version=1,
+                        scene_id=scene_frame.scene_id,
+                        frame_index=scene_frame.frame_index,
+                        temporal_role="keyframe",
+                    ),
                 )
-            except SceneTrackIntegrityError as exc:
-                _raise_scene_track_conflict(exc)
         await self.db.flush()
 
         await self._update_task_stats(task_id)
-        return annotation
+        return await self._load_after_write(annotation_id)
 
     async def annotation_create_receipt_response(
         self,
@@ -398,30 +429,27 @@ class AnnotationService:
         request_digest: str,
     ) -> dict | None:
         """Load a frozen create response or reject reuse of another operation key."""
-        operation = await self.db.scalar(
-            select(AnnotationOperation).where(
-                AnnotationOperation.task_id == task_id,
-                AnnotationOperation.actor_id == actor_id,
-                AnnotationOperation.idempotency_key == idempotency_key,
-            )
+        project_id = await self.db.scalar(
+            select(Task.project_id).where(Task.id == task_id)
         )
-        if operation is None:
+        if project_id is None:
             return None
-        if (
-            operation.kind != ANNOTATION_CREATE_OPERATION_KIND
-            or operation.request_digest != request_digest
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "reason": "idempotency_conflict",
-                    "message": "idempotency key was already used with another request",
-                    "operation_id": str(operation.id),
-                },
-            )
-        return operation.response_json
+        result = await annotation_write_command(
+            self.db,
+            ReadCreateReceipt(
+                schema=ANNOTATION_WRITE_PROTOCOL,
+                operation="read_create_receipt",
+                task_id=task_id,
+                project_id=project_id,
+                actor_id=actor_id,
+                idempotency_key=idempotency_key,
+                request_digest=request_digest,
+            ),
+        )
+        assert result.receipt is not None
+        return result.receipt.response_json if result.receipt.found else None
 
-    def record_annotation_create_receipt(
+    async def record_annotation_create_receipt(
         self,
         *,
         task_id: uuid.UUID,
@@ -431,19 +459,24 @@ class AnnotationService:
         response_json: dict,
     ) -> None:
         """Stage the historical create response in the labeling transaction."""
-        self.db.add(
-            AnnotationOperation(
+        project_id = await self.db.scalar(
+            select(Task.project_id).where(Task.id == task_id)
+        )
+        if project_id is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        await annotation_write_command(
+            self.db,
+            WriteCreateReceipt(
+                schema=ANNOTATION_WRITE_PROTOCOL,
+                operation="write_create_receipt",
+                operation_id=uuid.uuid4(),
                 task_id=task_id,
+                project_id=project_id,
                 actor_id=actor_id,
-                kind=ANNOTATION_CREATE_OPERATION_KIND,
                 idempotency_key=idempotency_key,
                 request_digest=request_digest,
-                scope_fingerprint=request_digest,
-                source_versions={},
-                result_versions={},
-                report={},
                 response_json=response_json,
-            )
+            ),
         )
 
     async def _accept_prediction(
@@ -1150,53 +1183,34 @@ class AnnotationService:
             next_cursor = (tail.created_at, tail.id)
         return rows, next_cursor
 
-    async def delete(self, annotation_id: uuid.UUID) -> bool:
+    async def delete(
+        self, annotation_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
+    ) -> bool:
         annotation = await self.db.get(Annotation, annotation_id)
         if not annotation:
             return False
-        if annotation.sensor_role is not None:
-            raise HTTPException(
-                status_code=422,
-                detail="camera members must be deleted through the point-cloud camera member API",
+        project_id = annotation.project_id
+        if project_id is None:
+            project_id = await self.db.scalar(
+                select(Task.project_id).where(Task.id == annotation.task_id)
             )
-        annotation.is_active = False
-        annotation.version += 1
-        await touch_annotation_scene_track(self.db, annotation, make_keyframe=False)
-        if annotation.sensor_role is None and annotation.scene_track_id is not None:
-            camera_members = list(
-                (
-                    await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.task_id == annotation.task_id)
-                        .where(Annotation.scene_track_id == annotation.scene_track_id)
-                        .where(Annotation.sensor_role.is_not(None))
-                        .where(Annotation.is_active.is_(True))
-                        .where(Annotation.was_cancelled.is_(False))
-                        .with_for_update()
-                    )
-                ).scalars()
-            )
-            for camera_member in camera_members:
-                camera_member.is_active = False
-                camera_member.version += 1
-        # v0.20.9 · 级联软删子框: 删父框时其所有 active 子框一并软删, 不留 orphan。
-        # 父子仅一层 (create 时约束), 故无需递归。
-        children = (
-            (
-                await self.db.execute(
-                    select(Annotation).where(
-                        Annotation.parent_annotation_id == annotation_id,
-                        Annotation.is_active.is_(True),
-                    )
-                )
-            )
-            .scalars()
-            .all()
+        if project_id is None:
+            return False
+        result = await annotation_write_command(
+            self.db,
+            DeleteAnnotation(
+                schema=ANNOTATION_WRITE_PROTOCOL,
+                operation="delete",
+                annotation_id=annotation.id,
+                task_id=annotation.task_id,
+                project_id=project_id,
+                actor_id=actor_id,
+                expected_version=int(annotation.version or 1),
+            ),
         )
-        for child in children:
-            child.is_active = False
-            child.version += 1
-        await self.db.flush()
+        assert result.mutation is not None
+        if not result.mutation.changed:
+            return False
         await self._update_task_stats(annotation.task_id)
         return True
 
@@ -1967,6 +1981,7 @@ class AnnotationService:
         is_locked: bool | None = None,
         is_hidden: bool | None = None,
         mask_payload_prepared: bool = False,
+        actor_id: uuid.UUID | None = None,
     ) -> Annotation | None:
         """Surgical update of mutable fields. Increments version for optimistic concurrency."""
         annotation = await self.db.get(Annotation, annotation_id)
@@ -1983,23 +1998,13 @@ class AnnotationService:
             verified_mask_content = await preflight_mask_payload_for_write(
                 self.db, task, geometry
             )
-        track_reclassified = False
         if class_name is not None:
             # v0.14.17 · 与 create / accept_prediction 对齐: PATCH 改类也走软校验,
             # 堵住"采纳后 PATCH 改成项目标签集外的任意非法值"的数据质量缺口.
             await self._validate_class_name(
                 annotation.project_id, annotation.tool_unit_id, class_name
             )
-            try:
-                track_reclassified = await reclassify_single_member_scene_track(
-                    self.db,
-                    annotation=annotation,
-                    class_name=class_name,
-                )
-            except SceneTrackIntegrityError as exc:
-                _raise_scene_track_conflict(exc)
         if geometry is not None:
-            next_type = str(geometry.get("type") or "")
             validate_geometry_type_transition(
                 tool_unit_id=annotation.tool_unit_id,
                 previous_geometry=annotation.geometry,
@@ -2014,67 +2019,89 @@ class AnnotationService:
                     require_verified_content=verified_mask_content is not None,
                 )
             try:
-                geometry, track_id = prepare_compact_track_identity(
+                geometry, next_track_id = prepare_compact_track_identity(
                     geometry,
                     annotation.track_id,
                     reject_identity_change=True,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
-            annotation.geometry = geometry
-            annotation.annotation_type = next_type
-            annotation.track_id = track_id
+        else:
+            next_track_id = annotation.track_id
+        next_geometry = geometry if geometry is not None else annotation.geometry
+        if (next_geometry or {}).get("type") == "box_3d" and next_track_id is None:
+            next_track_id = _new_track_id()
+
+        project_id = annotation.project_id
+        if project_id is None:
+            project_id = await self.db.scalar(
+                select(Task.project_id).where(Task.id == annotation.task_id)
+            )
+        if project_id is None:
+            raise HTTPException(status_code=404, detail="Task not found")
+        values: dict[str, object] = {
+            "schema": ANNOTATION_WRITE_PROTOCOL,
+            "operation": "update",
+            "annotation_id": annotation.id,
+            "task_id": annotation.task_id,
+            "project_id": project_id,
+            "actor_id": actor_id,
+            "expected_version": int(annotation.version or 1),
+            "track_id": next_track_id,
+        }
+        if geometry is not None:
+            values["geometry"] = geometry
         if class_name is not None:
-            annotation.class_name = class_name
+            values["class_name"] = class_name
         if confidence is not None:
-            annotation.confidence = confidence
+            values["confidence"] = confidence
         if attributes is not None:
             # v0.20.10 · 先据旧值算 meta 同步（人工改动即认领），再替换 attributes。
-            annotation.attributes_meta = _sync_attributes_meta(
+            values["attributes_meta"] = _sync_attributes_meta(
                 annotation.attributes, annotation.attributes_meta, attributes
             )
-            annotation.attributes = attributes
+            values["attributes"] = attributes
         # v0.10.5 M4-β · shape 状态位字段级 PATCH（I15）
         if z_order is not None:
-            annotation.z_order = z_order
+            values["z_order"] = z_order
         if is_locked is not None:
-            annotation.is_locked = is_locked
+            values["is_locked"] = is_locked
         if is_hidden is not None:
-            annotation.is_hidden = is_hidden
-        annotation.version += 1
-        newly_bound = False
-        if (annotation.geometry or {}).get("type") == "box_3d":
-            if annotation.track_id is None:
-                annotation.track_id = _new_track_id()
-            if annotation.scene_track_id is None:
-                task = await self.db.get(Task, annotation.task_id)
-                if task is not None:
-                    binding = await bind_annotation_to_scene_track(
-                        self.db,
-                        annotation=annotation,
-                        task=task,
+            values["is_hidden"] = is_hidden
+        await annotation_write_command(self.db, UpdateAnnotation(**values))
+
+        if (
+            annotation.scene_track_id is None
+            and (next_geometry or {}).get("type") == "box_3d"
+        ):
+            from app.services.labeling_scene import resolve_task_scene_frames
+
+            updated = await self._load_after_write(annotation_id)
+            scene_frame = (await resolve_task_scene_frames(self.db, [updated.task_id]))[
+                updated.task_id
+            ]
+            if scene_frame.scene_id is not None and scene_frame.frame_index is not None:
+                await annotation_write_command(
+                    self.db,
+                    BindSceneTrackMember(
+                        schema=ANNOTATION_WRITE_PROTOCOL,
+                        operation="bind_scene_track_member",
+                        annotation_id=updated.id,
+                        task_id=updated.task_id,
+                        project_id=project_id,
+                        actor_id=None,
+                        expected_version=int(updated.version or 1),
+                        scene_id=scene_frame.scene_id,
+                        frame_index=scene_frame.frame_index,
                         temporal_role=(
                             "keyframe"
                             if geometry is not None or class_name is not None
-                            else annotation.temporal_role
+                            else updated.temporal_role
                         ),
-                        interval_source="manual",
-                        actor_id=None,
-                    )
-                    newly_bound = binding is not None
-        try:
-            if not track_reclassified and not newly_bound:
-                await touch_annotation_scene_track(
-                    self.db,
-                    annotation,
-                    make_keyframe=geometry is not None,
+                    ),
                 )
-            elif track_reclassified and geometry is not None:
-                annotation.temporal_role = "keyframe"
-        except SceneTrackIntegrityError as exc:
-            _raise_scene_track_conflict(exc)
         await self.db.flush()
-        return annotation
+        return await self._load_after_write(annotation_id)
 
     async def convert_video_track_to_bboxes(
         self,
@@ -2718,35 +2745,12 @@ class AnnotationService:
         trigger_batch_transitions=False: 只更新 task 本身，跳过 batch 流转
         （用于批量导入，避免导入过程意外推进整个 batch 状态）。
         """
-        count_result = await self.db.execute(
-            select(func.count()).where(
-                Annotation.task_id == task_id,
-                Annotation.is_active.is_(True),
-                Annotation.was_cancelled.is_(False),
-                Annotation.sensor_role.is_(None),
-            )
+        from app.services.labeling_annotation_statistics import (
+            update_annotation_statistics,
         )
-        count = count_result.scalar() or 0
 
-        task = await self.db.get(Task, task_id)
-        status_changed = False
-        if task:
-            task.total_annotations = count
-            task.is_labeled = count > 0
-            # B-20：首次产生标注 → 把 task 从 pending 转 in_progress；标注全删 → 回 pending。
-            # 让 batch.in_progress_tasks / dashboard 进度条与"已动工"状态对齐。
-            if count > 0 and task.status == "pending":
-                task.status = "in_progress"
-                status_changed = True
-            elif count == 0 and task.status == "in_progress":
-                task.status = "pending"
-                status_changed = True
-        await self.db.flush()
-
-        if trigger_batch_transitions and status_changed and task and task.batch_id:
-            # 在函数内 import 避免 services 层循环依赖。
-            from app.services.batch import BatchService
-
-            batch_svc = BatchService(self.db)
-            await batch_svc.check_auto_transitions(task.batch_id)
-            await batch_svc.recalculate_counters(task.batch_id)
+        await update_annotation_statistics(
+            self.db,
+            task_id,
+            trigger_batch_transitions=trigger_batch_transitions,
+        )

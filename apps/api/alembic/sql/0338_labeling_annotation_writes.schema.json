@@ -1,0 +1,699 @@
+{
+  "$defs": {
+    "AnnotationWriteData": {
+      "additionalProperties": false,
+      "properties": {
+        "mutation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnnotationWriteMutation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnnotationWriteReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "AnnotationWriteData",
+      "type": "object"
+    },
+    "AnnotationWriteMutation": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        },
+        "deleted_children": {
+          "default": 0,
+          "title": "Deleted Children",
+          "type": "integer"
+        },
+        "deleted_camera_members": {
+          "default": 0,
+          "title": "Deleted Camera Members",
+          "type": "integer"
+        }
+      },
+      "required": ["annotation_id", "version", "changed"],
+      "title": "AnnotationWriteMutation",
+      "type": "object"
+    },
+    "AnnotationWriteReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "found": {
+          "title": "Found",
+          "type": "boolean"
+        },
+        "response_json": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Response Json"
+        }
+      },
+      "required": ["found", "response_json"],
+      "title": "AnnotationWriteReceipt",
+      "type": "object"
+    },
+    "BindSceneTrackMember": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-writes/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "bind_scene_track_member",
+          "title": "Operation",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "expected_version": {
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "frame_index": {
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "temporal_role": {
+          "enum": ["keyframe", "derived", "sample"],
+          "title": "Temporal Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "annotation_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_version",
+        "scene_id",
+        "frame_index",
+        "temporal_role"
+      ],
+      "title": "BindSceneTrackMember",
+      "type": "object"
+    },
+    "CreateAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-writes/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "create",
+          "title": "Operation",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "parent_prediction_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Prediction Id"
+        },
+        "parent_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Annotation Id"
+        },
+        "video_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Video Segment Id"
+        },
+        "lead_time": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lead Time"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "annotation_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "annotation_type",
+        "tool_unit_id",
+        "class_name",
+        "geometry",
+        "confidence",
+        "parent_prediction_id",
+        "parent_annotation_id",
+        "video_segment_id",
+        "lead_time",
+        "attributes",
+        "track_id"
+      ],
+      "title": "CreateAnnotation",
+      "type": "object"
+    },
+    "DeleteAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-writes/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "delete",
+          "title": "Operation",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "expected_version": {
+          "title": "Expected Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "annotation_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_version"
+      ],
+      "title": "DeleteAnnotation",
+      "type": "object"
+    },
+    "ReadCreateReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-writes/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_create_receipt",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "request_digest": {
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "idempotency_key",
+        "request_digest"
+      ],
+      "title": "ReadCreateReceipt",
+      "type": "object"
+    },
+    "UpdateAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-writes/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "update",
+          "title": "Operation",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "expected_version": {
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "geometry": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Geometry"
+        },
+        "class_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Class Name"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "attributes": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attributes"
+        },
+        "attributes_meta": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attributes Meta"
+        },
+        "z_order": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Z Order"
+        },
+        "is_locked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Locked"
+        },
+        "is_hidden": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Hidden"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "annotation_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_version",
+        "track_id"
+      ],
+      "title": "UpdateAnnotation",
+      "type": "object"
+    },
+    "WriteCreateReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-writes/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "write_create_receipt",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "request_digest": {
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "response_json": {
+          "additionalProperties": true,
+          "title": "Response Json",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "operation_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "idempotency_key",
+        "request_digest",
+        "response_json"
+      ],
+      "title": "WriteCreateReceipt",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-annotation-writes/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "bind_scene_track_member": "#/$defs/BindSceneTrackMember",
+          "create": "#/$defs/CreateAnnotation",
+          "delete": "#/$defs/DeleteAnnotation",
+          "read_create_receipt": "#/$defs/ReadCreateReceipt",
+          "update": "#/$defs/UpdateAnnotation",
+          "write_create_receipt": "#/$defs/WriteCreateReceipt"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CreateAnnotation"
+        },
+        {
+          "$ref": "#/$defs/UpdateAnnotation"
+        },
+        {
+          "$ref": "#/$defs/BindSceneTrackMember"
+        },
+        {
+          "$ref": "#/$defs/DeleteAnnotation"
+        },
+        {
+          "$ref": "#/$defs/ReadCreateReceipt"
+        },
+        {
+          "$ref": "#/$defs/WriteCreateReceipt"
+        }
+      ],
+      "title": "Request"
+    },
+    "data": {
+      "$ref": "#/$defs/AnnotationWriteData"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "AnnotationWriteReply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-annotation-writes/v1",
+  "x-postgresql-functions": ["aap_labeling_v1.annotation_write_command(jsonb)"]
+}

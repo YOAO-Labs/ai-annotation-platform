@@ -98,7 +98,7 @@ class _AnnotationCreateSqlAdapter(AnnotationCreatePort):
                 # refresh server defaults before persisting the historical response.
                 await self.db.refresh(annotation)
                 annotation_response = AnnotationOut.model_validate(annotation)
-                self.annotations.record_annotation_create_receipt(
+                await self.annotations.record_annotation_create_receipt(
                     task_id=command.task_id,
                     actor_id=command.actor_id,
                     idempotency_key=idempotency_key,

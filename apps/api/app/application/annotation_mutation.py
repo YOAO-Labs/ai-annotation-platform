@@ -327,6 +327,7 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
         annotation = await self._annotations.update(
             command.annotation_id,
             mask_payload_prepared=mask_payload_prepared,
+            actor_id=actor.id,
             **fields,
         )
         if annotation is None:
@@ -405,7 +406,9 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
                 geometry=pre.geometry,
             )
             pre_class = pre.class_name
-            deleted = await self._annotations.delete(command.annotation_id)
+            deleted = await self._annotations.delete(
+                command.annotation_id, actor_id=actor.id
+            )
             if not deleted:
                 return False
             await record_annotation_actor(self._db, task, actor.id)
