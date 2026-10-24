@@ -1143,3 +1143,17 @@ test／e2e 的 StorageOperation 均为零，两个数据库、两个 Redis、18 
 ## 下一片范围 — 视频派生媒体的原件与输出归属
 
 只读复核确认，浏览器原生视频已使用受限原件读取，但 `media.py` 的视频元数据／转码／poster 和 frame／chunk 派生链仍存在现行 datasets 桶回源及 media-cache 桶写入／签名。下一片先定稿 canonical 视频输入、独立派生 owner、ffmpeg／临时文件的真实收尾、持续授权、发布与旧缓存兼容，再实施对应消费者；不能把原件 SHA 当作派生物内容证据，也不能仅替换下载 GET。LiDAR 导出、其余 ML／导出消费者和完整用途切换继续独立推进。该后续目前只有只读盘点，尚未实现。
+
+## E02-B13-B3-F Design — 视频派生媒体的统一归属与发布
+
+本片覆盖现有 direct DatasetItem 视频的 metadata／timetable、转码／poster、frame／chunk、内部预标读取、CLI、缩略图和 TTL 清理。独立 TaskOriginal 原生播放与现行受限原件会话保持；当前不支持的独立 Task 派生能力不冒充已迁移。源始终是 canonical 已登记视频，不用播放转码版抽帧。来源收据固定原件与 Item／Task 关系；视频生成会更新的派生尺寸不当作原件内容身份，其他身份事实仍完整重核。目录／引用继续拒绝。
+
+新增独立 VideoDerivativeOutput 责任行，每次尝试使用新的 UUID 输出前缀，保存 Item 身份、种类／规格、准确原件／委派、metadata generation、lease、固定 media-cache 位置／端点、结果及完整 SHA／大小清单；不设业务级联 FK。Item、FrameCache、Chunk 的当前指针引用该责任行。metadata 结果与时序一次提交，frame／chunk 必须固定当前 metadata generation，不能跨原件、时序或参数复用。已发表结果／清单和来源／授权／位置事实不可变；旧尝试不能覆盖新指针或新前缀。
+
+HTTP 委派保留具体 Task 和准确原请求／Key，不新增现有读取入口没有的 annotations:read scope，不改变 Task retry 与 facade retry 的现有差异或归档数据集读取规则。Dataset 管理和存储维护入口保留自己的角色／owner／生命周期合同。内部导入、种子与维护必须在明确的服务入口显式系统委派，缺请求不自动升级。当前读者可以复用已核验的共享输出，后台生成仍沿冻结委派持续复核。
+
+原件完整条件读取、SHA／大小核验与独立两槽 admission 使用现有 reader 和 durable StorageOperation。ffmpeg／ffprobe 显式继承匿名 stage FD，避免再复制整个视频；取消、软时限、超时等到真实子进程、管道、输出／源文件和 client 关闭。未知收尾保留许可及责任。全部输出条件独占 PUT，完整读回后在短事务按 Item→Frame／Chunk→Output 锁序，复核准确授权、原件／metadata generation、当前指针、有效 lease 和源／目标 Gate，再原子发布。元数据／时序不再随 poster pending 提前提交。
+
+ready 交付沿保存 owner 完整核验实际对象并末端重核当前读者；DTO、samples、字节与浏览器 decoder／缓存共同使用同一输出 UUID／SHA。旧无事实产物明确等待重新生成，不猜当前桶或回填 owner；旧未知对象不盲删。业务删除和 TTL 只解除引用，已知独立 owner 无引用／在用操作后退役，已发布输出从退役起等待签名宽限期，再按保存前缀删除；新前缀避开旧 videos/ 自动过期规则。
+
+实施在基于当前 HEAD 的隔离树中进行，验证使用新 test／e2e 模式、实际 ffmpeg／MinIO／HTTP／Celery、精确帧／packet 样本和浏览器；不重建镜像或安装依赖。保留人工 3100／8100、两 Worker／绑定 Beat、既有业务行／对象／源文件指纹。同步 API／用户／架构文档及生成合同，完成真实验收与清理后记录 Outcome；完整 E02／B13、用途切换及整套 epic 仍继续执行。
