@@ -917,3 +917,51 @@ async def test_jwt_logout_during_mask_storage_rolls_back_every_business_write(
             await redis.delete(token_blacklist._KEY_PREFIX + jti)
         finally:
             await redis.aclose()
+
+
+@pytest.mark.parametrize("entry", ["interactive", "test"])
+async def test_selected_transport_cannot_dispatch_after_key_revocation(
+    httpx_client,
+    managed_world,
+    super_admin,
+    monkeypatch,
+    entry,
+):
+    from contextlib import asynccontextmanager
+
+    from app.services.ml_routing.client import RoutedMLBackendClient
+
+    world = managed_world
+    key_id, key_headers = await api_key(
+        httpx_client,
+        super_admin,
+        ["tasks:read", "annotations:write", "projects:write"],
+    )
+    original = RoutedMLBackendClient._routed_transport
+    selections = []
+
+    @asynccontextmanager
+    async def revoke_after_selection(self, **kwargs):
+        async with original(self, **kwargs) as transport:
+            assert self.pool_id is not None
+            assert self.last_instance_id == world.backend_id
+            selections.append(self.last_instance_id)
+            # The actual router has selected its pool and physical transport;
+            # revoke authority before the caller receives that transport.
+            async with world.sources.factory() as db:
+                key = await db.get(ApiKey, key_id)
+                key.revoked_at = datetime.now(timezone.utc)
+                await db.commit()
+            yield transport
+
+    monkeypatch.setattr(
+        RoutedMLBackendClient,
+        "_routed_transport",
+        revoke_after_selection,
+    )
+    response = await call(httpx_client, world, key_headers, entry)
+    assert selections == [world.backend_id]
+    assert response.status_code == 403, response.text
+    assert not world.calls
+    assert world.inputs.signed_versions
+    await clean(world, monkeypatch)
