@@ -1347,4 +1347,26 @@ test 的操作账本归零后，准确命名数据库、Redis 和九桶已销毁
 
 只读盘点确认视频仍直签当前datasets桶，下载脚本跳过已有文件且不核验字节；输入使用可变video metadata及协作／质量事实，缓存和最后检查未覆盖全部变化。下一片复用共享bundle／Worker生命周期，定稿视频原件与metadata generation、脱离ORM的时间／轨迹输入、唯一sequence路径及严格下载。KITTI与MOT／YOLO混合包还需修正0／1基编号和共用目录冲突，保持绝对源帧、范围及采样相位。
 
-现视频原件合同允许512MiB，而媒体副本物理／DDL上限256MiB；须明确schema4的单件与展开预算，同时保持历史schema1／2／3边界。TaskOriginal视频缺少可复用的F metadata generation，须先解决可信元数据合同，不能从旧JSON猜测或把playback当原件。本范围尚未实现，也不代表完整E02／B13或用途切换完成；之后仍需剩余ML原件消费者、整项矩阵及独立生产／外部目标门禁。
+现视频派生链的原件上限为512MiB，独立Task上传／原视频读取允许5GiB；媒体副本物理／DDL上限仍为256MiB。须明确schema4的单件与展开预算，同时保持历史schema1／2／3边界。TaskOriginal视频缺少可复用的F metadata generation，须先解决可信元数据合同，不能从旧JSON猜测或把playback当原件。本范围尚未实现，也不代表完整E02／B13或用途切换完成；之后仍需剩余ML原件消费者、整项矩阵及独立生产／外部目标门禁。
+
+## E02-B13-B3-H2 Design — 视频冻结导出与独立媒体交付
+
+在 `cd638ccf2` 上复核后定稿；复用共享 MediaProtocol／ExportMediaBundle／run_owned／ExportOutput，不复制发布生命周期。覆盖全部十种现有异步视频格式、项目和批次范围、空项目、Dataset原件与独立TaskOriginal；显式选中入口的既有限制保持。原件按canonical关系与保存位置完整SHA／大小核验，始终交付原视频字节；同SHA不同归属不合并，完整canonical身份相同的物理源只复制一次，保留全部Task授权绑定。
+
+### 可信元数据与时间事实
+
+F的metadata generation、指针、slots与回收均属于DatasetItem，不能直接宣称覆盖独立Task。H2采用导出专属的确定性探测合同：在共享transfer持有的完整核验stage FD上，使用已有本地ffprobe能力提取fps、实际frame_count、width、height与duration；冻结探测合同修订，结果与原件SHA／大小共同成为本次交付的metadata receipt，写入完整核验的ZIP／manifest。所有原件沿同一探测规则，不读旧Item.metadata.video、不以最大标注帧猜源长度、不替换成playback，也不创建伪Dataset。元数据探测不修改F generation或业务Item。普通范围仍保持绝对源帧、闭区间与原点0的采样相位；HTTP只固定合法Task／Segment身份与范围，实际源边界在Worker探测后验证，超界不发布。
+
+冻结Project采样／协作配置、原请求scope、全部相关Segment、原始标注与候选质检Run／pairs，以及AAP实际消费的Prediction、Scene、Track／Interval。质检freshness使用两侧Segment上全部active且未取消的原始标注，不能从class过滤／sanitize／裁剪后的导出标注反算；纯重放保留较新stale不遮蔽较早fresh accepted的规则，同时间按UUID确定次序，不刷新数据库status。输出先按Segment核心区裁剪，再合并same_track，最后按请求范围裁剪。父Task／Item写锁围住新插入，现存Segment／Annotation／Run及AAP关系按稳定顺序NOWAIT锁住恢复与接受；物理I/O不持有这些业务事务。末端完整重采摘要和当前权限，改变则拒绝ready／cache。
+
+### 路径、编号与预算
+
+每个Task使用稳定唯一的sequence与视频逻辑路径；MOT、KITTI、YOLO、COCO、DAVIS、YouTube-VOS、MOTS及manifest共用显式映射。同名视频不覆盖，生成成员冲突在逐帧分配前拒绝。KITTI dense0基与MOT／YOLO／COCO dense1基使用独立frame_outputs；单格式布局尽量保持。DAVIS0基五位、MOTS遵守请求base；YouTube使用canonical裁剪后exact mask帧，不替换为普通网格。
+
+schema4只允许video角色，单件原件／副本上限5GiB、最多1000Task、去重后总原件20GiB；维持schema1／2／3各自既有限额。迁移0237扩展物理清单并新增明确的schema4约束，原记录不回填，存在schema4时拒绝不安全降级。保存位置、独立责任、首次七天共同期限、一次3600秒claim、完整回读、缓存、退休与恢复沿共享合同；下载器校验嵌入／已有／新下载字节并原子替换错误文件。
+
+冻结JSON仍限256MiB，原始标注／预测各10万。探测源帧最多100万／视频，累计实际采样／exact帧最多100万，所有target的track×frame求值／all_frames展开累计最多1000万；分配列表或逐帧字典前计算。单轨关键帧／outside／顶点及插值放大另有限额；portable mask沿4百万runs／256MiB JSON，单mask4MiB、单帧4096边长／16777216像素，累计raster工作最多268435456像素，每个DAVIS／YouTube序列最多254对象。预计ZIP成员在展开前限20万，现单项512MiB／临时总量8GiB兜底保持；格式不需要的逐帧／像素预算不误算。取消检查穿过任务、帧、轨迹与mask循环；探测子进程／物理线程须真实收尾后才释放stage与许可。这些是本地资源边界，不是生产规模或性能资格。
+
+### 实施与验收
+
+隔离树分别负责冻结输入／纯时间重放、视频探测与路径／下载／格式打包、schema4领域／迁移／物理上限；主树负责共享Worker／HTTP集成、回归和真实验收、恢复工具与正式文档。新test／e2e命名空间经launcher验证归属，全部数据库测试由主树执行；不触碰默认annotation_test。重点覆盖TaskOriginal／Dataset、同键异桶与篡改、原Key／关系／分段／Run／标注变化、重复／取消／未知提交、预算前拒绝、同名源、多格式编号、YouTube稀疏帧、错误已有下载文件、固定期限缓存与源销毁后隔离恢复。保留3100／8100、两Worker／绑定Beat和既有12表155行／24对象／12源文件指纹，不重建镜像、安装依赖、改共享配置、分配版本或宣称外部部署资格。完整验证、人工环境刷新和精确清理后再记Outcome；完整E02／B13和整套Epic继续活动。
