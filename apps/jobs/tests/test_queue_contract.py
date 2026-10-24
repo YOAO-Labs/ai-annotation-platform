@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import json
 from pathlib import Path
 
@@ -16,38 +15,23 @@ from aap_jobs.queue_contract import (
     encode_dispatch_request,
     encode_queue_reply,
     encode_revoke_request,
+    load_queue_configuration,
 )
 
 
-def test_queue_routes_are_an_exact_celery_source_extraction():
+def test_queue_routes_are_a_closed_shared_celery_configuration():
     root = Path(__file__).resolve().parents[3]
-    source = ast.parse(
-        (root / "apps/api/app/workers/celery_app.py").read_text(encoding="utf-8")
-    )
-    update = next(
-        node
-        for node in ast.walk(source)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "update"
-        and any(keyword.arg == "task_routes" for keyword in node.keywords)
-    )
-    expected = {
-        keyword.arg: ast.literal_eval(keyword.value)
-        for keyword in update.keywords
-        if keyword.arg
-        in {
-            "task_routes",
-            "task_default_queue",
-            "task_serializer",
-            "result_serializer",
-            "accept_content",
-        }
-    }
     actual = json.loads(
         (root / "apps/jobs/src/aap_jobs/queue_routes.json").read_text(encoding="utf-8")
     )
-    assert actual == expected
+    assert load_queue_configuration() == actual
+    assert set(actual) == {
+        "task_routes",
+        "task_default_queue",
+        "task_serializer",
+        "result_serializer",
+        "accept_content",
+    }
     assert actual["task_default_queue"] == "default"
     assert actual["task_serializer"] == "json"
     assert actual["result_serializer"] == "json"

@@ -265,6 +265,9 @@ class Settings(BaseSettings):
     notification_publication_url: str = ""
     notification_publication_token: str = Field(default="", repr=False)
     notification_publication_token_file: str = ""
+    jobs_queue_url: str = ""
+    jobs_queue_token: str = Field(default="", repr=False)
+    jobs_queue_token_file: str = ""
     notification_publish_database_url: str = Field(default="", repr=False)
     notification_publish_database_url_file: str = ""
     identity_presence_database_url: str = Field(default="", repr=False)

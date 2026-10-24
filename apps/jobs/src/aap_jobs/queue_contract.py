@@ -221,3 +221,44 @@ def decode_queue_reply(body: bytes) -> QueueReply:
         accepted=value["accepted"],
         execution_id=_execution_id(value["execution_id"]),
     )
+
+
+def load_queue_configuration() -> dict[str, Any]:
+    """Load the shared Celery route/default/serializer configuration resource."""
+    from importlib.resources import files
+
+    try:
+        value = json.loads(
+            files("aap_jobs").joinpath("queue_routes.json").read_text(encoding="utf-8"),
+            object_pairs_hook=_pairs_without_duplicates,
+        )
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise JobsQueueContractError() from exc
+    if (
+        type(value) is not dict
+        or set(value)
+        != {
+            "task_default_queue",
+            "task_serializer",
+            "result_serializer",
+            "accept_content",
+            "task_routes",
+        }
+        or value["task_default_queue"] != "default"
+        or value["task_serializer"] != "json"
+        or value["result_serializer"] != "json"
+        or value["accept_content"] != ["json"]
+        or type(value["task_routes"]) is not dict
+    ):
+        raise JobsQueueContractError()
+    for task_name, route in value["task_routes"].items():
+        if (
+            type(task_name) is not str
+            or not task_name
+            or type(route) is not dict
+            or set(route) != {"queue"}
+            or type(route["queue"]) is not str
+            or not route["queue"]
+        ):
+            raise JobsQueueContractError()
+    return value

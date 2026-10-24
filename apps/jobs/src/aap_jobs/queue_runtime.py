@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import json
 import logging
 
 from .queue_config import JobsQueueSettings
@@ -15,17 +14,10 @@ from .queue_contract import (
     QueueRevoke,
     decode_queue_request,
     encode_queue_reply,
+    load_queue_configuration,
 )
 
 log = logging.getLogger("aap_jobs.queue.runtime")
-
-
-def _queue_config() -> dict:
-    from importlib.resources import files
-
-    return json.loads(
-        files("aap_jobs").joinpath("queue_routes.json").read_text(encoding="utf-8")
-    )
 
 
 class CeleryQueueTransport:
@@ -35,7 +27,7 @@ class CeleryQueueTransport:
         from celery import Celery
 
         self.app = celery_app or Celery("aap_jobs_queue", broker=settings.broker_url)
-        config = _queue_config()
+        config = load_queue_configuration()
         self.app.conf.update(
             task_serializer=config["task_serializer"],
             result_serializer=config["result_serializer"],

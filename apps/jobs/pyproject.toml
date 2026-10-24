@@ -10,7 +10,22 @@ requires-python = ">=3.11"
 dependencies = ["pydantic>=2.10.0"]
 
 [project.optional-dependencies]
-test = ["pytest>=8.3.0"]
+queue-client = ["httpx>=0.28.1"]
+queue-runtime = [
+    "celery>=5.4.0",
+    "redis>=5.2.0",
+    "starlette>=1.0.0",
+    "uvicorn>=0.46.0",
+]
+test = [
+    "celery>=5.4.0",
+    "httpx>=0.28.1",
+    "pytest>=8.3.0",
+    "starlette>=1.0.0",
+]
+
+[project.scripts]
+aap-jobs-queue = "aap_jobs.queue_runtime:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aap_jobs"]
@@ -20,6 +35,10 @@ packages = ["src/aap_jobs"]
 "src/aap_jobs/sql/notification_scope_facts.sql" = "aap_jobs/sql/notification_scope_facts.sql"
 "src/aap_jobs/async_job_list_query.schema.json" = "aap_jobs/async_job_list_query.schema.json"
 "src/aap_jobs/sql/0326_jobs_list_query.sql" = "aap_jobs/sql/0326_jobs_list_query.sql"
+"src/aap_jobs/queue.schema.json" = "aap_jobs/queue.schema.json"
+"src/aap_jobs/queue_routes.json" = "aap_jobs/queue_routes.json"
+"src/aap_jobs/lifecycle.schema.json" = "aap_jobs/lifecycle.schema.json"
+"src/aap_jobs/sql/0327_jobs_lifecycle.sql" = "aap_jobs/sql/0327_jobs_lifecycle.sql"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

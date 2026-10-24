@@ -506,6 +506,18 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 安装迁移及 module-data grants 后，按 `infra/docker/jobs-notification-scope-grants.sql` 文件头为明确 API 与独立只读 LOGIN 授权。只读账号不能读取 Jobs 私表、写入关系或调用 Jobs 函数。普通 API 的其他作业消费者尚需原表权限，因此不能整体撤销 `async_jobs` 读取。没有新增 DSN、服务、执行器或环境变量；父线 27 项组合案例、真实独立 LOGIN／Node 及完整 `0323→0189→0323` 已通过，新 API 镜像的文件／导入／依赖检查为离线证据，详见[唯一台账](docs-site/dev/concepts/module-deployment.md#support-daily-and-jobs-facts)。
 
+### Jobs 私有 Celery 队列（本地实验）
+
+可选 `aap-jobs-queue` 只接收现有 Celery 的 JSON 派发和协作撤销命令。API 的 `JOBS_QUEUE_URL` 留空时继续使用内嵌 Celery；显式配置后，远程失败不会回退。API 与 owner 使用同一服务 bearer：`JOBS_QUEUE_TOKEN` 或 `JOBS_QUEUE_TOKEN_FILE`。Owner 只持有 broker URL 与 bearer，不接收数据库或 Identity 凭据。
+
+在本地组合启动私有容器：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.jobs-queue.yml up -d --build jobs-queue
+```
+
+先在 Compose 环境中设置 `JOBS_QUEUE_BROKER_URL_FILE` 和 `JOBS_QUEUE_TOKEN_FILE`，分别指向只含 broker URL 与共享 bearer 的文件；本地 Redis broker URL 可用 `redis://redis:6379/0`。API 的 secret file 也必须读到相同 bearer。容器不发布宿主机端口。只有同一 Compose 网络中的 API 可通过 `http://jobs-queue:8190` 调用；宿主机热重载 API 保持内嵌模式。目前唯一接入的消费者是跨帧作业，发送一条 positional job ID、`default` 队列和预先持久化的执行 ID；独立容器／broker 验收尚未完成。`accepted` 代表 broker 已接收请求，不代表任务完成；撤销使用 `terminate=False`，不代表任务已停止。其他任务载荷、自定义 Celery options、canvas 和非 JSON serializer 尚未验收，训练与资产作业也未切换。
+
 ### Notifications 偏好事务内能力
 
 `apps/notifications` 发布 `aap-notification-preferences/v1` 合同、类型与默认值策略，以及借用 API `AsyncSession` 的 PostgreSQL 客户端。迁移 `0311` 安装 `aap_notifications_v1.preference_command(jsonb)`；GET、局部更新和通知静音检查共用该能力。owner 计算新行默认值，JSONB 原子合并保留未提供的频道及扩展键，API 仍在成功提交之后发布 `notifications.sync`，没有新增 HTTP 服务或环境变量。

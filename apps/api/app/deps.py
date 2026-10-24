@@ -110,9 +110,9 @@ def get_training_authority(
 
 def get_job_execution_control() -> JobExecutionControl:
     """Bind cooperative execution cancellation without importing brokers into services."""
-    from app.workers.job_execution_control import CeleryJobExecutionControl
+    from app.services.jobs_queue import build_job_execution_control
 
-    return CeleryJobExecutionControl()
+    return build_job_execution_control()
 
 
 def get_prediction_retry_dispatcher() -> PredictionRetryDispatcher:

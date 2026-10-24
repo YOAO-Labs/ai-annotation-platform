@@ -32,3 +32,27 @@ fields, stable `created_at DESC, id DESC` ordering, and independent page then
 total statements. It borrows the caller's transaction and does not own Identity
 authentication, endpoint credential checks, commit, rollback, or the broader
 Jobs read/write surface.
+
+## Private Celery queue owner
+
+The optional `aap-jobs-queue` runtime accepts the existing JSON Celery dispatch
+and cooperative revoke requests over `aap-jobs-queue/v1`. It holds only the
+Celery broker URL and a private service bearer; it has no API, database, or
+Identity dependency. The API keeps its embedded Celery transport when
+`JOBS_QUEUE_URL` is blank. An explicit remote URL never falls back to the local
+broker.
+
+The only consumer wired in this slice is cross-frame propagation: one positional
+job ID, the existing `default` route, and a stable execution ID stored before
+dispatch. The reply confirms broker acceptance only. Revoke uses
+`terminate=False` and does not prove a task stopped. Custom task options, Celery
+canvases, other task payloads, and non-JSON serializers remain unqualified; the
+independent container/broker acceptance is still pending.
+
+The standalone `apps/jobs/Dockerfile.queue` image runs as UID 10005, exposes no
+host port, and reads `JOBS_QUEUE_BROKER_URL_FILE` and `JOBS_QUEUE_TOKEN_FILE`.
+`docker-compose.jobs-queue.yml` is an optional local assembly; the API must be
+on the same private Compose network to use `http://jobs-queue:8190`. Host-run
+development APIs keep the embedded transport unless a separately reachable
+private endpoint is provided. This runtime does not change the default worker
+or deployment path.
