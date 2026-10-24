@@ -102,7 +102,7 @@ async def test_last_reference_retirement_delete_failure_retains_saved_receipt_fo
     assert (await uploads.cleanup(db_session, identifiers=[identifier]))["objects"] == 0
 
 
-@pytest.mark.parametrize("purpose", ["read", "delete"])
+@pytest.mark.parametrize("purpose", ["read", "write", "delete"])
 async def test_registered_operation_blocks_retired_physical_cleanup_until_settled(
     httpx_client, project_admin, project, objects, db_session, purpose
 ):
@@ -376,3 +376,186 @@ async def test_unknown_write_close_keeps_pending_owner_and_registered_responsibi
                         == uploads.purpose("write", identifier),
                     )
                 )
+
+
+def historical_entries(project_id):
+    key = f"projects/{project_id}/guide/{uuid.uuid4()}-old.png"
+    first = {
+        "key": key,
+        "original_name": "old.png",
+        "content_type": "image/png",
+        "size": 3,
+        "uploaded_at": "2026-01-01T00:00:00+00:00",
+    }
+    variant = {
+        **first,
+        "original_name": "changed-at-complete.png",
+        "content_type": "image/jpeg",
+        "size": 4,
+    }
+    return key, [
+        first,
+        variant,
+        deepcopy(first),
+        {"historical": "dictionary without a key"},
+    ]
+
+
+async def test_delete_removes_all_historical_same_key_variants_without_owner_or_provider_io(
+    httpx_client, project_admin, project, objects, db_session
+):
+    project_id = project.id
+    key, assets = historical_entries(project_id)
+    project.guide_assets = deepcopy(assets)
+    await db_session.commit()
+    response = await unlink(httpx_client, project_admin, project_id, key)
+    assert response.status_code == 200, response.text
+    await db_session.refresh(project)
+    assert project.guide_assets == [assets[-1]]
+    assert await db_session.scalar(select(Upload.id)) is None
+    assert await db_session.scalar(select(Reference.upload_id)) is None
+    assert not objects.puts and not objects.reads and not objects.deleted
+
+
+async def test_copy_preserves_exact_legacy_duplicate_order_and_no_key_dict_without_authority(
+    project_admin, project, objects, db_session
+):
+    from tests.factory import create_project
+
+    source_id = project.id
+    _, assets = historical_entries(source_id)
+    project.guide_assets = deepcopy(assets)
+    target = await create_project(db_session, owner_id=project_admin[0].id)
+    target_id = target.id
+    await db_session.commit()
+    current = await uploads.lock_projects(
+        db_session, project_admin[0], [source_id, target_id], write_ids=[target_id]
+    )
+    copied = await references.copy_references(
+        db_session, current[source_id], current[target_id]
+    )
+    await db_session.commit()
+    await db_session.refresh(target)
+    assert copied == assets and target.guide_assets == assets
+    assert await db_session.scalar(select(Upload.id)) is None
+    assert await db_session.scalar(select(Reference.upload_id)) is None
+    assert not objects.puts and not objects.reads and not objects.deleted
+
+
+@pytest.mark.parametrize("variant", [0, 1])
+async def test_reconcile_can_retain_any_exact_historical_key_variant_then_clear(
+    project_admin, project, objects, db_session, variant
+):
+    project_id = project.id
+    _, assets = historical_entries(project_id)
+    project.guide_assets = deepcopy(assets)
+    await db_session.commit()
+    current = (
+        await uploads.lock_projects(
+            db_session, project_admin[0], [project_id], write_ids=[project_id]
+        )
+    )[project_id]
+    kept = deepcopy(assets[variant])
+    await references.reconcile_assets(
+        db_session, current, current.guide_assets_revision, [kept]
+    )
+    await db_session.commit()
+    await db_session.refresh(current)
+    assert current.guide_assets == [kept]
+    current = (
+        await uploads.lock_projects(
+            db_session, project_admin[0], [project_id], write_ids=[project_id]
+        )
+    )[project_id]
+    with pytest.raises(HTTPException) as rejected:
+        await references.reconcile_assets(
+            db_session, current, current.guide_assets_revision, [{**kept, "size": 999}]
+        )
+    assert rejected.value.status_code == 409
+    await references.reconcile_assets(
+        db_session, current, current.guide_assets_revision, []
+    )
+    await db_session.commit()
+    await db_session.refresh(current)
+    assert current.guide_assets == []
+    assert await db_session.scalar(select(Upload.id)) is None
+    assert await db_session.scalar(select(Reference.upload_id)) is None
+    assert not objects.puts and not objects.reads and not objects.deleted
+
+
+@pytest.mark.parametrize(
+    "malformed", [{"historical": "without key"}, {"key": None, "size": 1}]
+)
+async def test_explicit_clear_can_remove_historical_dictionary_without_usable_key(
+    project_admin, project, objects, db_session, malformed
+):
+    project_id = project.id
+    project.guide_assets = [malformed]
+    await db_session.commit()
+    current = (
+        await uploads.lock_projects(
+            db_session, project_admin[0], [project_id], write_ids=[project_id]
+        )
+    )[project_id]
+    await references.reconcile_assets(
+        db_session, current, current.guide_assets_revision, []
+    )
+    await db_session.commit()
+    await db_session.refresh(current)
+    assert current.guide_assets == []
+    assert await db_session.scalar(select(Upload.id)) is None
+    assert await db_session.scalar(select(Reference.upload_id)) is None
+    assert not objects.puts and not objects.reads and not objects.deleted
+
+
+async def test_known_reference_copy_requires_unique_owner_entry_but_explicit_remove_repairs_json(
+    httpx_client, project_admin, project, objects, db_session
+):
+    from tests.factory import create_project
+
+    value = await upload(httpx_client, project_admin, project)
+    source_id = project.id
+    identifier = uuid.UUID(value["key"].split("/")[-1])
+    malformed = {**value, "size": 999}
+    project.guide_assets = [value, malformed, deepcopy(value)]
+    target = await create_project(db_session, owner_id=project_admin[0].id)
+    target_id = target.id
+    await db_session.commit()
+    current = await uploads.lock_projects(
+        db_session, project_admin[0], [source_id, target_id], write_ids=[target_id]
+    )
+    with pytest.raises(HTTPException) as rejected:
+        await references.copy_references(
+            db_session, current[source_id], current[target_id]
+        )
+    assert rejected.value.status_code == 409
+    assert await db_session.get(Reference, (target_id, identifier)) is None
+    await db_session.commit()
+    # A unique exact retained owner entry repairs the old list; forged metadata
+    # cannot be retained even though it is a historical JSON source fact.
+    current = (
+        await uploads.lock_projects(
+            db_session, project_admin[0], [source_id], write_ids=[source_id]
+        )
+    )[source_id]
+    with pytest.raises(HTTPException):
+        await references.reconcile_assets(
+            db_session, current, current.guide_assets_revision, [malformed]
+        )
+    await references.reconcile_assets(
+        db_session, current, current.guide_assets_revision, [value]
+    )
+    await db_session.commit()
+    await db_session.refresh(project)
+    assert project.guide_assets == [value]
+    project.guide_assets = [malformed, deepcopy(malformed)]
+    await db_session.commit()
+    assert (
+        await unlink(httpx_client, project_admin, source_id, value["key"])
+    ).status_code == 200
+    row = await db_session.get(Upload, identifier, populate_existing=True)
+    assert (
+        row.state == "retired"
+        and await db_session.get(Reference, (source_id, identifier)) is None
+    )
+    assert not objects.deleted

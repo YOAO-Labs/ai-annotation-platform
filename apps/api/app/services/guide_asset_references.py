@@ -86,6 +86,22 @@ def indexed_assets(assets):
     return result
 
 
+def grouped_existing_assets(assets):
+    """Historical JSON can contain duplicate keys or dictionaries without keys.
+
+    Preserve those source facts without treating any metadata as a reference.
+    New explicit lists still pass the stricter indexed_assets validator.
+    """
+    if not isinstance(assets, list):
+        reject("guide_asset_receipt_mismatch")
+    _json(assets)
+    result = {}
+    for value in assets:
+        if isinstance(value, dict) and isinstance(value.get("key"), str):
+            result.setdefault(value["key"], []).append(value)
+    return result
+
+
 async def _references(db, project_id, *, lock=False):
     statement = select(Reference).where(Reference.project_id == project_id)
     if lock:
@@ -145,10 +161,12 @@ async def reconcile_assets(db, project, expected_revision, assets):
         expected_revision != project.guide_assets_revision
     ):
         reject("guide_asset_revision_conflict")
-    existing = indexed_assets(project.guide_assets or [])
+    existing = grouped_existing_assets(project.guide_assets or [])
     supplied = indexed_assets(assets)
     for key, value in supplied.items():
-        if key not in existing or _json(value) != _json(existing[key]):
+        if not any(
+            _json(value) == _json(original) for original in existing.get(key, [])
+        ):
             reject("guide_asset_receipt_mismatch")
     owners, refs = await _locked_current(db, project)
     for ref in refs:
@@ -165,6 +183,32 @@ async def reconcile_assets(db, project, expected_revision, assets):
     await set_assets(db, project, assets)
 
 
+async def remove_asset(db, project, key):
+    """Remove every matching legacy entry and its actual Ref, without byte I/O."""
+    assets = project.guide_assets or []
+    existing = grouped_existing_assets(assets)
+    if key not in existing:
+        reject("guide_asset_missing", 404)
+    owners, refs = await _locked_current(db, project)
+    removed = []
+    for ref in refs:
+        row = owners[ref.upload_id]
+        if storage.key_for(row.project_id, row.id) == key:
+            await db.delete(ref)
+            removed.append(row)
+    await db.flush()
+    await _retire_unreferenced(db, removed)
+    await set_assets(
+        db,
+        project,
+        [
+            value
+            for value in assets
+            if not isinstance(value, dict) or value.get("key") != key
+        ],
+    )
+
+
 async def copy_references(db, source, target):
     """Copy current source references after caller locks/authorizes both projects."""
     if (
@@ -174,13 +218,18 @@ async def copy_references(db, source, target):
     ):
         reject()
     assets = deepcopy(source.guide_assets or [])
-    entries = indexed_assets(assets)
+    entries = grouped_existing_assets(assets)
     owners, refs = await _locked_current(db, source)
     receipts = []
     for ref in refs:
         row = owners[ref.upload_id]
         key = storage.key_for(row.project_id, row.id)
-        if row.state != "ready" or _json(entries.get(key)) != _json(entry(row)):
+        values = entries.get(key, [])
+        if (
+            row.state != "ready"
+            or len(values) != 1
+            or _json(values[0]) != _json(entry(row))
+        ):
             reject("guide_asset_receipt_mismatch")
         receipts.append(receipt(row))
     # Owner locks precede every new Ref; no metadata creates an owner or a Ref.

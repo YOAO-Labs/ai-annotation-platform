@@ -350,15 +350,7 @@ async def unlink(db, actor, request, project_id, key):
         actor, proof = await lock_authority(db, actor, request)
         projects = await lock_projects(db, actor, [project_id], write_ids=[project_id])
         project = projects[project_id]
-        entries = references.indexed_assets(project.guide_assets or [])
-        if key not in entries:
-            reject("guide_asset_missing", 404)
-        await references.reconcile_assets(
-            db,
-            project,
-            project.guide_assets_revision,
-            [value for value in project.guide_assets if value["key"] != key],
-        )
+        await references.remove_asset(db, project, key)
         await reauthorize(db, proof)
         await db.commit()
         check_clock(proof)
@@ -373,7 +365,10 @@ async def _has_operation(db, receipt, *, excluding=None):
     statement = select(StorageOperation.id).where(
         StorageOperation.location_id == uuid.UUID(receipt.storage_ref["location_id"]),
         StorageOperation.purpose.in_(
-            [purpose(operation, receipt.id) for operation in ("read", "delete")]
+            [
+                purpose(operation, receipt.id)
+                for operation in ("read", "write", "delete")
+            ]
         ),
     )
     if excluding is not None:
