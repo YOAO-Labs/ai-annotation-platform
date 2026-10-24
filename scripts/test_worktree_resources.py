@@ -595,6 +595,10 @@ class BucketUpgradeTests(unittest.TestCase):
             "notification_facts_column_write": False,
             "audit_append": True,
             "audit_query": True,
+            "audit_maintenance": True,
+            "audit_parent_read": True,
+            "audit_log_write": False,
+            "audit_sequence_private": False,
             "audit_read": True,
             "audit_read_write": False,
             "audit_read_column_write": False,
@@ -673,6 +677,20 @@ class BucketUpgradeTests(unittest.TestCase):
             + ' TO "app"',
             statements,
         )
+        audit_acl = next(
+            statement
+            for statement in statements
+            if statement.lstrip().startswith("DO $audit_private_acl$")
+        )
+        self.assertIn("pg_partition_tree('public.audit_logs')", audit_acl)
+        self.assertIn("REVOKE ALL ON SEQUENCE %s FROM %I, PUBLIC", audit_acl)
+        self.assertIn("GRANT SELECT ON TABLE public.audit_logs TO %I", audit_acl)
+        self.assertIn(
+            "has_database_privilege(v_runtime,current_database(),'TEMP')", audit_acl
+        )
+        self.assertIn("has_schema_privilege(v_runtime,'public','CREATE')", audit_acl)
+        self.assertIn('REVOKE TEMPORARY ON DATABASE "aap_test" FROM PUBLIC', statements)
+        self.assertIn('REVOKE CREATE ON SCHEMA public FROM "app"', statements)
         self.assertIn(
             "GRANT EXECUTE ON FUNCTION "
             + ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
@@ -780,6 +798,10 @@ class BucketUpgradeTests(unittest.TestCase):
             "notification_facts_write",
             "notification_facts_column_write",
             "audit_read",
+            "audit_maintenance",
+            "audit_parent_read",
+            "audit_log_write",
+            "audit_sequence_private",
             "audit_read_write",
             "audit_read_column_write",
             "audit_daily_read",
@@ -808,6 +830,31 @@ class BucketUpgradeTests(unittest.TestCase):
                         asyncio.run(backend.grant_runtime())
                 finally:
                     privileges[key] = original
+
+    def test_audit_maintenance_grant_is_bounded_to_its_owner_command(self):
+        sql = (
+            Path(__file__).resolve().parents[1]
+            / "infra/docker/audit-maintenance-grants.sql"
+        ).read_text()
+        self.assertNotIn("\\ir", sql)
+        self.assertEqual(
+            sql.count(
+                "GRANT EXECUTE ON FUNCTION aap_audit_v1.maintenance_command(jsonb)"
+            ),
+            1,
+        )
+        for required in (
+            "function.prosecdef",
+            "function.provolatile='v'",
+            "search_path=pg_catalog, pg_temp",
+            "TimeZone=UTC",
+            "'CREATE,TEMP'",
+            "REVOKE ALL ON ALL TABLES IN SCHEMA",
+            "REVOKE ALL ON ALL SEQUENCES IN SCHEMA",
+            "Audit maintenance LOGIN owns database objects",
+        ):
+            with self.subTest(required_guard=required):
+                self.assertIn(required, sql)
 
 
 if __name__ == "__main__":

@@ -103,6 +103,10 @@ BEGIN
             FROM pg_proc WHERE oid = append_function AND proowner = owner_oid) THEN
         RAISE EXCEPTION 'Audit append function must be owned by the Audit code role';
     END IF;
+    IF pg_catalog.has_database_privilege(api_oid, current_database(), 'TEMP')
+       OR pg_catalog.has_schema_privilege(api_oid, 'public', 'CREATE') THEN
+        RAISE EXCEPTION 'API role must not create public objects or temporary relations';
+    END IF;
     IF NOT pg_catalog.has_table_privilege(api_oid, 'public.audit_logs', 'SELECT') THEN
         RAISE EXCEPTION 'API role must retain its current Audit SELECT surface';
     END IF;
@@ -117,31 +121,34 @@ BEGIN
         SELECT FROM pg_catalog.pg_default_acl AS defaults
         CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
         WHERE defaults.defaclrole = (
-            SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_setting('aap.migration_role')
+            SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_setting('aap.audit_owner')
         )
           AND defaults.defaclnamespace = 'public'::regnamespace
           AND defaults.defaclobjtype = 'r'
           AND acl.grantee IN (api_oid, 0)
-          AND acl.privilege_type = 'INSERT'
+          AND acl.privilege_type IN (
+              'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE',
+              'REFERENCES', 'TRIGGER'
+          )
     ) THEN
-        RAISE EXCEPTION 'API role has default INSERT on future public tables; partition grants need a scoped maintenance owner';
+        RAISE EXCEPTION 'API role or PUBLIC has default access to future Audit partitions';
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_default_acl AS defaults
         CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
         WHERE defaults.defaclrole = (
-            SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_setting('aap.migration_role')
+            SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_setting('aap.audit_owner')
         )
           AND defaults.defaclnamespace = 'public'::regnamespace
           AND defaults.defaclobjtype = 'S'
           AND acl.grantee IN (api_oid, 0)
-          AND acl.privilege_type IN ('USAGE', 'UPDATE')
+          AND acl.privilege_type IN ('USAGE', 'SELECT', 'UPDATE')
     ) THEN
-        RAISE EXCEPTION 'API role has default sequence write grants; future Audit partitions are not fenced';
+        RAISE EXCEPTION 'API role or PUBLIC has default access to future Audit sequences';
     END IF;
 END $$;
 
--- Preserve API reads and cleanup compatibility; only INSERT/sequence writes move.
+-- Keep the parent read used by existing consumers; Audit writes use owner functions.
 REVOKE INSERT ON TABLE public.audit_logs FROM :"api_role";
 DO $$
 DECLARE
@@ -245,19 +252,24 @@ BEGIN
     IF NOT pg_catalog.has_table_privilege(api_oid, 'public.audit_logs', 'SELECT')
        OR NOT pg_catalog.has_schema_privilege(api_oid, 'aap_audit_v1', 'USAGE')
        OR NOT pg_catalog.has_function_privilege(api_oid, append_function, 'EXECUTE')
-       OR pg_catalog.has_table_privilege(api_oid, 'public.audit_logs', 'INSERT')
-       OR pg_catalog.has_any_column_privilege(api_oid, 'public.audit_logs', 'INSERT')
-       OR pg_catalog.has_sequence_privilege(api_oid, audit_sequence, 'USAGE')
-       OR pg_catalog.has_sequence_privilege(api_oid, audit_sequence, 'UPDATE') THEN
-        RAISE EXCEPTION 'API role must retain Audit SELECT and lose direct INSERT/sequence writes';
+       OR pg_catalog.has_table_privilege(api_oid, 'public.audit_logs',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(api_oid, 'public.audit_logs',
+            'INSERT,UPDATE,REFERENCES')
+       OR pg_catalog.has_sequence_privilege(api_oid, audit_sequence, 'USAGE,SELECT,UPDATE') THEN
+        RAISE EXCEPTION 'API role must retain Audit parent SELECT and lose direct writes';
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition
-        JOIN pg_catalog.pg_class AS relation ON relation.oid = partition.relid
-        WHERE pg_catalog.has_table_privilege(api_oid, relation.oid, 'INSERT')
-           OR pg_catalog.has_any_column_privilege(api_oid, relation.oid, 'INSERT')
+        WHERE partition.relid <> 'public.audit_logs'::pg_catalog.regclass
+          AND (
+              pg_catalog.has_table_privilege(api_oid, partition.relid,
+                  'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+              OR pg_catalog.has_any_column_privilege(api_oid, partition.relid,
+                  'SELECT,INSERT,UPDATE,REFERENCES')
+          )
     ) THEN
-        RAISE EXCEPTION 'API role retains direct INSERT on an existing Audit partition';
+        RAISE EXCEPTION 'API role retains direct access to an existing Audit partition';
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_proc AS function

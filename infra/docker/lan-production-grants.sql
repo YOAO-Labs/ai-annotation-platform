@@ -4,7 +4,7 @@
 --       -v migration_role=anno_prod_owner -v asset_cleanup_role=asset_cleanup_client
 --       -f lan-production-grants.sql
 -- application_role composes embedded owners through their published capabilities.
--- Identity and Notifications private storage is denied; other legacy access remains.
+-- Identity, Audit, and Notifications writes use owner capabilities; other legacy access remains.
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('aap.expected_database', :'expected_database', true);
@@ -58,12 +58,13 @@ BEGIN
 END $$;
 
 REVOKE ALL ON DATABASE :"expected_database" FROM PUBLIC;
--- Concurrent materialized-view refresh uses temporary relations internally.
-GRANT CONNECT, TEMPORARY ON DATABASE :"expected_database" TO :"application_role";
+REVOKE TEMPORARY ON DATABASE :"expected_database" FROM :"application_role";
+GRANT CONNECT ON DATABASE :"expected_database" TO :"application_role";
 REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_cleanup_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_cleanup_role";
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-GRANT USAGE, CREATE ON SCHEMA public TO :"application_role";
+REVOKE CREATE ON SCHEMA public FROM :"application_role";
+GRANT USAGE ON SCHEMA public TO :"application_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"application_role";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"application_role";
 GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1,
@@ -150,8 +151,10 @@ GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_settings_v1, aap_notifications_v1 TO :"application_role";
 -- Existing API bindings call these owner functions inside the business transaction.
 GRANT USAGE ON SCHEMA aap_audit_v1 TO :"application_role";
+REVOKE ALL ON FUNCTION aap_audit_v1.maintenance_command(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb),
     aap_audit_v1.query_events(pg_catalog.jsonb),
+    aap_audit_v1.maintenance_command(jsonb),
     aap_notifications_v1.preference_command(jsonb),
     aap_notifications_v1.append_notification(jsonb),
     aap_notifications_v1.append_job_terminal_notification(jsonb),
@@ -342,6 +345,46 @@ REVOKE ALL (id, kind, scope_project_id)
 GRANT SELECT ON aap_jobs_v1.notification_scope_facts TO :"application_role";
 REVOKE EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv()
     FROM :"application_role", PUBLIC;
+DO $audit_storage_acl$
+DECLARE
+    v_runtime pg_catalog.name := current_setting('aap.application_role');
+    v_partition record;
+    v_columns text;
+    v_sequence text := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
+BEGIN
+    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.audit_logs FROM %I, PUBLIC',
+        v_runtime);
+    SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
+    INTO v_columns
+    FROM pg_catalog.pg_attribute AS attribute
+    WHERE attribute.attrelid = 'public.audit_logs'::pg_catalog.regclass
+      AND attribute.attnum > 0 AND NOT attribute.attisdropped;
+    EXECUTE pg_catalog.format(
+        'REVOKE ALL (%s) ON TABLE public.audit_logs FROM %I, PUBLIC',
+        v_columns, v_runtime);
+    EXECUTE pg_catalog.format('GRANT SELECT ON TABLE public.audit_logs TO %I',
+        v_runtime);
+    FOR v_partition IN
+        SELECT relid FROM pg_catalog.pg_partition_tree('public.audit_logs')
+        WHERE relid <> 'public.audit_logs'::pg_catalog.regclass
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %s FROM %I, PUBLIC',
+            v_partition.relid::pg_catalog.regclass, v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
+        INTO v_columns
+        FROM pg_catalog.pg_attribute AS attribute
+        WHERE attribute.attrelid = v_partition.relid
+          AND attribute.attnum > 0 AND NOT attribute.attisdropped;
+        EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %s FROM %I, PUBLIC',
+            v_columns, v_partition.relid::pg_catalog.regclass, v_runtime);
+    END LOOP;
+    IF v_sequence IS NULL THEN
+        RAISE EXCEPTION 'Audit log sequence is missing';
+    END IF;
+    EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE %s FROM %I, PUBLIC',
+        v_sequence, v_runtime);
+END;
+$audit_storage_acl$;
 DO $notification_private_acl$
 DECLARE
     v_runtime pg_catalog.name := current_setting('aap.application_role');
@@ -399,8 +442,34 @@ $notification_private_acl$;
 DO $audit_read_acl$
 DECLARE
     v_runtime pg_catalog.name := current_setting('aap.application_role');
+    v_sequence text := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
 BEGIN
-    IF NOT pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_events', 'SELECT')
+    IF NOT pg_catalog.has_table_privilege(v_runtime, 'public.audit_logs', 'SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime, 'public.audit_logs',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.audit_logs',
+            'INSERT,UPDATE,REFERENCES')
+       OR pg_catalog.has_sequence_privilege(v_runtime, v_sequence, 'SELECT,UPDATE,USAGE')
+       OR pg_catalog.has_database_privilege(v_runtime, current_database(), 'TEMP')
+       OR pg_catalog.has_schema_privilege(v_runtime, 'public', 'CREATE')
+       OR pg_catalog.pg_has_role(v_runtime,
+            (SELECT relation.relowner FROM pg_catalog.pg_class AS relation
+             WHERE relation.oid='public.audit_logs'::pg_catalog.regclass), 'MEMBER')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_audit_v1.maintenance_command(jsonb)', 'EXECUTE')
+       OR pg_catalog.has_function_privilege(v_runtime,
+            'aap_audit_v1.refresh_audit_bi_mv()', 'EXECUTE')
+       OR EXISTS (
+            SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition
+            WHERE partition.relid <> 'public.audit_logs'::pg_catalog.regclass
+              AND (
+                  pg_catalog.has_table_privilege(v_runtime, partition.relid,
+                      'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                  OR pg_catalog.has_any_column_privilege(v_runtime, partition.relid,
+                      'SELECT,INSERT,UPDATE,REFERENCES')
+              )
+       )
+       OR NOT pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_events', 'SELECT')
        OR pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_events',
             'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
        OR pg_catalog.has_any_column_privilege(v_runtime, 'aap_audit_v1.audit_events',

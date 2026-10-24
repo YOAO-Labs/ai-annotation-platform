@@ -413,14 +413,6 @@ GRANT SELECT (
 ), UPDATE (actor_email, actor_role) ON public.audit_logs TO :"audit_owner";
 GRANT SELECT (id, email)
     ON aap_identity_v1.account_profiles TO :"audit_owner";
-DO $$
-BEGIN
-    EXECUTE format(
-        'GRANT USAGE ON SEQUENCE %s TO %I',
-        pg_get_serial_sequence('public.audit_logs', 'id'),
-        current_setting('aap.audit_owner')
-    );
-END $$;
 
 -- Assets owns catalog/source rows and their exact upload, deletion and connection receipts.
 GRANT SELECT (id, display_id, data_type, name, file_count),
@@ -2594,8 +2586,46 @@ ALTER FUNCTION aap_export_v1.clear_project_export_artifacts(uuid)
 REVOKE CREATE ON SCHEMA aap_export_v1 FROM :"export_owner";
 
 GRANT CREATE ON SCHEMA public TO :"audit_owner";
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+DO $audit_storage_owner$
+DECLARE
+    v_partition record;
+    v_sequence text;
+    v_sequence_owner oid;
+    v_owner oid := (SELECT oid FROM pg_catalog.pg_roles
+                    WHERE rolname=current_setting('aap.audit_owner'));
+BEGIN
+    v_sequence := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
+    IF v_sequence IS NULL OR v_owner IS NULL THEN
+        RAISE EXCEPTION 'Audit log sequence or code owner is missing';
+    END IF;
+    FOR v_partition IN
+        SELECT relid FROM pg_catalog.pg_partition_tree('public.audit_logs')
+    LOOP
+        EXECUTE pg_catalog.format('ALTER TABLE %s OWNER TO %I',
+            v_partition.relid::pg_catalog.regclass,
+            current_setting('aap.audit_owner'));
+    END LOOP;
+    SELECT relation.relowner INTO v_sequence_owner
+    FROM pg_catalog.pg_class AS relation
+    WHERE relation.oid=v_sequence::pg_catalog.regclass;
+    IF v_sequence_owner IS DISTINCT FROM v_owner THEN
+        EXECUTE pg_catalog.format('ALTER SEQUENCE %s OWNER TO %I',
+            v_sequence, current_setting('aap.audit_owner'));
+    END IF;
+    IF EXISTS (
+        SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition
+        JOIN pg_catalog.pg_class AS relation ON relation.oid=partition.relid
+        WHERE relation.relowner<>v_owner
+    ) OR (
+        SELECT relation.relowner FROM pg_catalog.pg_class AS relation
+        WHERE relation.oid=v_sequence::pg_catalog.regclass
+    ) IS DISTINCT FROM v_owner THEN
+        RAISE EXCEPTION 'Audit partitions or their sequence have another owner';
+    END IF;
+END;
+$audit_storage_owner$;
 ALTER MATERIALIZED VIEW public.mv_audit_bi_daily OWNER TO :"audit_owner";
-REVOKE CREATE ON SCHEMA public FROM :"audit_owner";
 -- Concurrent refresh creates transient relations as the fixed MV owner.
 GRANT TEMPORARY ON DATABASE :"expected_database" TO :"audit_owner";
 GRANT CREATE ON SCHEMA aap_audit_v1 TO :"audit_owner";
@@ -2636,6 +2666,7 @@ ALTER FUNCTION aap_audit_v1.query_events(pg_catalog.jsonb) OWNER TO :"audit_owne
 ALTER VIEW aap_audit_v1.audit_events OWNER TO :"audit_owner";
 ALTER VIEW aap_audit_v1.audit_daily_facts OWNER TO :"audit_owner";
 ALTER FUNCTION aap_audit_v1.refresh_audit_bi_mv() OWNER TO :"audit_owner";
+ALTER FUNCTION aap_audit_v1.maintenance_command(jsonb) OWNER TO :"audit_owner";
 GRANT EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv() TO :"migration_role";
 REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
 

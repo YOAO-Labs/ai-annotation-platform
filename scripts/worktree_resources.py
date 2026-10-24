@@ -139,6 +139,7 @@ NOTIFICATION_RUNTIME_CAPABILITIES = (
 AUDIT_RUNTIME_CAPABILITIES = (
     "aap_audit_v1.append_events(jsonb)",
     "aap_audit_v1.query_events(pg_catalog.jsonb)",
+    "aap_audit_v1.maintenance_command(jsonb)",
 )
 JOBS_LIFECYCLE_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.read_job(uuid)",
@@ -302,6 +303,85 @@ BEGIN
     END LOOP;
 END;
 $identity_private_acl$;
+"""
+_AUDIT_PRIVATE_RUNTIME_ACL = """
+DO $audit_private_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_partition record;
+    v_columns text;
+    v_sequence text := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
+BEGIN
+    IF current_database() <> current_setting('aap.expected_database') THEN
+        RAISE EXCEPTION 'Unexpected database while fencing Audit storage';
+    END IF;
+    IF EXISTS (
+        SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition
+        JOIN pg_catalog.pg_class AS relation ON relation.oid=partition.relid
+        WHERE pg_catalog.pg_has_role(v_runtime,relation.relowner,'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'The runtime role must not own or inherit Audit storage';
+    END IF;
+    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.audit_logs FROM %I, PUBLIC',
+        v_runtime);
+    SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
+    INTO v_columns FROM pg_catalog.pg_attribute AS attribute
+    WHERE attribute.attrelid='public.audit_logs'::pg_catalog.regclass
+      AND attribute.attnum>0 AND NOT attribute.attisdropped;
+    EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE public.audit_logs FROM %I, PUBLIC',
+        v_columns,v_runtime);
+    EXECUTE pg_catalog.format('GRANT SELECT ON TABLE public.audit_logs TO %I',v_runtime);
+    FOR v_partition IN
+        SELECT relid FROM pg_catalog.pg_partition_tree('public.audit_logs')
+        WHERE relid<>'public.audit_logs'::pg_catalog.regclass
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %s FROM %I, PUBLIC',
+            v_partition.relid::pg_catalog.regclass,v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
+        INTO v_columns FROM pg_catalog.pg_attribute AS attribute
+        WHERE attribute.attrelid=v_partition.relid
+          AND attribute.attnum>0 AND NOT attribute.attisdropped;
+        EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %s FROM %I, PUBLIC',
+            v_columns,v_partition.relid::pg_catalog.regclass,v_runtime);
+    END LOOP;
+    IF v_sequence IS NULL THEN
+        RAISE EXCEPTION 'Audit log sequence is missing';
+    END IF;
+    EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE %s FROM %I, PUBLIC',
+        v_sequence,v_runtime);
+    EXECUTE pg_catalog.format(
+        'REVOKE ALL ON FUNCTION aap_audit_v1.maintenance_command(jsonb) FROM %I, PUBLIC',
+        v_runtime);
+    EXECUTE pg_catalog.format(
+        'GRANT EXECUTE ON FUNCTION aap_audit_v1.maintenance_command(jsonb) TO %I',
+        v_runtime);
+    EXECUTE pg_catalog.format(
+        'REVOKE ALL ON FUNCTION aap_audit_v1.refresh_audit_bi_mv() FROM %I, PUBLIC',
+        v_runtime);
+    IF NOT pg_catalog.has_table_privilege(v_runtime,'public.audit_logs','SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime,'public.audit_logs',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime,'public.audit_logs',
+            'INSERT,UPDATE,REFERENCES')
+       OR pg_catalog.has_sequence_privilege(v_runtime,v_sequence,'SELECT,UPDATE,USAGE')
+       OR pg_catalog.has_database_privilege(v_runtime,current_database(),'TEMP')
+       OR pg_catalog.has_schema_privilege(v_runtime,'public','CREATE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_audit_v1.maintenance_command(jsonb)','EXECUTE')
+       OR pg_catalog.has_function_privilege(v_runtime,
+            'aap_audit_v1.refresh_audit_bi_mv()','EXECUTE')
+       OR EXISTS (
+            SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition
+            WHERE partition.relid<>'public.audit_logs'::pg_catalog.regclass
+              AND (pg_catalog.has_table_privilege(v_runtime,partition.relid,
+                       'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                   OR pg_catalog.has_any_column_privilege(v_runtime,partition.relid,
+                       'SELECT,INSERT,UPDATE,REFERENCES'))
+       ) THEN
+        RAISE EXCEPTION 'The runtime role retains direct Audit storage or refresh access';
+    END IF;
+END
+$audit_private_acl$;
 """
 VIDEO_RUNTIME_CAPABILITIES = (
     "aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)",
@@ -1395,6 +1475,14 @@ class LocalResources:
                     ),
                     {"role": runtime.username, "database": self.resources["database"]},
                 )
+                if runtime.username != self.url.username:
+                    for sql in (
+                        f"REVOKE TEMPORARY ON DATABASE {database} FROM PUBLIC",
+                        f"REVOKE TEMPORARY ON DATABASE {database} FROM {role}",
+                        "REVOKE CREATE ON SCHEMA public FROM PUBLIC",
+                        f"REVOKE CREATE ON SCHEMA public FROM {role}",
+                    ):
+                        await connection.exec_driver_sql(sql)
                 if make_url(self.settings.database_url).username == self.url.username:
                     operator_oid = await connection.scalar(
                         text("SELECT oid FROM pg_roles WHERE rolname=current_user")
@@ -1409,6 +1497,7 @@ class LocalResources:
                 await connection.exec_driver_sql(_JOBS_DELETE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_JOBS_UPDATE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
+                await connection.exec_driver_sql(_AUDIT_PRIVATE_RUNTIME_ACL)
                 notification_result = await connection.execute(
                     text(
                         "SELECT pg_catalog.has_function_privilege("
@@ -1469,7 +1558,19 @@ class LocalResources:
                         "AS audit_append, pg_catalog.has_function_privilege("
                         ":role, pg_catalog.to_regprocedure("
                         "'aap_audit_v1.query_events(pg_catalog.jsonb)'), 'EXECUTE') "
-                        "AS audit_query, pg_catalog.has_table_privilege("
+                        "AS audit_query, pg_catalog.has_function_privilege("
+                        ":role, pg_catalog.to_regprocedure("
+                        "'aap_audit_v1.maintenance_command(jsonb)'), 'EXECUTE') "
+                        "AS audit_maintenance, pg_catalog.has_table_privilege("
+                        ":role, 'public.audit_logs', 'SELECT') AS audit_parent_read, ("
+                        "pg_catalog.has_table_privilege(:role, 'public.audit_logs', "
+                        "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
+                        "pg_catalog.has_any_column_privilege(:role, 'public.audit_logs', "
+                        "'INSERT,UPDATE,REFERENCES')) AS audit_log_write, "
+                        "pg_catalog.has_sequence_privilege(:role, "
+                        "pg_catalog.pg_get_serial_sequence('public.audit_logs','id'), "
+                        "'SELECT,UPDATE,USAGE') AS audit_sequence_private, "
+                        "pg_catalog.has_table_privilege("
                         ":role, 'aap_audit_v1.audit_events', 'SELECT') AS audit_read, "
                         "pg_catalog.has_table_privilege("
                         ":role, 'aap_audit_v1.audit_events', "
@@ -1535,6 +1636,10 @@ class LocalResources:
                     is not False
                     or notification_grants["audit_append"] is not True
                     or notification_grants["audit_query"] is not True
+                    or notification_grants["audit_maintenance"] is not True
+                    or notification_grants["audit_parent_read"] is not True
+                    or notification_grants["audit_log_write"] is not False
+                    or notification_grants["audit_sequence_private"] is not False
                     or notification_grants["audit_read"] is not True
                     or notification_grants["audit_read_write"] is not False
                     or notification_grants["audit_read_column_write"] is not False
