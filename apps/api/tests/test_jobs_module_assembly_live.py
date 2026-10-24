@@ -59,6 +59,7 @@ from tests.test_workspace_export_worker_live import (
     _seed_export_world,
 )
 from tests.workspace_worker_assembly_helpers import WorkspaceCeleryWorker
+from tests.jobs_quality_module_helpers import exercise_quality_dispatch
 
 
 pytestmark = [
@@ -124,7 +125,7 @@ def _assert_owned_broker_target(sender: Celery, queue: str = "default") -> None:
         owner.port,
         owner.database,
     ), "Jobs queue must use the verified verifier-owned Redis database"
-    assert queue in {"default", "export"}
+    assert queue in {"default", "export", "media"}
     assert _broker_state(sender, queue) == {"queue_size": 0, "unacknowledged": 0}, (
         f"{queue} queue must be empty before the owned worker subscribes"
     )
@@ -1182,6 +1183,19 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
             record_property(
                 "jobs_export_dispatch_before_restore", exports_before_restore
             )
+            quality_before_restore = await exercise_quality_dispatch(
+                test_engine,
+                stack,
+                sender,
+                resources,
+                owner_s3,
+                tmp_path / "jobs-quality-before-restore",
+                known_task_ids,
+                check_outage=True,
+            )
+            record_property(
+                "jobs_quality_dispatch_before_restore", quality_before_restore
+            )
             worker.stop()
             worker = None
             _assert_owned_broker_target(sender)
@@ -1332,6 +1346,57 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                         )
                         record_property(
                             "jobs_export_dispatch_after_restore", exports_after_restore
+                        )
+
+                        quality_headers = await _login(
+                            client,
+                            clone_maker,
+                            uuid.UUID(quality_before_restore["owner_id"]),
+                        )
+                        old_quality_job = await _job_by_id(
+                            clone_engine, uuid.UUID(quality_before_restore["job_id"])
+                        )
+                        assert old_quality_job is not None
+                        restored_quality = await client.get(
+                            f"/api/v1/projects/{old_quality_job.project_id}"
+                            "/point-cloud-quality/runs/"
+                            + quality_before_restore["run_id"],
+                            headers=quality_headers,
+                        )
+                        assert restored_quality.status_code == 200, stack.redact(
+                            restored_quality.text
+                        )
+                        assert restored_quality.json()["status"] == "completed"
+                        assert (
+                            restored_quality.json()["async_job_id"]
+                            == (quality_before_restore["job_id"])
+                        )
+                        assert old_quality_job.status == "completed"
+                        assert (
+                            old_quality_job.celery_task_id
+                            == (quality_before_restore["execution_id"])
+                        )
+                        record_property(
+                            "jobs_quality_completed_run_survives_restore",
+                            {
+                                "run_id": quality_before_restore["run_id"],
+                                "job_id": quality_before_restore["job_id"],
+                                "execution_id": old_quality_job.celery_task_id,
+                                "http_status": restored_quality.status_code,
+                            },
+                        )
+                        quality_after_restore = await exercise_quality_dispatch(
+                            clone_engine,
+                            stack,
+                            sender,
+                            resources,
+                            owner_s3,
+                            tmp_path / "jobs-quality-after-restore",
+                            known_task_ids,
+                            check_outage=False,
+                        )
+                        record_property(
+                            "jobs_quality_dispatch_after_restore", quality_after_restore
                         )
 
                         cancel_world = await _seed_member_job(

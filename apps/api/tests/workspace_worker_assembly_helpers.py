@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[3]
 def _worker_queue_name(identity: str, queue_name: str | None = None) -> str:
     if queue_name is None:
         return f"aap_workspace_worker_{identity}"
-    if queue_name not in {"default", "export"}:
+    if queue_name not in {"default", "export", "media"}:
         raise ValueError(
             "Only the explicit default and export worker queues are supported"
         )

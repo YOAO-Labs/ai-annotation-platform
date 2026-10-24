@@ -1,4 +1,4 @@
-"""Bind cross-frame dispatch to the selected Jobs queue transport."""
+"""Bind existing job producers to the selected Jobs queue transport."""
 
 from __future__ import annotations
 

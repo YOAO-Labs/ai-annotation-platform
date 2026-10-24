@@ -180,8 +180,9 @@ Identity dependency. The API keeps its embedded Celery transport when
 `JOBS_QUEUE_URL` is blank. An explicit remote URL never falls back to the local
 broker.
 
-Consumers include cross-frame propagation and the project, batch, and Data
-Manager annotation-export endpoints. Cross-frame sends one positional job ID;
+Consumers include cross-frame propagation, the project, batch, and Data
+Manager annotation-export endpoints, and the existing quality-job dispatch port.
+Cross-frame sends one positional job ID;
 exports send the existing keyword payload. Both use the shared `task_routes`
 resource, which routes exports to the existing `export` queue. Each publication
 has a preselected execution ID. Cross-frame stores it before dispatch; project and batch workers
@@ -196,6 +197,19 @@ composition](../../docs-site/dev/concepts/module-deployment.md#jobs-lifecycle-qu
 and [annotation exports](../../docs-site/dev/concepts/module-deployment.md#jobs-export-dispatch).
 This does not qualify the remaining producers or complete Jobs credential
 closure.
+
+The quality port sends one positional UUID to each existing `media` task: mask
+QC, point-cloud quality, video-track quality, mask repair, repair rollback, and
+mask-format import. Its synchronous adapter uses the same bounded HTTP contract
+without entering another event loop. Run IDs keep their persisted execution
+IDs; repair and import generate an ID before publication and bind it afterward,
+as with the embedded transport. Client credentials are loaded only at dispatch,
+so configuration failure reaches the existing durable failure handling.
+Broker acceptance alone does not close the commit-to-publish crash window or
+the repair/import publication-to-ID-binding window. These business workflows
+and their recovery policies remain unchanged. The current independent-runtime
+qualification status is tracked in the
+[module ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-quality-dispatch).
 
 The standalone `apps/jobs/Dockerfile.queue` image runs as UID 10005, exposes no
 host port, and reads `JOBS_QUEUE_BROKER_URL_FILE` and `JOBS_QUEUE_TOKEN_FILE`.

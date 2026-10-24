@@ -140,6 +140,7 @@ def test_workspace_worker_only_allows_explicit_qualified_queue_opt_in():
     assert _worker_queue_name("owned-worker") == "aap_workspace_worker_owned-worker"
     assert _worker_queue_name("owned-worker", "default") == "default"
     assert _worker_queue_name("owned-worker", "export") == "export"
+    assert _worker_queue_name("owned-worker", "media") == "media"
     with pytest.raises(ValueError):
         _worker_queue_name("owned-worker", "some-other-queue")
 
