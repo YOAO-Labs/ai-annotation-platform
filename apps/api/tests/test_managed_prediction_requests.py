@@ -20,13 +20,12 @@ from app.services.dataset_assets import register_item_asset
 from app.services.prediction_execution import load_snapshot
 from app.workers import predictions_retry, tasks as worker
 from tests.factory import create_project, create_task
-from tests.test_prediction_reference_delivery import backend_for
 
 
-async def managed_task(db, project, owner, *, primary=False, task=None):
+async def managed_task(db, project, owner, *, primary=False, task=None, size=(12, 8)):
     """Register logical source facts; physical readers need a separate I/O fixture."""
     output = io.BytesIO()
-    with Image.new("RGB", (12, 8), "red") as image:
+    with Image.new("RGB", size, "red") as image:
         image.save(output, "PNG")
     raw = output.getvalue()
     dataset = Dataset(
@@ -44,8 +43,8 @@ async def managed_task(db, project, owner, *, primary=False, task=None):
         file_path="managed-input/" + uuid.uuid4().hex + ".png",
         file_type="image",
         file_size=len(raw),
-        width=12,
-        height=8,
+        width=size[0],
+        height=size[1],
     )
     db.add(item)
     await db.flush()
@@ -72,6 +71,8 @@ async def managed_task(db, project, owner, *, primary=False, task=None):
 
 @pytest.fixture
 async def world(db_session, super_admin, monkeypatch):
+    from tests.test_prediction_reference_delivery import backend_for
+
     actor, token = super_admin
     project = await create_project(db_session, owner_id=actor.id)
     backend = await backend_for(db_session, project)

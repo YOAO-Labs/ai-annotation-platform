@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
-from sqlalchemy import delete, event, select
+from sqlalchemy import delete, event, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.orm import Session
 
@@ -58,6 +58,18 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
     # platform location; source/target permits remain in the private schema.
     async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
         await ensure_legacy_bindings(db)
+        await db.commit()
+    # Audit writes belong to the disposable input schema. Dropping that schema
+    # avoids mutating immutable public audit history when fixture users close.
+    async with world.factory() as db:
+        schema = await db.scalar(text("SELECT current_schema()"))
+        assert schema.startswith("prediction_inputs_")
+        await db.execute(
+            text(
+                f'CREATE TABLE "{schema}".audit_logs '
+                "(LIKE public.audit_logs INCLUDING ALL)"
+            )
+        )
         await db.commit()
 
     def track(session, row):

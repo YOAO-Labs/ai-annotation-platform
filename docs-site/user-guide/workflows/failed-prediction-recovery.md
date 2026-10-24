@@ -40,6 +40,8 @@ last_reviewed: 2026-10-24
 
 图片失败重试还会沿用原失败项的图片来源，重新检查本次发起者和当前任务资格。若提示缺少可信原件或执行配置，需重新发起预标；平台不会按当前桶里的同名文件补造原输入。原件、权限或任务资格已改变时，先处理对应问题，再选择重试或重新运行。
 
+重试开始后会收到开始通知；再次失败时，作业详情与失败记录保留本次原因。GPU 调度拒绝会保留具体错误代码和建议等待时间，重试计数只随当前执行尝试推进。
+
 <DocsVideo
   src="/media/workflows/jobs-retry-recovery.mp4"
   poster="/media/workflows/jobs-retry-recovery-poster.webp"

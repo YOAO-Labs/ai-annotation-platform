@@ -218,7 +218,14 @@ async def release_unpublished_retry(db, plan):
 
 
 async def finish_retry_attempt(
-    db, job_id, *, reason, cancelled=False, celery_task_id=None, pipeline_errors=None
+    db,
+    job_id,
+    *,
+    reason,
+    cancelled=False,
+    celery_task_id=None,
+    pipeline_errors=None,
+    gpu_arbiter_error=None,
 ):
     """One job -> failure lock order for normal errors and Celery fallbacks."""
     from datetime import datetime, timezone
@@ -251,6 +258,8 @@ async def finish_retry_attempt(
             failure.last_retry_at = datetime.now(timezone.utc)
             if pipeline_errors is not None:
                 extra["last_pipeline_errors"] = pipeline_errors
+            if gpu_arbiter_error is not None:
+                extra["last_gpu_arbiter_error"] = gpu_arbiter_error
         failure.extra = extra
     result = {
         "status": "cancelled" if cancelled else "failed",
@@ -259,6 +268,8 @@ async def finish_retry_attempt(
         "success_count": 0,
         "failed_count": 1,
     }
+    if gpu_arbiter_error is not None:
+        result["gpu_arbiter_error"] = gpu_arbiter_error
     if active:
         if cancelled:
             await jobs.mark_cancelled(db, job.id, result=result)

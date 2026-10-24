@@ -386,21 +386,37 @@ async def _run_qualified_retry(
             raise ContentError("prediction_retry_attempt_invalid")
         if job.status != "pending":
             return job.result or {"status": "already_running", "failed_id": str(fid)}
+        from app.services.notification import NotificationService
+
+        notifications = NotificationService(db)
+        pending = await notifications.notify(
+            user_id=uid,
+            type="failed_prediction.retry.started",
+            target_type="failed_prediction",
+            target_id=fid,
+            payload={"project_id": str(job.project_id)},
+        )
         await jobs.mark_running(db, jid)
         await db.commit()
+        if pending is not None:
+            await notifications.publish_committed([pending])
     return await _run_snapshot_retry(
         factory, fid, uid, retry_job_id=jid, node_id=node_id
     )
 
 
 async def _finish_qualified_failure(
-    factory, failed_id, job_id, reason, pipeline_errors
+    factory, failed_id, job_id, reason, pipeline_errors, *, gpu_arbiter_error=None
 ):
     from app.services.prediction_retries import finish_retry_attempt
 
     async with factory() as db:
         result = await finish_retry_attempt(
-            db, job_id, reason=reason, pipeline_errors=pipeline_errors
+            db,
+            job_id,
+            reason=reason,
+            pipeline_errors=pipeline_errors,
+            gpu_arbiter_error=gpu_arbiter_error,
         )
         await db.commit()
         return result or {
@@ -691,19 +707,33 @@ async def _run_snapshot_retry(
     except Exception as exc:
         if retry_job_id is not None:
             from app.services.content_snapshot import ContentError
+            from app.services.gpu_arbitration.contracts import (
+                gpu_arbiter_failure_record,
+            )
             from fastapi import HTTPException
 
+            gpu_arbiter_error = gpu_arbiter_failure_record(exc)
             reason = (
-                exc.code
-                if isinstance(exc, ContentError)
+                gpu_arbiter_error["message"]
+                if gpu_arbiter_error is not None
                 else (
-                    exc.detail.get("code", "prediction_retry_authority_changed")
-                    if isinstance(exc, HTTPException) and isinstance(exc.detail, dict)
-                    else "prediction_retry_failed"
+                    exc.code
+                    if isinstance(exc, ContentError)
+                    else (
+                        exc.detail.get("code", "prediction_retry_authority_changed")
+                        if isinstance(exc, HTTPException)
+                        and isinstance(exc.detail, dict)
+                        else (str(exc) or "prediction_retry_failed")[:200]
+                    )
                 )
             )
             return await _finish_qualified_failure(
-                session_factory, failed_id, retry_job_id, reason, pipeline_errors
+                session_factory,
+                failed_id,
+                retry_job_id,
+                reason,
+                pipeline_errors,
+                gpu_arbiter_error=gpu_arbiter_error,
             )
 
         async with session_factory() as db:
