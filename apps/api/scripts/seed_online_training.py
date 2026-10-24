@@ -22,6 +22,7 @@ from app.db.models.task_lock import AnnotationDraft, TaskLock
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import async_job as jobs, project_task_dataset, training_datasets
+from app.services import training_dataset_storage
 from app.services.annotation_evidence import freeze_review_contributor_evidence
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import (
@@ -533,6 +534,7 @@ async def prepare_baseline(
     )
     db.add(version)
     await db.flush()
+    await training_dataset_storage.allocate(db, version)
     await project_task_dataset.ensure_membership(db, version)
     await training_datasets.enqueue_dataset(db, version)
     return version

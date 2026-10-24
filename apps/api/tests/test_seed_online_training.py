@@ -5,8 +5,10 @@ import io
 import json
 import shutil
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import zipfile
 
@@ -25,10 +27,12 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services.storage import storage_service
 from app.config import settings
 from app.services import async_job as jobs
+from app.services import training_dataset_storage
 from app.services.training_dataset_bridge import TrainingDatasetError, assign_splits
 from app.workers import training_dataset as worker
 from scripts import seed_online_training as fixture_seed
 from scripts.seed_assets import SeedAssetError
+from tests.factory import create_project
 
 
 @pytest.fixture
@@ -69,6 +73,9 @@ def memory_storage(monkeypatch):
         def __init__(self):
             self.objects = {}
             self.writes = 0
+            self.meta = SimpleNamespace(
+                endpoint_url=storage_service.client.meta.endpoint_url
+            )
 
         def put_object(self, *, Bucket, Key, Body, **extra):
             self.writes += 1
@@ -130,6 +137,7 @@ async def test_segmentation_extends_existing_fixture_without_replacing_detection
     await db_session.refresh(original)
     assert original.status == "ready", original.error_message
     original_snapshot = original.snapshot
+    original_owner = deepcopy(original.storage_ref)
     kwargs = {
         "owner_id": project.owner_id,
         "annotator_id": annotator[0].id,
@@ -156,6 +164,13 @@ async def test_segmentation_extends_existing_fixture_without_replacing_detection
     )
     version = await fixture_seed.prepare_baseline(db_session, project, task="segment")
     await db_session.commit()
+    await db_session.refresh(version)
+    segment_owner = deepcopy(version.storage_ref)
+    assert segment_owner["origin"] == "new" and segment_owner["evidence"] is None
+    assert training_dataset_storage.resolve(version).prefix == (
+        f"projects/{project.id}/datasets/{version.id}/"
+    )
+    assert original.storage_ref == original_owner and segment_owner != original_owner
 
     await worker.build_dataset(
         version.id, version.async_job_id, version.attempt_id, sessions
@@ -219,6 +234,7 @@ async def test_segmentation_extends_existing_fixture_without_replacing_detection
         is version
     )
     assert version.snapshot == frozen and masks[0].version == 2
+    assert version.storage_ref == segment_owner
     assert await db_session.get(Annotation, masks[1].id) is None
 
 
@@ -282,6 +298,12 @@ async def test_fixture_materializes_reviewed_input_and_preserves_edits(
     assert created
     version = await fixture_seed.prepare_baseline(db_session, project)
     await db_session.commit()
+    await db_session.refresh(version)
+    saved_owner = deepcopy(version.storage_ref)
+    assert saved_owner["origin"] == "new" and saved_owner["evidence"] is None
+    owner_receipt = training_dataset_storage.resolve(version)
+    assert owner_receipt.prefix == f"projects/{project.id}/datasets/{version.id}/"
+    assert owner_receipt.bucket == storage_service.training_bucket
 
     @asynccontextmanager
     async def sessions():
@@ -351,6 +373,7 @@ async def test_fixture_materializes_reviewed_input_and_preserves_edits(
     assert await fixture_seed.prepare_baseline(db_session, again) is version
     assert memory_storage.writes == writes
     assert annotation.geometry["x"] == 0.1 and version.snapshot == original_snapshot
+    assert version.storage_ref == saved_owner
     assert (
         await db_session.scalar(
             select(func.count()).select_from(TrainingDatasetVersion)
@@ -387,6 +410,7 @@ async def test_baseline_rerun_recovers_unfinished_build(
         version.attempt_id,
     )
     snapshot, digest = version.snapshot, version.snapshot_digest
+    saved_owner = deepcopy(version.storage_ref)
 
     @asynccontextmanager
     async def sessions():
@@ -414,12 +438,16 @@ async def test_baseline_rerun_recovers_unfinished_build(
             await jobs.mark_cancelled(db_session, job_id)
         await db_session.commit()
 
+    trap_bucket = "seed-current-training-bucket-trap"
+    monkeypatch.setattr(storage_service, "training_bucket", trap_bucket)
     retried = await fixture_seed.prepare_baseline(db_session, project)
     await db_session.commit()
+    await db_session.refresh(version)
     assert retried is version and retried.id == version_id
     assert retried.status == "pending"
     assert retried.async_job_id != job_id and retried.attempt_id != attempt_id
     assert retried.snapshot == snapshot and retried.snapshot_digest == digest
+    assert retried.storage_ref == saved_owner
     assert retried.progress_pct == 0
     assert retried.error_code is None and retried.error_message is None
     assert retried.completed_at is None
@@ -438,6 +466,8 @@ async def test_baseline_rerun_recovers_unfinished_build(
     # The test's outer transaction retains the retry lock across session commits.
     # Exercise the builder directly, as after the CLI commits its transaction.
     writes = memory_storage.writes
+    package_key = f"{saved_owner['prefix']}attempts/{retried.attempt_id}/dataset.zip"
+    memory_storage.objects[trap_bucket, package_key] = (b"current bucket trap", {})
     await worker._build_dataset(version_id, job_id, attempt_id, sessions)
     await db_session.refresh(version)
     assert memory_storage.writes == writes and version.status == "pending"
@@ -447,6 +477,36 @@ async def test_baseline_rerun_recovers_unfinished_build(
     await db_session.refresh(version)
     assert version.status == "ready", version.error_message
     assert version.snapshot == snapshot and version.manifest["summary"]["objects"] == 8
+    assert version.storage_ref == saved_owner and version.package_key == package_key
+    assert (saved_owner["bucket"], package_key) in memory_storage.objects
+    assert memory_storage.objects[trap_bucket, package_key][0] == b"current bucket trap"
+
+
+@pytest.mark.parametrize("status", ["pending", "failed"])
+async def test_existing_unpinned_baseline_is_not_silently_allocated(
+    db_session, super_admin, memory_storage, status
+):
+    project = await create_project(db_session, owner_id=super_admin[0].id)
+    historical = TrainingDatasetVersion(
+        project_id=project.id,
+        creator_id=project.owner_id,
+        request_id=fixture_seed.BASELINE_REQUEST_ID,
+        request_digest="a" * 64,
+        name="historical baseline without verified ownership",
+        snapshot={},
+        snapshot_digest="b" * 64,
+        status=status,
+    )
+    db_session.add(historical)
+    await db_session.commit()
+    writes = memory_storage.writes
+    assert await fixture_seed.prepare_baseline(db_session, project) is historical
+    await db_session.commit()
+    await db_session.refresh(historical)
+    assert historical.storage_ref is None and memory_storage.writes == writes
+    with pytest.raises(TrainingDatasetError) as raised:
+        training_dataset_storage.resolve(historical)
+    assert raised.value.code == "training_storage_unpinned"
 
 
 @pytest.mark.parametrize("status", ["failed", "cancelled", "running"])
