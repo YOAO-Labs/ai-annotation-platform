@@ -166,8 +166,13 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb),
     aap_notifications_v1.delivery_owner_pairs(jsonb),
     aap_notifications_v1.delivery_super_pairs(jsonb),
     aap_notifications_v1.read_state_command(jsonb),
-    aap_notifications_v1.delete_command(pg_catalog.jsonb)
+    aap_notifications_v1.delete_command(pg_catalog.jsonb),
+    aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer),
+    aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
     TO :"application_role";
+REVOKE ALL ON FUNCTION
+    aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
+    FROM :"application_role", PUBLIC;
 SELECT right(current_database(),5)='_test' OR right(current_database(),4)='_e2e'
     AS identity_fixture_database \gset
 \if :identity_fixture_database

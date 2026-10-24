@@ -24,6 +24,7 @@ from worktree_resources import (
     LocalResources,
     INFERENCE_ROUTING_RUNTIME_CAPABILITIES,
     NOTIFICATION_RUNTIME_CAPABILITIES,
+    JOBS_LIST_RUNTIME_CAPABILITIES,
     VIDEO_RUNTIME_CAPABILITIES,
 )
 
@@ -440,6 +441,12 @@ class BucketUpgradeTests(unittest.TestCase):
             self.assertIn(signature, normalized)
         for signature in NOTIFICATION_RUNTIME_CAPABILITIES:
             self.assertIn(signature, normalized)
+        for signature in JOBS_LIST_RUNTIME_CAPABILITIES:
+            self.assertIn(signature, normalized)
+        self.assertNotIn(
+            "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)",
+            normalized,
+        )
         for private in (
             "aap_identity_recovery_v1._actor_record(uuid)",
             "aap_identity_recovery_v1._token_record(text,uuid)",
@@ -588,6 +595,9 @@ class BucketUpgradeTests(unittest.TestCase):
             "audit_daily_refresh": False,
             "jobs_notification_scope": True,
             "jobs_notification_scope_write": False,
+            "jobs_list_page": True,
+            "jobs_list_total": True,
+            "jobs_list_private_helper": False,
         }
 
         class FunctionPrivileges:
@@ -660,6 +670,18 @@ class BucketUpgradeTests(unittest.TestCase):
             + ' TO "app"',
             statements,
         )
+        self.assertIn(
+            "GRANT EXECUTE ON FUNCTION "
+            + ", ".join(JOBS_LIST_RUNTIME_CAPABILITIES)
+            + ' TO "app"',
+            statements,
+        )
+        self.assertIn(
+            "REVOKE ALL ON FUNCTION "
+            "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text) "
+            'FROM "app", PUBLIC',
+            statements,
+        )
         self.assertTrue(
             any(
                 "GRANT USAGE ON SCHEMA" in statement and "aap_audit_v1" in statement
@@ -728,6 +750,9 @@ class BucketUpgradeTests(unittest.TestCase):
             "audit_daily_refresh",
             "jobs_notification_scope",
             "jobs_notification_scope_write",
+            "jobs_list_page",
+            "jobs_list_total",
+            "jobs_list_private_helper",
         ):
             with self.subTest(unsafe_owner_privilege=key):
                 original = privileges[key]

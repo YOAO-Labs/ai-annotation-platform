@@ -43,6 +43,11 @@ NOTIFICATION_PREFERENCES_ROLE = "notification_preferences_client"
 NOTIFICATION_APPEND_ROLE = "notification_append_client"
 NOTIFICATION_INBOX_ROLE = "notification_inbox_query_client"
 NOTIFICATION_DELIVERY_READ_ROLE = "notification_delivery_read_client"
+JOBS_LIST_QUERY_ROLE = "jobs_list_query_client"
+JOBS_LIST_QUERY_FUNCTIONS = (
+    "aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)",
+    "aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)",
+)
 NOTIFICATION_DELIVERY_READ_FUNCTIONS = (
     "aap_notifications_v1.read_notification(uuid)",
     "aap_notifications_v1.find_terminal_notification(uuid,text,uuid)",
@@ -61,6 +66,13 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    **{
+        signature: "0326_jobs_list_query.sql"
+        for signature in (
+            *JOBS_LIST_QUERY_FUNCTIONS,
+            "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)",
+        )
+    },
     **{
         signature: "0325_notifications_delivery_read.sql"
         for signature in NOTIFICATION_DELIVERY_READ_FUNCTIONS
@@ -223,6 +235,7 @@ MODULE_ROLES = (
     AUDIT_READ_ROLE,
     AUDIT_DAILY_REFRESH_ROLE,
     JOBS_NOTIFICATION_SCOPE_ROLE,
+    JOBS_LIST_QUERY_ROLE,
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
@@ -405,6 +418,7 @@ SQL_ARTIFACTS = (
     "0323_jobs_notification_scope_facts.sql",
     "0324_notifications_inbox_query.sql",
     "0325_notifications_delivery_read.sql",
+    "0326_jobs_list_query.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -542,6 +556,7 @@ SCHEMA_ARTIFACTS = (
     "0323_jobs_notification_scope_facts.schema.json",
     "0324_notifications_inbox_query.schema.json",
     "0325_notifications_delivery_read.schema.json",
+    "0326_jobs_list_query.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -726,6 +741,8 @@ TEST_FILES = (
     "tests/test_project_task_datasets.py",
     "tests/test_sample_evaluations.py",
     "tests/test_async_jobs.py",
+    "tests/test_jobs_list_query.py",
+    "tests/test_jobs_list_query_native.py",
     "tests/test_async_job_actor_freshness.py",
     "tests/test_notifications.py",
     "tests/test_notification_terminal_append.py",
@@ -2607,6 +2624,7 @@ def _create_module_roles(
     audit_read_password: str,
     audit_daily_refresh_password: str,
     jobs_notification_scope_password: str,
+    jobs_list_query_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -2705,6 +2723,9 @@ def _create_module_roles(
             f"CREATE ROLE {JOBS_NOTIFICATION_SCOPE_ROLE} LOGIN "
             f"PASSWORD '{jobs_notification_scope_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {JOBS_LIST_QUERY_ROLE} LOGIN "
+            f"PASSWORD '{jobs_list_query_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT CONNECT ON DATABASE :"expected_database" TO '
             f'"{NOTIFICATION_READ_ROLE}", "{AUDIT_READ_ROLE}", '
@@ -2734,6 +2755,7 @@ def _create_module_roles(
                         AUDIT_READ_ROLE,
                         AUDIT_DAILY_REFRESH_ROLE,
                         JOBS_NOTIFICATION_SCOPE_ROLE,
+                        JOBS_LIST_QUERY_ROLE,
                         VIDEO_EXECUTION_ROLE,
                         INFERENCE_REGISTRY_INGRESS_ROLE,
                         INFERENCE_ROUTING_ROLE,
@@ -3400,6 +3422,7 @@ def main(argv: list[str] | None = None) -> int:
             "read_client_grant": False,
             "node_relation_check": False,
         },
+        "jobs_list_query": {"function_only_grants": False},
         "test_files": list(test_files),
         "junit_xml": str(junit),
         "test_exit_code": None,
@@ -3860,6 +3883,7 @@ def main(argv: list[str] | None = None) -> int:
         jobs_scope_grants_path = (
             ROOT / "infra/docker/jobs-notification-scope-grants.sql"
         )
+        jobs_list_query_grants_path = ROOT / "infra/docker/jobs-list-query-grants.sql"
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
@@ -3897,6 +3921,7 @@ def main(argv: list[str] | None = None) -> int:
             or not audit_query_grants_path.is_file()
             or not audit_read_grants_path.is_file()
             or not jobs_scope_grants_path.is_file()
+            or not jobs_list_query_grants_path.is_file()
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
             or not identity_directory_grants_path.is_file()
@@ -4121,6 +4146,7 @@ def main(argv: list[str] | None = None) -> int:
         audit_read_password = f"audit-read-{secrets.token_hex(16)}"
         audit_daily_refresh_password = f"audit-daily-refresh-{secrets.token_hex(16)}"
         jobs_notification_scope_password = f"jobs-scope-{secrets.token_hex(16)}"
+        jobs_list_query_password = f"jobs-list-{secrets.token_hex(16)}"
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
         video_execution_password = secrets.token_hex(24)
@@ -4204,8 +4230,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0325"]:
-            raise RuntimeError("module-data acceptance requires migration head 0325")
+        if heads != ["0326"]:
+            raise RuntimeError("module-data acceptance requires migration head 0326")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -4412,6 +4438,14 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        jobs_list_query_url = URL.create(
+            "postgresql",
+            username=JOBS_LIST_QUERY_ROLE,
+            password=jobs_list_query_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         audit_append_url = URL.create(
             "postgresql",
             username=AUDIT_APPEND_ROLE,
@@ -4489,6 +4523,7 @@ def main(argv: list[str] | None = None) -> int:
             audit_read_password,
             audit_daily_refresh_password,
             jobs_notification_scope_password,
+            jobs_list_query_password,
         )
         phase = "create-video-execution-client-role"
         _psql(
@@ -4673,6 +4708,24 @@ def main(argv: list[str] | None = None) -> int:
                 },
             )
 
+        def apply_jobs_list_query_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=jobs_list_query_grants_path.read_text(encoding="utf-8"),
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "jobs_owner": "jobs_code",
+                    "api_role": "legacy_runtime",
+                    "list_client": JOBS_LIST_QUERY_ROLE,
+                },
+            )
+
         def apply_identity_actor_status_grants() -> None:
             _psql(
                 container_id,
@@ -4797,6 +4850,9 @@ def main(argv: list[str] | None = None) -> int:
         evidence["notification_delete"]["api_function_grant"] = True
         evidence["notification_delete"]["api_delete_revoked"] = True
         evidence["notification_delete"]["function_only_role_grant"] = True
+        phase = "install-jobs-list-query-grants"
+        apply_jobs_list_query_grants()
+        evidence["jobs_list_query"]["function_only_grants"] = True
         phase = "install-notification-delivery-read-grants"
         apply_notification_delivery_read_grants()
         evidence["notification_delivery_read"]["api_function_grant"] = True
@@ -7370,6 +7426,7 @@ SELECT pg_catalog.jsonb_build_object(
                 "RUN_NATIVE_IMPORT_DELIVERY_LEASE_TEST": "1",
                 "AAP_MODULE_DATA_APPEND_URL": append_url,
                 "AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL": notification_delivery_read_url,
+                "AAP_MODULE_DATA_JOBS_LIST_QUERY_URL": jobs_list_query_url,
                 "AAP_MODULE_DATA_ASSET_CLEANUP_URL": cleanup_url,
                 "AAP_MODULE_DATA_ASSET_CATALOG_URL": catalog_url,
                 "AAP_MODULE_DATA_ASSET_SOURCE_URL": source_url,
@@ -7535,6 +7592,7 @@ SELECT pg_catalog.jsonb_build_object(
                 apply_notification_append_grants()
                 apply_notification_delivery_read_grants()
                 apply_notification_inbox_grants()
+                apply_jobs_list_query_grants()
                 apply_identity_actor_status_grants()
                 apply_audit_append_grants()
                 apply_notification_read_grants(NOTIFICATION_READ_ROLE)

@@ -712,3 +712,16 @@ Jobs 发布 `aap-jobs-notification-scope-facts/v1`：
 这两项是可信后端的同库合同，公开 HTTP 不变，关系本身不提供用户授权。
 冻结 schema 和原生客户端见仓库 `apps/audit`、`apps/jobs`；
 授权及限定验收范围见[模块台账](/dev/concepts/module-deployment#support-daily-and-jobs-facts)。
+
+## Jobs 列表查询
+
+`aap-jobs-async-job-list-query/v1` 将现有 `GET /async-jobs` 的查询策略放入 Jobs owner，公开两个固定只读函数：
+
+- `aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)` 返回十五列原生作业行，按 `created_at DESC, id DESC` 排序。
+- `aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)` 返回 PostgreSQL `bigint` 总数；Node 默认以十进制字符串读取。
+
+参数依次为 actor UUID、平台角色快照、状态、开放 kind、可空项目 UUID、可空搜索模式，分页函数另接收 limit／offset。调用方先完成 Identity 认证与当前活动状态读取，再分别执行 page 和 total；两个语句保留各自快照，不合并查询或提交事务。成员资格在每条语句内通过 Identity 当前事实与 Workspace 能力验证，预查角色仍控制原有 super-admin／项目管理员分支。当前／保留项目范围、reviewer 导出权限、六项 JSONB 文本搜索、autoflush 与 ORM identity 行为保持。
+
+`jobs_list_query_client` 是仅持两项函数权限的独立 LOGIN，没有 Jobs 私表、内部 helper、Identity 表／函数、DDL、TEMP 或角色成员权限。普通 API 的其余 Jobs 操作仍需原有私表权限，本操作不提前撤销。迁移和普通 owner 授权后，使用 `infra/docker/jobs-list-query-grants.sql` 安装严格客户端权限；工作区与 LAN 的普通 API 授权也包含这两个公开函数。
+
+schema 与 SQL 随 `apps/jobs` 分发，独立 Node 消费者位于 `apps/jobs/conformance/node/`。实现、消费者及限定验收状态分别见[模块台账](/dev/concepts/module-deployment#jobs-list-query-owner)，这不代表完整 Jobs 已独立运行。

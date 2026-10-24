@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -16,6 +17,31 @@ from verify_module_data_boundary import (
     _installed_function_body_sha256,
 )
 import verify_module_data_boundary as verifier
+
+
+def test_jobs_list_query_login_has_only_fixed_reads_and_no_temporary_grant(monkeypatch):
+    captured = []
+    monkeypatch.setattr(
+        verifier, "_psql", lambda *args, **kwargs: captured.append(kwargs["sql"])
+    )
+    arguments = {
+        name: "fixture-value"
+        for name in inspect.signature(verifier._create_module_roles).parameters
+    }
+    arguments["database"] = "jobs_fixture_test"
+    verifier._create_module_roles(**arguments)
+    sql = captured[0]
+    assert (
+        "CREATE ROLE jobs_list_query_client LOGIN PASSWORD 'fixture-value' "
+        "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
+    ) in sql
+    assert verifier.JOBS_LIST_QUERY_ROLE in verifier.MODULE_ROLES
+    temporary_grant = sql.split("GRANT TEMPORARY ON DATABASE", 1)[1]
+    assert verifier.JOBS_LIST_QUERY_ROLE not in temporary_grant
+    assert "0326_jobs_list_query.sql" in verifier.SQL_ARTIFACTS
+    assert "0326_jobs_list_query.schema.json" in verifier.SCHEMA_ARTIFACTS
+    for signature in verifier.JOBS_LIST_QUERY_FUNCTIONS:
+        assert verifier.FUNCTION_BODY_ARTIFACTS[signature] == "0326_jobs_list_query.sql"
 
 
 def test_installed_body_uses_named_function_in_multi_function_resource(

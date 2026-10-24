@@ -3305,4 +3305,19 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.guard_project_video_deletion(uuid),
     aap_labeling_v1.guard_dataset_video_deletion(uuid,uuid)
     TO :"workspace_owner";
+-- Jobs owns page and total; cross-owner facts stay fixed capabilities.
+GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
+    OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+GRANT USAGE ON SCHEMA aap_identity_v1, aap_workspace_v1,
+    aap_workspace_project_query_v1 TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid),
+    aap_workspace_v1.actor_project_memberships(uuid),
+    aap_workspace_project_query_v1.project_search_scope(uuid,text)
+    TO :"jobs_owner";
 COMMIT;

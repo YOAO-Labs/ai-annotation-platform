@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import asyncio
+import json
+import os
+from pathlib import Path
+import subprocess
 import uuid
 
+from fastapi import FastAPI
+import httpx
 import pytest
-from sqlalchemy import delete, func, select, update
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy import delete, event, func, select, update
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.application.async_job_read import (
     SqlAsyncJobReadAdapter,
@@ -201,6 +209,158 @@ async def _commit_user_change(sessions, user_id, **values):
     async with sessions() as mutation:
         await mutation.execute(update(User).where(User.id == user_id).values(**values))
         await mutation.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires verifier-owned database and restricted LOGINs",
+)
+async def test_restricted_api_and_node_consume_jobs_list_capabilities(
+    test_engine, record_property
+):
+    from app.api.v1 import async_jobs
+    from app.core.security import create_access_token
+    from app.deps import get_db
+    from app.services.identity_gateway import IdentityGateway, get_identity_gateway
+
+    consumer_url = make_url(os.environ["AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL"])
+    list_url = make_url(os.environ["AAP_MODULE_DATA_JOBS_LIST_QUERY_URL"])
+    for url in (consumer_url, list_url):
+        assert (url.host, url.port, url.database) == (
+            test_engine.url.host,
+            test_engine.url.port,
+            test_engine.url.database,
+        )
+        assert url.database.endswith("_test")
+    assert consumer_url.username == "identity_api_consumer"
+    assert list_url.username == "jobs_list_query_client"
+    engine = create_async_engine(
+        consumer_url.set(drivername="postgresql+asyncpg"), hide_parameters=True
+    )
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    statements = []
+
+    def observe(_connection, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", observe)
+    app = FastAPI()
+    app.include_router(async_jobs.router, prefix="/api/v1")
+
+    async def request_session():
+        async with sessions() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = request_session
+    app.dependency_overrides[get_identity_gateway] = lambda: IdentityGateway()
+    try:
+        async with _committed_identity_scope_world(test_engine) as world:
+            actor = IdentityActorStatus(
+                id=world["actor_id"], role="employee", is_active=True
+            )
+            async with world["sessions"]() as oracle:
+                legacy = _build_async_job_query(
+                    current_user=actor,
+                    status=None,
+                    kind=None,
+                    project_id=None,
+                    search=None,
+                )
+                expected = list(
+                    (
+                        await oracle.execute(
+                            legacy.order_by(
+                                AsyncJob.created_at.desc(), AsyncJob.id.desc()
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                expected_ids = [str(row.id) for row in expected]
+            assert set(expected_ids) == {
+                str(world["project_job_id"]),
+                str(world["global_job_id"]),
+            }
+            token = create_access_token(world["actor_id"], "employee")
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get(
+                    "/api/v1/async-jobs", headers={"Authorization": f"Bearer {token}"}
+                )
+                assert response.status_code == 200, response.text
+                payload = response.json()
+                assert payload["total"] == len(expected_ids)
+                assert [item["id"] for item in payload["items"]] == expected_ids
+                project_item = next(
+                    item
+                    for item in payload["items"]
+                    if item["id"] == str(world["project_job_id"])
+                )
+                assert project_item["project_id"] == str(world["project_id"])
+                assert project_item["project_name"]
+            assert (
+                sum("aap_jobs_v1.async_job_list_page(" in sql for sql in statements)
+                == 1
+            )
+            assert (
+                sum("aap_jobs_v1.async_job_list_total(" in sql for sql in statements)
+                == 1
+            )
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "JOBS_LIST_QUERY_DATABASE_URL": list_url.render_as_string(
+                        hide_password=False
+                    ),
+                    "JOBS_LIST_QUERY_EXPECTED_ROLE": list_url.username,
+                    "JOBS_LIST_QUERY_ACTOR_ID": str(world["actor_id"]),
+                    "JOBS_LIST_QUERY_PLATFORM_ROLE": "employee",
+                    "JOBS_LIST_QUERY_EXPECTED_TOTAL": str(len(expected_ids)),
+                    "JOBS_LIST_QUERY_EXPECTED_PAGE_IDS": json.dumps(expected_ids),
+                    "JOBS_LIST_QUERY_STATUSES": "[]",
+                    "JOBS_LIST_QUERY_KINDS": "[]",
+                    "JOBS_LIST_QUERY_PROJECT_ID": "null",
+                    "JOBS_LIST_QUERY_LIMIT": "50",
+                    "JOBS_LIST_QUERY_OFFSET": "0",
+                    "TZ": "Asia/Shanghai",
+                }
+            )
+            environment.pop("JOBS_LIST_QUERY_SEARCH_PATTERN", None)
+            harness = (
+                Path(__file__).resolve().parents[2]
+                / "jobs/conformance/node/list_query_acceptance.mjs"
+            )
+            node = await asyncio.to_thread(
+                subprocess.run,
+                ["node", str(harness), "--live"],
+                env=environment,
+                text=True,
+                capture_output=True,
+                timeout=45,
+            )
+            assert node.returncode == 0, node.stdout + node.stderr
+            assert "function-only LOGIN acceptance passed" in node.stdout
+            record_property(
+                "jobs_list_query_native",
+                json.dumps(
+                    {
+                        "restricted_api_http": True,
+                        "actual_identity_authentication": True,
+                        "page_then_total_capabilities": True,
+                        "workspace_project_enrichment": True,
+                        "node_independent_function_only_login": True,
+                        "node_native_types_order_and_total": True,
+                        "private_and_helper_access_denied": True,
+                        "node_timezone": environment["TZ"],
+                        "rows": len(expected_ids),
+                    }
+                ),
+            )
+    finally:
+        await engine.dispose()
 
 
 def _return_preflight_snapshot(monkeypatch, actor_id, snapshot):

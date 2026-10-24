@@ -140,6 +140,10 @@ AUDIT_RUNTIME_CAPABILITIES = (
     "aap_audit_v1.append_events(jsonb)",
     "aap_audit_v1.query_events(pg_catalog.jsonb)",
 )
+JOBS_LIST_RUNTIME_CAPABILITIES = (
+    "aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)",
+    "aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)",
+)
 _IDENTITY_PRIVATE_RUNTIME_ACL = """
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
@@ -953,6 +957,7 @@ class LocalResources:
                 INFERENCE_ROUTING_RUNTIME_CAPABILITIES
             )
             notification_function_grant = ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
+            jobs_list_function_grant = ", ".join(JOBS_LIST_RUNTIME_CAPABILITIES)
             notification_delivery_read_check = " AND ".join(
                 f"pg_catalog.has_function_privilege(:role, '{signature}', 'EXECUTE')"
                 for signature in NOTIFICATION_DELIVERY_READ_CAPABILITIES
@@ -1249,6 +1254,10 @@ class LocalResources:
                     f"GRANT EXECUTE ON FUNCTION {audit_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {identity_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {notification_function_grant} TO {role}",
+                    f"GRANT EXECUTE ON FUNCTION {jobs_list_function_grant} TO {role}",
+                    "REVOKE ALL ON FUNCTION "
+                    "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text) "
+                    f"FROM {role}, PUBLIC",
                     "REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text) "
                     f"FROM {role}, PUBLIC",
                     f"GRANT EXECUTE ON FUNCTION {image_media_function_grant} TO {role}",
@@ -1365,6 +1374,15 @@ class LocalResources:
                         "pg_catalog.has_any_column_privilege("
                         ":role, 'aap_jobs_v1.notification_scope_facts', "
                         "'INSERT,UPDATE,REFERENCES')) AS jobs_notification_scope_write"
+                        ", pg_catalog.has_function_privilege(:role, "
+                        "'aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)', "
+                        "'EXECUTE') AS jobs_list_page, "
+                        "pg_catalog.has_function_privilege(:role, "
+                        "'aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)', "
+                        "'EXECUTE') AS jobs_list_total, "
+                        "pg_catalog.has_function_privilege(:role, "
+                        "'aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)', "
+                        "'EXECUTE') AS jobs_list_private_helper"
                     ),
                     {"role": runtime.username},
                 )
@@ -1399,6 +1417,9 @@ class LocalResources:
                     or notification_grants["audit_daily_refresh"] is not False
                     or notification_grants["jobs_notification_scope"] is not True
                     or notification_grants["jobs_notification_scope_write"] is not False
+                    or notification_grants["jobs_list_page"] is not True
+                    or notification_grants["jobs_list_total"] is not True
+                    or notification_grants["jobs_list_private_helper"] is not False
                 ):
                     raise WorktreeError(
                         "Notifications read/write boundary and Audit "
