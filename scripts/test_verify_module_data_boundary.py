@@ -80,6 +80,26 @@ def test_module_cold_case_selects_api_bootstrap_credentials(test_path):
             ("aap_labeling_v1.batch_control_command(jsonb)",),
             "0341_labeling_batch_control",
         ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_PREDICTION"],
+            ("aap_labeling_v1.prediction_record_command(jsonb)",),
+            "0342_labeling_prediction_records",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_SCENE_TRACK_COMMAND"],
+            ("aap_labeling_v1.scene_track_command(jsonb)",),
+            "0343_labeling_scene_track_commands",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_CROSS_FRAME"],
+            ("aap_labeling_v1.cross_frame_write_command(jsonb)",),
+            "0344_labeling_cross_frame_writes",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_PREDICTION"],
+            ("aap_labeling_v1.annotation_prediction_command(jsonb)",),
+            "0345_labeling_annotation_prediction",
+        ),
     ],
 )
 def test_capability_logins_have_no_temporary_grant(

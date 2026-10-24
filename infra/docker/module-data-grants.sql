@@ -650,6 +650,19 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.batch_result_bundles,
     public.prediction_retry_attempts TO :"labeling_owner";
 GRANT SELECT ON public.predictions, public.prediction_metas,
     public.failed_predictions TO :"labeling_owner";
+GRANT INSERT (
+    id, created_at, task_id, project_id, ml_backend_id, ml_backend_pool_id,
+    model_version, score, tool_unit_id, result, source, rejected_shape_indexes
+), UPDATE (rejected_shape_indexes) ON public.predictions TO :"labeling_owner";
+GRANT INSERT (
+    id, prediction_id, prediction_created_at, inference_time_ms,
+    prompt_tokens, completion_tokens, total_tokens, prompt_cost,
+    completion_cost, total_cost, extra
+) ON public.prediction_metas TO :"labeling_owner";
+GRANT INSERT (
+    id, task_id, project_id, ml_backend_id, ml_backend_pool_id,
+    model_version, error_type, message, extra
+), UPDATE (dismissed_at) ON public.failed_predictions TO :"labeling_owner";
 -- FOR KEY SHARE in the failure proof needs UPDATE on one column.
 GRANT UPDATE (id, retry_count, last_retry_at, extra)
     ON public.failed_predictions TO :"labeling_owner";
@@ -687,12 +700,30 @@ GRANT SELECT (
     attributes_meta, revision, created_by, retired_at, created_at, updated_at
 ), INSERT (
     id, project_id, scene_id, track_id, class_name, created_by
-), UPDATE (class_name, revision, updated_at)
+), UPDATE (class_name, presence_mode, revision, retired_at, attributes, attributes_meta, updated_at)
     ON public.scene_tracks TO :"labeling_owner";
+GRANT UPDATE (source) ON public.annotations TO :"labeling_owner";
 GRANT SELECT (id, scene_track_id, start_frame, end_frame, source, version),
     INSERT (id, scene_track_id, start_frame, end_frame, source, created_by),
     UPDATE (start_frame, end_frame, version, updated_at), DELETE
     ON public.scene_track_intervals TO :"labeling_owner";
+GRANT INSERT (presence_mode, attributes, attributes_meta, revision)
+    ON public.scene_tracks TO :"labeling_owner";
+GRANT SELECT (operation_id, created_by, created_at, updated_at),
+    INSERT (version, operation_id)
+    ON public.scene_track_intervals TO :"labeling_owner";
+GRANT SELECT (
+    id, scene_id, actor_id, kind, idempotency_key, request_digest,
+    snapshot_token, source_revisions, result_revisions, before_state, after_state,
+    inverse_payload, response_json, status, reverted_by_operation_id,
+    created_at, completed_at
+), INSERT (
+    id, scene_id, actor_id, kind, idempotency_key, request_digest,
+    snapshot_token, source_revisions, result_revisions, before_state, after_state,
+    inverse_payload, response_json, status
+), UPDATE (
+    result_revisions, after_state, response_json, status, reverted_by_operation_id
+) ON public.scene_track_operations TO :"labeling_owner";
 GRANT SELECT (
     id, task_id, actor_id, kind, idempotency_key, request_digest,
     scope_fingerprint, source_versions, result_versions, report, status,
@@ -2540,6 +2571,14 @@ ALTER FUNCTION aap_labeling_v1.annotation_bulk_command(jsonb)
 ALTER FUNCTION aap_labeling_v1.video_bbox_editing_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.batch_control_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.prediction_record_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.scene_track_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.cross_frame_write_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.annotation_prediction_command(jsonb)
     OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 

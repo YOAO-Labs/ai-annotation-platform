@@ -107,13 +107,13 @@ def _quat_wxyz_to_mat3(q: list[float]) -> Mat3:
         return (1, 0, 0, 0, 1, 0, 0, 0, 1)
     s = 2.0 / n
     wx, wy, wz = s * w * x, s * w * y, s * w * z
-    xx, xz, yy = s * x * x, s * x * z, s * y * y
-    yz, zz = s * y * z, s * z * z
+    xx, xy, xz = s * x * x, s * x * y, s * x * z
+    yy, yz, zz = s * y * y, s * y * z, s * z * z
     return (
         1.0 - (yy + zz),
-        s * (x * y) - wz,
+        xy - wz,
         xz + wy,
-        s * (x * y) + wz,
+        xy + wz,
         1.0 - (xx + zz),
         yz - wx,
         xz - wy,

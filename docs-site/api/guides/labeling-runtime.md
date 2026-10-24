@@ -110,7 +110,7 @@ Mask 修订触发器及快照函数保留原调用者权限和版本／快照规
 `infra/docker/labeling-annotation-writes-grants.sql`，仅得到这三个函数，不得到原表／序列、
 角色成员、CREATE、TEMP 或其他模块能力。原任务控制账号仍只有其两项函数。
 
-本组不替代切片／Mask、完整场景轨迹操作、导入、跨帧及视频人工候选的后续迁移。
+本组不替代切片／Mask、其余导入及视频人工候选的后续迁移。
 源码、消费者和集中验收分别记录在[唯一台账](/dev/concepts/module-deployment#剩余工作台账)。
 
 ## 批量编辑、视频框与批次控制 {#bulk-video-and-batch-control}
@@ -136,6 +136,30 @@ runtime 授权必须匹配；专用可信账号分别由 `infra/docker/labeling-
 
 新增原生回归已接入自有数据库验收器；源码基础检查不等同于真实角色、并发、回滚、冷
 装配或恢复通过。完整模块的剩余范围与验收状态由唯一台账记录。
+
+## 预测、场景轨迹与跨帧写入 {#prediction-tracks-and-cross-frame}
+
+`prediction_record_command(jsonb)` 持有预测与 Meta 写入、任务预测计数及更新时间、失败
+记录、忽略／恢复、候选驳回、任务／批次清理和按来源清除导入预测。导入清除不删除失败
+记录，普通清理仍先删 Meta 再删预测／失败行。`annotation_prediction_command(jsonb)`
+持有采纳标注、二次推理属性与子标注来源写入；原 Mask 预检、当前写入权限、贡献者、
+输入引用、心跳、审计和提交顺序保留。子标注创建与来源更新保持两次写入，保留原 Mask
+历史行为。
+
+`scene_track_command(jsonb)` 提供锁定、重放、执行、查看、历史和撤销，写入轨迹／区间／
+成员及操作快照。Task、轨迹修订及成员状态会在同事务内重验；帧归属复用 Assets 公开
+投影，保留主素材优先及 primary-LiDAR 回退。预览、详情和其他领域读取仍由原 API
+适配器处理。
+
+`cross_frame_write_command(jsonb)` 持有传播与插值写入，目标帧继续逐一检查当前可见性、
+可编辑性及锁。运动补偿使用既有几何规则与 Assets 公开位姿能力。四项命令都借用原连接
+和事务，不新增产品部署方式或提交点；命令载荷不是授权凭据。
+
+专用可信账号分别使用 `infra/docker/labeling-prediction-grants.sql`（两个预测函数）、
+`infra/docker/labeling-scene-track-commands-grants.sql` 与
+`infra/docker/labeling-cross-frame-grants.sql`（各一个函数）。既有账号不扩大执行权，
+原生回归使用验收器创建的独占数据库及角色。生产入口之外的旧测试夹具清理、其他
+Labeling 内容写入与读取仍待迁移，完整模块原生／冷装配／恢复资格继续按唯一台账验收。
 
 ## 视频 worker 的最终写入
 

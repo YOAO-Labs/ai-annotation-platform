@@ -3204,6 +3204,15 @@ API 继续借用同一业务事务，不新增产品 DSN 配置。验收器的
 仅用于自有测试数据库，不指向日常库。操作与清理口径见
 [运行协议](docs-site/api/guides/labeling-runtime.md#bulk-video-and-batch-control)。
 
+预测记录／采纳标注、场景轨迹命令与跨帧写入使用
+`infra/docker/labeling-prediction-grants.sql`、
+`infra/docker/labeling-scene-track-commands-grants.sql` 和
+`infra/docker/labeling-cross-frame-grants.sql` 配置专用可信账号，分别开放两个、一个、
+一个函数。匹配迁移与 owner/runtime 授权必须一起更新；调用继续借用业务事务。
+`AAP_MODULE_DATA_LABELING_PREDICTION_URL`、`AAP_MODULE_DATA_LABELING_SCENE_TRACK_COMMAND_URL`
+及 `AAP_MODULE_DATA_LABELING_CROSS_FRAME_URL` 仅为独占验收库选择器，不是产品 DSN。
+当前范围与剩余私有读取见[运行协议](docs-site/api/guides/labeling-runtime.md#prediction-tracks-and-cross-frame)。
+
 ### 宿主机转发诊断
 
 在 macOS 上使用已存在的不可变 Docker Python 镜像。镜像必须提供

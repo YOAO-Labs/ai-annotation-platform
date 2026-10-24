@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import logging
@@ -12,7 +11,7 @@ from dataclasses import replace
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import func, inspect, or_, select
+from sqlalchemy import inspect, or_, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -30,6 +29,14 @@ from aap_labeling.annotation_bulk_contract import (
     ANNOTATION_BULK_PROTOCOL,
     AnnotationBulkPatch,
     UpdateAnnotations,
+)
+from aap_labeling.cross_frame_write_policy import (
+    PROPAGATABLE_GEOMETRY_TYPES as PROPAGATABLE_GEOMETRY_TYPES,
+)
+from aap_labeling.annotation_prediction_contract import (
+    ApplySecondaryAttributes,
+    CreateAcceptedAnnotation,
+    MarkSecondaryChild,
 )
 
 from app.db.models.annotation import Annotation
@@ -55,7 +62,6 @@ from app.services.annotation_propagation import (
 )
 from app.services.annotation_evidence import (
     record_annotation_actor,
-    record_annotation_actors_for_tasks,
 )
 from app.services.annotation_track_identity import prepare_compact_track_identity
 from app.services.labeling_write_scope import LabelingWriteScope
@@ -73,13 +79,16 @@ from app.services.raster_mask_storage import (
 )
 from app.services.scene_track_domain import (
     SceneTrackIntegrityError,
-    bind_annotation_to_scene_track,
-    ensure_scene_track,
     touch_annotation_scene_track,
 )
 from app.services.labeling_annotation_data import annotation_write_command
 from app.services.labeling_annotation_bulk_data import annotation_bulk_command
 from app.services.labeling_video_bbox_editing import LabelingVideoBBoxEditingService
+from app.services.labeling_cross_frame_writes import LabelingCrossFrameWriteService
+from app.services.labeling_annotation_prediction import (
+    annotation_prediction_command,
+    annotation_prediction_context,
+)
 
 logger = logging.getLogger("app.services.annotation")
 
@@ -214,21 +223,6 @@ def _sync_attributes_meta(
         if key in old_attrs and old_attrs[key] == val:
             new_meta[key] = entry
     return new_meta
-
-
-# v0.14.1 · 可跨帧 propagate 的几何类型。视频内 track 几何由 video_tracker_runner
-# 处理(case A 内部), point_mask_3d 跨帧 point_indices 无意义(§5.4 留 v0.15+)。
-PROPAGATABLE_GEOMETRY_TYPES = frozenset(
-    {
-        "box_3d",
-        "bbox",
-        "polygon",
-        "multi_polygon",
-        "rotated_bbox",
-        "polyline",
-        "keypoint",
-    }
-)
 
 
 class AnnotationService:
@@ -998,41 +992,59 @@ class AnnotationService:
             )
             if geometry.get("type") == "box_3d" and track_id is None:
                 track_id = _new_track_id()
-            annotation = Annotation(
-                id=uuid.uuid4(),
-                task_id=prediction.task_id,
-                project_id=prediction.project_id,
-                video_segment_id=video_segment_id,
-                user_id=user_id,
-                source="prediction_based",
-                annotation_type=shape.get("type", "bbox"),
-                # v0.10.17 · 沿用 prediction 的 tool_unit_id; to_internal_shape 输出的
-                # shape.type 也可派生 unit (polygon → region), 但优先 prediction 行已落实.
-                tool_unit_id=prediction_unit,
-                class_name=mapped_class,
-                geometry=geometry,
-                track_id=track_id,
-                confidence=shape.get("confidence"),
-                parent_prediction_id=prediction_id,
-                attributes=attributes,
-                attributes_meta=attributes_meta,
-                temporal_role=(
-                    "keyframe" if geometry.get("type") == "box_3d" else "sample"
+            annotation_id = uuid.uuid4()
+            confidence = shape.get("confidence")
+            annotation_type = shape.get("type", "bbox")
+            await annotation_prediction_command(
+                self.db,
+                CreateAcceptedAnnotation(
+                    **annotation_prediction_context(task, user_id),
+                    operation="create_accepted",
+                    annotation_id=annotation_id,
+                    prediction_id=prediction_id,
+                    prediction_created_at=prediction.created_at,
+                    video_segment_id=video_segment_id,
+                    annotation_type="bbox"
+                    if annotation_type is None
+                    else annotation_type,
+                    tool_unit_id=prediction_unit,
+                    class_name=mapped_class,
+                    geometry=geometry,
+                    track_id=track_id,
+                    confidence=float(confidence) if confidence is not None else None,
+                    attributes=attributes,
+                    attributes_meta=attributes_meta,
+                    temporal_role="keyframe"
+                    if geometry.get("type") == "box_3d"
+                    else "sample",
                 ),
             )
-            self.db.add(annotation)
-            if task is not None:
-                try:
-                    await bind_annotation_to_scene_track(
+            if geometry.get("type") == "box_3d":
+                from app.services.labeling_scene import resolve_task_scene_frames
+
+                scene_frame = (await resolve_task_scene_frames(self.db, [task.id]))[
+                    task.id
+                ]
+                if (
+                    scene_frame.scene_id is not None
+                    and scene_frame.frame_index is not None
+                ):
+                    await annotation_write_command(
                         self.db,
-                        annotation=annotation,
-                        task=task,
-                        temporal_role="keyframe",
-                        interval_source="manual",
-                        actor_id=user_id,
+                        BindSceneTrackMember(
+                            schema=ANNOTATION_WRITE_PROTOCOL,
+                            operation="bind_scene_track_member",
+                            annotation_id=annotation_id,
+                            task_id=task.id,
+                            project_id=task.project_id,
+                            actor_id=user_id,
+                            expected_version=1,
+                            scene_id=scene_frame.scene_id,
+                            frame_index=scene_frame.frame_index,
+                            temporal_role="keyframe",
+                        ),
                     )
-                except SceneTrackIntegrityError as exc:
-                    _raise_scene_track_conflict(exc)
+            annotation = await self._load_after_write(annotation_id)
             anns.append(annotation)
 
         await self.db.flush()
@@ -1142,9 +1154,21 @@ class AnnotationService:
                 current_meta[key] = {"origin": "ai", "model_ref": model_ref}
                 changed = True
             if changed:
-                annotation.attributes = current_attributes
-                annotation.attributes_meta = current_meta
-                annotation.version += 1
+                written = await annotation_prediction_command(
+                    self.db,
+                    ApplySecondaryAttributes(
+                        **annotation_prediction_context(task, actor_id),
+                        operation="apply_secondary_attributes",
+                        annotation_id=annotation.id,
+                        expected_version=annotation.version,
+                        attributes=current_attributes,
+                        attributes_meta=current_meta,
+                    ),
+                )
+                set_committed_value(annotation, "attributes", current_attributes)
+                set_committed_value(annotation, "attributes_meta", current_meta)
+                set_committed_value(annotation, "version", written.version)
+                set_committed_value(annotation, "updated_at", written.updated_at)
                 await touch_annotation_scene_track(
                     self.db, annotation, make_keyframe=False
                 )
@@ -1187,7 +1211,19 @@ class AnnotationService:
                     video_segment_id=annotation.video_segment_id,
                     verified_mask_content=verified_content,
                 )
-            child.source = "prediction_based"
+            written = await annotation_prediction_command(
+                self.db,
+                MarkSecondaryChild(
+                    **annotation_prediction_context(task, actor_id),
+                    operation="mark_secondary_child",
+                    annotation_id=child.id,
+                    expected_version=child.version,
+                    parent_annotation_id=annotation.id,
+                ),
+            )
+            set_committed_value(child, "source", written.source)
+            # The old source-only ORM UPDATE did not refresh Mask-trigger versions.
+            set_committed_value(child, "updated_at", written.updated_at)
             children.append(child)
         if children:
             await self.db.flush()
@@ -1227,18 +1263,16 @@ class AnnotationService:
                 detail=f"shape_index {shape_index} out of range (0..{total_shapes - 1})",
             )
 
-        # Re-read under the Task lock so concurrent rejects merge current history.
-        await self.db.refresh(prediction, ["rejected_shape_indexes"])
-        rejected = list(prediction.rejected_shape_indexes or [])
-        rejected_set = set(rejected)
-        targets = (
-            [shape_index] if shape_index is not None else list(range(total_shapes))
+        from app.services.labeling_prediction_records import reject_prediction_candidate
+
+        await reject_prediction_candidate(
+            self.db,
+            prediction_id=prediction.id,
+            prediction_created_at=prediction.created_at,
+            task_id=write_scope.task_id,
+            project_id=write_scope.project_id,
+            shape_index=shape_index,
         )
-        for index in targets:
-            if index not in rejected_set:
-                rejected.append(index)
-                rejected_set.add(index)
-        prediction.rejected_shape_indexes = rejected
 
         from app.services.task_lock import TaskLockService
 
@@ -1495,26 +1529,14 @@ class AnnotationService:
         return [loaded[annotation_id] for annotation_id in result_order]
 
     async def _resolve_axis_convention(self, task: Task) -> str | None:
-        """v0.14.1 · 取 task 主 dataset_item 所在 dataset 的 axis_convention。
-        无主 item / 无 metadata key → None(前端按 iso_8855 identity 处理)。"""
-        from app.services.labeling_scene import resolve_primary_item_id
-        from app.services.labeling_scene import read_spatial_item_facts
-
-        primary_item_id = await resolve_primary_item_id(self.db, task)
-        if primary_item_id is None:
-            return None
-        item_facts, _ = await read_spatial_item_facts(self.db, [primary_item_id])
-        item = item_facts.get(primary_item_id)
-        return item.axis_convention if item is not None else None
+        return await LabelingCrossFrameWriteService(self.db)._resolve_axis_convention(
+            task,
+        )
 
     async def _frame_pose(self, scene_id, frame_index):
-        """v0.15.1 · 取 (scene_id, frame_index) 的 ego pose;任一参数缺/无行 → None。"""
-        if scene_id is None or frame_index is None:
-            return None
-        from app.services.assets_spatial import AssetsSpatialGateway
-
-        return await AssetsSpatialGateway(self.db).read_frame_pose(
-            scene_id, frame_index
+        return await LabelingCrossFrameWriteService(self.db)._frame_pose(
+            scene_id,
+            frame_index,
         )
 
     async def _propagate(
@@ -1525,225 +1547,12 @@ class AnnotationService:
         user_id: uuid.UUID,
         override_psr: dict | None = None,
     ) -> tuple[Annotation, bool]:
-        """v0.14.1 · 跨帧目标延续: 把源 annotation 复制到目标 task。
-
-        语义:
-        - 仅复制静态几何(PROPAGATABLE_GEOMETRY_TYPES); video_* / point_mask_3d 拒。
-        - 跨帧链共享 track_id (ADR-0045): 源无 track_id 时 _new_track_id() 分配并
-          写回源, 再复用; 不再写 group_id (跨帧语义已全切 track_id)。
-        - box_3d 的 convention_at_create 取**目标** dataset 的 axis_convention:
-          DB 内 PSR 永远是 ISO 系字节, 原值复制即对齐世界坐标; convention_at_create
-          写目标值仅为让前端 banner 不误报(v0.13.11 安全网)。
-        - override_psr 留扩展位, 给定时覆盖 box_3d 的 center/size/rotation
-          (并跳过运动补偿——调用方已显式给定目标 PSR)。
-        - v0.15.1 · 运动补偿: box_3d 且源/目标帧都有 ego pose 时, 由「世界位置
-          不变」反算目标帧 PSR(静止物自动对齐); 无 pose 退化为原样复制。
-
-        返回 (新 annotation, motion_compensated)。
-        """
-        from fastapi import HTTPException
-
-        src = await self.db.get(
-            Annotation, source_annotation_id, populate_existing=True
-        )
-        if src is None or not src.is_active:
-            raise HTTPException(status_code=404, detail="source annotation not found")
-
-        target_task = await self.db.get(Task, target_task_id)
-        if target_task is None:
-            raise HTTPException(status_code=404, detail="target task not found")
-
-        src_task = await self.db.get(Task, src.task_id)
-        if src_task is None:
-            raise HTTPException(status_code=404, detail="source task not found")
-
-        # A2 · lock the target task before the propagated annotations are written.
-        await record_annotation_actor(self.db, target_task, user_id)
-        ctx = await self._resolve_propagate_context(
-            src_task=src_task, target_task=target_task
-        )
-        new_annotation, motion_compensated = await self._propagate_one(
-            src=src, ctx=ctx, user_id=user_id, override_psr=override_psr
-        )
-        await self.db.flush()
-        await self._update_task_stats(target_task_id)
-        return new_annotation, motion_compensated
-
-    async def _resolve_propagate_context(
-        self, *, src_task: Task, target_task: Task
-    ) -> _PropagateContext:
-        """解析 propagate 的整批恒定上下文: 同 task/project/scene 校验 +
-        源/目标 scene_id / frame_index。
-
-        propagate_batch 一次解析供全框复用; 单条 propagate 解析后即用一次。
-        box_3d 专用的 axis_convention / pose 延迟到 _propagate_one 首次遇到
-        box_3d 时解析(见 _ensure_box3d_context),2D 几何不付这部分往返。
-        """
-        from fastapi import HTTPException
-
-        if target_task.id == src_task.id:
-            raise HTTPException(
-                status_code=422, detail="propagate 目标不能是源 task 自身"
-            )
-        # §5.6 · 严格同 project(跨 project/dataset/scene propagate 语义不成立)。
-        if src_task.project_id != target_task.project_id:
-            raise HTTPException(status_code=422, detail="跨 project propagate 不被允许")
-
-        # 同 scene 校验: 两侧主 item 必须解析到相同且非空的 scene_id。
-        from app.services.labeling_scene import resolve_primary_item_id
-        from app.services.labeling_scene import read_spatial_item_facts
-
-        src_item_id = await resolve_primary_item_id(self.db, src_task)
-        target_item_id = await resolve_primary_item_id(self.db, target_task)
-        item_facts, _ = await read_spatial_item_facts(
-            self.db,
-            [
-                item_id
-                for item_id in (src_item_id, target_item_id)
-                if item_id is not None
-            ],
-        )
-        src_item = item_facts.get(src_item_id) if src_item_id is not None else None
-        target_item = (
-            item_facts.get(target_item_id) if target_item_id is not None else None
-        )
-        src_scene_id = src_item.scene_id if src_item is not None else None
-        target_scene_id = target_item.scene_id if target_item is not None else None
-        src_frame_index = src_item.frame_index if src_item is not None else None
-        target_frame_index = (
-            target_item.frame_index if target_item is not None else None
-        )
-        if (
-            src_scene_id is None
-            or target_scene_id is None
-            or src_scene_id != target_scene_id
-        ):
-            raise HTTPException(status_code=422, detail="跨 scene propagate 不被允许")
-
-        return _PropagateContext(
-            src_task=src_task,
-            target_task=target_task,
-            src_scene_id=src_scene_id,
-            src_frame_index=src_frame_index,
-            target_scene_id=target_scene_id,
-            target_frame_index=target_frame_index,
-        )
-
-    async def _ensure_box3d_context(self, ctx: _PropagateContext) -> None:
-        """box_3d 专用上下文解析: 目标 axis_convention + 源/目标帧 ego pose。
-
-        结果缓存在 ctx 上,整批只在首次遇到 box_3d 时解析一次。
-        """
-        if ctx._box3d_resolved:
-            return
-        ctx.axis_convention = await self._resolve_axis_convention(ctx.target_task)
-        ctx.pose_src = await self._frame_pose(ctx.src_scene_id, ctx.src_frame_index)
-        ctx.pose_dst = await self._frame_pose(
-            ctx.target_scene_id, ctx.target_frame_index
-        )
-        ctx._box3d_resolved = True
-
-    async def _propagate_one(
-        self,
-        *,
-        src: Annotation,
-        ctx: _PropagateContext,
-        user_id: uuid.UUID,
-        override_psr: dict | None = None,
-    ) -> tuple[Annotation, bool]:
-        """单框 propagate 核心: 校验几何类型、延续 track_id、box_3d 运动补偿、
-        建新 annotation。
-
-        使用 ctx 中整批预解析好的 scene/frame/axis/pose,不再逐框解析。
-        **不** flush、**不** 更新 task stats —— 由调用方(propagate / propagate_batch)
-        在循环外统一收尾,避免逐框 N+1。
-        """
-        from fastapi import HTTPException
-
-        if src is None or not src.is_active:
-            raise HTTPException(status_code=404, detail="source annotation not found")
-
-        geom_type = (src.geometry or {}).get("type")
-        if geom_type not in PROPAGATABLE_GEOMETRY_TYPES:
-            raise HTTPException(
-                status_code=422,
-                detail=f"geometry type '{geom_type}' 不支持跨帧 propagate",
-            )
-
-        # 共享跨帧标识 track_id: 源无则分配并写回(每框各自一条独立链)。
-        # v0.21.2 · ADR-0045 · Phase 6 · track_id 为唯一权威跨帧标识, 不再 dual-write
-        # group_id (readers 已全切 track_id); cross_frame_group_seq 停写 (v0.21.3 DROP)。
-        track_id = src.track_id
-        if track_id is None:
-            track_id = _new_track_id()
-            src.track_id = track_id
-            src.version += 1
-
-        geometry = copy.deepcopy(src.geometry or {})
-        motion_compensated = False
-        if geom_type == "box_3d":
-            await self._ensure_box3d_context(ctx)
-            geometry["convention_at_create"] = ctx.axis_convention
-            if override_psr:
-                for key in ("center", "size", "rotation"):
-                    if key in override_psr:
-                        geometry[key] = override_psr[key]
-            elif all(k in geometry for k in ("center", "size", "rotation")):
-                # v0.15.1 · 运动补偿: 世界位置不变, 投回目标帧 ego 系;
-                # 任一帧无 pose → compensate_psr 恒等返回(= v0.14.1 原样复制)
-                from app.services.ego_transform import compensate_psr
-
-                psr, motion_compensated = compensate_psr(
-                    {
-                        "center": geometry["center"],
-                        "size": geometry["size"],
-                        "rotation": geometry["rotation"],
-                    },
-                    pose_src=ctx.pose_src,
-                    pose_dst=ctx.pose_dst,
-                )
-                if motion_compensated:
-                    geometry.update(psr)
-
-        new_annotation = Annotation(
-            id=uuid.uuid4(),
-            task_id=ctx.target_task.id,
-            project_id=ctx.target_task.project_id,
-            video_segment_id=src.video_segment_id,
+        return await LabelingCrossFrameWriteService(self.db)._propagate(
+            source_annotation_id=source_annotation_id,
+            target_task_id=target_task_id,
             user_id=user_id,
-            source="manual",
-            annotation_type=src.annotation_type,
-            tool_unit_id=src.tool_unit_id,
-            class_name=src.class_name,
-            geometry=geometry,
-            track_id=track_id,
-            attributes=copy.deepcopy(src.attributes or {}),
-            temporal_role="derived" if geom_type == "box_3d" else "sample",
+            override_psr=override_psr,
         )
-        self.db.add(new_annotation)
-        if geom_type == "box_3d":
-            assert ctx.src_frame_index is not None
-            assert ctx.target_frame_index is not None
-            assert ctx.target_scene_id is not None
-            try:
-                track = await ensure_scene_track(
-                    self.db,
-                    project_id=ctx.target_task.project_id,
-                    scene_id=ctx.target_scene_id,
-                    track_id=track_id,
-                    class_name=src.class_name,
-                    frames={ctx.src_frame_index, ctx.target_frame_index},
-                    actor_id=user_id,
-                    interval_source="derived",
-                )
-            except SceneTrackIntegrityError as exc:
-                _raise_scene_track_conflict(exc)
-            src.scene_track_id = track.id
-            if src.temporal_role != "keyframe":
-                src.temporal_role = "keyframe"
-                src.version = int(src.version or 1) + 1
-            new_annotation.scene_track_id = track.id
-        return new_annotation, motion_compensated
 
     async def _propagate_batch(
         self,
@@ -1753,93 +1562,12 @@ class AnnotationService:
         annotation_ids: list[uuid.UUID] | None,
         user_id: uuid.UUID,
     ) -> tuple[list[tuple[uuid.UUID, Annotation]], bool]:
-        """v0.15.1 · 多目标批量 propagate: 一次把源 task 的多个(或全部)box_3d
-        运动补偿延续到目标 task,各自延续 group_id 链。
-
-        - annotation_ids=None → 源 task 全部 active box_3d(空 → 422)。
-        - 显式 ids → 必须都属于源 task 且 active(否则 404),逐条复用单条
-          propagate 的全部校验;任一失败整批回滚(同一事务)。
-
-        返回 ([(src_id, 新 annotation)...], motion_compensated)。
-        """
-        from fastapi import HTTPException
-
-        if annotation_ids is None:
-            rows = (
-                (
-                    await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.task_id == source_task_id)
-                        .where(Annotation.is_active.is_(True))
-                        .where(Annotation.geometry["type"].astext == "box_3d")
-                        .order_by(Annotation.created_at, Annotation.id)
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            if not rows:
-                raise HTTPException(
-                    status_code=422, detail="源 task 没有可延续的 box_3d 标注"
-                )
-        else:
-            if not annotation_ids:
-                raise HTTPException(status_code=422, detail="annotation_ids 不能为空")
-            rows = (
-                (
-                    await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.id.in_(annotation_ids))
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            by_id = {r.id: r for r in rows}
-            missing = [
-                str(i)
-                for i in annotation_ids
-                if i not in by_id
-                or not by_id[i].is_active
-                or by_id[i].task_id != source_task_id
-            ]
-            if missing:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"annotations 不存在/不属于源 task: {', '.join(missing)}",
-                )
-            rows = [by_id[i] for i in annotation_ids]
-
-        # 整批共享同一 source_task / target_task → scene/frame/axis/pose 全恒定。
-        # 循环外解析一次(原先逐条 propagate 会重复解析 → N+1,框数 20-50+ 放大成
-        # 上百次 DB 往返)。校验语义不变: 仍走与单条 propagate 同一份 context 解析。
-        source_task = await self.db.get(Task, source_task_id)
-        if source_task is None:
-            raise HTTPException(status_code=404, detail="source task not found")
-        target_task = await self.db.get(Task, target_task_id)
-        if target_task is None:
-            raise HTTPException(status_code=404, detail="target task not found")
-        # A2 · lock the target task before the batch of propagated annotations.
-        await record_annotation_actor(self.db, target_task, user_id)
-        ctx = await self._resolve_propagate_context(
-            src_task=source_task, target_task=target_task
+        return await LabelingCrossFrameWriteService(self.db)._propagate_batch(
+            source_task_id=source_task_id,
+            target_task_id=target_task_id,
+            annotation_ids=annotation_ids,
+            user_id=user_id,
         )
-
-        results: list[tuple[uuid.UUID, Annotation]] = []
-        motion_compensated = False
-        for src in rows:
-            new_annotation, compensated = await self._propagate_one(
-                src=src, ctx=ctx, user_id=user_id
-            )
-            motion_compensated = motion_compensated or compensated
-            results.append((src.id, new_annotation))
-        # 一次 flush + 一次 task stats 更新(原逐框 _update_task_stats 是 N+1 的另一
-        # 来源: 每框都做 count 查询 + Task.get)。最终计数/状态与逐框累加等价。
-        await self.db.flush()
-        await self._update_task_stats(target_task_id)
-        return results, motion_compensated
 
     async def _interpolate_range(
         self,
@@ -1852,229 +1580,15 @@ class AnnotationService:
         assert_task_visible=None,
         lock_task_for_write=None,
     ) -> tuple[list[Annotation], bool, list[int]]:
-        """v0.15.1 · 关键帧区间插值: 同 track_id 链上帧 i 与帧 k 各有一框,
-        给区间 (i,k) 内每个有 task 的中间帧生成插值框(source="interpolated")。
-
-        v0.21.2 · ADR-0045 · 跨帧链按 track_id 查询(原按 group_id); 新插值框
-        dual-write track_id + 端点框的 group_id(readers 尚未全切, 过渡期兼容)。
-
-        - 两端框: 各自 task 上该 track 的唯一 active box_3d(0 或 >1 → 422)。
-        - 几何: 世界系线性内插中心 + slerp 朝向 + 线性尺寸,投回各帧 ego 系;
-          任一帧缺 pose → 纯 ego 系插值(motion_compensated=False)。
-        - 幂等: 中间帧已有该 group 的 active 标注 → 跳过(记入 skipped_frames),
-          重复触发/人工微调过的帧不重复生成。
-        - assert_task_editable: API 层注入的锁态校验(reviewer 例外逻辑在 api 层),
-          任一中间帧不可写 → 整批 422/409,不产生部分写入。
-        - assert_task_visible: API 层注入的 batch 可见性/分派校验(async)。两端 task
-          已在端点校验,但中间帧 task 由 group 链 + scene 反查得到,必须逐帧再校验,
-          否则 annotator 凭两端可见即可往不可见/未分派的中间批次写入(权限漂移)。
-        - lock_task_for_write: API 层在中间帧未命中幂等跳过时,写入前刷新并校验该 task。
-
-        返回 (新建 annotations, motion_compensated, skipped_frames)。
-        """
-        from fastapi import HTTPException
-
-        from aap_assets_catalog.spatial_contract import ReadPosesRequest
-        from app.services.assets_spatial import AssetsSpatialGateway
-        from app.services.ego_transform import interpolate_psr
-        from app.services.labeling_scene import (
-            get_scene_frame_task_map,
-            read_spatial_item_facts,
-            resolve_primary_item_id,
+        return await LabelingCrossFrameWriteService(self.db)._interpolate_range(
+            track_id=track_id,
+            from_task_id=from_task_id,
+            to_task_id=to_task_id,
+            user_id=user_id,
+            assert_task_editable=assert_task_editable,
+            assert_task_visible=assert_task_visible,
+            lock_task_for_write=lock_task_for_write,
         )
-
-        if from_task_id == to_task_id:
-            raise HTTPException(status_code=422, detail="插值区间两端不能是同一 task")
-
-        from_task = await self.db.get(Task, from_task_id)
-        to_task = await self.db.get(Task, to_task_id)
-        if from_task is None or to_task is None:
-            raise HTTPException(status_code=404, detail="task not found")
-        if from_task.project_id != to_task.project_id:
-            raise HTTPException(status_code=422, detail="跨 project 插值不被允许")
-
-        # A2 · interpolation also writes to middle-frame tasks discovered later,
-        # so use the nonblocking task lock: a busy endpoint task rolls back to a
-        # retryable 409 rather than forming a wait cycle.
-        await record_annotation_actors_for_tasks(
-            self.db, [from_task.id, to_task.id], user_id, nowait=True
-        )
-
-        async def _scene_frame(task: Task) -> tuple[uuid.UUID | None, int | None]:
-            item_id = await resolve_primary_item_id(self.db, task)
-            if item_id is None:
-                return None, None
-            item_facts, _ = await read_spatial_item_facts(self.db, [item_id])
-            item = item_facts.get(item_id)
-            if item is None:
-                return None, None
-            return item.scene_id, item.frame_index
-
-        from_scene, from_frame = await _scene_frame(from_task)
-        to_scene, to_frame = await _scene_frame(to_task)
-        if (
-            from_scene is None
-            or from_scene != to_scene
-            or from_frame is None
-            or to_frame is None
-        ):
-            raise HTTPException(status_code=422, detail="插值区间必须在同一 scene 内")
-        if abs(to_frame - from_frame) < 2:
-            raise HTTPException(
-                status_code=422, detail="插值区间无中间帧(两端帧需间隔 ≥ 2)"
-            )
-
-        async def _endpoint_box(task_id: uuid.UUID) -> Annotation:
-            rows = (
-                (
-                    await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.task_id == task_id)
-                        .where(Annotation.track_id == track_id)
-                        .where(Annotation.is_active.is_(True))
-                        .where(Annotation.geometry["type"].astext == "box_3d")
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            if len(rows) != 1:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"task {task_id} 上 track {track_id} 的 active box_3d "
-                        f"数量为 {len(rows)},插值要求恰好 1 个"
-                    ),
-                )
-            return rows[0]
-
-        box_from = await _endpoint_box(from_task_id)
-        box_to = await _endpoint_box(to_task_id)
-
-        # 统一成 i < k(几何插值对称,t 取向不影响结果)
-        if from_frame > to_frame:
-            from_frame, to_frame = to_frame, from_frame
-            box_from, box_to = box_to, box_from
-
-        frame_to_task = await get_scene_frame_task_map(self.db, from_scene)
-        mid_frames = sorted(f for f in frame_to_task if from_frame < f < to_frame)
-        if not mid_frames:
-            raise HTTPException(
-                status_code=422, detail="插值区间内没有可写的中间帧 task"
-            )
-
-        # 整批前置校验: 中间帧 task 可见性(batch 可见/分派)+ 锁态。
-        # 可见性必须逐帧校验——两端 task 可见不代表中间帧批次对该用户可见/已分派。
-        mid_tasks: dict[int, Task] = {}
-        for f in mid_frames:
-            t = await self.db.get(Task, frame_to_task[f])
-            if t is None:
-                continue
-            if assert_task_visible is not None:
-                await assert_task_visible(t)
-            if assert_task_editable is not None:
-                assert_task_editable(t)
-            mid_tasks[f] = t
-
-        trajectory = {
-            p.frame_index: p
-            for p in await AssetsSpatialGateway(self.db).read_poses(
-                ReadPosesRequest(actor_id=None, scene_id=from_scene)
-            )
-        }
-        psr_a = {
-            "center": box_from.geometry["center"],
-            "size": box_from.geometry["size"],
-            "rotation": box_from.geometry["rotation"],
-        }
-        psr_b = {
-            "center": box_to.geometry["center"],
-            "size": box_to.geometry["size"],
-            "rotation": box_to.geometry["rotation"],
-        }
-        convention = await self._resolve_axis_convention(from_task)
-
-        created: list[Annotation] = []
-        skipped_frames: list[int] = []
-        motion_compensated = True
-        for f, mid_task in mid_tasks.items():
-            # 幂等: 该帧已有同 track 的 active 标注 → 跳过
-            existing = await self.db.scalar(
-                select(func.count())
-                .select_from(Annotation)
-                .where(Annotation.task_id == mid_task.id)
-                .where(Annotation.track_id == track_id)
-                .where(Annotation.is_active.is_(True))
-            )
-            if existing:
-                skipped_frames.append(f)
-                continue
-
-            if lock_task_for_write is not None:
-                mid_task = await lock_task_for_write(mid_task)
-
-            # A2 · lock this mid task (NOWAIT) before writing its interpolation.
-            await record_annotation_actor(self.db, mid_task, user_id, nowait=True)
-            t = (f - from_frame) / (to_frame - from_frame)
-            psr, compensated = interpolate_psr(
-                psr_a,
-                psr_b,
-                t,
-                pose_a=trajectory.get(from_frame),
-                pose_b=trajectory.get(to_frame),
-                pose_mid=trajectory.get(f),
-            )
-            motion_compensated = motion_compensated and compensated
-
-            geometry = copy.deepcopy(box_from.geometry or {})
-            geometry.update(psr)
-            geometry["convention_at_create"] = convention
-            ann = Annotation(
-                id=uuid.uuid4(),
-                task_id=mid_task.id,
-                project_id=mid_task.project_id,
-                user_id=user_id,
-                source="interpolated",
-                annotation_type=box_from.annotation_type,
-                tool_unit_id=box_from.tool_unit_id,
-                class_name=box_from.class_name,
-                geometry=geometry,
-                track_id=track_id,
-                attributes=copy.deepcopy(box_from.attributes or {}),
-                temporal_role="derived",
-            )
-            self.db.add(ann)
-            created.append(ann)
-
-        try:
-            track = await ensure_scene_track(
-                self.db,
-                project_id=from_task.project_id,
-                scene_id=from_scene,
-                track_id=track_id,
-                class_name=box_from.class_name,
-                frames=set(range(from_frame, to_frame + 1)),
-                actor_id=user_id,
-                interval_source="derived",
-            )
-        except SceneTrackIntegrityError as exc:
-            _raise_scene_track_conflict(exc)
-        box_from.scene_track_id = track.id
-        box_to.scene_track_id = track.id
-        if box_from.temporal_role != "keyframe":
-            box_from.temporal_role = "keyframe"
-            box_from.version = int(box_from.version or 1) + 1
-        if box_to.temporal_role != "keyframe":
-            box_to.temporal_role = "keyframe"
-            box_to.version = int(box_to.version or 1) + 1
-        for ann in created:
-            ann.scene_track_id = track.id
-
-        await self.db.flush()
-        for ann in created:
-            await self._update_task_stats(ann.task_id)
-        return created, motion_compensated and bool(created), skipped_frames
 
     async def update(
         self,

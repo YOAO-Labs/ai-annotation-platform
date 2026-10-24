@@ -100,9 +100,9 @@ grants together; `infra/docker/labeling-annotation-writes-grants.sql` supplies a
 dedicated trusted caller with exactly these three functions. The existing task
 control credential keeps its two-function profile.
 
-Slice/Mask operations, whole-scene-track commands, imports, cross-frame writes
-and human video candidate decisions remain separate caller migrations. This
-write group does not close the complete Labeling module.
+Slice/Mask operations, remaining imports and human video candidate decisions
+remain separate caller migrations. This write group does not close the complete
+Labeling module.
 
 ## Bulk editing, compact video and batch control
 
@@ -132,6 +132,40 @@ batch command. Previous task-control and manual-write credentials are unchanged.
 The new roles have no direct table access, role membership, CREATE or TEMP.
 Saved Native checks are registered with the owned-database verifier; source and
 basic checks do not establish native permission, recovery or module qualification.
+
+## Prediction, SceneTrack and cross-frame writes
+
+`prediction_record_command(jsonb)` owns result and metadata insertion, the Task
+prediction counter and timestamp, failures, dismissal/restoration, candidate
+rejection, Task/Batch cleanup and source-scoped import purge. The purge keeps
+FailedPrediction rows; cleanup retains its original metadata-first delete order.
+`annotation_prediction_command(jsonb)` owns accepted Annotation creation and
+secondary attributes/child source changes. Existing Mask preflight, current write
+scope, contributor evidence, source lineage, heartbeat, audit and commit remain in
+the caller workflow. Child creation and its source update stay separate so Mask
+history and version behavior are retained.
+
+`scene_track_command(jsonb)` owns command lock/replay/apply/inspect/list/revert,
+including operation snapshots, intervals, member changes and reversal. Current
+Task locks and revisions fence each operation. Scene/frame facts come from the
+existing Assets public projection, including the primary-LiDAR fallback. Preview,
+detail and other domain reads still use their existing API adapters.
+
+`cross_frame_write_command(jsonb)` owns propagation and interpolation mutations.
+The API still checks each target's current visibility/editability and uses public
+Assets pose/source capabilities before the final same-transaction write. Geometry
+policy uses the standard library and keeps the previous API import paths.
+
+These four functions use closed JSON contracts and borrow the original
+transaction. Apply matching migrations and owner/runtime grants together. Trusted
+prediction callers use `infra/docker/labeling-prediction-grants.sql` for exactly
+the two prediction functions. SceneTrack and cross-frame callers use
+`infra/docker/labeling-scene-track-commands-grants.sql` and
+`infra/docker/labeling-cross-frame-grants.sql`, each with one function. The LOGIN
+roles receive no private tables, role membership, CREATE or TEMP. Test-only
+fixture cleanup and other Labeling writes/reads remain explicit migration work;
+these operation contracts do not establish complete module deployment or recovery
+qualification.
 
 ## Video worker finalization
 

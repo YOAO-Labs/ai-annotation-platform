@@ -1,0 +1,420 @@
+{
+  "$defs": {
+    "AnnotationPredictionData": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": ["annotation_id", "version", "source", "updated_at"],
+      "title": "AnnotationPredictionData",
+      "type": "object"
+    },
+    "ApplySecondaryAttributes": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-prediction/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "operation": {
+          "const": "apply_secondary_attributes",
+          "title": "Operation",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "attributes_meta": {
+          "additionalProperties": true,
+          "title": "Attributes Meta",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "annotation_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "expected_version",
+        "attributes",
+        "attributes_meta"
+      ],
+      "title": "ApplySecondaryAttributes",
+      "type": "object"
+    },
+    "CreateAcceptedAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-prediction/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "operation": {
+          "const": "create_accepted",
+          "title": "Operation",
+          "type": "string"
+        },
+        "prediction_id": {
+          "format": "uuid",
+          "title": "Prediction Id",
+          "type": "string"
+        },
+        "prediction_created_at": {
+          "format": "date-time",
+          "title": "Prediction Created At",
+          "type": "string"
+        },
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "video_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Video Segment Id"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "attributes_meta": {
+          "additionalProperties": true,
+          "title": "Attributes Meta",
+          "type": "object"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "temporal_role": {
+          "enum": ["keyframe", "sample"],
+          "title": "Temporal Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "annotation_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "prediction_id",
+        "prediction_created_at",
+        "annotation_type",
+        "tool_unit_id",
+        "class_name",
+        "geometry",
+        "confidence",
+        "video_segment_id",
+        "attributes",
+        "attributes_meta",
+        "track_id",
+        "temporal_role"
+      ],
+      "title": "CreateAcceptedAnnotation",
+      "type": "object"
+    },
+    "MarkSecondaryChild": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-prediction/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "operation": {
+          "const": "mark_secondary_child",
+          "title": "Operation",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "parent_annotation_id": {
+          "format": "uuid",
+          "title": "Parent Annotation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "annotation_id",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "expected_version",
+        "parent_annotation_id"
+      ],
+      "title": "MarkSecondaryChild",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-annotation-prediction/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "apply_secondary_attributes": "#/$defs/ApplySecondaryAttributes",
+          "create_accepted": "#/$defs/CreateAcceptedAnnotation",
+          "mark_secondary_child": "#/$defs/MarkSecondaryChild"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CreateAcceptedAnnotation"
+        },
+        {
+          "$ref": "#/$defs/ApplySecondaryAttributes"
+        },
+        {
+          "$ref": "#/$defs/MarkSecondaryChild"
+        }
+      ],
+      "title": "Request"
+    },
+    "data": {
+      "$ref": "#/$defs/AnnotationPredictionData"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "_Reply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-annotation-prediction/v1",
+  "x-postgresql-functions": ["aap_labeling_v1.annotation_prediction_command(jsonb)"]
+}
