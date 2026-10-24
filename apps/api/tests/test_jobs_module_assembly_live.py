@@ -932,6 +932,91 @@ async def _exercise_export_dispatch(
             destroy_scope(scope)
 
 
+async def _exercise_queue_cancellation(
+    test_engine, client, maker, sender, worker, known_task_ids, record_property
+):
+    cancel_world = await _seed_member_job(
+        maker,
+        label="jobs-queue-cancel",
+        target_count=1,
+    )
+    cancel_execution_id = str(uuid.uuid4())
+    known_task_ids.add(cancel_execution_id)
+    async with maker.begin() as db:
+        cancel_job = await db.get(AsyncJob, cancel_world["job_id"])
+        assert cancel_job is not None
+        cancel_job.status = AsyncJobStatus.RUNNING.value
+        cancel_job.started_at = datetime.now(timezone.utc)
+        cancel_job.celery_task_id = cancel_execution_id
+    cancel_headers = await _login(client, maker, cancel_world["actor_id"])
+    cancellation = await client.post(
+        f"/api/v1/async-jobs/{cancel_world['job_id']}/cancel",
+        headers=cancel_headers,
+    )
+    assert cancellation.status_code == 200, cancellation.text
+    assert cancellation.json()["status"] == "cancel_requested"
+    cancel_job_after_request = await _job_by_id(test_engine, cancel_world["job_id"])
+    assert cancel_job_after_request is not None
+    assert cancel_job_after_request.celery_task_id == cancel_execution_id
+    assert cancel_job_after_request.payload["cancel_requested"]
+    assert await _wait_revoked(sender, worker, cancel_execution_id) == {
+        "task_id": cancel_execution_id,
+        "worker_answered": True,
+    }
+    before_cancel_delivery = worker.assert_runtime()
+
+    cooperative_id = str(uuid.uuid4())
+    known_task_ids.add(cooperative_id)
+    cooperative = sender.send_task(
+        _TASK_NAME,
+        args=[str(cancel_world["job_id"])],
+        task_id=cooperative_id,
+        queue="default",
+    )
+    assert (
+        await asyncio.to_thread(cooperative.get, timeout=120, propagate=False) is None
+    )
+    cancel_ack = await _wait_broker_ack(sender, worker, cooperative_id)
+    cancelled_status, cancelled_result, _error = await _job_state(
+        test_engine, cancel_world["job_id"]
+    )
+    assert cancelled_status == AsyncJobStatus.CANCELLED.value
+    assert cancelled_result["cancelled_count"] == 1
+    assert await _annotation_count(test_engine, cancel_world["target_task_ids"]) == 0
+    after_cancel_delivery = worker.assert_runtime()
+    assert after_cancel_delivery["started_at"] == (before_cancel_delivery["started_at"])
+    assert (
+        after_cancel_delivery["container_id"]
+        == (before_cancel_delivery["container_id"])
+    )
+
+    late_replay_id = str(uuid.uuid4())
+    known_task_ids.add(late_replay_id)
+    late_replay = sender.send_task(
+        _TASK_NAME,
+        args=[str(cancel_world["job_id"])],
+        task_id=late_replay_id,
+        queue="default",
+    )
+    assert (
+        await asyncio.to_thread(late_replay.get, timeout=120, propagate=False) is None
+    )
+    replay_ack = await _wait_broker_ack(sender, worker, late_replay_id)
+    final_status, _final_result, _error = await _job_state(
+        test_engine, cancel_world["job_id"]
+    )
+    assert final_status == AsyncJobStatus.CANCELLED.value
+    assert await _annotation_count(test_engine, cancel_world["target_task_ids"]) == 0
+    record_property(
+        "jobs_queue_cooperative_cancel_and_terminal_replay",
+        {
+            "revoke_execution_id": cancel_execution_id,
+            "cancel_ack": cancel_ack,
+            "late_replay_ack": replay_ack,
+        },
+    )
+
+
 async def test_cold_jobs_queue_dispatch_revoke_and_restore(
     test_engine,
     tmp_path,
@@ -1183,7 +1268,7 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
             record_property(
                 "jobs_export_dispatch_before_restore", exports_before_restore
             )
-            quality_before_restore = await exercise_quality_dispatch(
+            (quality_before_restore, quality_headers) = await exercise_quality_dispatch(
                 test_engine,
                 stack,
                 sender,
@@ -1348,11 +1433,6 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                             "jobs_export_dispatch_after_restore", exports_after_restore
                         )
 
-                        quality_headers = await _login(
-                            client,
-                            clone_maker,
-                            uuid.UUID(quality_before_restore["owner_id"]),
-                        )
                         old_quality_job = await _job_by_id(
                             clone_engine, uuid.UUID(quality_before_restore["job_id"])
                         )
@@ -1385,7 +1465,10 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                                 "http_status": restored_quality.status_code,
                             },
                         )
-                        quality_after_restore = await exercise_quality_dispatch(
+                        (
+                            quality_after_restore,
+                            _quality_headers,
+                        ) = await exercise_quality_dispatch(
                             clone_engine,
                             stack,
                             sender,
@@ -1399,117 +1482,14 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                             "jobs_quality_dispatch_after_restore", quality_after_restore
                         )
 
-                        cancel_world = await _seed_member_job(
+                        await _exercise_queue_cancellation(
+                            clone_engine,
+                            client,
                             clone_maker,
-                            label="jobs-queue-cancel",
-                            target_count=1,
-                        )
-                        cancel_execution_id = str(uuid.uuid4())
-                        known_task_ids.add(cancel_execution_id)
-                        async with clone_maker.begin() as db:
-                            cancel_job = await db.get(AsyncJob, cancel_world["job_id"])
-                            assert cancel_job is not None
-                            cancel_job.status = AsyncJobStatus.RUNNING.value
-                            cancel_job.started_at = datetime.now(timezone.utc)
-                            cancel_job.celery_task_id = cancel_execution_id
-                        cancel_headers = await _login(
-                            client, clone_maker, cancel_world["actor_id"]
-                        )
-                        cancellation = await client.post(
-                            f"/api/v1/async-jobs/{cancel_world['job_id']}/cancel",
-                            headers=cancel_headers,
-                        )
-                        assert cancellation.status_code == 200, cancellation.text
-                        assert cancellation.json()["status"] == "cancel_requested"
-                        cancel_job_after_request = await _job_by_id(
-                            clone_engine, cancel_world["job_id"]
-                        )
-                        assert cancel_job_after_request is not None
-                        assert (
-                            cancel_job_after_request.celery_task_id
-                            == cancel_execution_id
-                        )
-                        assert cancel_job_after_request.payload["cancel_requested"]
-                        assert await _wait_revoked(
-                            sender, clone_worker, cancel_execution_id
-                        ) == {
-                            "task_id": cancel_execution_id,
-                            "worker_answered": True,
-                        }
-                        before_cancel_delivery = clone_worker.assert_runtime()
-
-                        cooperative_id = str(uuid.uuid4())
-                        known_task_ids.add(cooperative_id)
-                        cooperative = sender.send_task(
-                            _TASK_NAME,
-                            args=[str(cancel_world["job_id"])],
-                            task_id=cooperative_id,
-                            queue="default",
-                        )
-                        assert (
-                            await asyncio.to_thread(
-                                cooperative.get, timeout=120, propagate=False
-                            )
-                            is None
-                        )
-                        cancel_ack = await _wait_broker_ack(
-                            sender, clone_worker, cooperative_id
-                        )
-                        cancelled_status, cancelled_result, _error = await _job_state(
-                            clone_engine, cancel_world["job_id"]
-                        )
-                        assert cancelled_status == AsyncJobStatus.CANCELLED.value
-                        assert cancelled_result["cancelled_count"] == 1
-                        assert (
-                            await _annotation_count(
-                                clone_engine, cancel_world["target_task_ids"]
-                            )
-                            == 0
-                        )
-                        after_cancel_delivery = clone_worker.assert_runtime()
-                        assert (
-                            after_cancel_delivery["started_at"]
-                            == (before_cancel_delivery["started_at"])
-                        )
-                        assert (
-                            after_cancel_delivery["container_id"]
-                            == (before_cancel_delivery["container_id"])
-                        )
-
-                        late_replay_id = str(uuid.uuid4())
-                        known_task_ids.add(late_replay_id)
-                        late_replay = sender.send_task(
-                            _TASK_NAME,
-                            args=[str(cancel_world["job_id"])],
-                            task_id=late_replay_id,
-                            queue="default",
-                        )
-                        assert (
-                            await asyncio.to_thread(
-                                late_replay.get, timeout=120, propagate=False
-                            )
-                            is None
-                        )
-                        replay_ack = await _wait_broker_ack(
-                            sender, clone_worker, late_replay_id
-                        )
-                        final_status, _final_result, _error = await _job_state(
-                            clone_engine, cancel_world["job_id"]
-                        )
-                        assert final_status == AsyncJobStatus.CANCELLED.value
-                        assert (
-                            await _annotation_count(
-                                clone_engine, cancel_world["target_task_ids"]
-                            )
-                            == 0
-                        )
-                        record_property(
-                            "jobs_queue_cooperative_cancel_and_terminal_replay",
-                            {
-                                "revoke_execution_id": cancel_execution_id,
-                                "cancel_ack": cancel_ack,
-                                "late_replay_ack": replay_ack,
-                            },
+                            sender,
+                            clone_worker,
+                            known_task_ids,
+                            record_property,
                         )
                     assert _broker_state(sender, "default") == {
                         "queue_size": 0,
@@ -1551,3 +1531,114 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                         sender.close()
                     inbox.close()
                     destroy_guide_scope(guide_scope)
+
+
+async def test_cold_jobs_queue_cancel_and_terminal_replay(
+    test_engine, tmp_path, record_property
+):
+    """Finish cancellation independently when earlier cold operations already passed."""
+    _verify_postgres(test_engine.url)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    resources, guide_bucket, owner_s3 = await assert_workspace_identity(test_engine)
+    minio_origin = endpoint_url()
+    guide_scope, destroy_guide_scope = create_guide_storage_scope(
+        resources,
+        owner_s3,
+        guide_bucket,
+        f"outside-guide/jobs-cancel-{uuid.uuid4()}.txt",
+    )
+    secret, api_secret, control, queue_token = [
+        secrets.token_urlsafe(32) for _ in range(4)
+    ]
+    queue_image, queue_identity, queue_revision = (
+        os.environ[name] for name in _JOBS_QUEUE_IMAGE_INPUTS
+    )
+    inbox = SMTPInbox()
+    stack = None
+    worker = None
+    sender = None
+    try:
+        async with _login_redis() as (login_url, _login_owner):
+            async with _publisher_redis() as (publisher_url, _publisher_owner):
+                try:
+                    sender_url = (
+                        os.environ.get("CELERY_BROKER_URL") or os.environ["REDIS_URL"]
+                    )
+                    sender = Celery(
+                        "jobs-cancel-cold-acceptance",
+                        broker=sender_url,
+                        backend=sender_url,
+                    )
+                    sender.conf.update(
+                        task_serializer="json",
+                        result_serializer="json",
+                        accept_content=["json"],
+                    )
+                    _assert_owned_broker_target(sender)
+                    stack = IdentityModuleStack(
+                        test_engine,
+                        tmp_path,
+                        secret=secret,
+                        api_secret=api_secret,
+                        control=control,
+                        mail_key=Fernet.generate_key().decode(),
+                        login_redis_url=login_url,
+                        publisher_redis_url=publisher_url,
+                        smtp_port=inbox.port,
+                        jobs_queue_image=queue_image,
+                        jobs_queue_identity=queue_identity,
+                        jobs_queue_source_revision=queue_revision,
+                        jobs_queue_token=queue_token,
+                    )
+                    await stack.start()
+                    worker = WorkspaceCeleryWorker(
+                        test_engine,
+                        tmp_path / "jobs-cancel-worker",
+                        backend_token=uuid.uuid4().hex,
+                        object_store_endpoint=minio_origin,
+                        object_store_bucket=guide_bucket,
+                        object_store_use_ssl=urlsplit(minio_origin).scheme == "https",
+                        object_store_access_key=guide_scope["access_key"],
+                        object_store_secret_key=guide_scope["secret_key"],
+                        queue_name="default",
+                    )
+                    worker.start()
+                    await _wait_worker_ready(sender, worker)
+                    known_task_ids: set[str] = set()
+                    async with httpx.AsyncClient(
+                        base_url=stack.api_origin, trust_env=False, timeout=40
+                    ) as client:
+                        await _exercise_queue_cancellation(
+                            test_engine,
+                            client,
+                            maker,
+                            sender,
+                            worker,
+                            known_task_ids,
+                            record_property,
+                        )
+                    assert _broker_state(sender) == {
+                        "queue_size": 0,
+                        "unacknowledged": 0,
+                    }
+                    record_property("jobs_queue_execution_ids", sorted(known_task_ids))
+                except BaseException:
+                    if stack is not None:
+                        record_property(
+                            "jobs_queue_module_diagnostics", stack.capture_diagnostics()
+                        )
+                    raise
+                finally:
+                    try:
+                        if worker is not None:
+                            worker.stop()
+                    finally:
+                        if stack is not None:
+                            await stack.stop()
+    finally:
+        try:
+            if sender is not None:
+                sender.close()
+        finally:
+            inbox.close()
+            destroy_guide_scope(guide_scope)

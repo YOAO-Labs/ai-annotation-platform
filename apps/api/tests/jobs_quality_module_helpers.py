@@ -411,8 +411,8 @@ async def exercise_quality_dispatch(
     known_task_ids,
     *,
     check_outage: bool,
-) -> dict:
-    """Prove six remote mappings and one real point-cloud API/worker run."""
+) -> tuple[dict, dict[str, str]]:
+    """Return public evidence and a separate reusable authenticated session."""
     import httpx
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -756,7 +756,7 @@ async def exercise_quality_dispatch(
             "singleflight_reused": True,
             "outage": outage,
             "storage_read_scope": storage_evidence,
-        }
+        }, headers
     finally:
         try:
             if queue_stopped:
