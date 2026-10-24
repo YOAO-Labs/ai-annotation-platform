@@ -23,13 +23,20 @@ from app.db.models.annotation import Annotation
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
+from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.core.security import hash_password
 from app.db.models.task import Task
 from app.schemas.async_job import AsyncJobOut
-from app.services import dataset_references
+from app.services import (
+    dataset_references,
+    export_media_bundles,
+    export_media_storage,
+    managed_original_creation,
+    managed_original_reader,
+)
 from app.services.content_snapshot import ContentError
-from app.services.exporting import output_authority
+from app.services.exporting import image_delivery, image_jobs, output_authority
 from tests.test_export_outputs import export_objects as export_objects
 from app.services.exporting.packaging import (
     IMAGE_EXPORT_TARGETS,
@@ -54,6 +61,10 @@ from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_references import reference_world as reference_world
 from tests.test_s3_references import s3_world as s3_world
 from tests.test_sftp_references import sftp_world as sftp_world
+from tests.test_export_media_storage import Client as MediaClient
+from tests.test_managed_original_creation import Client as CreationClient
+from tests.test_managed_original_reader import Provider
+from tests.test_image_export_inputs import registered_dataset_image
 from tests.test_training_dataset_references import (
     committed_rle_bindings as committed_rle_bindings,
 )
@@ -123,11 +134,38 @@ async def make_export(
     return job, media
 
 
+async def make_image_export(db, world, *, targets, opts):
+    """Keep reference authority independent while allocating real image facts."""
+    _, project, _, _ = world
+    job, media = await make_export(db, world)
+    job.status = "pending"
+    job.payload = {**job.payload, "targets": targets, "batch_id": None, **opts}
+    receipt = await image_jobs.capture_job(
+        db, job, project, batch_id=None, targets=targets, opts=opts
+    )
+    await db.commit()
+    return job, media, receipt
+
+
+@pytest.fixture
+def image_transport(monkeypatch):
+    """Exercise actual Creation/reader/copy algorithms against isolated providers."""
+    creation, source, copy = CreationClient(), Provider(), MediaClient()
+    source.meta.endpoint_url = export_media_storage._runtime_endpoint()
+    monkeypatch.setattr(
+        managed_original_creation, "create_client", lambda **_: creation
+    )
+    monkeypatch.setattr(managed_original_reader, "create_client", lambda **_: source)
+    monkeypatch.setattr(export_media_storage, "create_client", lambda: copy)
+    return SimpleNamespace(creation=creation, source=source, copy=copy)
+
+
 async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
     db_session,
     reference_world,
     monkeypatch,
     tmp_path,
+    image_transport,
 ):
     _, project, task, content = reference_world
     duplicate = Task(
@@ -140,7 +178,11 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
     )
     db_session.add(duplicate)
     managed = await create_task(db_session, project_id=project.id)
-    await db_session.flush()
+    await db_session.commit()
+    registered = await registered_dataset_image(
+        db_session, project=project, dataset=content[3], data=content[1], task=managed
+    )
+    image_transport.source.raw = image_transport.source.actual = content[1]
     rle = encode_coco_rle([1] + [0] * (48 * 32 - 1), 48, 32)
     mask_reference = build_rle_reference(rle)
     geometry = {"type": "raster_mask", "mask": mask_reference}
@@ -171,21 +213,42 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
         )
     )
     await db_session.flush()
-    job, media = await make_export(db_session, reference_world)
+    targets = sorted(IMAGE_EXPORT_TARGETS - {"yolo"})
+    opts = {"include_attributes": True, "video_frame_mode": "keyframes"}
+    job, media, receipt = await make_image_export(
+        db_session, reference_world, targets=targets, opts=opts
+    )
     assert set(media.task_ids) == {task.id, duplicate.id, managed.id}
+    receipt = await export_media_bundles.claim(db_session, receipt.id)
+    job.status = "running"
+    await db_session.commit()
+    signed = Mock(return_value="http://managed.test/image")
+    monkeypatch.setattr(image_transport.copy, "generate_presigned_url", signed)
+    monkeypatch.setattr(
+        storage_service,
+        "generate_download_url",
+        Mock(
+            side_effect=AssertionError("current-bucket original signing is forbidden")
+        ),
+    )
+
+    async def guard(owned):
+        await worker._reauthorize_export_final_write(owned, job.id, None)
+        await export_media_bundles.check_claim(owned, receipt)
+
+    delivery = await image_delivery.prepare(db_session, receipt, guard=guard)
     # New tasks cannot appear between passes of the frozen export.
     late_task = await create_task(db_session, project_id=project.id)
-    signed = Mock(return_value="http://managed.test/image")
-    monkeypatch.setattr(storage_service, "generate_download_url", signed)
     path, _, _ = await build_export_zip(
         db_session,
         project.id,
         batch_id=None,
         task_ids=media.task_ids,
-        targets=sorted(IMAGE_EXPORT_TARGETS - {"yolo"}),
+        targets=targets,
         include_attributes=True,
         video_frame_mode="keyframes",
         reference_media=media,
+        image_media=delivery,
     )
     try:
         with zipfile.ZipFile(path) as archive:
@@ -218,6 +281,21 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
                 entries[str(managed.id)]["presigned_url"] == "http://managed.test/image"
             )
             assert signed.call_count == 1
+            assert entries[str(managed.id)]["sha256"] == registered.sha256
+            assert entries[str(managed.id)]["size_bytes"] == len(content[1])
+            assert (
+                entries[str(managed.id)]["expires_at"] == receipt.expires_at.isoformat()
+            )
+            inventory = receipt.inventory["objects"]
+            assert len(inventory) == 1
+            copied_key = next(iter(inventory))
+            assert image_transport.copy.current(copied_key)["data"] == content[1]
+            assert any(
+                name == "get"
+                and params["Bucket"] == registered.replica.bucket
+                and params["Key"] == registered.item.file_path
+                for name, params in image_transport.source.calls
+            )
             aap = json.loads(archive.read("aap_json/annotations.json"))
             assert any(
                 row["file_path"] == media.archive_path(task.id) for row in aap["tasks"]
@@ -242,6 +320,8 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
         )
         # Both embedded entries verify even though the fake managed URL is unreachable.
         assert result.stdout.count("[ok] embedded SHA-256") == 2
+        assert "Invalid manifest" not in result.stdout
+        assert result.returncode == 2
     finally:
         Path(path).unlink(missing_ok=True)
 
@@ -365,9 +445,9 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
     export_objects,
 ):
     _, project, _, content = reference_world
-    job, media = await make_export(db_session, reference_world)
-    job.status = "pending"
-    await db_session.commit()
+    job, _, receipt = await make_image_export(
+        db_session, reference_world, targets=["coco"], opts={}
+    )
 
     class Context:
         async def __aenter__(self):
@@ -398,6 +478,11 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
     original_guard = worker._reauthorize_export_final_write
 
     async def guard(db, job_id, ids, **kwargs):
+        # The owned lifecycle checks authority in several fresh sessions before
+        # and after physical work. Reject only at the original final boundary,
+        # after a real ZIP PUT, so this still exercises retained responsibility.
+        if db is not db_session or not uploaded:
+            return await original_guard(db, job_id, ids, **kwargs)
         if mutation == "source_disable":
             from app.db.models.dataset_source import DatasetSource
 
@@ -442,6 +527,12 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
         select(ExportOutput).where(ExportOutput.job_id == job.id)
     )
     assert output is not None and output.state == "pending"
+    assert output.id == receipt.zip_output_id
+    assert output.media_bundle_id == receipt.id
+    bundle = await db_session.get(ExportMediaBundle, receipt.id, populate_existing=True)
+    assert bundle is not None and bundle.state == "building"
+    assert bundle.published_at is None
+    assert output.expires_at == bundle.expires_at == receipt.expires_at
     assert (output.storage_ref["bucket"], output.storage_ref["object_key"]) == uploaded[
         0
     ]
