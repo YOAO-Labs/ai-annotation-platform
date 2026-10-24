@@ -237,7 +237,9 @@ HTTP 查询端点 `GET /api/v1/audit` 面向运营与排障，严格执行基于
 
 收件箱的列表、总数和未读数分别经 Notifications owner 的 `inbox_page`、`inbox_total_count` 和 `inbox_unread_count` 查询。API 先读取 Identity 状态，再传认证 actor UUID 与该次角色快照；owner 通过 Identity 公开事实、Workspace 成员／项目查询能力和 Jobs 通知范围事实执行原有筛选。三条查询继续分开执行，保留原事务快照顺序与 Session 的 autoflush、identity／dirty／expired 行为。JSONB payload 保持原生形状，列表继续使用 PostgreSQL `->>` 的项目范围语义。
 
-单条读取、批量投递和 WebSocket 的持久行检查仍读取 `aap_notifications_v1.notification_facts`，保留八个原生字段；它们的当前范围授权与短暂缺失行重试仍由 API 编排。普通 API 可读该公开关系并调用三项收件箱函数，不能访问私有可见性 helper、通知、偏好或投递 outbox 私表。通用终态通过固定原子追加能力去重，只有新建者沿用原提交前发布。当前本地资格及剩余边界见[模块台账](./module-deployment#notification-inbox-owner)。
+单条读取、终态预查、批量投递与 WebSocket 的持久行检查通过七项固定 Notifications 读取能力，API 不再持有 `notification_facts` 的表／列读取权限。八个原生字段和 Session 缓存／过期 identity 保持；终态预查仍在原保存点中运行，最终去重继续由原子追加负责。
+
+Notifications 的纯投递策略先按需读取 Jobs 实际范围，再分别查询有效成员、reviewer、活跃管理账号所有权和活跃超级管理员权限。四项授权保持独立语句快照，逐帧认证、四次短暂缺行查询、Redis 发布时机和错误处理继续由原 API／WS 编排。批量快照保留字典键存在性及原 UUID 解析语义；它与收件箱 `->>` 的范围规则分别保留。当前资格及剩余独立运行边界见[投递读取台账](./module-deployment#notification-delivery-read-owner)。
 
 ### 已读状态命令
 

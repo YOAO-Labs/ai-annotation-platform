@@ -79,7 +79,7 @@ def test_read_relation_descriptors_match_the_installed_portable_contract():
 
 
 @pytest.mark.asyncio
-async def test_relation_enumeration_is_not_granted_to_unused_owners_or_function_clients(
+async def test_relation_enumeration_is_limited_to_required_owner_columns(
     test_engine,
 ):
     if os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
@@ -105,21 +105,35 @@ async def test_relation_enumeration_is_not_granted_to_unused_owners_or_function_
         for relation in _RELATIONS:
             name = f"aap_identity_v1.{relation}"
             for role in roles:
-                table, column = (
+                table, column, readable_columns = (
                     await db.execute(
                         text(
                             "SELECT has_table_privilege(CAST(:role AS name),CAST(:relation AS regclass),'SELECT'),"
-                            "has_any_column_privilege(CAST(:role AS name),CAST(:relation AS regclass),'SELECT')"
+                            "has_any_column_privilege(CAST(:role AS name),CAST(:relation AS regclass),'SELECT'), "
+                            "ARRAY(SELECT attribute.attname FROM pg_catalog.pg_attribute AS attribute "
+                            "WHERE attribute.attrelid=CAST(:relation AS regclass) "
+                            "AND attribute.attnum>0 AND NOT attribute.attisdropped "
+                            "AND pg_catalog.has_column_privilege(CAST(:role AS name), "
+                            "CAST(:relation AS regclass),attribute.attname,'SELECT'))"
                         ),
                         {"role": role, "relation": name},
                     )
                 ).one()
-                assert not table and not column, (role, name)
+                required = {
+                    ("notifications_code", "account_profiles"): {
+                        "id",
+                        "role",
+                        "is_active",
+                    },
+                    ("audit_code", "account_profiles"): {"id", "email"},
+                }.get((role, relation), set())
+                assert table is False and column is bool(required), (role, name)
+                assert set(readable_columns) == required, (role, name, readable_columns)
         await db.rollback()
         for role in roles:
             await db.execute(text(f"SET LOCAL ROLE {role}"))
             with pytest.raises(DBAPIError) as denied:
-                await db.execute(select(account_profiles.c.id).limit(0))
+                await db.execute(select(account_profiles.c.name).limit(0))
             assert getattr(denied.value.orig, "sqlstate", None) == "42501"
             await db.rollback()
         await db.execute(text("SET LOCAL ROLE identity_code"))

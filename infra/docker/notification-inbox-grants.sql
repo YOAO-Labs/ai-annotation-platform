@@ -141,10 +141,12 @@ BEGIN
     END IF;
     IF pg_catalog.has_function_privilege(v_api,
             'aap_notifications_v1._visible_inbox_rows(uuid,text)','EXECUTE')
-       OR NOT pg_catalog.has_table_privilege(v_api,
+       OR pg_catalog.has_table_privilege(v_api,
+            'aap_notifications_v1.notification_facts','SELECT')
+       OR pg_catalog.has_any_column_privilege(v_api,
             'aap_notifications_v1.notification_facts','SELECT')
        OR pg_catalog.has_database_privilege(v_client,current_database(),'CREATE,TEMP') THEN
-        RAISE EXCEPTION 'Inbox grants widen helpers or remove required API reads';
+        RAISE EXCEPTION 'Inbox grants expose helpers or direct API fact reads';
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_proc AS function

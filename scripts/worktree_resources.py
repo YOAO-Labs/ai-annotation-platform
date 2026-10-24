@@ -116,6 +116,15 @@ IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_recovery_v1.finish_mail(jsonb)",
     "aap_settings_v1.mail_delivery_policy(jsonb)",
 )
+NOTIFICATION_DELIVERY_READ_CAPABILITIES = (
+    "aap_notifications_v1.read_notification(uuid)",
+    "aap_notifications_v1.find_terminal_notification(uuid,text,uuid)",
+    "aap_notifications_v1.delivery_job_scopes(uuid[])",
+    "aap_notifications_v1.delivery_member_pairs(jsonb)",
+    "aap_notifications_v1.delivery_reviewer_pairs(jsonb)",
+    "aap_notifications_v1.delivery_owner_pairs(jsonb)",
+    "aap_notifications_v1.delivery_super_pairs(jsonb)",
+)
 NOTIFICATION_RUNTIME_CAPABILITIES = (
     "aap_notifications_v1.preference_command(jsonb)",
     "aap_notifications_v1.append_notification(jsonb)",
@@ -125,6 +134,7 @@ NOTIFICATION_RUNTIME_CAPABILITIES = (
     "aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)",
     "aap_notifications_v1.inbox_total_count(uuid,text)",
     "aap_notifications_v1.inbox_unread_count(uuid,text)",
+    *NOTIFICATION_DELIVERY_READ_CAPABILITIES,
 )
 AUDIT_RUNTIME_CAPABILITIES = (
     "aap_audit_v1.append_events(jsonb)",
@@ -943,6 +953,10 @@ class LocalResources:
                 INFERENCE_ROUTING_RUNTIME_CAPABILITIES
             )
             notification_function_grant = ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
+            notification_delivery_read_check = " AND ".join(
+                f"pg_catalog.has_function_privilege(:role, '{signature}', 'EXECUTE')"
+                for signature in NOTIFICATION_DELIVERY_READ_CAPABILITIES
+            )
             async with engine.begin() as connection:
                 for sql in (
                     f"GRANT CONNECT ON DATABASE {database} TO {role}",
@@ -974,7 +988,6 @@ class LocalResources:
                     "REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at) "
                     "ON TABLE aap_notifications_v1.notification_facts "
                     f"FROM {role}, PUBLIC",
-                    f"GRANT SELECT ON aap_notifications_v1.notification_facts TO {role}",
                     f"REVOKE ALL ON TABLE aap_audit_v1.audit_events FROM {role}, PUBLIC",
                     "REVOKE ALL (id, actor_id, actor_email, actor_role, action, target_type, "
                     "target_id, method, path, status_code, ip, detail_json, request_id, created_at) "
@@ -1304,7 +1317,11 @@ class LocalResources:
                         "'SELECT,INSERT,UPDATE,REFERENCES')) "
                         "AS notification_column_private, pg_catalog.has_table_privilege("
                         ":role, 'aap_notifications_v1.notification_facts', 'SELECT') "
-                        "AS notification_facts, pg_catalog.has_table_privilege("
+                        "AS notification_facts, pg_catalog.has_any_column_privilege("
+                        ":role, 'aap_notifications_v1.notification_facts', 'SELECT') "
+                        "AS notification_facts_column_read, ("
+                        f"{notification_delivery_read_check}) AS notification_delivery_reads, "
+                        "pg_catalog.has_table_privilege("
                         ":role, 'aap_notifications_v1.notification_facts', "
                         "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') "
                         "AS notification_facts_write, pg_catalog.has_any_column_privilege("
@@ -1364,7 +1381,10 @@ class LocalResources:
                     or notification_grants["inbox_private_helper"] is not False
                     or notification_grants["notification_private"] is not False
                     or notification_grants["notification_column_private"] is not False
-                    or notification_grants["notification_facts"] is not True
+                    or notification_grants["notification_facts"] is not False
+                    or notification_grants["notification_facts_column_read"]
+                    is not False
+                    or notification_grants["notification_delivery_reads"] is not True
                     or notification_grants["notification_facts_write"] is not False
                     or notification_grants["notification_facts_column_write"]
                     is not False

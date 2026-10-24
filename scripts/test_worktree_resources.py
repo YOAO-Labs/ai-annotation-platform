@@ -572,7 +572,9 @@ class BucketUpgradeTests(unittest.TestCase):
             "inbox_private_helper": False,
             "notification_private": False,
             "notification_column_private": False,
-            "notification_facts": True,
+            "notification_facts": False,
+            "notification_facts_column_read": False,
+            "notification_delivery_reads": True,
             "notification_facts_write": False,
             "notification_facts_column_write": False,
             "audit_append": True,
@@ -627,8 +629,12 @@ class BucketUpgradeTests(unittest.TestCase):
             self.assertIn(
                 f'REVOKE ALL ON TABLE public.{table} FROM "app", PUBLIC', statements
             )
-        self.assertIn(
+        self.assertNotIn(
             'GRANT SELECT ON aap_notifications_v1.notification_facts TO "app"',
+            statements,
+        )
+        self.assertIn(
+            'REVOKE ALL ON TABLE aap_notifications_v1.notification_facts FROM "app", PUBLIC',
             statements,
         )
         self.assertIn('GRANT SELECT ON aap_audit_v1.audit_events TO "app"', statements)
@@ -709,6 +715,8 @@ class BucketUpgradeTests(unittest.TestCase):
             "notification_private",
             "notification_column_private",
             "notification_facts",
+            "notification_facts_column_read",
+            "notification_delivery_reads",
             "notification_facts_write",
             "notification_facts_column_write",
             "audit_read",

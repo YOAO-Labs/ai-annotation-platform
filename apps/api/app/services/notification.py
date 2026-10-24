@@ -16,8 +16,6 @@ from types import SimpleNamespace
 from sqlalchemy import (
     delete,
     inspect as sa_inspect,
-    select,
-    tuple_,
     update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,29 +24,11 @@ from sqlalchemy.orm.bulk_persistence import (
     BulkORMUpdate,
     BulkUDCompileState,
 )
-from sqlalchemy.orm import aliased, make_transient_to_detached
+from sqlalchemy.orm import make_transient_to_detached
 
 from app.config import settings
-from app.db.enums import (
-    MANAGER_PLATFORM_ROLES,
-    PlatformRole,
-    ProjectRole,
-)
 from app.db.models.notification import Notification
-from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.identity_read_relations import account_profiles
-from app.services.async_job_access import GLOBAL_ASYNC_JOB_KINDS
-from app.services.project_aggregates import (
-    valid_membership_conditions,
-)
-from app.services.workspace_read_relations import (
-    project_member_facts,
-    project_facts,
-)
-from app.services.jobs_notification_scope import notification_scope_facts
-from app.services.notification_read_relations import notification_rows
 from aap_notifications.preferences import NotificationPreferenceManager
 from aap_notifications.preferences_postgres import NotificationPreferencesPostgresData
 from aap_notifications.append import NotificationAppendManager
@@ -72,27 +52,21 @@ from aap_notifications.terminal_append_postgres import (
     NotificationTerminalAppendPostgresData,
 )
 from aap_notifications.inbox_query_postgres import NotificationInboxQueryPostgresData
+from aap_notifications.delivery_read import (
+    NotificationDeliveryReadPolicy,
+    notification_project_id,
+    unrestricted_delivery_indices,
+)
+from aap_notifications.delivery_read_postgres import (
+    NotificationDeliveryReadPostgresData,
+)
 
 
 log = logging.getLogger(__name__)
 
 
 def _notification_project_id(row: Notification) -> uuid.UUID | None:
-    """Extract the project scope carried by a notification payload, if any."""
-
-    payload = row.payload
-    if not isinstance(payload, dict):
-        return None
-    raw = payload.get("project_id")
-    if raw is None:
-        return None
-    try:
-        return uuid.UUID(str(raw))
-    except (TypeError, ValueError):
-        return None
-
-
-_ACTUAL_TARGET_TYPES = ("export", "async_job")
+    return notification_project_id(row)
 
 
 class NotificationService:
@@ -109,7 +83,7 @@ class NotificationService:
     async def notification_by_id(
         self, notification_id: uuid.UUID
     ) -> Notification | None:
-        """Load one row through the Notifications relation, preserving its identity."""
+        """Load one owner row while retaining the caller's ORM identity."""
         session = self.db.sync_session
         mapper = sa_inspect(Notification)
         identity_key = mapper.identity_key_from_primary_key((notification_id,))
@@ -118,11 +92,9 @@ class NotificationService:
         if state is not None and not state.expired:
             return cached
 
-        relation = notification_rows()
-        result = await self.db.execute(
-            select(relation).where(relation.id == notification_id)
-        )
-        row = result.scalar_one_or_none()
+        row = await NotificationDeliveryReadPostgresData(
+            self.db, Notification
+        ).read_notification(notification_id)
         if row is not None:
             return row
         if state is not None:
@@ -142,24 +114,10 @@ class NotificationService:
         connection = await self.db.connection()
         async with connection.begin_nested():
             with self.db.no_autoflush:
-                result = await self.db.scalar(
-                    self._terminal_notification_query(user_id, type, target_id)
-                )
+                result = await NotificationDeliveryReadPostgresData(
+                    self.db, Notification
+                ).find_terminal_notification(user_id, type, target_id)
         return result is not None
-
-    @staticmethod
-    def _terminal_notification_query(user_id, type: str, target_id):
-        relation = notification_rows()
-        return (
-            select(relation.id)
-            .where(
-                relation.user_id == user_id,
-                relation.type == type,
-                relation.target_type == "async_job",
-                relation.target_id == target_id,
-            )
-            .limit(1)
-        )
 
     async def notify(
         self,
@@ -238,9 +196,9 @@ class NotificationService:
         connection = await self.db.connection()
         async with connection.begin_nested():
             with self.db.no_autoflush:
-                existing = await self.db.scalar(
-                    self._terminal_notification_query(user_id, type, target_id)
-                )
+                existing = await NotificationDeliveryReadPostgresData(
+                    self.db, Notification
+                ).find_terminal_notification(user_id, type, target_id)
             if existing is not None:
                 return None
 
@@ -309,159 +267,18 @@ class NotificationService:
     async def _resolve_delivery_scopes(
         self, rows: list[Notification]
     ) -> list[tuple[bool, uuid.UUID | None, bool]]:
-        """Resolve ``(restricted, project_id, export_required)`` per notification.
-
-        Export/async-job targets resolve Jobs' public scope fact in one batched
-        query; other targets use ``payload.project_id``. A missing or malformed
-        restricted target fails closed, while an unscoped known-global job remains
-        global.
-        """
-
-        job_ids = {
-            row.target_id for row in rows if row.target_type in {"export", "async_job"}
-        }
-        jobs: dict[uuid.UUID, tuple[uuid.UUID | None, str | None]] = {}
-        if job_ids:
-            job_scope = notification_scope_facts()
-            # This Core relation read replaces an ORM query, which autoflushed
-            # pending caller work. Preserve that behavior without overriding a
-            # surrounding Session.no_autoflush scope.
-            if self.db.autoflush:
-                await self.db.flush()
-            job_rows = await self.db.execute(
-                select(
-                    job_scope.c.id,
-                    job_scope.c.scope_project_id,
-                    job_scope.c.kind,
-                ).where(job_scope.c.id.in_(job_ids))
-            )
-            jobs = {jid: (pid, kind) for jid, pid, kind in job_rows.all()}
-
-        scopes: list[tuple[bool, uuid.UUID | None, bool]] = []
-        for row in rows:
-            payload = row.payload if isinstance(row.payload, dict) else {}
-            target_type = row.target_type
-            # The actual resource wins for export/async-job targets; a stale or
-            # forged payload project must not widen access.
-            if target_type in _ACTUAL_TARGET_TYPES:
-                job = jobs.get(row.target_id)
-                if job is None:
-                    job_project, job_kind = None, None
-                else:
-                    job_project, job_kind = job
-                if target_type == "export":
-                    restricted = True
-                    export_required = True
-                else:  # async_job
-                    restricted = (
-                        job is None
-                        or job_project is not None
-                        or job_kind not in GLOBAL_ASYNC_JOB_KINDS
-                    )
-                    export_required = job is not None and job_kind == "export"
-                project_id = job_project
-            else:
-                restricted = "project_id" in payload
-                export_required = False
-                project_id = _notification_project_id(row)
-            scopes.append((restricted, project_id, export_required))
-        return scopes
+        return await NotificationDeliveryReadPolicy(
+            NotificationDeliveryReadPostgresData(self.db, Notification)
+        ).resolve_scopes(rows)
 
     async def _allowed_delivery_indices(
         self,
         rows: list[Notification],
         scopes: list[tuple[bool, uuid.UUID | None, bool]],
     ) -> set[int]:
-        pairs = {
-            (pid, row.user_id)
-            for row, (restricted, pid, _export) in zip(rows, scopes)
-            if restricted and pid is not None
-        }
-        allowed: set[int] = set()
-        if not pairs:
-            return {
-                index
-                for index, (restricted, _pid, _export) in enumerate(scopes)
-                if not restricted
-            }
-
-        member_facts = project_member_facts()
-        membership = aliased(ProjectMember, member_facts, adapt_on_names=True)
-        member_rows = await self.db.execute(
-            select(membership.project_id, membership.user_id)
-            .select_from(membership)
-            .join(account_profiles, account_profiles.c.id == membership.user_id)
-            .where(
-                tuple_(membership.project_id, membership.user_id).in_(pairs),
-                *valid_membership_conditions(membership.role),
-            )
-        )
-        member_pairs = {(pid, uid) for pid, uid in member_rows.all()}
-
-        reviewer_facts = project_member_facts()
-        reviewer_membership = aliased(
-            ProjectMember, reviewer_facts, adapt_on_names=True
-        )
-        reviewer_rows = await self.db.execute(
-            select(reviewer_membership.project_id, reviewer_membership.user_id)
-            .select_from(reviewer_membership)
-            .join(
-                account_profiles,
-                account_profiles.c.id == reviewer_membership.user_id,
-            )
-            .where(
-                tuple_(reviewer_membership.project_id, reviewer_membership.user_id).in_(
-                    pairs
-                ),
-                *valid_membership_conditions(reviewer_membership.role),
-                reviewer_membership.role == ProjectRole.REVIEWER.value,
-            )
-        )
-        reviewer_pairs = {(pid, uid) for pid, uid in reviewer_rows.all()}
-
-        owner_project = aliased(Project, project_facts(), adapt_on_names=True)
-        owner_rows = await self.db.execute(
-            select(owner_project.id, owner_project.owner_id)
-            .join(account_profiles, account_profiles.c.id == owner_project.owner_id)
-            .where(
-                tuple_(owner_project.id, owner_project.owner_id).in_(pairs),
-                account_profiles.c.is_active.is_(True),
-                account_profiles.c.role.in_(list(MANAGER_PLATFORM_ROLES)),
-            )
-        )
-        owner_pairs = {(pid, uid) for pid, uid in owner_rows.all()}
-
-        super_project = aliased(Project, project_facts(), adapt_on_names=True)
-        super_rows = await self.db.execute(
-            select(super_project.id, account_profiles.c.id)
-            .select_from(super_project)
-            .join(
-                account_profiles,
-                account_profiles.c.id.in_({uid for _pid, uid in pairs}),
-            )
-            .where(
-                tuple_(super_project.id, account_profiles.c.id).in_(pairs),
-                account_profiles.c.is_active.is_(True),
-                account_profiles.c.role == PlatformRole.SUPER_ADMIN.value,
-            )
-        )
-        super_pairs = set(super_rows.all())
-
-        base_pairs = member_pairs | owner_pairs | super_pairs
-        export_pairs = reviewer_pairs | owner_pairs | super_pairs
-        for index, (restricted, pid, export_required) in enumerate(scopes):
-            if not restricted:
-                allowed.add(index)
-                continue
-            if pid is None:
-                continue
-            pair = (pid, rows[index].user_id)
-            if export_required:
-                if pair in export_pairs:
-                    allowed.add(index)
-            elif pair in base_pairs:
-                allowed.add(index)
-        return allowed
+        return await NotificationDeliveryReadPolicy(
+            NotificationDeliveryReadPostgresData(self.db, Notification)
+        ).allowed_indices(rows, scopes)
 
     async def notification_deliverable(
         self, notification_id: uuid.UUID, user_id: uuid.UUID
@@ -507,16 +324,7 @@ class NotificationService:
             # Fail closed for project-scoped rows; never turn an already
             # committed business write into a failed request.
             log.exception("notification delivery authorization failed")
-            allowed = set()
-            for index, row in enumerate(rows):
-                payload = row.payload if isinstance(row.payload, dict) else {}
-                # Without the DB we cannot resolve an async-job/export target;
-                # fail closed there and for explicit payload projects.
-                restricted = (
-                    row.target_type in _ACTUAL_TARGET_TYPES or "project_id" in payload
-                )
-                if not restricted:
-                    allowed.add(index)
+            allowed = unrestricted_delivery_indices(rows)
 
         for index, row in enumerate(rows):
             if index not in allowed:

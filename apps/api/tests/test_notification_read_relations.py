@@ -14,7 +14,7 @@ from app.services.notification import NotificationService
 
 
 @pytest.mark.asyncio
-async def test_application_role_reads_notification_facts_without_table_select(
+async def test_application_role_reads_notifications_only_through_fixed_functions(
     test_db_url: str,
 ):
     app_url = make_url(settings.database_url)
@@ -118,13 +118,24 @@ async def test_application_role_reads_notification_facts_without_table_select(
             assert role == app_url.username
             assert table_select is False
             assert table_column_select is False
-            assert view_select is True
+            assert view_select is False
             assert owner_select is True
             assert view_owner == "notifications_code"
             assert security_barrier is True
             assert is_login is True
             assert is_unprivileged is True
             assert has_role_membership is False
+
+            for relation in (
+                "public.notifications",
+                "aap_notifications_v1.notification_facts",
+            ):
+                with pytest.raises(DBAPIError) as denied:
+                    async with session.begin_nested():
+                        await session.execute(
+                            text(f"SELECT id FROM {relation} LIMIT 1")
+                        )
+                assert getattr(denied.value.orig, "sqlstate", None) == "42501"
 
             service = NotificationService(session)
             loaded = await service.notification_by_id(notification_id)

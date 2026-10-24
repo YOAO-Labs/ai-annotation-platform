@@ -542,9 +542,9 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 ### Notifications 公开通知关系
 
-迁移 `0319` 发布 `aap_notifications_v1.notification_facts` 与 `aap-notification-read-relations/v1`，保留通知的八个原生字段。列表、计数、可见性、终态查重和 WebSocket 的持久行检查均读取该关系；API 继续组合 Workspace／Jobs 范围，保持原 Session identity、部分／完全过期对象和 autoflush 行为。关系不提供用户授权，不能直接暴露给不可信客户端。
+迁移 `0319` 发布 `aap_notifications_v1.notification_facts` 与 `aap-notification-read-relations/v1`，保留通知的八个原生字段。专用只读客户端与 Notifications owner 保留该关系；API 的列表／计数使用收件箱函数，单条、终态预查和投递读取使用下节固定能力，保持原 Session identity、部分／完全过期对象和 autoflush 行为。关系不提供用户授权，不能直接暴露给不可信客户端。
 
-先部署匹配 API／worker 工件并排空旧私表读取者，再安装迁移、module-data grants 和 `infra/docker/notifications-read-grants.sql`。普通工作树和 LAN 授权源只授关系 SELECT，并撤销 `notifications`、`notification_preferences`、`notification_delivery_outbox` 三张私表及其列权限；偏好、追加、已读、删除和 publisher 仍通过既有固定函数。回退时须先匹配调用代码与旧授权，不能让仍读取新关系的进程遇到关系被移除。
+先部署匹配 API／worker 工件并排空旧私表读取者，再安装迁移、module-data grants 和 `infra/docker/notifications-read-grants.sql`。普通工作树和 LAN 授权源撤销 API 对事实关系及三张私表 `notifications`、`notification_preferences`、`notification_delivery_outbox` 的表／列读取权限；专用 `notification_read_client` 才通过 `infra/docker/notifications-read-grants.sql` 获得关系 SELECT。偏好、追加、已读、删除和 publisher 仍通过既有固定函数。回退时须先匹配调用代码与旧授权，不能让仍读取新关系的进程遇到关系被移除。
 
 统一验收器分别验证只读 LOGIN、普通 API 与 LAN 授权，拒绝私表读取及关系写入，并记录四阶段 `pg_get_viewdef`、原生列类型和 owner 转移。源码 SQL 哈希与数据库反解析哈希分开保存；操作验收、当前冷工件和完整模块资格见[读取台账](docs-site/dev/concepts/module-deployment.md#support-read-relations)。
 
@@ -552,9 +552,19 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 迁移 `0324` 安装 `inbox_page(uuid,text,boolean,integer,integer)`、`inbox_total_count(uuid,text)` 和 `inbox_unread_count(uuid,text)`，合同为 `aap-notifications-inbox-query/v1`。API 在原 Identity 状态读取后传认证 actor UUID 与该次角色快照，按 page → total → unread 三条语句查询；未读接口只调用未读计数。固定函数持有原筛选、排序、分页与计数，借用原 Session，保留 autoflush／no_autoflush、ORM identity 和 caller 提交／回滚。原生 JSONB 与 HTTP 响应不变；批量投递仍保留自身的字典／键存在性语义。
 
-先安装匹配迁移和 `module-data-grants.sql`，再对明确的数据库与角色运行 `infra/docker/notification-inbox-grants.sql`。它向原 API 和 `notification_inbox_query_client` 授予三项 EXECUTE；私有 `_visible_inbox_rows(uuid,text)` 对 API、函数账号和 PUBLIC 都不可调用。Notifications owner 只通过 Identity／Workspace／Jobs 的公开事实及固定能力组合权限，不能直接读取这些领域的私表。单条读取、批量投递和 WS 尚需公开通知关系 SELECT，不能在此时撤销该权限。函数账号 DSN 仅用于隔离验收，不新增应用环境变量或服务。
+先安装匹配迁移和 `module-data-grants.sql`，再对明确的数据库与角色运行 `infra/docker/notification-inbox-grants.sql`。它向原 API 和 `notification_inbox_query_client` 授予三项 EXECUTE；私有 `_visible_inbox_rows(uuid,text)` 对 API、函数账号和 PUBLIC 都不可调用。Notifications owner 只通过 Identity／Workspace／Jobs 的公开事实及固定能力组合权限，不能直接读取这些领域的私表。单条读取、批量投递和 WS 的持久行检查使用下节固定能力，API 对公开通知关系也没有表／列 SELECT。函数账号 DSN 仅用于隔离验收，不新增应用环境变量或服务。
 
 统一 verifier 验证实际 LOGIN、Node 原生行及 bigint 字符串、API／LAN 调用和完整迁移往返；权限负向探针在事务内故意增加 owner 成员或 PUBLIC EXECUTE，要求实际 guard 拒绝后完整回滚。源码、操作资格与冷工件状态见[收件箱台账](docs-site/dev/concepts/module-deployment.md#notification-inbox-owner)。日常主环境未切换，回退时须匹配调用代码、迁移和授权。
+
+### Notifications 按 ID 读取与投递授权
+
+迁移 `0325` 与 `aap-notifications-delivery-read/v1` 提供七项只读能力：`read_notification(uuid)`、`find_terminal_notification(uuid,text,uuid)`、`delivery_job_scopes(uuid[])`，以及接收成对 UUID JSON 数组的 `delivery_member_pairs`、`delivery_reviewer_pairs`、`delivery_owner_pairs`、`delivery_super_pairs`。投递纯策略由 Notifications 包持有；Jobs 只在实际目标存在时查一次，四项授权查询保留原有次序、独立语句快照和 ORM autoflush。JSONB 非对象、字典键存在性、宽容的 UUID 解析、实际 Jobs 范围与异常后 fail-closed 规则保持，不能共用收件箱的 SQL `->>` 规则。
+
+按 ID 读取保留调用方 Session 的缓存短路、脏值、部分／完全过期和缺失 identity 清理，终态预查保留原 flush／savepoint／no_autoflush 及短路顺序。普通提交后发布仍是 best-effort，`publish_by_id` 的 Redis 错误继续向 durable relay 传播；WS 的四次缺行查询及取消清理不变。
+
+先部署匹配调用代码并排空旧直接关系读取者，再安装迁移、module-data 和 `infra/docker/notification-delivery-read-grants.sql`。该脚本为 API 与 `notification_delivery_read_client` 授予七项固定函数并撤销 API 的事实关系表／列读取；普通 worktree 和 LAN 授权源同步执行相同限制。`notification-inbox-grants.sql` 要求 API 无该读取权限；`notifications-read-grants.sql` 只用于专用只读关系客户端，不能再向 API 重授 SELECT。回退时也要先匹配代码、迁移与旧授权。
+
+Node peer 使用 `NOTIFICATION_DELIVERY_DATABASE_URL`、`_USER_ID`、`_NOTIFICATION_ID`、`_EXPECTED_ROLE` 及可选 `_PROJECT_ID`／`_JOB_ID`，全部只由隔离验收器提供，不新增应用环境配置或服务。真实受限账号、外部提交撤权、原 ORM 对照、当前冷工件及整模块资格见[投递读取台账](docs-site/dev/concepts/module-deployment.md#notification-delivery-read-owner)。
 
 ### Notifications 实时消息合同
 
