@@ -873,3 +873,24 @@ files的content/identity支持独立Task图片并显式返回owner_kind及互斥
 API/用户/架构文档、README、CHANGELOG、OpenAPI与路由索引同步；导出/一致性、Web codegen/typecheck、文档构建、Ruff/format、正常hooks和diff检查通过。人工API自动重载已加载新增入口，3100/8100、两个各72任务Worker及原队列、Beat保持；24对象、12源文件和11业务指纹未变。一次性test命名空间的数据库、Redis和九桶已独立查验不存在；两棵干净且补丁等价的隔离树/分支移除，测试和构建产物清理，人工环境、本地虚拟环境与生成类型保留。
 
 完整E02/B13-B及整套epic继续执行，完整用途切换关闭。下一片B2-A2接通Task/Item DTO、旧file-url、工作台图片、点云/相机及邻帧预取，按账号/会话/content身份管理鉴权请求、缓存、Blob地址和取消，并限制相机并行读取；原生视频另按完整stage复用和受限能力凭据实现Range/seek，派生物与其他原件消费者仍分别收口。
+
+## E02-B13-B2-A2 Design — 浏览器认证原件与会话资产
+
+基于 `94fc30001` 的三路只读核对，本片关闭非视频Task/Item DTO、旧file-url及点云/相机manifest的当前桶原件签名，并完成对应浏览器读取链。视频DTO、原生播放/代理及精确帧派生合同继续由B2-B处理；缩略图/金字塔是独立派生物，不能冒用原件SHA。未知legacy条目仍应出现在列表，不能把单条严格解析409变成整页失败。
+
+Task/Item DTO新增可空 `original_identity_path`，只表示可请求的认证身份入口，不声明已核验或可读取，不做列表N+1查询。点云manifest同样给出Task和精确camera link的身份路径及真实link UUID，原件URL为空；保留标定、排序、scene/pose和合法相机元数据。前端只为激活帧/所需预取解析这些身份，再以content UUID/SHA组成的受控下载路径作为资源版本；不得按稳定Task路径永久缓存旧内容。原件未知按当前资源显示错误，不回退Task.file_path或旧签名地址；旧file-url在当前可见性检查后明确409引导认证入口。
+
+```text
+Task/Item list -> lazy authenticated identity path
+Active image/frame -> fixed resource identity -> owner/content/SHA download path
+                 -> shared two-lane download admission -> Blob/ArrayBuffer
+                 -> session-owned image/bitmap/cache leases -> renderer / download
+```
+
+公共读取模块只接受Task/Item/camera UUID资源或经严格语法核对的A1路径，内部构造同源API请求；核对服务器返回的download_path，不向任意URL附加Bearer。共享两槽只覆盖完整二进制响应，前景优先于预取，排队和请求可取消，仅对明确capacity429有限重试。owner为账号与不透明session，内容键另含owner UUID/SHA；同session令牌刷新不冒充新资源，旧请求结果不能注销新凭证或写入退休owner。跨标签凭据不完整时停止读取。
+
+托管图片先由既有resolver决定是否真正使用single分支，再读取原件；required/ready pyramid不偷偷下载完整原件。显示适配器按真实字节识别PNG/JPEG/WebP/BMP/GIF/TIFF/SVG，保持原始字节；SVG使用opaque data URL，其他位图用正确MIME的Blob地址。解码失败与服务器拒绝分开显示；刷新/换Task/关闭/登出完整撤销地址。source identity包含地址版本，避免ImageStage保留已revoke旧地址。Review/DataManager显示读取状态和重试，读取失败禁止依赖该图的审核/写入；Dataset检查器认证下载在退出owner后不得迟到触发。
+
+点云五类缓存及保留manifest按账号/session隔离，退休时取消请求与解码、清除旧几何/深度/Blob并释放无引用Bitmap；使用中的Bitmap待渲染器释放才close。底层共享下载由独立controller拥有，各消费者取消不杀其他持有者；前景可加入已开始的预取。相机面板/放大、CPU采样、GPU贴图和FramePicker邻帧缩略图统一使用同一认证资源，不把需Bearer的URL直接赋给img。每次await后重核owner与取消；refcount覆盖预取到深度计算完成，避免LRU提前关闭Bitmap。
+
+超过八文件，分离后端DTO/manifest、点云/相机、图片三棵隔离树；主树拥有公共读取/会话边界、集成与实机验收。验证覆盖未知历史整页成功、零原件签名、身份失败无降级、原图片/reference/pyramid回归、两槽与排队取消、共享消费者退出、账号/同账号新session/令牌刷新、迟到fetch/decode/error、所有地址/Bitmap释放及Canvas读取。使用独立一次性环境实际验证图片、点云和六相机/邻帧，明暗及桌面/窄屏、控制台与请求失败；保留3100/8100和原业务/原件，清理测试产物。无新增依赖、配置、迁移或服务；回退不删除原件责任，完整用途切换继续关闭。
