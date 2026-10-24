@@ -209,6 +209,7 @@
 | Method | Path |
 |---|---|
 | POST | `/bug_reports/screenshot/upload-init` |
+| POST | `/bug_reports/screenshot/upload` |
 | POST | `/bug_reports` |
 | GET | `/bug_reports` |
 | GET | `/bug_reports/mine` |
@@ -1038,4 +1039,4 @@
 
 ---
 
-_共 93 模块 / 601 路由_
+_共 93 模块 / 602 路由_
