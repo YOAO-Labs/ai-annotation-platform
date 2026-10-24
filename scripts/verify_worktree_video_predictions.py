@@ -961,6 +961,26 @@ async def scenarios(backend, worker, storage, report, expected_database):
             await accept(primary, prediction_ids[primary["case"]], expected_count=2)
             checks["three_canonical_bulk_yolo_single_and_all_accept"] = "passed"
 
+            mask_key = await plumbing.request(
+                client,
+                "POST",
+                "/api/v1/me/api-keys",
+                headers=auth,
+                status=201,
+                json={"name": "Video mask reader", "scopes": ["annotations:read"]},
+            )
+            mask_read_headers = {"Authorization": "Bearer " + mask_key["plaintext"]}
+
+            async def read_mask(path):
+                value = await plumbing.request(
+                    client, "GET", path, headers=mask_read_headers
+                )
+                require(
+                    value["size"] == [HEIGHT, WIDTH]
+                    and value["counts"] == [0, HEIGHT, HEIGHT * (WIDTH - 1)],
+                    "只读视频 Mask HTTP 内容与真实非方形 RLE 不一致",
+                )
+
             for case, model, kind in (
                 (direct, "sam-polygon", "video_track_polygon"),
                 (standalone, "sam-mask", "video_track_mask"),
@@ -976,10 +996,24 @@ async def scenarios(backend, worker, storage, report, expected_database):
                     )
                 )
                 prediction_id = await check_prediction(factory, case, job, kind=kind)
+                if kind == "video_track_mask":
+                    for frame in (0, 2, FRAMES - 1):
+                        await read_mask(
+                            f"/api/v1/tasks/{case['task_id']}/predictions/"
+                            f"{prediction_id}/mask-content/0/{frame}"
+                        )
                 accepted = await accept(case, prediction_id, expected_count=1)
                 require(
                     accepted[0]["geometry"]["type"] == kind, "SAM 普通采纳丢失实际几何"
                 )
+                if kind == "video_track_mask":
+                    for frame in (0, 2, FRAMES - 1):
+                        await read_mask(
+                            f"/api/v1/annotations/{accepted[0]['id']}/mask-content/{frame}"
+                        )
+                    checks[
+                        case["case"] + "_readonly_candidate_and_annotation_rle_get"
+                    ] = "passed"
                 checks[model + "_" + case["case"] + "_workbench_and_normal_accept"] = (
                     "passed"
                 )
