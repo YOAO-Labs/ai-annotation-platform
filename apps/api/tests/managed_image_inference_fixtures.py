@@ -89,7 +89,7 @@ async def _clone_business_schema(db):
           WHERE n.nspname='public' AND c.relname=ANY(CAST(:names AS text[]))
           UNION
           SELECT fk.confrelid FROM pg_constraint fk JOIN owned o ON o.oid=fk.conrelid
-          WHERE fk.contype='f'
+          WHERE fk.contype='f' AND fk.conparentid=0
         )
         SELECT c.relname FROM owned o JOIN pg_class c ON c.oid=o.oid ORDER BY c.relname
     """),
@@ -122,7 +122,7 @@ async def _clone_business_schema(db):
         SELECT c.relname, k.conname, pg_get_constraintdef(k.oid, true)
         FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
         JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname='public' AND k.contype='f'
+        WHERE n.nspname='public' AND k.contype='f' AND k.conparentid=0
           AND c.relname=ANY(CAST(:tables AS text[])) ORDER BY c.relname,k.conname
     """),
             {"tables": sorted(created)},
@@ -285,7 +285,7 @@ async def attach_managed(
         if item is None:
             dataset = Dataset(
                 id=uuid.uuid4(),
-                display_id="sync-" + uuid.uuid4().hex[:16],
+                display_id="sync-" + uuid.uuid4().hex[:15],
                 name="Managed synchronous source",
                 created_by=actor.id,
             )
