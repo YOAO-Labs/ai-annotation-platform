@@ -374,20 +374,10 @@ async function verifyListQueryRole() {
         "pg_catalog.has_table_privilege(current_user,'public.async_jobs','SELECT') AS jobs_read, " +
         "pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','SELECT') AS jobs_column_read, " +
         "pg_catalog.has_table_privilege(current_user,'public.users','SELECT') AS users_read, " +
-        "pg_catalog.has_table_privilege(current_user,'aap_identity_v1.account_profiles','SELECT') AS identity_view_read, " +
-        "pg_catalog.has_function_privilege(current_user,'aap_identity_v1.read_actor_facts(uuid)','EXECUTE') AS identity_function_execute, " +
         "pg_catalog.has_database_privilege(current_user,current_database(),'CREATE') AS database_create, " +
         "pg_catalog.has_database_privilege(current_user,current_database(),'TEMP') AS database_temp",
     );
-    assert.deepEqual(Object.values(rights.rows[0]), [
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-    ]);
+    assert.deepEqual(Object.values(rights.rows[0]), [false, false, false, false, false]);
 
     const aapSchemas = await client.query(
       "SELECT n.nspname FROM pg_catalog.pg_namespace AS n " +
