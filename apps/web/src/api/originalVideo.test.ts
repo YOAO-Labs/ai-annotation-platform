@@ -377,3 +377,26 @@ it("discards late native probes after owner replacement", async () => {
   expect(await pending).toMatchObject({ name: "AbortError" });
   expect(useAuthStore.getState().token).toBe("bob-token");
 });
+
+it("treats an installed old credential proof as expired only during an explicit same-owner probe", async () => {
+  fetchMock.mockResolvedValueOnce(prepared());
+  const lease = await prepareOriginalVideo(resource, { identity: identity() });
+  const owner = captureOriginalOwner();
+  useAuthStore.getState().setToken("new-token");
+  expect(captureOriginalOwner()).toEqual(owner);
+  expect(lease.mediaPath).toBe(mediaPath);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(await probeOriginalVideo(lease)).toBe("expired");
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(useAuthStore.getState().token).toBe("new-token");
+  const controller = new AbortController();
+  controller.abort();
+  await expect(probeOriginalVideo(lease, { signal: controller.signal })).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  localStorage.setItem("token", "incomplete-storage-transition");
+  await expect(probeOriginalVideo(lease)).rejects.toMatchObject({ name: "AbortError" });
+  useAuthStore.getState().setAuth("bob-token", { id: "bob" } as MeResponse);
+  await expect(probeOriginalVideo(lease)).rejects.toMatchObject({ name: "AbortError" });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});

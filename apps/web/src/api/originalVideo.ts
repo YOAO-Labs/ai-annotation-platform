@@ -35,7 +35,7 @@ const RETRY_CODES = new Set([
   "video_playback_lease_capacity_exceeded",
   "snapshot_capacity_exceeded",
 ]);
-const leases = new WeakMap<OriginalVideoLease, { released: boolean }>();
+const leases = new WeakMap<OriginalVideoLease, { released: boolean; token: string }>();
 
 function invalid(): never {
   throw new ApiError(409, "原视频身份或播放路径无效，请刷新后重试");
@@ -209,7 +209,7 @@ export async function prepareOriginalVideo(
       if (release) void release();
       invalid();
     }
-    const state = { released: false };
+    const state = { released: false, token };
     const lease: OriginalVideoLease = Object.freeze({
       leaseId: id,
       mediaPath: result.media_path,
@@ -234,7 +234,9 @@ export async function probeOriginalVideo(
   const state = leases.get(lease);
   if (!state) invalid();
   const token = current(lease.owner, options.signal);
-  if (state.released) return "expired";
+  // Recover may need a fresh authority proof even when the logical login continues.
+  // Keep this receipt private: the lease URL and public owner never carry credentials.
+  if (state.released || state.token !== token) return "expired";
   const response = await fetch(lease.mediaPath, {
     method: "HEAD",
     credentials: "same-origin",
