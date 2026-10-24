@@ -645,6 +645,7 @@ async def build_export_zip(
     format_options: dict | None = None,
     video_scope: VideoExportScope | None = None,
     reference_media=None,
+    lidar_media=None,
     check_cancel: Callable[[], Awaitable[object]] | None = None,
 ) -> tuple[str, int, int]:
     """生成镜像目录 ZIP 到磁盘临时文件，返回 (zip 路径, label 文件数, size_bytes)。
@@ -666,8 +667,16 @@ async def build_export_zip(
         if reference_media
         else {}
     )
-    svc = ExportService(db, task_ids=task_ids, media_paths=paths)
-    project = await svc.db.get(Project, project_id)
+    svc = (
+        lidar_media.service(db)
+        if lidar_media is not None
+        else ExportService(db, task_ids=task_ids, media_paths=paths)
+    )
+    project = (
+        lidar_media.project
+        if lidar_media is not None
+        else await svc.db.get(Project, project_id)
+    )
 
     tmp_path = _new_zip_tempfile()
     try:
@@ -727,6 +736,7 @@ async def build_export_zip(
                 targets=targets,
                 include_attributes=include_attributes,
                 format_options=format_options or {},
+                lidar_media=lidar_media,
             )
 
         classes_list = derive_classes_list(project.tool_bindings)
@@ -1242,6 +1252,7 @@ async def _build_lidar_export_zip(
     targets: list[str],
     include_attributes: bool,
     format_options: dict[str, Any],
+    lidar_media=None,
 ) -> tuple[str, int, int]:
     for target in targets:
         if target not in LIDAR_EXPORT_TARGETS:
@@ -1275,10 +1286,14 @@ async def _build_lidar_export_zip(
     multicamera_coco_images: list[MulticameraCocoImageCtx] = []
     multicamera_coco_media: dict[str, dict[str, Any]] = {}
     multicamera_media_fingerprints: dict[uuid.UUID, tuple[int, str]] = {}
-    now = datetime.now(timezone.utc)
-    expires_iso = datetime.fromtimestamp(
-        now.timestamp() + PRESIGN_EXPIRES_SECONDS, tz=timezone.utc
-    ).isoformat()
+    expires_iso = (
+        lidar_media.expires_at.isoformat()
+        if lidar_media is not None
+        else datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() + PRESIGN_EXPIRES_SECONDS,
+            tz=timezone.utc,
+        ).isoformat()
+    )
 
     with _open_export_zip(tmp_path) as zf:
         zf.writestr(
@@ -1297,7 +1312,12 @@ async def _build_lidar_export_zip(
         async for tasks, ann_by_task, dataset_items in chunks:
             task_ids = [task.id for task in tasks]
             camera_members_by_task: dict[uuid.UUID, list[Annotation]] = {}
-            if task_ids:
+            if lidar_media is not None:
+                camera_members_by_task = {
+                    identifier: lidar_media.camera_members_by_task.get(identifier, [])
+                    for identifier in task_ids
+                }
+            elif task_ids:
                 camera_members = list(
                     (
                         await svc.db.execute(
@@ -1313,7 +1333,14 @@ async def _build_lidar_export_zip(
                 )
                 for member in camera_members:
                     camera_members_by_task.setdefault(member.task_id, []).append(member)
-            links_by_task = await _load_lidar_link_items(svc, tasks)
+            links_by_task = (
+                {
+                    identifier: lidar_media.links_by_task.get(identifier, {})
+                    for identifier in task_ids
+                }
+                if lidar_media is not None
+                else await _load_lidar_link_items(svc, tasks)
+            )
             multicamera_calibration_states = {}
             if "coco-multicamera" in targets:
                 camera_items_by_id = {
@@ -1325,7 +1352,8 @@ async def _build_lidar_export_zip(
                 new_media_items = [
                     item
                     for item_id, item in camera_items_by_id.items()
-                    if item_id not in multicamera_media_fingerprints
+                    if lidar_media is None
+                    and item_id not in multicamera_media_fingerprints
                 ]
 
                 async def hash_camera_item(
@@ -1358,12 +1386,27 @@ async def _build_lidar_export_zip(
                     and member.sensor_dataset_item_id in camera_items_by_id
                 }
                 if member_item_ids:
-                    multicamera_calibration_states = await resolve_calibration_states(
-                        svc.db,
-                        [camera_items_by_id[item_id] for item_id in member_item_ids],
+                    multicamera_calibration_states = (
+                        {
+                            item_id: lidar_media.calibration_states[item_id]
+                            for item_id in member_item_ids
+                            if item_id in lidar_media.calibration_states
+                        }
+                        if lidar_media is not None
+                        else await resolve_calibration_states(
+                            svc.db,
+                            [
+                                camera_items_by_id[item_id]
+                                for item_id in member_item_ids
+                            ],
+                        )
                     )
             axis_by_task = (
-                await svc._axis_convention_by_task(tasks)
+                (
+                    {task.id: lidar_media.axis_convention(task.id) for task in tasks}
+                    if lidar_media is not None
+                    else await svc._axis_convention_by_task(tasks)
+                )
                 if {"kitti", "nuscenes"} & set(targets)
                 else {}
             )
@@ -1386,7 +1429,18 @@ async def _build_lidar_export_zip(
                         chunk_pose_pairs.add(
                             (chunk_primary.scene_id, chunk_primary.frame_index)
                         )
-                if chunk_scene_ids:
+                if lidar_media is not None:
+                    scenes_by_id = {
+                        identifier: lidar_media.scenes_by_id[identifier]
+                        for identifier in chunk_scene_ids
+                        if identifier in lidar_media.scenes_by_id
+                    }
+                    poses_by_frame = {
+                        pair: lidar_media.poses_by_frame[pair]
+                        for pair in chunk_pose_pairs
+                        if pair in lidar_media.poses_by_frame
+                    }
+                elif chunk_scene_ids:
                     scenes_by_id = {
                         scene.id: scene
                         for scene in (
@@ -1395,7 +1449,7 @@ async def _build_lidar_export_zip(
                             )
                         ).scalars()
                     }
-                if chunk_pose_pairs:
+                if lidar_media is None and chunk_pose_pairs:
                     poses_by_frame = {
                         (pose.scene_id, pose.frame_index): pose
                         for pose in (
@@ -1417,6 +1471,12 @@ async def _build_lidar_export_zip(
                 if needs_legacy_lidar_manifests:
                     for role, (link, item) in linked.items():
                         if not role.startswith("camera_"):
+                            continue
+                        if (
+                            lidar_media is not None
+                            and "pointmask" not in targets
+                            and role != selected_camera_role
+                        ):
                             continue
                         cam = _camera_name(link)
                         if "kitti" in targets:
@@ -1443,13 +1503,23 @@ async def _build_lidar_export_zip(
                             "height": item.height,
                             "rel_path": f"{cam}/{_lidar_media_path(item)}",
                             "dataset_id": str(item.dataset_id),
-                            "presigned_url": storage_service.generate_download_url(
-                                item.file_path,
-                                expires_in=PRESIGN_EXPIRES_SECONDS,
-                                bucket=storage_service.datasets_bucket,
-                            ),
                             "expires_at": expires_iso,
                         }
+                        if lidar_media is not None:
+                            saved = lidar_media.entry(task.id, role)
+                            manifest_item.update(
+                                presigned_url=saved["presigned_url"],
+                                sha256=saved["sha256"],
+                                size_bytes=saved["size_bytes"],
+                            )
+                        else:
+                            manifest_item["presigned_url"] = (
+                                storage_service.generate_download_url(
+                                    item.file_path,
+                                    expires_in=PRESIGN_EXPIRES_SECONDS,
+                                    bucket=storage_service.datasets_bucket,
+                                )
+                            )
                         image_manifest_all.append(manifest_item)
                         if role == selected_camera_role:
                             image_manifest_selected.append(manifest_item)
@@ -1468,20 +1538,35 @@ async def _build_lidar_export_zip(
                                     indent=2,
                                 ),
                             )
-                if needs_legacy_lidar_manifests and primary_item is not None:
-                    pointcloud_manifest.append(
-                        {
-                            "frame": frame_key,
-                            "rel_path": _lidar_media_path(primary_item),
-                            "dataset_id": str(primary_item.dataset_id),
-                            "presigned_url": storage_service.generate_download_url(
+                if needs_legacy_lidar_manifests and (
+                    primary_item is not None or lidar_media is not None
+                ):
+                    manifest_item = {
+                        "frame": frame_key,
+                        "rel_path": _lidar_media_path(primary_item)
+                        if primary_item is not None
+                        else os.path.basename(task.file_path),
+                        "dataset_id": str(primary_item.dataset_id)
+                        if primary_item is not None
+                        else None,
+                        "expires_at": expires_iso,
+                    }
+                    if lidar_media is not None:
+                        saved = lidar_media.entry(task.id, "primary_lidar")
+                        manifest_item.update(
+                            presigned_url=saved["presigned_url"],
+                            sha256=saved["sha256"],
+                            size_bytes=saved["size_bytes"],
+                        )
+                    else:
+                        manifest_item["presigned_url"] = (
+                            storage_service.generate_download_url(
                                 primary_item.file_path,
                                 expires_in=PRESIGN_EXPIRES_SECONDS,
                                 bucket=storage_service.datasets_bucket,
-                            ),
-                            "expires_at": expires_iso,
-                        }
-                    )
+                            )
+                        )
+                    pointcloud_manifest.append(manifest_item)
                 anns = ann_by_task.get(task.id, [])
                 if "coco-multicamera" in targets:
                     task_members = camera_members_by_task.get(task.id, [])
@@ -1498,15 +1583,27 @@ async def _build_lidar_export_zip(
                         ]
                         source_basename = os.path.basename(item.file_path)
                         rel_path = f"images/{role}/{task.id}/{source_basename}"
-                        size, sha256 = multicamera_media_fingerprints[item.id]
-                        entry = _trusted_media_entry(
-                            rel_path=rel_path,
-                            storage_key=item.file_path,
-                            kind="image",
-                            source_file_size=size,
-                            source_sha256=sha256,
-                            expires_iso=expires_iso,
-                        )
+                        if lidar_media is not None:
+                            saved = lidar_media.entry(task.id, role)
+                            size, sha256 = saved["size_bytes"], saved["sha256"]
+                            entry = {
+                                "rel_path": rel_path,
+                                "kind": "image",
+                                "source_file_size": size,
+                                "source_sha256": sha256,
+                                "presigned_url": saved["presigned_url"],
+                                "expires_at": expires_iso,
+                            }
+                        else:
+                            size, sha256 = multicamera_media_fingerprints[item.id]
+                            entry = _trusted_media_entry(
+                                rel_path=rel_path,
+                                storage_key=item.file_path,
+                                kind="image",
+                                source_file_size=size,
+                                source_sha256=sha256,
+                                expires_iso=expires_iso,
+                            )
                         entry.update(
                             {
                                 "task_id": str(task.id),
@@ -1629,8 +1726,12 @@ async def _build_lidar_export_zip(
                         raise UnsupportedExportError(
                             f"axis_convention_untrusted:{task.id}"
                         )
-                    pcd_bytes = _read_dataset_object(primary_item.file_path)
-                    if (
+                    pcd_bytes = (
+                        await lidar_media.pcd_bytes(task.id)
+                        if lidar_media is not None
+                        else _read_dataset_object(primary_item.file_path)
+                    )
+                    if lidar_media is None and (
                         len(pcd_bytes) != primary_item.file_size
                         or hashlib.sha256(pcd_bytes).hexdigest()
                         != primary_item.content_hash
@@ -1713,8 +1814,12 @@ async def _build_lidar_export_zip(
                         zf.writestr(f"{prefix}velodyne/", "")
                         file_count += 1
                     elif target == "pointmask":
-                        source_point_count = None
-                        if primary_item is not None:
+                        source_point_count = (
+                            lidar_media.point_count(task.id)
+                            if lidar_media is not None
+                            else None
+                        )
+                        if lidar_media is None and primary_item is not None:
                             source_point_count = (primary_item.metadata_ or {}).get(
                                 "point_count"
                             )
@@ -1857,7 +1962,12 @@ async def _build_lidar_export_zip(
                     indent=2,
                 ),
             )
-            zf.writestr(f"{prefix}fetch_images.py", _FETCH_IMAGES_TEMPLATE)
+            zf.writestr(
+                f"{prefix}fetch_images.py",
+                _FETCH_LIDAR_IMAGES_TEMPLATE
+                if lidar_media is not None
+                else _FETCH_IMAGES_TEMPLATE,
+            )
             zf.writestr(f"{prefix}fetch_pointclouds.py", _FETCH_POINTCLOUDS_TEMPLATE)
             if target == "kitti":
                 zf.writestr(
