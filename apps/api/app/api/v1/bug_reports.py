@@ -3,7 +3,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import Response
 import redis.asyncio as aioredis
 from redis.asyncio.connection import ConnectionPool
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,13 +22,13 @@ from app.schemas.bug_report import (
     BugReportList,
     BugCommentCreate,
     BugCommentOut,
-    BUG_ATTACHMENT_KEY_PREFIX,
+    BugAttachment,
     BUG_ATTACHMENT_MIME_TYPES,
 )
 from app.services.bug_report import BugReportService
 from app.services.audit import AuditService
 from app.services.notification import NotificationService
-from app.services.storage import storage_service
+from app.services import bug_attachment_uploads, bug_attachment_storage
 from sqlalchemy import select
 from pydantic import BaseModel, Field, field_validator
 
@@ -91,55 +91,73 @@ class ScreenshotInitResponse(BaseModel):
 
 
 @router.post(
-    "/bug_reports/screenshot/upload-init", response_model=ScreenshotInitResponse
+    "/bug_reports/screenshot/upload-init",
+    response_model=ScreenshotInitResponse,
+    deprecated=True,
 )
 async def init_bug_screenshot_upload(
     data: ScreenshotInitRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """v0.6.6 · 给 BugReportDrawer 截图签发 PUT 预签名 URL。
+    """Retain the old contract symbols while refusing replayable final-key PUTs."""
+    raise HTTPException(
+        409,
+        {
+            "code": "bug_attachment_upload_init_retired",
+            "upload_path": "/api/v1/bug_reports/screenshot/upload",
+        },
+    )
 
-    storage_key 形如 `bug-report-attachments/{user_id}/{uuid}.png`；MinIO bucket lifecycle
-    180 天过期（见 storage_service._ensure_lifecycle）。
-    """
-    safe_name = data.file_name.replace("/", "_").replace("\\", "_")
-    if not safe_name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-        ext = {
-            "image/png": ".png",
-            "image/jpeg": ".jpg",
-            "image/webp": ".webp",
-        }[data.content_type]
-        safe_name += ext
-    # B-4 · bug 截图改投独立桶 (bug-reports),与 anno 桶解耦
-    storage_key = (
-        f"{BUG_ATTACHMENT_KEY_PREFIX}{current_user.id}/{uuid.uuid4()}-{safe_name}"
+
+@router.post(
+    "/bug_reports/screenshot/upload",
+    response_model=BugAttachment,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                mime: {"schema": {"type": "string", "format": "binary"}}
+                for mime in sorted(BUG_ATTACHMENT_MIME_TYPES)
+            },
+        }
+    },
+)
+async def upload_bug_screenshot(
+    request: Request,
+    file_name: str = Query("screenshot.png", min_length=1, max_length=255),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Accept original image bytes and return their independently verified receipt."""
+    mime_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if mime_type not in BUG_ATTACHMENT_MIME_TYPES:
+        raise HTTPException(422, {"code": "bug_attachment_invalid_mime_type"})
+    try:
+        file_name = bug_attachment_storage.safe_file_name(file_name)
+    except bug_attachment_storage.BugAttachmentStorageError as exc:
+        raise bug_attachment_uploads.http_error(exc) from None
+    authority = await bug_attachment_uploads.capture_authority(
+        db, current_user, request
     )
-    upload_url = storage_service.generate_upload_url(
-        storage_key,
-        data.content_type,
-        bucket=storage_service.bug_reports_bucket,
-    )
-    return ScreenshotInitResponse(
-        storage_key=storage_key,
-        upload_url=upload_url,
-        expires_in=900,
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > bug_attachment_storage.MAX_BYTES:
+            raise HTTPException(413, {"code": "bug_attachment_too_large"})
+        data.extend(chunk)
+    raw = bytes(data)
+    await bug_attachment_uploads.validated_image(raw, mime_type)
+    return await bug_attachment_uploads.upload(
+        db,
+        authority,
+        raw,
+        mime_type,
+        file_name,
     )
 
 
 def _bug_is_visible_to_user(report, current_user: User) -> bool:
     is_admin = current_user.role in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     return bool(is_admin or report.reporter_id == current_user.id)
-
-
-def _bug_attachment_keys(report) -> set[str]:
-    keys = {
-        str(a.get("storageKey") or a.get("storage_key"))
-        for a in (report.attachments or [])
-        if a.get("storageKey") or a.get("storage_key")
-    }
-    if report.screenshot_url:
-        keys.add(report.screenshot_url)
-    return keys
 
 
 @router.post("/bug_reports", response_model=BugReportOut, status_code=201)
@@ -150,15 +168,26 @@ async def create_bug_report(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    current_user, authority = await bug_attachment_uploads.lock_authority(
+        db,
+        current_user,
+        request,
+    )
     svc = BugReportService(db)
     create_fields = data.model_dump(exclude_unset=True)
     route = create_fields.pop("route", "") or str(request.url.path)
+    owners = await bug_attachment_uploads.normalize_for_report(
+        db,
+        current_user.id,
+        create_fields,
+    )
     report = await svc.create(
         reporter_id=current_user.id,
         user_role=current_user.role,
         route=route,
         **create_fields,
     )
+    bug_attachment_uploads.bind(owners, report.id)
     await AuditService.log(
         db,
         actor=current_user,
@@ -169,6 +198,10 @@ async def create_bug_report(
         status_code=201,
         detail={"display_id": report.display_id, "route": route},
     )
+    await bug_attachment_uploads.reauthorize(db, authority)
+    # Deadlines are checked again after report/mirror/audit and all row waits.
+    for owner in owners:
+        bug_attachment_uploads._ready(owner)
     await db.commit()
     await db.refresh(report)
     return report
@@ -252,27 +285,44 @@ async def get_bug_report(
     return BugReportDetail(**{**report.__dict__, "comments": comments_out})
 
 
-@router.get("/bug_reports/{report_id}/attachments/download")
+@router.get(
+    "/bug_reports/{report_id}/attachments/download",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {
+                mime: {"schema": {"type": "string", "format": "binary"}}
+                for mime in sorted(BUG_ATTACHMENT_MIME_TYPES)
+            }
+        }
+    },
+)
 async def download_bug_attachment(
     report_id: uuid.UUID,
     key: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    svc = BugReportService(db)
-    report = await svc.get(report_id)
-    if not report:
-        raise HTTPException(status_code=404, detail="Bug report not found")
-    if not _bug_is_visible_to_user(report, current_user):
-        raise HTTPException(status_code=403, detail="Access denied")
-    if key not in _bug_attachment_keys(report):
-        raise HTTPException(status_code=400, detail="invalid attachment key")
-    url = storage_service.generate_download_url(
+    from urllib.parse import quote
+
+    receipt, data = await bug_attachment_uploads.read(
+        db,
+        current_user,
+        request,
+        report_id,
         key,
-        expires_in=300,
-        bucket=storage_service.bug_reports_bucket,
     )
-    return RedirectResponse(url, status_code=302)
+    return Response(
+        data,
+        media_type=receipt.mime_type,
+        headers={
+            "Content-Disposition": "attachment; filename*=UTF-8''"
+            + quote(receipt.file_name, safe=""),
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.patch("/bug_reports/{report_id}", response_model=BugReportOut)
@@ -338,8 +388,13 @@ async def delete_bug_report(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    current_user, authority = await bug_attachment_uploads.lock_authority(
+        db,
+        current_user,
+        request,
+    )
     svc = BugReportService(db)
-    report = await svc.get(report_id)
+    report = await bug_attachment_uploads.locked_report(db, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Bug report not found")
     is_admin = current_user.role in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
@@ -355,10 +410,17 @@ async def delete_bug_report(
         status_code=204,
         detail={"display_id": report.display_id},
     )
+    retired = await bug_attachment_uploads.retire_report(db, report)
     await svc.delete(report_id)
+    await bug_attachment_uploads.reauthorize(db, authority)
     await db.commit()
-    from fastapi.responses import Response
-
+    try:
+        await bug_attachment_uploads.cleanup(db, identifiers=retired)
+    except Exception:
+        # Deletion is already committed; the durable owners remain retryable.
+        log.warning(
+            "Bug attachment cleanup deferred after report deletion: %s", report_id
+        )
     return Response(status_code=204)
 
 

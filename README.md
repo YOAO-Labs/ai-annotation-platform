@@ -346,6 +346,8 @@ API 变更后同步跑 `pnpm openapi:export` 和 `pnpm codegen`；环境变量�
 
 Data Manager 将未解决问题与普通评论分别计数，兼容旧反馈筛选；成员绩效统计已保存、仍保留的图片与标注记录，不要求先提交任务。字段、统计口径与权限见[项目 API 指南](./docs-site/api/guides/projects.md)。
 
+BUG 截图通过认证 API 上传原图字节并返回实际回执，每条反馈最多绑定五张本人上传图片，固定保存 180 天。附件下载携带 Bearer Token，直接返回核验后的图片；旧直传初始化入口返回迁移提示，历史无归属图片需重新上传。调用顺序和错误见[BUG 反馈 API 指南](./docs-site/api/guides/bug-reports.md)。
+
 视频轨迹 API 保留旧关键帧缺失的来源字段，客户端应按「来源未知」处理；新建标注仍使用现有来源默认值，详见[任务与标注 API](./docs-site/api/guides/tasks-and-annotations.md)。
 
 内部账号支持邮件恢复、按状态查询、逐项目职责交接、紧急停用与恢复。管理员确认交接时会重新核对接收资格及预览状态；恢复不会拿回已交接工作或恢复已撤销的凭据。接口与兼容字段见[认证与账号生命周期](./docs-site/api/guides/auth.md)。

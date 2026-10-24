@@ -96,7 +96,7 @@ class StorageService:
 
     def _ensure_lifecycle(self) -> None:
         """v0.6.6 · 评论附件 90 天过期。
-        B-4 · bug 截图迁到独立桶 ``bug-reports``,在该桶上挂 180 天 lifecycle。
+        Bug attachments expire through saved owners and durable read permits.
         v0.10.17 · 派生媒体缓存独立桶 ``media-cache`` 整桶 30 天过期。
         若 MinIO 不支持（旧版本）静默忽略。
         """
@@ -116,22 +116,13 @@ class StorageService:
         except ClientError as exc:
             logger.warning("Failed to set bucket lifecycle on %s: %s", self.bucket, exc)
 
-        bug_rules = [
-            {
-                "ID": "bug-screenshots-180d",
-                "Status": "Enabled",
-                "Filter": {"Prefix": ""},
-                "Expiration": {"Days": 180},
-            },
-        ]
         try:
-            self.client.put_bucket_lifecycle_configuration(
-                Bucket=self.bug_reports_bucket,
-                LifecycleConfiguration={"Rules": bug_rules},
-            )
+            self.client.delete_bucket_lifecycle(Bucket=self.bug_reports_bucket)
         except ClientError as exc:
             logger.warning(
-                "Failed to set bucket lifecycle on %s: %s", self.bug_reports_bucket, exc
+                "Failed to remove bucket lifecycle on %s: %s",
+                self.bug_reports_bucket,
+                exc,
             )
 
         # 只过期「可按需重新抽取」的帧图 / 分块缓存(videos/<id>/frames|chunks)。

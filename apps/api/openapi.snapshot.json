@@ -64943,9 +64943,84 @@
         ]
       }
     },
+    "/api/v1/bug_reports/screenshot/upload": {
+      "post": {
+        "description": "Accept original image bytes and return their independently verified receipt.",
+        "operationId": "upload_bug_screenshot_api_v1_bug_reports_screenshot_upload_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "file_name",
+            "required": false,
+            "schema": {
+              "default": "screenshot.png",
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "File Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "image/jpeg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BugAttachment"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Bug Screenshot",
+        "tags": [
+          "bug-reports"
+        ]
+      }
+    },
     "/api/v1/bug_reports/screenshot/upload-init": {
       "post": {
-        "description": "v0.6.6 · 给 BugReportDrawer 截图签发 PUT 预签名 URL。\n\nstorage_key 形如 `bug-report-attachments/{user_id}/{uuid}.png`；MinIO bucket lifecycle\n180 天过期（见 storage_service._ensure_lifecycle）。",
+        "deprecated": true,
+        "description": "Retain the old contract symbols while refusing replayable final-key PUTs.",
         "operationId": "init_bug_screenshot_upload_api_v1_bug_reports_screenshot_upload_init_post",
         "requestBody": {
           "content": {
@@ -65160,8 +65235,23 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
               }
             },
             "description": "Successful Response"

@@ -43,6 +43,7 @@ last_reviewed: 2026-07-12
 
 - [认证](./guides/auth) — 登录、Token 刷新与鉴权
 - [系统设置](./guides/system-settings) — 超管运营配置、来源、重置与并发校验
+- [BUG 反馈与截图附件](./guides/bug-reports) — 认证字节上传、一次性绑定与核验下载
 
 ### 核心资源
 
