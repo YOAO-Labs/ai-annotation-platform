@@ -20,6 +20,37 @@ from app.services.project import derive_classes_list
 from app.services.raster_mask_storage import load_coco_rle
 from app.utils.raster_mask_rle import decode_coco_rle, validate_coco_rle
 
+MAX_RETAINED_IMAGE_MASK_RUNS = 4_000_000
+
+
+async def _load_retained_image_masks(annotations):
+    """Bound an indexed image's simultaneously retained strict-owner RLEs."""
+    selected = [
+        row
+        for row in sorted(annotations, key=lambda row: str(row.id))
+        if (row.geometry or {}).get("type") == "raster_mask"
+    ]
+    if len(selected) > 255:
+        raise ValueError(
+            "instance_id_overflow:indexed PNG supports at most 255 instances"
+        )
+    rows, runs = [], 0
+    for annotation in selected:
+        reference = annotation.geometry.get("mask") or {}
+        declared = reference.get("runs")
+        if type(declared) is int and runs + declared > MAX_RETAINED_IMAGE_MASK_RUNS:
+            raise ValueError("image mask expansion budget exceeded")
+        rle = await load_coco_rle(reference)
+        counts = rle.get("counts")
+        if (
+            not isinstance(counts, list)
+            or runs + len(counts) > MAX_RETAINED_IMAGE_MASK_RUNS
+        ):
+            raise ValueError("image mask expansion budget exceeded")
+        runs += len(counts)
+        rows.append((annotation, rle))
+    return rows
+
 
 def _dimensions(
     task: Task, item: DatasetItem | None, rle: dict[str, Any]
@@ -152,21 +183,9 @@ async def write_indexed_png_export(
                 if task.dataset_item_id
                 else None
             )
-            rows: list[tuple[Annotation, dict[str, Any]]] = []
-            for annotation in sorted(
-                ann_by_task.get(task.id, []), key=lambda row: str(row.id)
-            ):
-                geometry = annotation.geometry or {}
-                if geometry.get("type") == "raster_mask":
-                    rows.append(
-                        (annotation, await load_coco_rle(geometry.get("mask") or {}))
-                    )
+            rows = await _load_retained_image_masks(ann_by_task.get(task.id, []))
             if not rows:
                 continue
-            if len(rows) > 255:
-                raise ValueError(
-                    "instance_id_overflow:indexed PNG supports at most 255 instances"
-                )
             width, height = _dimensions(task, dataset_item, rows[0][1])
             instances: list[dict[str, Any]] = []
             composition: list[tuple[int, dict[str, Any], int]] = []

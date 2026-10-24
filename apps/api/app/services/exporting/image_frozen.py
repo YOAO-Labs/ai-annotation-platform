@@ -87,13 +87,14 @@ class FrozenImage:
             for task in self.tasks
         }
         self._annotations_by_task = defaultdict(list)
+        self._filtered_annotations = []
         classes = set(derive_classes_list(self.project.tool_bindings))
         attributes = derive_attribute_keys(self.project.tool_bindings)
         for row in self.annotations:
             if row.class_name in classes:
-                self._annotations_by_task[row.task_id].append(
-                    _export_annotation_copy(row, attributes)
-                )
+                filtered = _export_annotation_copy(row, attributes)
+                self._filtered_annotations.append(filtered)
+                self._annotations_by_task[row.task_id].append(filtered)
 
     def axis_convention(self, task_id):
         item = self.items_by_task.get(task_id)
@@ -117,12 +118,7 @@ class FrozenExportService(ExportService):
         self._scope(project_id, batch_id)
         if video_scope is not None:
             _reject()
-        annotations = [
-            ann
-            for task in self.frozen.tasks
-            for ann in self.frozen._annotations_by_task[task.id]
-        ]
-        return self.frozen.project, self.frozen.tasks, annotations
+        return self.frozen.project, self.frozen.tasks, self.frozen._filtered_annotations
 
     async def _load_predictions(self, project_id, task_ids):
         if project_id != self.frozen.project_id:

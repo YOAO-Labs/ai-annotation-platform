@@ -13,7 +13,7 @@ import zipfile
 import pytest
 
 from app.services.content_snapshot import ContentError
-from app.services.exporting.image_frozen import FrozenImage
+from app.services.exporting.image_delivery import Delivery
 from app.services.exporting import packaging, service
 
 
@@ -140,7 +140,9 @@ def facts(*, reference=False, primary=False):
                 "source": "manual",
             }
         ],
-        "references": {str(task): {"size": 8}} if reference else {},
+        "references": {str(task): {"size": 8, "dataset_id": str(dataset)}}
+        if reference
+        else {},
         "media": []
         if reference
         else [
@@ -160,34 +162,23 @@ def facts(*, reference=False, primary=False):
     }
 
 
-class Context(FrozenImage):
+class Context(Delivery):
+    """A real frozen delivery view with pure, preverified copy receipts."""
+
     def __init__(self, snapshot):
-        super().__init__(snapshot)
-        self.paths = {task.id: f"tasks/{task.id}/same.png" for task in self.tasks}
-        self.media_paths = {key: "images/" + value for key, value in self.paths.items()}
-        multi = len(snapshot["targets"]) > 1
-        self.archive_paths = {
-            key: [
-                "images/" + value,
-                *[
-                    f"{target}/images/{value}"
-                    for target in snapshot["targets"]
-                    if multi and target in packaging.YOLO_TARGETS
-                ],
-            ]
-            for key, value in self.paths.items()
-        }
-        self.expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-
-    def service(self, db, **kwargs):
-        return super().service(db, media_paths=self.media_paths)
-
-    def entry(self, task_id):
-        return {
-            "presigned_url": "/minio/saved-copy?signature=receipt",
-            "expires_at": self.expires_at.isoformat(),
-            "sha256": hashlib.sha256(b"managed").hexdigest(),
-            "size_bytes": 7,
+        super().__init__(
+            SimpleNamespace(
+                input_snapshot=snapshot,
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            )
+        )
+        self._receipts = {
+            uuid.UUID(binding["task_id"]): SimpleNamespace(
+                url="/minio/saved-copy?signature=receipt",
+                original_sha=hashlib.sha256(b"managed").hexdigest(),
+                size=7,
+            )
+            for binding in snapshot["media"]
         }
 
 
@@ -261,6 +252,24 @@ async def test_aap_predictions_preserve_the_existing_unfiltered_class_semantics(
         prediction["model_version"] == "frozen-model"
         and prediction["source"] == "ml_backend"
     )
+
+
+async def test_single_document_formats_preserve_global_annotation_order():
+    data = facts()
+    second = deepcopy(data["tasks"][0])
+    second["id"] = str(uuid.uuid4())
+    data["tasks"].append(second)
+    annotation = deepcopy(data["annotations"][0])
+    annotation.update(id=str(uuid.uuid4()), task_id=second["id"])
+    data["annotations"].insert(0, annotation)
+    frozen = Context(data)
+    _, _, loaded = await frozen.service(None)._load_data(
+        frozen.project_id, frozen.batch_id
+    )
+    assert [row.id for row in loaded] == [
+        uuid.UUID(annotation["id"]),
+        uuid.UUID(data["annotations"][1]["id"]),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -491,3 +500,41 @@ async def test_portable_masks_check_loaded_runs_json_and_deduplicate(monkeypatch
         await service._collect_portable_mask_objects(
             geometry("c"), service._PortableMaskObjects()
         )
+
+
+async def test_indexed_instance_count_rejects_before_any_mask_read(monkeypatch):
+    from app.services.mask_formats import image_export
+
+    monkeypatch.setattr(image_export, "load_coco_rle", forbidden)
+    annotations = [
+        SimpleNamespace(id=uuid.uuid4(), geometry={"type": "raster_mask", "mask": {}})
+        for _ in range(256)
+    ]
+    with pytest.raises(ValueError, match="instance_id_overflow"):
+        await image_export._load_retained_image_masks(annotations)
+
+
+@pytest.mark.parametrize("declared,expected_reads", [(2, 1), (None, 2), (1, 2)])
+async def test_indexed_mask_budget_checks_both_declared_and_actual_runs(
+    monkeypatch, declared, expected_reads
+):
+    from app.services.mask_formats import image_export
+
+    calls = []
+
+    async def load(reference):
+        calls.append(reference)
+        return {"encoding": "coco_rle", "size": [1, 2], "counts": [0, 2]}
+
+    monkeypatch.setattr(image_export, "load_coco_rle", load)
+    monkeypatch.setattr(image_export, "MAX_RETAINED_IMAGE_MASK_RUNS", 3)
+    annotations = [
+        SimpleNamespace(
+            id=uuid.UUID(int=index + 1),
+            geometry={"type": "raster_mask", "mask": {"runs": runs}},
+        )
+        for index, runs in enumerate((2, declared))
+    ]
+    with pytest.raises(ValueError, match="image mask expansion budget"):
+        await image_export._load_retained_image_masks(annotations)
+    assert len(calls) == expected_reads
