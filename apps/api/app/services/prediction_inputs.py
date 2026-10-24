@@ -19,7 +19,7 @@ import uuid
 from botocore.config import Config
 from PIL import Image, ImageOps
 from sqlalchemy import Text, cast, func, or_, select, update
-from sqlalchemy.dialects.postgresql import JSONB, array
+from sqlalchemy.dialects.postgresql import JSONB, JSONPATH, array
 from sqlalchemy.orm import load_only
 
 from app.config import settings
@@ -349,7 +349,8 @@ async def check_metadata(db, inputs, *, lock=True):
     pending = await db.scalar(
         select(
             func.jsonb_path_exists(
-                InputRecord.inventory, '$.objects.* ? (@.state != "verified")'
+                InputRecord.inventory,
+                cast('$.objects.* ? (@.state != "verified")', JSONPATH),
             )
         ).where(InputRecord.id == row.id)
     )
@@ -622,7 +623,7 @@ class PredictionInputs:
                     select(
                         func.jsonb_path_exists(
                             InputRecord.inventory,
-                            '$.objects.* ? (@.state != "verified")',
+                            cast('$.objects.* ? (@.state != "verified")', JSONPATH),
                         )
                     ).where(InputRecord.id == self.record.id)
                 )
