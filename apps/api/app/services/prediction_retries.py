@@ -1,4 +1,4 @@
-"""Prepare both retry entrypoints with one frozen reference attempt contract."""
+"""Prepare image retries with fresh authority and the original failed input."""
 
 from dataclasses import dataclass
 from uuid import UUID
@@ -89,39 +89,52 @@ async def prepare_retry(db, failure, actor, request, *, project_id=None):
         if failure.task_id
         else None
     )
-    original = (failure.extra or {}).get("reference_input")
-    if not (task and is_reference(task.file_path)) and not original:
+    project = await db.get(Project, failure.project_id, populate_existing=True)
+    reference_input = (failure.extra or {}).get("reference_input")
+    original_input = (failure.extra or {}).get("original_input")
+    if (
+        not (project and project.data_type == "image")
+        and not (task and task.file_type == "image")
+        and not reference_input
+        and not original_input
+    ):
         return RetryDispatch(failure.id, queue)
     try:
-        if (
-            not task
-            or task.project_id != failure.project_id
-            or not is_reference(task.file_path)
-            or not snapshot
-            or not isinstance(original, dict)
-        ):
-            raise ContentError("reference_retry_requires_original_binding")
-        current = await reference_binding(db, task)
-        old = original.get("reference") or {}
-        if (
-            original.get("task_id") != str(task.id)
-            or original.get("item_id") != str(task.dataset_item_id)
-            or any(
-                current.get(key)
-                != old.get(key, 1 if key == "maintenance_revision" else None)
-                for key in (
-                    "dataset_id",
-                    "asset_id",
-                    "sha256",
-                    "size",
-                    "width",
-                    "height",
-                    "maintenance_revision",
+        if not task or task.project_id != failure.project_id or not snapshot:
+            raise ContentError("prediction_original_requires_new_request")
+        if is_reference(task.file_path):
+            if not isinstance(reference_input, dict) or original_input is not None:
+                raise ContentError("reference_retry_requires_original_binding")
+            current = await reference_binding(db, task)
+            old = reference_input.get("reference") or {}
+            if (
+                reference_input.get("task_id") != str(task.id)
+                or reference_input.get("item_id") != str(task.dataset_item_id)
+                or any(
+                    current.get(key)
+                    != old.get(key, 1 if key == "maintenance_revision" else None)
+                    for key in (
+                        "dataset_id",
+                        "asset_id",
+                        "sha256",
+                        "size",
+                        "width",
+                        "height",
+                        "maintenance_revision",
+                    )
                 )
-            )
-        ):
-            raise ContentError("content_binding_changed")
-        project = await db.get(Project, failure.project_id, populate_existing=True)
+            ):
+                raise ContentError("content_binding_changed")
+        else:
+            if not isinstance(original_input, dict) or reference_input is not None:
+                raise ContentError("prediction_original_requires_new_request")
+            from app.services.prediction_originals import managed_binding
+
+            current = await managed_binding(db, task)
+            if original_input.get("task_id") != str(
+                task.id
+            ) or current != original_input.get("original"):
+                raise ContentError("content_binding_changed")
         from app.services.project_access import resolve_project_access
 
         if (
@@ -164,7 +177,16 @@ async def prepare_retry(db, failure, actor, request, *, project_id=None):
         await db.flush()
         return RetryDispatch(failure.id, queue, job.id)
     except Exception as exc:
-        raise content_http_error(exc) from None
+        error = content_http_error(exc)
+        if (
+            isinstance(error.detail, dict)
+            and error.detail.get("code") == "prediction_original_requires_new_request"
+        ):
+            error.detail = {
+                **error.detail,
+                "message": "历史失败缺少可信原图或配置证明，请重新发起预标",
+            }
+        raise error from None
 
 
 async def release_unpublished_retry(db, plan):

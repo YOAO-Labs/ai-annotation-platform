@@ -2,9 +2,8 @@
 title: AI 任务与失败恢复
 audience: [project_admin, super_admin]
 type: how-to
-since: v0.9.0
 status: stable
-last_reviewed: 2026-07-11
+last_reviewed: 2026-10-24
 ---
 
 # AI 任务与失败恢复
@@ -39,6 +38,8 @@ last_reviewed: 2026-07-11
 
 重试会沿用原失败项的模型和推理参数，成功后在 Jobs 列表新增一条「已完成」的 `prediction_retry` 记录；原批量任务仍保留失败终态作为历史快照。打开「全部状态」即可同时核对原失败记录和完成的重试记录，再从重试行点击「去工作台」审阅新候选。
 
+图片失败重试还会沿用原失败项的图片来源，重新检查本次发起者和当前任务资格。若提示缺少可信原件或执行配置，需重新发起预标；平台不会按当前桶里的同名文件补造原输入。原件、权限或任务资格已改变时，先处理对应问题，再选择重试或重新运行。
+
 <DocsVideo
   src="/media/workflows/jobs-retry-recovery.mp4"
   poster="/media/workflows/jobs-retry-recovery-poster.webp"
@@ -49,7 +50,7 @@ last_reviewed: 2026-07-11
 重新运行前，先决定怎样处理已有候选：
 
 - **跳过已预标**：只补尚无预测的任务，适合恢复局部失败。
-- **覆盖**：先清除该范围的 AI 预测与 AI 标注，再重新预标；人工标注保留。
+- **覆盖**：图片先推理，通过检查后逐题替换 AI 预测与已采纳 AI 标注；失败或提交前取消时保留旧结果，人工标注保留。视频逐帧执行沿用独立流程。
 - **追加**：在已有预测上再写一份，只适合明确需要并行比较结果的场景。
 
 这些模式和运行前置条件见[AI 预标](../projects/ai-preannotate)。需要按来源批量删除候选时，使用[外部预测导入 / 导出](../datasets/prediction-import-export#清理预测)。

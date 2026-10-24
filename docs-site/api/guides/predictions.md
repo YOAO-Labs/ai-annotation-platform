@@ -31,6 +31,16 @@ POST /api/v1/projects/:id/preannotate
 
 返回 `200` + `job_id`。任务进 Celery，状态机见 [预标注流水线](../../dev/concepts/prediction-pipeline)。
 
+## 托管图片的固定输入
+
+图片项目的单阶段和多阶段请求均在排队前固定执行配置、过滤后的 Task 清单及原件来源。每个请求最多实际选择 1000 题，私有来源证明最多 1MiB；显式 `task_ids` 仍沿用接口的 200 项上限。`skip_predicted` 先过滤，过滤后为空不会扩大为整个项目。相同幂等键重发 pending 作业复用首次范围、配置和来源。
+
+托管来源包括独立 TaskOriginal、直接 DatasetItem 和准确 primary 关联。Worker 沿登记的保存位置读取并完整核验 SHA／长度，单图最多 64MiB、3200万像素；整图、框提示和所有 ROI 使用同一份核验快照。每次尝试生成独立临时副本路径，上传后完整回读再投递，避免仅重新签名同一 URL 时复用旧 embedding。托管请求保留现有入口权限，不额外增加引用图片所需的 `tasks:read`。
+
+保存前重核原发起凭据、项目／任务范围、配置和原件绑定；通过后才在同一事务中覆盖旧候选并写入整题结果。`extra.original_input` 是服务端生成的来源记录，客户端和模型不能通过同名字段授予写入资格。私有请求授权不出现在 AsyncJob 响应中。
+
+单条失败和整 Job 失败重试均重新核验本次发起者，但沿用原失败的配置和图片来源，允许按当前合法 Task 版本重新授权。缺少可信原件或配置证明的历史图片失败，以及缺证明的旧 pending 作业，返回 `409 prediction_original_requires_new_request`，需要新建预标请求；不会在重试时按当前桶补造原输入。托管同步交互、predict-test、secondary、mask repair 和整段视频追踪不属于此后台合同。
+
 ## 原地引用图片
 
 同一预标端点支持普通图片项目的 `bulk` 与 `workbench` 后台执行，沿用各自管理权限或当前题编辑资格。API Key 还需 `tasks:read`，执行时继续复核原 Key 的身份、scope、有效期及撤销状态。

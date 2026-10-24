@@ -39,7 +39,15 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
   caption="批量预标端到端主链，共享同一份 canonical 可编辑资产"
 />
 
-受控模型、显式管线、包含引用的任务范围、工作台和带幂等键的请求在 API 中预建 AsyncJob，返回该持久作业 ID 并用作 Celery task ID；旧的不带这些条件的单阶段请求仍由 worker 建档。前端 `ProjectDetailPanel` / `RunStatusPanel` 通过订阅 `project:{id}:preannotate` WebSocket 频道接收实时进度与阶段统计。
+图片请求均在 API 中预建 AsyncJob，冻结准确选择、配置及来源，返回该持久作业 ID 并用作 Celery task ID；其它模态保留各自的建档规则。前端 `ProjectDetailPanel` / `RunStatusPanel` 通过订阅 `project:{id}:preannotate` WebSocket 频道接收实时进度与阶段统计。
+
+### 托管图片与混合输入
+
+`ReferencePredictionJob` 同时编排引用与托管成员。服务端来源证明绑定原请求凭据、准确 Task 集合、执行快照与 canonical 原件事实；托管成员统一解析 TaskOriginal、直接 Item 或 primary 关联，按保存位置条件读取并完整核验，不调用当前桶 URL fallback。每题的整图和所有 ROI 共用同一 Snapshot，裁剪在纯计算后由异步执行层逐项上传，保留父阶段、原 box index 和多层几何谱系。
+
+现有 `PredictionInputLease` 独立于业务删除，保存固定 import 位置和精确对象清单。对象责任在 PUT 前独立提交，条件创建及完整回读后才可交给模型；每次尝试的 UUID／SHA 路径避免后端按去 query 的 URL 缓存旧内容。原件和输入副本的许可覆盖真实读取／上传／关闭，任意中断都排空物理工作；未知关闭保留操作账本，不能靠 TTL 解除。
+
+最终托管来源 receipt 绑定当前会话及事务，先于 overwrite 删除取得；`PredictionService` 只从该凭证写入受保护的 `original_input`，引用的普通与原生资格保持独立。失败保存原来源，重试刷新请求授权和 Task 版本但不重采来源；历史缺证明的图片消息明确拒绝。旧无固定位置或清单的临时租约保留为 `legacy_unpinned`，维护任务不猜测位置或盲删整个前缀。离线恢复只重映射操作位置，冻结来源、对象事实和首次期限保持。
 
 ## 模型目录与执行快照
 
