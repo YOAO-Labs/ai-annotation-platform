@@ -22,13 +22,28 @@ from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
 from app.services import export_media_storage as physical
 from app.services.content_snapshot import ContentError
 from app.services.exporting.lidar_sources import canonical_identity
+from app.services.reference_keys import is_reference, parse_reference
 
 TARGETS = frozenset({"kitti", "pointmask", "coco-multicamera"})
+IMAGE_TARGETS = frozenset(
+    {
+        "coco",
+        "yolo",
+        "yolo-det",
+        "yolo-obb",
+        "yolo-seg",
+        "aap_json",
+        "label-studio-brush",
+        "binary-png",
+        "indexed-png",
+    }
+)
 MAX_JSON_BYTES = 256 * 1024**2
 MAX_IMAGES = 20_000
 MAX_PCDS = 1_000
 MAX_IMAGE_BYTES = 20 * 1024**3
 MAX_PCD_BYTES = 4 * 1024**3
+MAX_REFERENCE_BYTES = 64 * 1024**2
 LEASE_SECONDS = 3600
 _SHA = re.compile(r"[0-9a-f]{64}")
 _SCALARS = (
@@ -150,6 +165,12 @@ def _relative(path):
 
 
 def _sources(data, project_id):
+    if (
+        isinstance(data, dict)
+        and type(data.get("schema")) is int
+        and data["schema"] == 3
+    ):
+        return _image_sources(data, project_id)
     if (
         not isinstance(data, dict)
         or type(data.get("schema")) is not int
@@ -290,6 +311,119 @@ def _sources(data, project_id):
     if set(sources) != set().union(*required.values()):
         reject("coverage", 422)
     return sources, required
+
+
+def _image_sources(data, project_id):
+    """Image copies exclude references; each frozen Task still has exact coverage."""
+    project, targets = data.get("project"), data.get("targets")
+    tasks, references, media = (
+        data.get("tasks"),
+        data.get("references"),
+        data.get("media"),
+    )
+    if (
+        data.get("project_id") != str(project_id)
+        or not isinstance(project, dict)
+        or project.get("id") != str(project_id)
+        or project.get("data_type") != "image"
+        or not isinstance(targets, list)
+        or not targets
+        or any(
+            not isinstance(target, str) or target not in IMAGE_TARGETS
+            for target in targets
+        )
+        or len(set(targets)) != len(targets)
+        or not isinstance(data.get("options"), dict)
+        or not isinstance(tasks, list)
+        or not isinstance(references, dict)
+        or not isinstance(media, list)
+    ):
+        reject("invalid", 422)
+    if (
+        len(tasks) > MAX_IMAGES
+        or len(references) > MAX_IMAGES
+        or len(media) > MAX_IMAGES
+    ):
+        reject("budget", 422)
+    by_task = {}
+    for task in tasks:
+        if not isinstance(task, dict) or task.get("project_id") != str(project_id):
+            reject("invalid", 422)
+        identifier = str(_uuid(task.get("id")))
+        if identifier in by_task:
+            reject("invalid", 422)
+        by_task[identifier] = task
+    if not set(references) <= set(by_task):
+        reject("coverage", 422)
+    total = 0
+    for identifier, binding in references.items():
+        if not isinstance(binding, dict):
+            reject("invalid", 422)
+        size = binding.get("size")
+        if type(size) is not int or not 1 <= size <= MAX_REFERENCE_BYTES:
+            reject("invalid", 422)
+        sha = _sha(binding.get("sha256"))
+        task = by_task[identifier]
+        try:
+            item_id, path_sha = parse_reference(task.get("file_path"))
+        except (TypeError, ValueError, AttributeError):
+            reject("coverage", 422)
+        if task.get("dataset_item_id") != str(item_id) or path_sha != sha:
+            reject("coverage", 422)
+        total += size
+    if total > MAX_IMAGE_BYTES:
+        reject("budget", 422)
+    managed_tasks = set(by_task) - set(references)
+    if len(media) != len(managed_tasks) or any(
+        is_reference(by_task[identifier].get("file_path"))
+        for identifier in managed_tasks
+    ):
+        reject("coverage", 422)
+    sources, bindings = {}, set()
+    for entry in media:
+        if not isinstance(entry, dict) or set(entry) != {
+            "task_id",
+            "role",
+            "link_id",
+            "source_key",
+            "source",
+        }:
+            reject("invalid", 422)
+        identifier, source = entry["task_id"], entry["source"]
+        if (
+            not isinstance(identifier, str)
+            or identifier not in managed_tasks
+            or identifier in bindings
+            or entry["role"] != "image"
+            or entry["link_id"] is not None
+            or not isinstance(source, dict)
+            or not isinstance(source.get("owner_kind"), str)
+            or source.get("owner_kind") not in {"dataset_asset", "task_original"}
+            or source.get("media_type") != "image"
+            or not isinstance(source.get("relation"), dict)
+            or source["relation"].get("task_id") != identifier
+            or source["relation"].get("project_id") != str(project_id)
+        ):
+            reject("invalid", 422)
+        _uuid(source.get("content_id"))
+        _sha(source.get("sha256"))
+        size = source.get("size_bytes")
+        if type(size) is not int or not 1 <= size <= physical.MAX_OBJECT_BYTES:
+            reject("invalid", 422)
+        key, identity = _sha(entry["source_key"]), canonical_identity(source)
+        if _json_info(identity)[0] != key or (
+            key in sources and sources[key] != identity
+        ):
+            reject("source_changed")
+        if key not in sources:
+            sources[key] = identity
+            total += size
+            if total > MAX_IMAGE_BYTES:
+                reject("budget", 422)
+        bindings.add(identifier)
+    if bindings != managed_tasks:
+        reject("coverage", 422)
+    return sources, {target: set(sources) for target in targets}
 
 
 def _logical_sources(logical_sources, required):
