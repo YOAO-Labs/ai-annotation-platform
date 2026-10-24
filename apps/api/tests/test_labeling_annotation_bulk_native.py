@@ -18,6 +18,7 @@ from aap_labeling.annotation_bulk_contract import (
 from aap_labeling.annotation_bulk_data import AnnotationBulkDataClient
 from aap_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
+from app.services.annotation import _sync_attributes_meta
 from tests.factory import create_project, create_task, create_user
 from tests.test_labeling_class_usage_reads_legacy import (
     _cleanup_owned,
@@ -51,6 +52,28 @@ async def test_function_only_bulk_edit_preserves_transaction_and_attribute_evide
     actor_ids, project_ids, task_ids = [], [], []
     connection = None
     annotation_id = uuid.uuid4()
+    old_attributes = {
+        "color": "blue",
+        "flag": True,
+        "nested": [True, {"enabled": False}],
+    }
+    old_metadata = {
+        "color": {"origin": "ai", "model_ref": {"model_id": "test"}},
+        "flag": {"origin": "ai", "model_ref": {"model_id": "test"}},
+        "nested": {"origin": "ai", "model_ref": {"model_id": "test"}},
+    }
+    new_attributes = {
+        "color": "green",
+        "flag": 1,
+        "nested": [1, {"enabled": 0}],
+    }
+    expected_metadata = _sync_attributes_meta(
+        old_attributes, old_metadata, new_attributes
+    )
+    assert expected_metadata == {
+        "flag": old_metadata["flag"],
+        "nested": old_metadata["nested"],
+    }
     try:
         async with maker.begin() as db:
             actor = await create_user(
@@ -70,12 +93,10 @@ async def test_function_only_bulk_edit_preserves_transaction_and_attribute_evide
                 task_id=task.id,
                 user_id=actor.id,
                 class_name="vehicle",
-                attributes={"color": "blue"},
+                attributes=old_attributes,
             )
             annotation_id = annotation.id
-            annotation.attributes_meta = {
-                "color": {"origin": "ai", "model_ref": {"model_id": "test"}}
-            }
+            annotation.attributes_meta = old_metadata
             await db.flush()
 
         connection = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
@@ -109,7 +130,7 @@ async def test_function_only_bulk_edit_preserves_transaction_and_attribute_evide
             task_id=task.id,
             project_id=project.id,
             ids=[annotation_id],
-            patch=AnnotationBulkPatch(attributes={"color": "green"}),
+            patch=AnnotationBulkPatch(attributes=new_attributes),
         )
         data = AnnotationBulkDataClient(execute)
 
@@ -117,27 +138,27 @@ async def test_function_only_bulk_edit_preserves_transaction_and_attribute_evide
         await transaction.start()
         rolled_back = await data.command(request)
         assert rolled_back.annotations[0].version == 2
-        assert rolled_back.annotations[0].attributes_meta == {}
+        assert rolled_back.annotations[0].attributes_meta == expected_metadata
         await transaction.rollback()
         async with maker() as db:
             unchanged = await db.get(Annotation, annotation_id)
             assert unchanged is not None
-            assert unchanged.attributes == {"color": "blue"}
+            assert unchanged.attributes == old_attributes
             assert unchanged.version == 1
-            assert unchanged.attributes_meta["color"]["origin"] == "ai"
+            assert unchanged.attributes_meta == old_metadata
 
         async with connection.transaction():
             committed = await data.command(request)
             assert committed.annotations[0].version == 2
-            assert committed.annotations[0].attributes_meta == {}
+            assert committed.annotations[0].attributes_meta == expected_metadata
 
         async with maker() as db:
             updated = await db.scalar(
                 select(Annotation).where(Annotation.id == annotation_id)
             )
             assert updated is not None
-            assert updated.attributes == {"color": "green"}
-            assert updated.attributes_meta == {}
+            assert updated.attributes == new_attributes
+            assert updated.attributes_meta == expected_metadata
             assert updated.version == 2
     finally:
         if connection is not None:

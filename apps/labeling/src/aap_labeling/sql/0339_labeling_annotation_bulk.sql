@@ -429,7 +429,66 @@ BEGIN
                       AND annotation.attributes_meta ? new_attribute.key
                       AND annotation.attributes_meta -> new_attribute.key IS DISTINCT FROM 'null'::jsonb
                       AND annotation.attributes ? new_attribute.key
-                      AND annotation.attributes -> new_attribute.key = new_attribute.value
+                      AND (
+                          WITH RECURSIVE json_values(old_value, new_value) AS (
+                              SELECT annotation.attributes -> new_attribute.key,
+                                     new_attribute.value
+                              UNION ALL
+                              SELECT child.old_value, child.new_value
+                              FROM json_values AS parent
+                              CROSS JOIN LATERAL (
+                                  SELECT old_object.value AS old_value,
+                                         new_object.value AS new_value
+                                  FROM jsonb_each(CASE
+                                      WHEN jsonb_typeof(parent.old_value) = 'object'
+                                      THEN parent.old_value ELSE '{}'::jsonb END
+                                  ) AS old_object(key, value)
+                                  JOIN jsonb_each(CASE
+                                      WHEN jsonb_typeof(parent.new_value) = 'object'
+                                      THEN parent.new_value ELSE '{}'::jsonb END
+                                  ) AS new_object(key, value) USING (key)
+                                  WHERE jsonb_typeof(parent.old_value) = 'object'
+                                    AND jsonb_typeof(parent.new_value) = 'object'
+                                  UNION ALL
+                                  SELECT old_array.value AS old_value,
+                                         new_array.value AS new_value
+                                  FROM jsonb_array_elements(CASE
+                                      WHEN jsonb_typeof(parent.old_value) = 'array'
+                                      THEN parent.old_value ELSE '[]'::jsonb END
+                                  ) WITH ORDINALITY AS old_array(value, ordinal)
+                                  JOIN jsonb_array_elements(CASE
+                                      WHEN jsonb_typeof(parent.new_value) = 'array'
+                                      THEN parent.new_value ELSE '[]'::jsonb END
+                                  ) WITH ORDINALITY AS new_array(value, ordinal)
+                                      USING (ordinal)
+                                  WHERE jsonb_typeof(parent.old_value) = 'array'
+                                    AND jsonb_typeof(parent.new_value) = 'array'
+                              ) AS child
+                          )
+                          SELECT bool_and(CASE
+                              WHEN jsonb_typeof(old_value) = 'object'
+                               AND jsonb_typeof(new_value) = 'object' THEN
+                                  old_value - ARRAY(SELECT jsonb_object_keys(new_value))
+                                      = '{}'::jsonb
+                                  AND new_value - ARRAY(SELECT jsonb_object_keys(old_value))
+                                      = '{}'::jsonb
+                              WHEN jsonb_typeof(old_value) = 'array'
+                               AND jsonb_typeof(new_value) = 'array' THEN
+                                  jsonb_array_length(old_value) = jsonb_array_length(new_value)
+                              WHEN jsonb_typeof(old_value) = 'boolean'
+                               AND jsonb_typeof(new_value) = 'number' THEN
+                                  new_value = CASE WHEN old_value = 'true'::jsonb
+                                      THEN '1'::jsonb ELSE '0'::jsonb END
+                              WHEN jsonb_typeof(old_value) = 'number'
+                               AND jsonb_typeof(new_value) = 'boolean' THEN
+                                  old_value = CASE WHEN new_value = 'true'::jsonb
+                                      THEN '1'::jsonb ELSE '0'::jsonb END
+                              WHEN jsonb_typeof(old_value) = jsonb_typeof(new_value) THEN
+                                  old_value = new_value
+                              ELSE false
+                          END)
+                          FROM json_values
+                      )
                 ), '{}'::jsonb)
                 ELSE annotation.attributes_meta END,
             z_order = CASE WHEN (p_request -> 'patch') ? 'z_order'
