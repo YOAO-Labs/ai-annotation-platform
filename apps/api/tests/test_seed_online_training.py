@@ -17,15 +17,17 @@ from botocore.exceptions import ClientError
 from botocore.response import StreamingBody
 from PIL import Image
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
-from app.db.models.dataset import DatasetItem
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
+from app.db.models.user import User
 from app.services.storage import storage_service
 from app.config import settings
 from app.services import async_job as jobs
@@ -36,7 +38,7 @@ from app.services.training_dataset_bridge import TrainingDatasetError, assign_sp
 from app.workers import training_dataset as worker
 from scripts import seed_online_training as fixture_seed
 from scripts.seed_assets import SeedAssetError
-from tests.factory import create_project
+from tests.factory import create_project, create_user
 
 
 @pytest.fixture
@@ -143,6 +145,143 @@ def coco8_seg(coco8, monkeypatch):
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     return root
+
+
+async def test_fresh_initial_segmentation_exposes_sources_to_independent_mask_owner(
+    test_engine, monkeypatch, coco8, coco8_seg, memory_storage
+):
+    from app.db.models.raster_mask_object import RasterMaskObject, RasterMaskPublication
+    from app.db.models.storage_maintenance import StorageOperation
+    from app.services import raster_mask_objects
+
+    project_id, dataset_id = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(fixture_seed, "PROJECT_ID", project_id)
+    monkeypatch.setattr(fixture_seed, "DATASET_ID", dataset_id)
+    monkeypatch.setattr(
+        fixture_seed, "PROJECT_DISPLAY_ID", "P-FRESH-" + project_id.hex[:12]
+    )
+    monkeypatch.setattr(
+        fixture_seed, "DATASET_DISPLAY_ID", "D-FRESH-" + dataset_id.hex[:12]
+    )
+    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    user_ids = []
+    owned, publications = set(), set()
+    extend = fixture_seed._add_segmentation
+    initial, add_guard = raster_mask_objects._initial, raster_mask_objects._add_guard
+
+    async def record_candidate(*args, **kwargs):
+        result = await initial(*args, **kwargs)
+        if result[3]:
+            owned.add(result[0].id)
+        return result
+
+    async def record_publication(*args, **kwargs):
+        guard = await add_guard(*args, **kwargs)
+        if guard is not None:
+            publications.add(guard.id)
+        return guard
+
+    monkeypatch.setattr(raster_mask_objects, "_initial", record_candidate)
+    monkeypatch.setattr(raster_mask_objects, "_add_guard", record_publication)
+
+    async def assert_committed_sources(db, project, dataset, *args, **kwargs):
+        async with factory() as observer:
+            assert await observer.get(Project, project.id) is not None
+            assert await observer.get(Dataset, dataset.id) is not None
+            assert (
+                await observer.scalar(
+                    select(func.count())
+                    .select_from(DatasetAsset)
+                    .join(DatasetItem, DatasetItem.id == DatasetAsset.dataset_item_id)
+                    .where(DatasetItem.dataset_id == dataset.id)
+                )
+                == 8
+            )
+        await extend(db, project, dataset, *args, **kwargs)
+
+    monkeypatch.setattr(fixture_seed, "_add_segmentation", assert_committed_sources)
+    try:
+        async with factory() as caller:
+            users = [
+                await create_user(
+                    caller,
+                    "super_admin" if index == 0 else "employee",
+                    f"fresh-seg-{project_id.hex}-{index}@test.local",
+                    f"Fresh segmentation {index}",
+                )
+                for index in range(3)
+            ]
+            user_ids = [user.id for user in users]
+            project, created = await fixture_seed.seed_online_training(
+                caller,
+                fixture=coco8,
+                segmentation_fixture=coco8_seg,
+                owner_id=user_ids[0],
+                annotator_id=user_ids[1],
+                reviewer_id=user_ids[2],
+            )
+            assert created and project.id == project_id
+            assert (
+                await caller.scalar(
+                    select(func.count())
+                    .select_from(Annotation)
+                    .where(
+                        Annotation.project_id == project_id,
+                        Annotation.tool_unit_id == "region",
+                    )
+                )
+                == 8
+            )
+            dataset = await caller.get(Dataset, dataset_id)
+            assert fixture_seed.SEGMENTATION_MARKER in dataset.metadata_
+            # The source phase is durable; mask annotations remain caller-owned.
+            await caller.rollback()
+    finally:
+        async with factory() as cleanup:
+            await cleanup.execute(
+                delete(Annotation).where(Annotation.project_id == project_id)
+            )
+            await cleanup.execute(delete(Task).where(Task.project_id == project_id))
+            await cleanup.execute(
+                delete(ProjectDataset).where(ProjectDataset.project_id == project_id)
+            )
+            await cleanup.execute(delete(Project).where(Project.id == project_id))
+            await cleanup.execute(delete(Dataset).where(Dataset.id == dataset_id))
+            await cleanup.execute(delete(User).where(User.id.in_(user_ids)))
+            # Track actual candidates/publications from this call, including a
+            # failed write. Never sweep shared bindings or other owners' guards.
+            purposes = [
+                f"raster_object_{operation}_{identifier.hex}"
+                for identifier in owned
+                for operation in ("read", "write", "delete")
+            ]
+            await cleanup.execute(
+                delete(StorageOperation).where(StorageOperation.purpose.in_(purposes))
+            )
+            await cleanup.execute(
+                delete(RasterMaskPublication).where(
+                    RasterMaskPublication.id.in_(publications)
+                )
+            )
+            await cleanup.execute(
+                update(RasterMaskObject)
+                .where(
+                    RasterMaskObject.id.in_(owned), RasterMaskObject.state != "retired"
+                )
+                .values(
+                    state="retired",
+                    retired_at=func.greatest(
+                        func.now(),
+                        RasterMaskObject.created_at,
+                        RasterMaskObject.published_at,
+                        RasterMaskObject.last_used_at,
+                    ),
+                )
+            )
+            await cleanup.execute(
+                delete(RasterMaskObject).where(RasterMaskObject.id.in_(owned))
+            )
+            await cleanup.commit()
 
 
 async def test_segmentation_extends_existing_fixture_without_replacing_detection(
@@ -674,6 +813,64 @@ async def test_new_fixture_registers_the_exact_successfully_uploaded_originals(
             == hashlib.sha256(raw).hexdigest()
         )
         assert call.kwargs["size_bytes"] == item.file_size == len(raw)
+
+
+@pytest.mark.parametrize("completed_elsewhere", [False, True])
+async def test_initial_segmentation_releases_source_transaction_and_rechecks_extension(
+    monkeypatch, coco8, memory_storage, completed_elsewhere
+):
+    rows = []
+
+    async def flush():
+        for row in rows:
+            if isinstance(row, DatasetItem) and row.id is None:
+                row.id = uuid.uuid4()
+
+    async def refresh(row):
+        if completed_elsewhere and isinstance(row, Dataset):
+            row.metadata_ = {
+                **row.metadata_,
+                fixture_seed.SEGMENTATION_MARKER: {"source": "COCO8-Seg"},
+            }
+
+    db = SimpleNamespace(
+        scalar=AsyncMock(side_effect=[None, None]),
+        execute=AsyncMock(),
+        add=Mock(side_effect=rows.append),
+        add_all=Mock(side_effect=rows.extend),
+        flush=AsyncMock(side_effect=flush),
+        commit=AsyncMock(),
+        refresh=AsyncMock(side_effect=refresh),
+    )
+    registration = AsyncMock()
+    monkeypatch.setattr(
+        fixture_seed,
+        "ensure_legacy_bindings",
+        AsyncMock(return_value=SimpleNamespace(bucket=storage_service.datasets_bucket)),
+    )
+    monkeypatch.setattr(fixture_seed, "register_item_asset", registration)
+    monkeypatch.setattr(settings, "environment", "development")
+
+    async def extend(*args, **kwargs):
+        db.commit.assert_awaited_once()
+        assert memory_storage.writes == registration.await_count == 8
+        assert db.execute.await_count == 2
+        assert db.refresh.await_count == 2
+
+    extension = AsyncMock(side_effect=extend)
+    monkeypatch.setattr(fixture_seed, "_add_segmentation", extension)
+    _, created = await fixture_seed.seed_online_training(
+        db,
+        fixture=coco8,
+        segmentation_fixture=Path("/not-needed"),
+        owner_id=uuid.uuid4(),
+        annotator_id=uuid.uuid4(),
+        reviewer_id=uuid.uuid4(),
+    )
+    assert created
+    db.commit.assert_awaited_once()
+    assert extension.await_count == int(not completed_elsewhere)
+    assert db.execute.await_count == 2 and db.refresh.await_count == 2
 
 
 async def test_memory_transport_exercises_real_verified_original_read_and_closes(

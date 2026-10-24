@@ -264,15 +264,24 @@ async def seed_online_training(
             )
     await db.flush()
     if segmentation_fixture is not None:
-        await _add_segmentation(
-            db,
-            project,
-            dataset,
-            samples,
-            segmentation_fixture,
-            annotator_id=annotator_id,
-            reviewer_id=reviewer_id,
+        # Raster owners bootstrap storage in an independent transaction. Publish
+        # the complete source phase before that transaction reads its bindings.
+        await db.commit()
+        await db.execute(
+            select(func.pg_advisory_xact_lock(func.hashtextextended(SEED_MARKER, 0)))
         )
+        await db.refresh(project)
+        await db.refresh(dataset)
+        if not (dataset.metadata_ or {}).get(SEGMENTATION_MARKER):
+            await _add_segmentation(
+                db,
+                project,
+                dataset,
+                samples,
+                segmentation_fixture,
+                annotator_id=annotator_id,
+                reviewer_id=reviewer_id,
+            )
     return project, True
 
 
