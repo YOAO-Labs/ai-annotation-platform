@@ -152,25 +152,52 @@ def _statement(statement, lock):
     return statement.execution_options(populate_existing=True)
 
 
-async def _relation(db, task_id, lock, *, allow_missing=False):
+async def _relation(
+    db,
+    task_id,
+    lock,
+    *,
+    allow_missing=False,
+    compact_relation=False,
+    link_id=None,
+):
     task = await db.scalar(_statement(select(Task).where(Task.id == task_id), lock))
     if task is None:
         raise ContentError("content_task_missing", 404)
+    statement = select(TaskDatasetItemLink).where(
+        TaskDatasetItemLink.task_id == task.id
+    )
+    if compact_relation:
+        selected = TaskDatasetItemLink.role == "primary_lidar"
+        if link_id is not None:
+            selected = selected | (TaskDatasetItemLink.id == link_id)
+        statement = statement.where(selected)
     links = tuple(
         LinkFact(row.id, row.task_id, row.dataset_item_id, row.role, row.sensor_name)
         for row in await db.scalars(
             _statement(
-                select(TaskDatasetItemLink)
-                .where(TaskDatasetItemLink.task_id == task.id)
-                .order_by(TaskDatasetItemLink.id),
+                statement.order_by(TaskDatasetItemLink.id),
                 lock,
             )
         )
     )
+    has_links = bool(links)
+    if compact_relation and task.original_id is not None and not has_links:
+        # A non-primary link still conflicts with an independent TaskOriginal.
+        # EXISTS avoids hydrating unrelated camera facts in an object guard.
+        has_links = bool(
+            await db.scalar(
+                select(
+                    select(TaskDatasetItemLink.id)
+                    .where(TaskDatasetItemLink.task_id == task.id)
+                    .exists()
+                )
+            )
+        )
     primary = tuple(link for link in links if link.role == "primary_lidar")
     if (
         len(primary) > 1
-        or (task.original_id is not None and (task.dataset_item_id or links))
+        or (task.original_id is not None and (task.dataset_item_id or has_links))
         or (
             task.dataset_item_id is not None
             and primary
@@ -430,64 +457,88 @@ async def resolve_item(db, item_id, *, lock=False):
         return await _item(db, item_id, lock)
 
 
-async def resolve_task(db, task_id, *, lock=False):
-    """Freeze a TaskOriginal or the exact direct/primary DatasetItem source."""
-    async with _reads(db, lock):
-        relation = await _relation(db, task_id, lock)
-        if relation.original_id is None:
+async def _task_source(db, relation, lock, *, source=None):
+    if relation.original_id is None:
+        if relation.item_id is None:
+            raise ContentError("no_readable_original")
+        if source is None:
             source = await _item(db, relation.item_id, lock)
-            if (
-                relation.file_path != source.object_key
-                or relation.file_type != source.media_type
-            ):
-                raise ContentError("content_binding_changed")
-            return replace(source, relation=relation)
-        owner = await db.scalar(
-            _statement(
-                select(TaskOriginal).where(TaskOriginal.id == relation.original_id),
-                lock,
-            )
-        )
-        receipt = task_originals.snapshot(owner)
         if (
-            receipt.task_id != relation.task_id
-            or receipt.project_id != relation.project_id
-            or receipt.object_key != relation.file_path
+            relation.file_path != source.object_key
+            or relation.file_type != source.media_type
         ):
             raise ContentError("content_binding_changed")
-        location = await db.scalar(
-            _statement(
-                select(StorageLocation).where(
-                    StorageLocation.id == receipt.location_id
-                ),
-                lock,
-            )
+        return replace(source, relation=relation)
+    owner = await db.scalar(
+        _statement(
+            select(TaskOriginal).where(TaskOriginal.id == relation.original_id),
+            lock,
         )
-        endpoint, location_facts = _platform_location(location)
-        locator = task_originals.resolve(receipt, endpoint_url=endpoint)
-        revision = await _gate(db, receipt.location_id, lock)
-        return OriginalSource(
-            "task_original",
-            receipt.id,
-            receipt.sha256,
-            receipt.size_bytes,
-            relation.file_type,
-            None,
-            relation,
-            locator.bucket,
-            locator.object_key,
-            locator.endpoint_url,
-            locator.location_id,
-            location.config_revision,
-            revision,
-            receipt,
-            None,
-            None,
-            location_facts,
+    )
+    receipt = task_originals.snapshot(owner)
+    if (
+        receipt.task_id != relation.task_id
+        or receipt.project_id != relation.project_id
+        or receipt.object_key != relation.file_path
+    ):
+        raise ContentError("content_binding_changed")
+    location = await db.scalar(
+        _statement(
+            select(StorageLocation).where(StorageLocation.id == receipt.location_id),
+            lock,
         )
+    )
+    endpoint, location_facts = _platform_location(location)
+    locator = task_originals.resolve(receipt, endpoint_url=endpoint)
+    revision = await _gate(db, receipt.location_id, lock)
+    return OriginalSource(
+        "task_original",
+        receipt.id,
+        receipt.sha256,
+        receipt.size_bytes,
+        relation.file_type,
+        None,
+        relation,
+        locator.bucket,
+        locator.object_key,
+        locator.endpoint_url,
+        locator.location_id,
+        location.config_revision,
+        revision,
+        receipt,
+        None,
+        None,
+        location_facts,
+    )
 
 
-async def resolve_task_link(db, task_id, link_id, *, lock=False):
+async def resolve_task(db, task_id, *, lock=False, compact_relation=False):
+    """Freeze a TaskOriginal or the exact direct/primary DatasetItem source.
+
+    Compact guards retain only primary links; the default freezes every link.
+    """
+    async with _reads(db, lock):
+        relation = await _relation(db, task_id, lock, compact_relation=compact_relation)
+        return await _task_source(db, relation, lock)
+
+
+def _camera_link(selected):
+    if selected is None:
+        raise ContentError("content_link_missing", 404)
+    if not selected.role.startswith("camera_") or not selected.role[7:]:
+        raise ContentError("original_link_invalid")
+    return selected
+
+
+def _camera_source(source, relation):
+    if source.media_type != "image":
+        raise ContentError("camera_original_not_image")
+    return replace(source, relation=relation)
+
+
+async def resolve_task_link(
+    db, task_id, link_id, *, lock=False, compact_relation=False
+):
     """Resolve an exact camera link without borrowing the primary file's path.
 
     A missing primary does not revoke an otherwise lawful linked camera. All
@@ -495,13 +546,80 @@ async def resolve_task_link(db, task_id, link_id, *, lock=False):
     conflicting-primary checks. The primary resolver keeps its strict default.
     """
     async with _reads(db, lock):
-        relation = await _relation(db, task_id, lock, allow_missing=True)
-        selected = next((link for link in relation.links if link.id == link_id), None)
-        if selected is None:
-            raise ContentError("content_link_missing", 404)
-        if not selected.role.startswith("camera_") or not selected.role[7:]:
-            raise ContentError("original_link_invalid")
+        relation = await _relation(
+            db,
+            task_id,
+            lock,
+            allow_missing=True,
+            compact_relation=compact_relation,
+            link_id=link_id,
+        )
+        selected = _camera_link(
+            next((link for link in relation.links if link.id == link_id), None)
+        )
         source = await _item(db, selected.item_id, lock)
-        if source.media_type != "image":
-            raise ContentError("camera_original_not_image")
-        return replace(source, relation=relation)
+        return _camera_source(source, relation)
+
+
+class CachedResolver:
+    """Reuse frozen facts within one caller transaction and collect lifecycle.
+
+    The caller must discard this resolver before committing or rolling back the
+    transaction. Cache hits do not refresh authority or replace final rechecks.
+    """
+
+    def __init__(self, db, *, lock=False):
+        self.db = db
+        self.lock = lock
+        self._relations = {}
+        self._links = {}
+        self._items = {}
+        self._tasks = {}
+
+    def _remember_relation(self, relation):
+        if relation.task_id not in self._relations:
+            self._relations[relation.task_id] = relation
+            self._links.update(
+                ((relation.task_id, link.id), link) for link in relation.links
+            )
+
+    async def task(self, task_id):
+        async with _reads(self.db, self.lock):
+            source = self._tasks.get(task_id)
+            if source is None:
+                relation = self._relations.get(task_id)
+                if relation is None:
+                    relation = await _relation(self.db, task_id, self.lock)
+                source = await _task_source(
+                    self.db,
+                    relation,
+                    self.lock,
+                    source=self._items.get(relation.item_id),
+                )
+        # Never retain observations whose savepoint failed or rolled back.
+        self._remember_relation(source.relation)
+        self._tasks[task_id] = source
+        if source.item_id is not None:
+            self._items[source.item_id] = replace(source, relation=None)
+        return source
+
+    async def link(self, task_id, link_id):
+        async with _reads(self.db, self.lock):
+            relation = self._relations.get(task_id)
+            if relation is None:
+                relation = await _relation(
+                    self.db, task_id, self.lock, allow_missing=True
+                )
+                selected = next(
+                    (link for link in relation.links if link.id == link_id), None
+                )
+            else:
+                selected = self._links.get((task_id, link_id))
+            selected = _camera_link(selected)
+            source = self._items.get(selected.item_id)
+            if source is None:
+                source = await _item(self.db, selected.item_id, self.lock)
+            result = _camera_source(source, relation)
+        self._remember_relation(relation)
+        self._items[selected.item_id] = source
+        return result
