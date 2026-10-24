@@ -8,6 +8,8 @@ last_reviewed: 2026-10-25
 
 # 目录扫描资源基线
 
+原图完整核验与HTTP传输另见[目录原图读取资源基线](./dataset-read-benchmark)；本页只测目录索引，不将不打开图片正文的扫描结果当作读取性能。
+
 `scripts/benchmark_dataset_scan.py` 测量真实 Celery Worker 对文件树的元信息扫描、取消及恢复。它通过既有服务创建扫描，派发到已核验的专属 Worker，使用真实 PostgreSQL、Redis 和受控目录；不替换扫描算法、数据库会话或来源授权。已登记索引的页面性能另见[数据集工作台规模测量](dataset-workbench-benchmark.md)。
 
 ## 数据与计量
