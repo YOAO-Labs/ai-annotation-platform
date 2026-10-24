@@ -57,6 +57,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
+aap-identity-admission = { path = "../_shared/identity_admission", editable = true }
 aap-identity = { path = "../identity", editable = true }
 aap-mail-transport = { path = "../_shared/mail_transport", editable = true }
 aap-assets-catalog = { path = "../assets-catalog", editable = true }

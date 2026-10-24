@@ -171,6 +171,29 @@ def migration_graph(code_root: Path) -> tuple[list[str], list[str]]:
     return revisions, heads
 
 
+NOTIFICATION_DELIVERY_READ_CAPABILITIES = (
+    "aap_notifications_v1.read_notification(uuid)",
+    "aap_notifications_v1.find_terminal_notification(uuid,text,uuid)",
+    "aap_notifications_v1.delivery_job_scopes(uuid[])",
+    "aap_notifications_v1.delivery_member_pairs(jsonb)",
+    "aap_notifications_v1.delivery_reviewer_pairs(jsonb)",
+    "aap_notifications_v1.delivery_owner_pairs(jsonb)",
+    "aap_notifications_v1.delivery_super_pairs(jsonb)",
+)
+
+NOTIFICATION_RUNTIME_CAPABILITIES = (
+    "aap_notifications_v1.preference_command(jsonb)",
+    "aap_notifications_v1.append_notification(jsonb)",
+    "aap_notifications_v1.append_job_terminal_notification(jsonb)",
+    "aap_notifications_v1.read_state_command(jsonb)",
+    "aap_notifications_v1.delete_command(pg_catalog.jsonb)",
+    "aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)",
+    "aap_notifications_v1.inbox_total_count(uuid,text)",
+    "aap_notifications_v1.inbox_unread_count(uuid,text)",
+    *NOTIFICATION_DELIVERY_READ_CAPABILITIES,
+)
+
+
 class LocalResources:
     def __init__(self, resources: dict, settings, *, code_root: Path):
         self.root = Path(resources["root"])
@@ -497,7 +520,12 @@ class LocalResources:
             image_accepted_function_grant = ", ".join(
                 IMAGE_ACCEPTED_RUNTIME_CAPABILITIES
             )
+            notification_function_grant = ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
             async with engine.begin() as connection:
+                await connection.execute(
+                    text("SELECT set_config('aap.application_role', :role, true)"),
+                    {"role": runtime.username},
+                )
                 for sql in (
                     f"GRANT CONNECT ON DATABASE {database} TO {role}",
                     f"GRANT USAGE ON SCHEMA public TO {role}",
@@ -660,6 +688,81 @@ class LocalResources:
                     f"GRANT EXECUTE ON FUNCTION {video_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {image_media_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {image_accepted_function_grant} TO {role}",
+                ):
+                    await connection.exec_driver_sql(sql)
+                for sql in (
+                    f"GRANT USAGE ON SCHEMA aap_notifications_v1 TO {role}",
+                    f"GRANT EXECUTE ON FUNCTION {notification_function_grant} TO {role}",
+                    f"""REVOKE ALL ON TABLE public.notifications, public.notification_preferences,
+                        public.notification_delivery_outbox FROM {role}, PUBLIC""",
+                    f"""REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at)
+                        ON TABLE public.notifications FROM {role}, PUBLIC""",
+                    f"""REVOKE ALL (user_id, type, channels, updated_at)
+                        ON TABLE public.notification_preferences FROM {role}, PUBLIC""",
+                    f"""REVOKE ALL (notification_id, operation_id, recipient_id, notification_type,
+                        state, attempt, available_at, worker_id, lease_id, lease_expires_at,
+                        last_reason, created_at, delivered_at)
+                        ON TABLE public.notification_delivery_outbox FROM {role}, PUBLIC""",
+                    f"""REVOKE ALL ON TABLE aap_notifications_v1.notification_facts
+                        FROM {role}, PUBLIC""",
+                    f"""REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at)
+                        ON TABLE aap_notifications_v1.notification_facts FROM {role}, PUBLIC""",
+                    f"""REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text)
+                        FROM {role}, PUBLIC""",
+                    """DO $notification_private_acl$
+                    DECLARE
+                        v_runtime pg_catalog.name := current_setting('aap.application_role');
+                        v_relation pg_catalog.regclass;
+                    BEGIN
+                        FOREACH v_relation IN ARRAY ARRAY[
+                            'public.notifications'::pg_catalog.regclass,
+                            'public.notification_preferences'::pg_catalog.regclass,
+                            'public.notification_delivery_outbox'::pg_catalog.regclass
+                        ] LOOP
+                            IF pg_catalog.has_table_privilege(v_runtime, v_relation,
+                                    'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                               OR pg_catalog.has_any_column_privilege(v_runtime, v_relation,
+                                    'SELECT,INSERT,UPDATE,REFERENCES') THEN
+                                RAISE EXCEPTION 'The runtime role still has direct Notifications storage access';
+                            END IF;
+                        END LOOP;
+                        IF pg_catalog.has_table_privilege(v_runtime,
+                                'aap_notifications_v1.notification_facts', 'SELECT')
+                           OR pg_catalog.has_any_column_privilege(v_runtime,
+                                'aap_notifications_v1.notification_facts', 'SELECT')
+                           OR pg_catalog.has_table_privilege(v_runtime,
+                                'aap_notifications_v1.notification_facts',
+                                'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                           OR pg_catalog.has_any_column_privilege(v_runtime,
+                                'aap_notifications_v1.notification_facts', 'INSERT,UPDATE,REFERENCES') THEN
+                            RAISE EXCEPTION 'The runtime role can read Notifications facts directly';
+                        END IF;
+                        IF NOT pg_catalog.has_function_privilege(v_runtime,
+                                'aap_notifications_v1.read_notification(uuid)', 'EXECUTE')
+                           OR NOT pg_catalog.has_function_privilege(v_runtime,
+                                'aap_notifications_v1.find_terminal_notification(uuid,text,uuid)', 'EXECUTE')
+                           OR NOT pg_catalog.has_function_privilege(v_runtime,
+                                'aap_notifications_v1.delivery_job_scopes(uuid[])', 'EXECUTE')
+                           OR NOT pg_catalog.has_function_privilege(v_runtime,
+                                'aap_notifications_v1.delivery_member_pairs(jsonb)', 'EXECUTE')
+                           OR NOT pg_catalog.has_function_privilege(v_runtime,
+                                'aap_notifications_v1.delivery_reviewer_pairs(jsonb)', 'EXECUTE')
+                           OR NOT pg_catalog.has_function_privilege(v_runtime,
+                                'aap_notifications_v1.delivery_owner_pairs(jsonb)', 'EXECUTE')
+                           OR NOT pg_catalog.has_function_privilege(v_runtime,
+                                'aap_notifications_v1.delivery_super_pairs(jsonb)', 'EXECUTE')
+                           OR NOT pg_catalog.has_function_privilege(v_runtime,
+                                'aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)', 'EXECUTE')
+                           OR NOT pg_catalog.has_function_privilege(v_runtime,
+                                'aap_notifications_v1.inbox_total_count(uuid,text)', 'EXECUTE')
+                           OR NOT pg_catalog.has_function_privilege(v_runtime,
+                                'aap_notifications_v1.inbox_unread_count(uuid,text)', 'EXECUTE')
+                           OR pg_catalog.has_function_privilege(v_runtime,
+                                'aap_notifications_v1._visible_inbox_rows(uuid,text)', 'EXECUTE') THEN
+                            RAISE EXCEPTION 'The runtime role is missing fixed Notifications reads';
+                        END IF;
+                    END;
+                    $notification_private_acl$;""",
                 ):
                     await connection.exec_driver_sql(sql)
         finally:

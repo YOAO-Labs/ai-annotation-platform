@@ -1,0 +1,83 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    },
+    "type": {
+      "title": "Type",
+      "type": "string"
+    },
+    "target_type": {
+      "title": "Target Type",
+      "type": "string"
+    },
+    "target_id": {
+      "format": "uuid",
+      "title": "Target Id",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "read_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Read At"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "user_id",
+    "type",
+    "target_type",
+    "target_id",
+    "payload",
+    "read_at",
+    "created_at"
+  ],
+  "title": "AAP Notifications read relations",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-notifications-read-relations/v1",
+  "$comment": "The fixed read-only projection publishes Notification row facts. Consumers retain their existing authorization, filtering, counts, ordering, pagination and borrowed transaction semantics.",
+  "x-postgresql-relations": {
+    "aap_notifications_v1.notification_facts": {
+      "columns": [
+        "id",
+        "user_id",
+        "type",
+        "target_type",
+        "target_id",
+        "payload",
+        "read_at",
+        "created_at"
+      ],
+      "row_schema": "#",
+      "row_key": ["id"],
+      "read_only": true,
+      "security_barrier": true
+    }
+  }
+}

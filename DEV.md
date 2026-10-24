@@ -547,6 +547,38 @@ AAP_MODULE_DATA_ROLE_ACCEPTANCE=1 apps/api/.venv/bin/python \
 API 的冷镜像与完整 owner 装配另行验收。上述定向检查不证明主环境已切换、完整
 Workspace 已完成或生产容量达标，Go 保持实验性质。
 
+## 独立 Notifications 运行时
+
+`apps/notifications` 持有偏好、收件箱、通知写入、投递授权、即时发布、持久投递与
+WebSocket owner。`docker-compose.notifications-publisher.yml` 与
+`docker-compose.notifications.yml` 分别装配 publisher 和 socket，不发布宿主机端口。
+它们和 Identity、调用方必须接入同一选定私网；不会由默认 Compose 自动启动。
+
+完成 secret 和私网配置后，显式选择服务；兼容 `identity-notification-publisher`
+与新 publisher 共享同一 outbox，不应在替换过程中无意同时启动：
+
+```bash
+docker compose --env-file .env.notifications -f docker-compose.yml \
+  -f docker-compose.identity.yml -f docker-compose.notifications.yml \
+  -f docker-compose.notifications-publisher.yml up -d --build \
+  identity-admission notifications-socket notifications-publisher
+```
+
+先确认旧 publisher 已停止，再启动替代进程；原 Identity CLI 仅作为兼容入口保留。
+
+API 以 `NOTIFICATION_PUBLICATION_URL`、`NOTIFICATION_PUBLICATION_TOKEN(_FILE)` 和
+`NOTIFICATION_SOCKET_URL` 选择远程发布与 socket；留空保留内嵌绑定，显式地址故障
+不回退。独立 publisher 使用 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)`、
+`NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`；设置 `NOTIFICATION_PUBLISH_API_TOKEN(_FILE)`
+后在同一进程启用即时 HTTP，否则保持 durable-only。socket 的七函数只读数据库、
+订阅专用 Redis 与 Identity admission-only bearer 使用独立 secret。
+
+迁移必须保留 `0306 → 0325` 的完整历史。其间包含 Workspace、Audit 和视频输入
+保留迁移，特别是 `0313` 会改变资产垃圾领取围栏。采用前应核对最新功能合并和资产
+变更范围；源码候选不代表这些迁移已应用到日常数据库。不能抽取或重编号其中的
+Notifications 迁移。配置、授权顺序和恢复语义见
+[Notifications 运行时](docs-site/api/guides/notifications-runtime.md)。
+
 ## 技术栈
 
 | 层        | 技术                                                 |

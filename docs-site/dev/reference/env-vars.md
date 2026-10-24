@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-25
 ---
 
 # 环境变量参考
@@ -711,3 +711,35 @@ last_reviewed: 2026-10-23
 | `IDENTITY_MAIL_SMTP_USER` | `—` | — |
 | `IDENTITY_MAIL_SMTP_PASSWORD` | `—` | — |
 | `IDENTITY_MAIL_SMTP_FROM` | `—` | — |
+
+## Notifications 独立发布与 WebSocket（可选，不进入默认 Compose）
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `NOTIFICATION_PUBLICATION_URL` | `—` | API URL 留空使用内嵌 owner；配置私网地址后，故障不回退本地 transport。 |
+| `NOTIFICATION_PUBLICATION_TOKEN` | `—` | — |
+| `NOTIFICATION_PUBLICATION_TOKEN_FILE` | `—` | — |
+| `NOTIFICATION_SOCKET_URL` | `—` | — |
+| `NOTIFICATION_PUBLISH_DATABASE_URL` | `—` | API/Celery 的可选 durable relay DSN；Redis 继续使用原 task 配置。 |
+| `NOTIFICATION_PUBLISH_DATABASE_URL_FILE` | `—` | — |
+| `NOTIFICATION_PUBLISH_REDIS_URL` | `—` | 独立 publisher 使用发布专用 Redis 身份；每对值／文件恰好选择一项。 |
+| `NOTIFICATION_PUBLISH_REDIS_URL_FILE` | `—` | — |
+| `NOTIFICATION_PUBLISH_API_TOKEN` | `—` | 即时 HTTP 与 durable publisher 共用进程；不设置 bearer 时保持 durable-only。 |
+| `NOTIFICATION_PUBLISH_API_TOKEN_FILE` | `—` | — |
+| `NOTIFICATION_PUBLISH_HOST` | `127.0.0.1` | — |
+| `NOTIFICATION_PUBLISH_PORT` | `8181` | — |
+| `NOTIFICATION_SOCKET_DATABASE_URL` | `—` | 独立 socket 只持有七函数只读 DSN、订阅专用 Redis 和 Identity admission-only bearer。 |
+| `NOTIFICATION_SOCKET_DATABASE_URL_FILE` | `—` | — |
+| `NOTIFICATION_SOCKET_REDIS_URL` | `—` | — |
+| `NOTIFICATION_SOCKET_REDIS_URL_FILE` | `—` | — |
+| `NOTIFICATION_SOCKET_IDENTITY_URL` | `http://identity-admission:8170` | — |
+| `NOTIFICATION_SOCKET_IDENTITY_TOKEN` | `—` | — |
+| `NOTIFICATION_SOCKET_IDENTITY_TOKEN_FILE` | `—` | — |
+| `NOTIFICATION_SOCKET_HOST` | `127.0.0.1` | — |
+| `NOTIFICATION_SOCKET_PORT` | `8180` | — |
+| `IDENTITY_ACTOR_STATUS_DATABASE_URL` | `—` | 独立 Identity actor-status 使用既有 read_actor_facts 函数和专用只读 LOGIN。 以下 IDENTITY_* 是独立进程配置；API 不读取这两组 selector。 |
+| `IDENTITY_ACTOR_STATUS_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_ADMISSION_TOKEN` | `—` | — |
+| `IDENTITY_ADMISSION_TOKEN_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE` | `—` | Identity Compose 使用宿主文件；不设置时保留原有服务配置。 |
+| `IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE` | `—` | — |

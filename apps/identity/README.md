@@ -43,6 +43,17 @@ rederive Identity credentials. Keep the existing Identity secret stable for
 live issuers and durable receipts; this is not a key-rotation procedure.
 Configuration errors never fall back. The runtime does not load an API `.env` file.
 
+For a separate API admission connection, optionally provide
+`IDENTITY_ADMISSION_TOKEN` or `IDENTITY_ADMISSION_TOKEN_FILE`. It must be a
+canonical bearer value distinct from the normalized `IDENTITY_TOKEN`. This
+scoped bearer is accepted only by `/v1/identity/authenticate` and
+`/v1/identity/actor-status`; command, session, and administrator endpoints
+continue to require the general token. Provide
+`IDENTITY_ACTOR_STATUS_DATABASE_URL` or its `_FILE` variant to enable the
+second-handshake status read. It uses a dedicated LOGIN with only
+`aap_identity_v1.read_actor_facts(uuid)` and has no fallback to the admission
+database URL. Without that source, `/v1/identity/actor-status` returns 503.
+
 ```sh
 uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime
 ```

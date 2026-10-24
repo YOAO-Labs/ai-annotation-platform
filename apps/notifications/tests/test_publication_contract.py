@@ -235,10 +235,7 @@ def test_publication_schema_and_checked_resource_match():
     assert (
         "starlette>=1.0.0" in pyproject["project"]["optional-dependencies"]["runtime"]
     )
-    assert (
-        "uvicorn[standard]>=0.46.0"
-        in pyproject["project"]["optional-dependencies"]["runtime"]
-    )
+    assert "uvicorn>=0.46.0" in pyproject["project"]["optional-dependencies"]["runtime"]
     assert pyproject["project"]["optional-dependencies"]["publication-client"] == [
         "httpx>=0.28.1"
     ]

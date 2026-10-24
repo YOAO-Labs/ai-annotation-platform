@@ -760,8 +760,17 @@ GRANT UPDATE (
 GRANT SELECT (key, value_type, value_json) ON public.system_settings TO :"settings_owner";
 -- SHARE table locking fences an absent connector policy row from a concurrent insert.
 GRANT UPDATE ON public.system_settings TO :"settings_owner";
-GRANT SELECT, INSERT ON public.notifications TO :"notifications_owner";
+GRANT SELECT, INSERT, DELETE ON public.notifications TO :"notifications_owner";
+REVOKE UPDATE ON public.notifications FROM :"notifications_owner";
+REVOKE UPDATE (
+    id, user_id, type, target_type, target_id, payload, read_at, created_at
+) ON public.notifications FROM :"notifications_owner";
+GRANT UPDATE (read_at) ON public.notifications TO :"notifications_owner";
 GRANT SELECT (user_id, type, channels)
+    ON public.notification_preferences TO :"notifications_owner";
+GRANT INSERT (user_id, type, channels)
+    ON public.notification_preferences TO :"notifications_owner";
+GRANT UPDATE (channels, updated_at)
     ON public.notification_preferences TO :"notifications_owner";
 GRANT SELECT (
     notification_id, operation_id, recipient_id, notification_type, state,
@@ -782,6 +791,15 @@ GRANT USAGE ON SCHEMA aap_notifications_v1
 GRANT USAGE ON SCHEMA aap_identity_v1 TO :"jobs_owner", :"notifications_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid) TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
+    TO :"notifications_owner";
+GRANT SELECT (id, role, is_active) ON aap_identity_v1.account_profiles
+    TO :"notifications_owner";
+GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_project_query_v1, aap_jobs_v1
+    TO :"notifications_owner";
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.actor_project_memberships(uuid),
+    aap_workspace_project_query_v1.project_search_scope(uuid,text)
+    TO :"notifications_owner";
+GRANT SELECT (id, kind, scope_project_id) ON aap_jobs_v1.notification_scope_facts
     TO :"notifications_owner";
 GRANT EXECUTE ON FUNCTION aap_settings_v1.resolve_connector_host_allowlist(jsonb)
     TO :"assets_owner";
@@ -2408,6 +2426,7 @@ ALTER FUNCTION aap_labeling_v1.workspace_project_query_batch_task_counts(uuid)
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER VIEW aap_jobs_v1.notification_scope_facts OWNER TO :"jobs_owner";
 ALTER SCHEMA aap_jobs_v1 OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.count_running_registry_predictions(uuid)
     OWNER TO :"jobs_owner";
@@ -2590,6 +2609,7 @@ GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
 GRANT CREATE ON SCHEMA aap_audit_v1 TO :"audit_owner";
 GRANT CREATE ON SCHEMA aap_settings_v1 TO :"settings_owner";
 GRANT CREATE ON SCHEMA aap_notifications_v1 TO :"notifications_owner";
+ALTER VIEW aap_notifications_v1.notification_facts OWNER TO :"notifications_owner";
 DO $$
 DECLARE
     capability record;

@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-video-tracker-input-retention-native/v1",
+  "title": "Jobs-owned execution retention for accepted video tracker inputs",
+  "$defs": {
+    "Uuid": { "type": "string", "format": "uuid" },
+    "JobsRetentionData": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input_id": { "$ref": "#/$defs/Uuid" },
+        "tracker_job_id": { "$ref": "#/$defs/Uuid" },
+        "execution_retained": { "type": "boolean" }
+      },
+      "required": ["input_id", "tracker_job_id", "execution_retained"]
+    },
+    "JobsRetentionSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-jobs-video-tracker-input-retention/v1" },
+        "ok": { "const": true },
+        "data": { "$ref": "#/$defs/JobsRetentionData" }
+      },
+      "required": ["schema", "ok", "data"]
+    },
+    "JobsRetentionFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-jobs-video-tracker-input-retention/v1" },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": ["invalid_request", "input_unavailable", "execution_busy"]
+            }
+          },
+          "required": ["code"]
+        }
+      },
+      "required": ["schema", "ok", "error"]
+    }
+  },
+  "anyOf": [{ "$ref": "#/$defs/JobsRetentionSuccess" }, { "$ref": "#/$defs/JobsRetentionFailure" }],
+  "type": "object",
+  "function_defaults": {
+    "volatility": "VOLATILE",
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"]
+  },
+  "owner_capabilities": [
+    {
+      "signature": "aap_assets_v1.video_execution_input_facts(uuid)",
+      "owner": "assets_owner",
+      "execute_grantee": "jobs_owner",
+      "returns": "aap-assets-video-execution-input-facts/v1",
+      "reused_for_missing_labeling_scope": true
+    },
+    {
+      "signature": "aap_jobs_v1.video_tracker_input_retention_facts(uuid, uuid)",
+      "owner": "jobs_owner",
+      "execute_grantee": "labeling_owner",
+      "returns": "aap-jobs-video-tracker-input-retention/v1"
+    },
+    {
+      "signature": "aap_labeling_v1.video_tracker_input_referenced(uuid)",
+      "owner": "labeling_owner",
+      "execute_grantee": "assets_owner",
+      "returns": "aap-labeling-video-tracker-inputs/v1"
+    }
+  ],
+  "functions": [
+    {
+      "signature": "aap_jobs_v1.video_tracker_input_retention_facts(uuid, uuid)",
+      "arguments": [
+        {
+          "name": "p_input_id",
+          "postgres_type": "uuid",
+          "json_schema": { "$ref": "#/$defs/Uuid" }
+        },
+        {
+          "name": "p_tracker_job_id",
+          "postgres_type": "uuid",
+          "nullable": true,
+          "json_schema": {
+            "anyOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }]
+          }
+        }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "schema": {
+          "anyOf": [
+            { "$ref": "#/$defs/JobsRetentionSuccess" },
+            { "$ref": "#/$defs/JobsRetentionFailure" }
+          ]
+        }
+      },
+      "semantics": "Return only the accepted input identity, canonical tracker Job identity, and whether the Jobs execution still retains the input. Lock in canonical Job -> execution -> journal order. A current execution is safe only when its current-run journal is both writer-terminal and retired. Started legacy Jobs, execution rows without journals, stale journals that do not match the current run, journal-only orphans, and missing Jobs without never-started clearance retain the input. A never-started Job or cleared missing Job may follow existing Labeling retention rules. When Labeling scope is absent, recover only the ready accepted input identity through the existing Assets facts capability; malformed, unavailable, nonready, or contended facts fail closed."
+    },
+    {
+      "signature": "aap_labeling_v1.video_tracker_input_referenced(uuid)",
+      "arguments": [
+        {
+          "name": "p_input_id",
+          "postgres_type": "uuid",
+          "json_schema": { "$ref": "#/$defs/Uuid" }
+        }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "schema": { "const": "aap-labeling-video-tracker-inputs/v1" }
+      },
+      "semantics": "Preserve checkpoint journal retention, annotation pins, queued/running retention, and existing pending-review grace. Consult Jobs before allowing ordinary expiration. If the narrow Jobs fact is unavailable or malformed, return an invalid response so the Assets sweeper skips the input. No foreign-table privilege or retirement/status mutation is introduced."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_jobs_v1.video_tracker_input_retention_facts(uuid, uuid)",
+    "aap_labeling_v1.video_tracker_input_referenced(uuid)"
+  ],
+  "x-postgresql-replaced-functions": ["aap_labeling_v1.video_tracker_input_referenced(uuid)"]
+}

@@ -11,6 +11,8 @@ class Settings(BaseSettings):
 
     database_url: SecretStr | None = None
     database_url_file: str | None = None
+    actor_status_database_url: SecretStr | None = None
+    actor_status_database_url_file: str | None = None
     key_database_url: SecretStr | None = None
     key_database_url_file: str | None = None
     session_database_url: SecretStr | None = None
@@ -49,6 +51,8 @@ class Settings(BaseSettings):
     recovery_mail_key_file: str | None = None
     token: SecretStr | None = None
     token_file: str | None = None
+    admission_token: SecretStr | None = None
+    admission_token_file: str | None = None
     signing_secret: SecretStr | None = None
     signing_secret_file: str | None = None
     host: str = "127.0.0.1"
@@ -68,6 +72,15 @@ class Settings(BaseSettings):
     max_invitations_per_day: int = Field(default=30, ge=1, le=1000)
     login_captcha_threshold: int = Field(default=5, ge=0)
     login_failed_window_seconds: int = Field(default=3600, gt=0)
+
+    @field_validator(
+        "actor_status_database_url_file", "admission_token_file", mode="before"
+    )
+    @classmethod
+    def blank_optional_secret_file_is_unset(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator("directory_database_url_file", mode="before")
     @classmethod
@@ -137,6 +150,34 @@ class Settings(BaseSettings):
                 setattr(self, field, value)
             if value is None or not value.get_secret_value().strip():
                 raise ValueError(f"Empty {field}")
+        if self.admission_token is not None and self.admission_token_file is not None:
+            raise ValueError("Set at most one admission_token source")
+        admission_token = self.admission_token
+        if self.admission_token_file is not None:
+            try:
+                with Path(self.admission_token_file).open("rb") as stream:
+                    raw = stream.read(4097)
+                if len(raw) > 4096:
+                    raise ValueError()
+                admission_token = SecretStr(raw.decode().strip())
+            except (OSError, ValueError, UnicodeError):
+                raise ValueError("Invalid admission_token file") from None
+            self.admission_token = admission_token
+        if admission_token is not None:
+            normalized_admission_token = admission_token.get_secret_value()
+            if (
+                not normalized_admission_token
+                or normalized_admission_token != normalized_admission_token.strip()
+                or any(character.isspace() for character in normalized_admission_token)
+                or any(
+                    ord(character) < 33 or ord(character) > 126
+                    for character in normalized_admission_token
+                )
+            ):
+                raise ValueError("Invalid admission_token")
+            normalized_general_token = self.token.get_secret_value().strip()
+            if normalized_admission_token == normalized_general_token:
+                raise ValueError("admission_token must differ from token")
         key_url = self.key_database_url
         key_path = self.key_database_url_file
         if key_url is not None and key_path is not None:
@@ -187,6 +228,7 @@ class Settings(BaseSettings):
             "suspension_database_url",
             "deletion_database_url",
             "offboarding_database_url",
+            "actor_status_database_url",
         ):
             value = getattr(self, field)
             path = getattr(self, field + "_file")

@@ -359,6 +359,95 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_assets_v1.pending_storage_deletions(uuid, integer),
     aap_assets_v1.complete_storage_deletion(uuid, uuid)
     TO :"application_role";
+-- Notifications compose only fixed owner capabilities in the caller transaction.
+GRANT USAGE ON SCHEMA aap_notifications_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_notifications_v1.preference_command(jsonb),
+    aap_notifications_v1.append_notification(jsonb),
+    aap_notifications_v1.append_job_terminal_notification(jsonb),
+    aap_notifications_v1.read_state_command(jsonb),
+    aap_notifications_v1.delete_command(pg_catalog.jsonb),
+    aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer),
+    aap_notifications_v1.inbox_total_count(uuid,text),
+    aap_notifications_v1.inbox_unread_count(uuid,text),
+    aap_notifications_v1.read_notification(uuid),
+    aap_notifications_v1.find_terminal_notification(uuid,text,uuid),
+    aap_notifications_v1.delivery_job_scopes(uuid[]),
+    aap_notifications_v1.delivery_member_pairs(jsonb),
+    aap_notifications_v1.delivery_reviewer_pairs(jsonb),
+    aap_notifications_v1.delivery_owner_pairs(jsonb),
+    aap_notifications_v1.delivery_super_pairs(jsonb) TO :"application_role";
+REVOKE ALL ON TABLE public.notifications, public.notification_preferences,
+    public.notification_delivery_outbox FROM :"application_role", PUBLIC;
+REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at)
+    ON TABLE public.notifications FROM :"application_role", PUBLIC;
+REVOKE ALL (user_id, type, channels, updated_at)
+    ON TABLE public.notification_preferences FROM :"application_role", PUBLIC;
+REVOKE ALL (notification_id, operation_id, recipient_id, notification_type,
+    state, attempt, available_at, worker_id, lease_id, lease_expires_at,
+    last_reason, created_at, delivered_at)
+    ON TABLE public.notification_delivery_outbox FROM :"application_role", PUBLIC;
+REVOKE ALL ON TABLE aap_notifications_v1.notification_facts
+    FROM :"application_role", PUBLIC;
+REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at)
+    ON TABLE aap_notifications_v1.notification_facts FROM :"application_role", PUBLIC;
+REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text)
+    FROM :"application_role", PUBLIC;
+DO $notification_private_acl$
+DECLARE
+    v_runtime pg_catalog.name := current_setting('aap.application_role');
+    v_relation pg_catalog.regclass;
+BEGIN
+    FOREACH v_relation IN ARRAY ARRAY[
+        'public.notifications'::pg_catalog.regclass,
+        'public.notification_preferences'::pg_catalog.regclass,
+        'public.notification_delivery_outbox'::pg_catalog.regclass
+    ] LOOP
+        IF pg_catalog.has_table_privilege(v_runtime, v_relation,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime, v_relation,
+                'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'The runtime role still has direct Notifications storage access';
+        END IF;
+    END LOOP;
+    IF pg_catalog.has_table_privilege(v_runtime,
+            'aap_notifications_v1.notification_facts', 'SELECT')
+       OR pg_catalog.has_any_column_privilege(v_runtime,
+            'aap_notifications_v1.notification_facts', 'SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime,
+            'aap_notifications_v1.notification_facts',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime,
+            'aap_notifications_v1.notification_facts', 'INSERT,UPDATE,REFERENCES') THEN
+        RAISE EXCEPTION 'The runtime role can read Notifications facts directly';
+    END IF;
+    IF NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.read_notification(uuid)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.find_terminal_notification(uuid,text,uuid)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.delivery_job_scopes(uuid[])', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.delivery_member_pairs(jsonb)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.delivery_reviewer_pairs(jsonb)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.delivery_owner_pairs(jsonb)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.delivery_super_pairs(jsonb)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.inbox_total_count(uuid,text)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.inbox_unread_count(uuid,text)', 'EXECUTE')
+       OR pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1._visible_inbox_rows(uuid,text)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'The runtime role is missing fixed Notifications reads';
+    END IF;
+END;
+$notification_private_acl$;
+
 -- The monolithic API/Celery runtime composes retained video input capabilities
 -- locally. Keep this bounded to workflow, control, worker and labeling calls;
 -- system sweep and video-input garbage operations stay with their owners.

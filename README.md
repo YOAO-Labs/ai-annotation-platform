@@ -64,6 +64,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 Identity 可通过 `docker-compose.identity.yml` 独立运行，认证、会话、API key、账户、邀请和生命周期由版本化 owner 能力处理。原公开 API 与本地绑定保留；配置远程服务后，故障不会退回本地写入者。协议和最小权限见[Identity 运行时](./docs-site/api/guides/identity-runtime.md)，本地配置见 [DEV.md](./DEV.md#独立-identity-运行时)。源码合并、数据库迁移和运行环境切换分别验收。
 
+Notifications 提供独立发布与 WebSocket 运行包，通知数据操作通过固定 PostgreSQL 能力参与调用方事务。公开 REST 与 WebSocket 地址保持兼容；配置和凭据边界见 [Notifications 运行时](./docs-site/api/guides/notifications-runtime.md)。可选部署文件不改变默认运行拓扑。
+
 ## 工作台 AI 案例
 
 图片标注工作台支持对已确认标注做[二次推理](./docs-site/user-guide/ai/current-task-inference.md)，由标注员、项目管理员或超级管理员使用。审核工作台隐藏相关入口，接口也拒绝审核员调用；人工审核修改保留。

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
@@ -54,6 +55,45 @@ def test_list_notifications_preserves_future_type_and_payload(client, respx_mock
         "limit": "7",
         "offset": "3",
     }
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"nested": [{"count": 2**80, "label": "雪"}]},
+        ["legacy", None, 2**100, False],
+        "legacy scalar",
+        0,
+        False,
+        None,
+    ],
+)
+def test_list_notifications_preserves_native_payload_values(
+    client, respx_mock, payload
+):
+    response = _notification(payload=payload)
+    respx_mock.get(f"{API}/notifications").mock(
+        return_value=httpx.Response(
+            200,
+            json={"items": [response], "total": 1, "unread": 1},
+        )
+    )
+
+    page = Notifications(client._http).list()
+
+    assert page.items[0].payload == payload
+
+
+def test_notification_model_keeps_empty_object_default():
+    notification = Notification(
+        id=NOTICE_ID,
+        type="new.notification",
+        target_type="task",
+        target_id=TARGET_ID,
+        created_at=datetime.now(timezone.utc),
+    )
+
+    assert notification.payload == {}
 
 
 @pytest.mark.parametrize(

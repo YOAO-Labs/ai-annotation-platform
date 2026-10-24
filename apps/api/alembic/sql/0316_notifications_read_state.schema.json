@@ -1,0 +1,212 @@
+{
+  "$defs": {
+    "MarkAllReadData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "mark_all_read",
+          "title": "Operation",
+          "type": "string"
+        },
+        "updated": {
+          "minimum": 0,
+          "title": "Updated",
+          "type": "integer"
+        },
+        "updated_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Updated Ids",
+          "type": "array"
+        }
+      },
+      "required": ["operation", "updated", "updated_ids"],
+      "title": "MarkAllReadData",
+      "type": "object"
+    },
+    "MarkAllReadReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-read-state/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/MarkAllReadData"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "MarkAllReadReply",
+      "type": "object"
+    },
+    "MarkAllReadRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-read-state/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "read_at": {
+          "format": "date-time",
+          "title": "Read At",
+          "type": "string"
+        },
+        "operation": {
+          "const": "mark_all_read",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "user_id", "read_at", "operation"],
+      "title": "MarkAllReadRequest",
+      "type": "object"
+    },
+    "MarkReadData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "mark_read",
+          "title": "Operation",
+          "type": "string"
+        },
+        "updated": {
+          "title": "Updated",
+          "type": "boolean"
+        },
+        "updated_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Updated Ids",
+          "type": "array"
+        }
+      },
+      "required": ["operation", "updated", "updated_ids"],
+      "title": "MarkReadData",
+      "type": "object"
+    },
+    "MarkReadReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-read-state/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/MarkReadData"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "MarkReadReply",
+      "type": "object"
+    },
+    "MarkReadRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-read-state/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "read_at": {
+          "format": "date-time",
+          "title": "Read At",
+          "type": "string"
+        },
+        "operation": {
+          "const": "mark_read",
+          "title": "Operation",
+          "type": "string"
+        },
+        "notification_id": {
+          "format": "uuid",
+          "title": "Notification Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "user_id", "read_at", "operation", "notification_id"],
+      "title": "MarkReadRequest",
+      "type": "object"
+    },
+    "ReadStateError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "invalid_request",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "ReadStateError",
+      "type": "object"
+    },
+    "ReadStateFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-read-state/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "error": {
+          "$ref": "#/$defs/ReadStateError"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "ReadStateFailure",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/MarkReadRequest"
+    },
+    {
+      "$ref": "#/$defs/MarkAllReadRequest"
+    },
+    {
+      "$ref": "#/$defs/MarkReadReply"
+    },
+    {
+      "$ref": "#/$defs/MarkAllReadReply"
+    },
+    {
+      "$ref": "#/$defs/ReadStateFailure"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-notification-read-state/v1",
+  "title": "AAP notification read-state protocol"
+}

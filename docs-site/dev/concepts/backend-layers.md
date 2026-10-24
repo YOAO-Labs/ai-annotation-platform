@@ -216,7 +216,7 @@ Task 列表/详情、Data Manager、视频清单及轨迹转换的素材摘要�
 
 `application/invitation_acceptance.py` 组合身份邀请与 workspace 成员授予。`InvitationService` 保留 token、过期/撤销、当前邀请人和邮箱/项目/账号锁，以及邀请组名与接受状态写入；受邀账号字段由 `IdentityCommandService.create_invited_account` 写入，项目成员 INSERT、邀请人归属和并发重复 409 由 `project_membership.grant_invitation_membership` 持有。工作流不直接构造 User 或写 ProjectMember；HTTP 保留同一 Session 的审计 → commit → refresh → 注册 JWT 顺序。所有者不另行提交，不将本地跨域事务拆成 RPC。
 
-`services/notification_preferences.py` 只依赖标准库，持有可配置通知类型与默认 toast 目录；`services/notification_preferences_command.py` 持有 JSONB 原子 upsert 和新行默认值，直接保留缺失频道及未知扩展键，且不提交事务。偏好路由仍负责当前用户绑定、HTTP 输入错误、提交与提交后 `notifications.sync` 发布；命令层不导入 API、worker 或配置装配。
+`apps/notifications` 的 `aap_notifications.preferences` 持有可配置通知类型与默认 toast 目录；`preferences_postgres` 调用固定 JSONB 原子命令，保留缺失频道、未知扩展键与新行默认值，不提交调用方事务。偏好路由仍负责当前用户绑定、HTTP 输入错误、提交与提交后 `notifications.sync` 发布；命令层不导入 API、worker 或配置装配。
 
 版本化离职流程按账号→项目→目标/接收人成员→批次→任务→编辑 advisory→编辑锁读取稳定快照，再核对预览摘要与接收资格。传统停用/删除、自助注销和版本化离职仍保留各自语义，不合并为通用删除；Redis 凭据代际仍在 SQL 提交前推进，不把两者宣称为分布式原子事务。恢复不会重建旧密钥或退回已交接工作。
 

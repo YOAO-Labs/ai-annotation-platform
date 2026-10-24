@@ -200,6 +200,7 @@ name = "aap-identity"
 version = "0.1.0"
 source = { editable = "../identity" }
 dependencies = [
+    { name = "aap-identity-admission" },
     { name = "aap-notifications" },
     { name = "bcrypt" },
     { name = "pydantic" },
@@ -213,6 +214,7 @@ postgres = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-identity-admission", editable = "../_shared/identity_admission" },
     { name = "aap-mail-transport", marker = "extra == 'runtime'", editable = "../_shared/mail_transport" },
     { name = "aap-notifications", editable = "../notifications" },
     { name = "aap-notifications", extras = ["runtime"], marker = "extra == 'runtime'", editable = "../notifications" },
@@ -230,6 +232,21 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'runtime'", specifier = ">=0.30" },
 ]
 provides-extras = ["postgres", "runtime", "test"]
+
+[[package]]
+name = "aap-identity-admission"
+version = "0.1.0"
+source = { editable = "../_shared/identity_admission" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", marker = "extra == 'http'", specifier = ">=0.27" },
+    { name = "pydantic", specifier = ">=2.5" },
+]
+provides-extras = ["http"]
 
 [[package]]
 name = "aap-labeling-mask-gc"

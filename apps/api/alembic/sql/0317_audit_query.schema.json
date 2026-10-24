@@ -1,0 +1,429 @@
+{
+  "$defs": {
+    "AuditQueryAfter": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 20,
+          "pattern": "^-?[0-9]+$",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": ["created_at", "id"],
+      "title": "AuditQueryAfter",
+      "type": "object"
+    },
+    "AuditQueryData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "enum": ["list", "export"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "total": {
+          "maxLength": 19,
+          "pattern": "^(?:0|[1-9][0-9]{0,18})$",
+          "title": "Total",
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/AuditQueryEvent"
+          },
+          "title": "Events",
+          "type": "array"
+        }
+      },
+      "required": ["operation", "total", "events"],
+      "title": "AuditQueryData",
+      "type": "object"
+    },
+    "AuditQueryEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 20,
+          "pattern": "^(?:0|-?[1-9][0-9]*)$",
+          "title": "Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "format": "uuid",
+          "title": "Actor Id"
+        },
+        "actor_email": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Email"
+        },
+        "actor_role": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Role"
+        },
+        "action": {
+          "maxLength": 64,
+          "title": "Action",
+          "type": "string"
+        },
+        "target_type": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Type"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "status_code": {
+          "anyOf": [
+            {
+              "maximum": 32767,
+              "minimum": -32768,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status Code"
+        },
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ip"
+        },
+        "detail_json": {
+          "$ref": "#/$defs/JSONValue"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "actor_id",
+        "actor_email",
+        "actor_role",
+        "action",
+        "target_type",
+        "target_id",
+        "method",
+        "path",
+        "status_code",
+        "ip",
+        "detail_json",
+        "request_id",
+        "created_at"
+      ],
+      "title": "AuditQueryEvent",
+      "type": "object"
+    },
+    "AuditQueryFilters": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Action"
+        },
+        "target_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Type"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "To"
+        },
+        "business_only": {
+          "title": "Business Only",
+          "type": "boolean"
+        },
+        "detail_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Detail Key"
+        },
+        "detail_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Detail Value"
+        }
+      },
+      "required": [
+        "action",
+        "target_type",
+        "target_id",
+        "actor_id",
+        "from",
+        "to",
+        "business_only",
+        "detail_key",
+        "detail_value"
+      ],
+      "title": "AuditQueryFilters",
+      "type": "object"
+    },
+    "AuditQueryReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/AuditQueryData"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "AuditQueryReply",
+      "type": "object"
+    },
+    "AuditQueryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["list", "export"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "filters": {
+          "$ref": "#/$defs/AuditQueryFilters"
+        },
+        "page": {
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "page_size": {
+          "maximum": 50000,
+          "minimum": 1,
+          "title": "Page Size",
+          "type": "integer"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditQueryAfter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["schema", "operation", "filters", "page", "page_size", "after"],
+      "title": "AuditQueryRequest",
+      "type": "object"
+    },
+    "JSONValue": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JSONValue"
+          },
+          "type": "object"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JSONValue"
+          },
+          "type": "array"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/AuditQueryRequest"
+    },
+    {
+      "$ref": "#/$defs/AuditQueryReply"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-audit-query/v1",
+  "title": "AAP audit query protocol"
+}

@@ -1,0 +1,403 @@
+{
+  "$defs": {
+    "E2EProjectCleanupGuard": {
+      "additionalProperties": false,
+      "description": "Closed result of the Workspace video-retirement preflight.",
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-e2e-fixtures/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "const": "video_execution_not_retired",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        }
+      },
+      "required": ["schema", "ok", "reason"],
+      "title": "E2EProjectCleanupGuard",
+      "type": "object"
+    },
+    "E2EProjectRecord": {
+      "additionalProperties": false,
+      "description": "Exact input fields passed to the fixed E2E Project creator.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type_label": {
+          "title": "Type Label",
+          "type": "string"
+        },
+        "type_key": {
+          "title": "Type Key",
+          "type": "string"
+        },
+        "data_type": {
+          "title": "Data Type",
+          "type": "string"
+        },
+        "owner_id": {
+          "format": "uuid",
+          "title": "Owner Id",
+          "type": "string"
+        },
+        "tool_bindings": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Tool Bindings",
+          "type": "object"
+        },
+        "scene_mode": {
+          "title": "Scene Mode",
+          "type": "boolean"
+        },
+        "ai_enabled": {
+          "title": "Ai Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "display_id",
+        "name",
+        "type_label",
+        "type_key",
+        "data_type",
+        "owner_id",
+        "tool_bindings",
+        "scene_mode",
+        "ai_enabled"
+      ],
+      "title": "E2EProjectRecord",
+      "type": "object"
+    },
+    "E2ETemplateRecord": {
+      "additionalProperties": false,
+      "description": "Exact input fields passed to the fixed E2E Template creator.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "type_label": {
+          "title": "Type Label",
+          "type": "string"
+        },
+        "type_key": {
+          "title": "Type Key",
+          "type": "string"
+        },
+        "data_type": {
+          "title": "Data Type",
+          "type": "string"
+        },
+        "tool_bindings": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Tool Bindings",
+          "type": "object"
+        },
+        "label_config": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Label Config",
+          "type": "object"
+        },
+        "scope": {
+          "title": "Scope",
+          "type": "string"
+        },
+        "created_by": {
+          "format": "uuid",
+          "title": "Created By",
+          "type": "string"
+        },
+        "source_project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Project Id"
+        }
+      },
+      "required": [
+        "id",
+        "display_id",
+        "name",
+        "description",
+        "type_label",
+        "type_key",
+        "data_type",
+        "tool_bindings",
+        "label_config",
+        "scope",
+        "created_by",
+        "source_project_id"
+      ],
+      "title": "E2ETemplateRecord",
+      "type": "object"
+    },
+    "JsonValue": {}
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/E2EProjectRecord"
+    },
+    {
+      "$ref": "#/$defs/E2ETemplateRecord"
+    },
+    {
+      "$ref": "#/$defs/E2EProjectCleanupGuard"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-e2e-fixtures/v1",
+  "$comment": "Fixed capabilities for existing guarded E2E fixtures. These functions accept no arbitrary SQL, table, or predicate selectors.",
+  "x-native-capabilities": {
+    "protocol": "aap-workspace-e2e-fixtures/v1",
+    "postgres_schema": "aap_workspace_fixture_v1",
+    "functions": [
+      {
+        "name": "create_project",
+        "signature": "aap_workspace_fixture_v1.create_project(jsonb)",
+        "arguments": [
+          {
+            "name": "p_project",
+            "postgres_type": "jsonb",
+            "json_schema": {
+              "$defs": {
+                "JsonValue": {}
+              },
+              "additionalProperties": false,
+              "description": "Exact input fields passed to the fixed E2E Project creator.",
+              "properties": {
+                "id": {
+                  "format": "uuid",
+                  "title": "Id",
+                  "type": "string"
+                },
+                "display_id": {
+                  "title": "Display Id",
+                  "type": "string"
+                },
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "type_label": {
+                  "title": "Type Label",
+                  "type": "string"
+                },
+                "type_key": {
+                  "title": "Type Key",
+                  "type": "string"
+                },
+                "data_type": {
+                  "title": "Data Type",
+                  "type": "string"
+                },
+                "owner_id": {
+                  "format": "uuid",
+                  "title": "Owner Id",
+                  "type": "string"
+                },
+                "tool_bindings": {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "title": "Tool Bindings",
+                  "type": "object"
+                },
+                "scene_mode": {
+                  "title": "Scene Mode",
+                  "type": "boolean"
+                },
+                "ai_enabled": {
+                  "title": "Ai Enabled",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "display_id",
+                "name",
+                "type_label",
+                "type_key",
+                "data_type",
+                "owner_id",
+                "tool_bindings",
+                "scene_mode",
+                "ai_enabled"
+              ],
+              "title": "E2EProjectRecord",
+              "type": "object"
+            }
+          }
+        ],
+        "result_postgres_type": "uuid",
+        "result_json_schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "transaction_semantics": "Insert one Project with the exact supplied closed fields and the API ORM's remaining defaults. The caller owns fixture scoping, authorization, the transaction, and commit; native constraints propagate."
+      },
+      {
+        "name": "create_templates",
+        "signature": "aap_workspace_fixture_v1.create_templates(jsonb)",
+        "arguments": [
+          {
+            "name": "p_templates",
+            "postgres_type": "jsonb",
+            "json_schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/E2ETemplateRecord"
+              }
+            }
+          }
+        ],
+        "result_postgres_type": "integer",
+        "result_json_schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "transaction_semantics": "Insert only the supplied closed ProjectTemplate records with the API ORM's remaining defaults. The caller owns fixture scoping, authorization, the transaction, and commit; native constraints propagate."
+      },
+      {
+        "name": "guard_project_cleanup",
+        "signature": "aap_workspace_fixture_v1.guard_project_cleanup(uuid[])",
+        "arguments": [
+          {
+            "name": "p_project_ids",
+            "postgres_type": "uuid[]",
+            "json_schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "result_model": "E2EProjectCleanupGuard",
+        "result_schema_ref": "#/$defs/E2EProjectCleanupGuard",
+        "transaction_semantics": "Lock existing Projects in UUID order with NOWAIT, then call the existing video-deletion guard for each before the caller removes any child rows. Return only the closed video_execution_not_retired denial. Never manufacture retirement proof. The caller owns rollback and commit; lock and serialization errors propagate."
+      },
+      {
+        "name": "delete_projects",
+        "signature": "aap_workspace_fixture_v1.delete_projects(uuid[])",
+        "arguments": [
+          {
+            "name": "p_project_ids",
+            "postgres_type": "uuid[]",
+            "json_schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "result_postgres_type": "integer",
+        "result_json_schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "transaction_semantics": "Recheck the existing video-deletion guard before deleting only the exact supplied Project IDs. Raise SQLSTATE 23514 when video execution is not retired. The caller owns child cleanup, rollback, and commit."
+      },
+      {
+        "name": "delete_templates",
+        "signature": "aap_workspace_fixture_v1.delete_templates(boolean, text[])",
+        "arguments": [
+          {
+            "name": "p_shared",
+            "postgres_type": "boolean",
+            "json_schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "p_display_ids",
+            "postgres_type": "text[]",
+            "json_schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "result_postgres_type": "integer",
+        "result_json_schema": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "transaction_semantics": "Delete either the fixed shared E2E template prefix or the exact supplied display IDs. No arbitrary predicate is accepted. The caller owns cleanup ordering, rollback, and commit."
+      }
+    ],
+    "authorization_boundary": "The fixed fixture capabilities require a database name ending in _test or _e2e and add no actor or role authorization.",
+    "transaction_boundary": "The caller owns the active transaction, fixture cleanup ordering, commit, and rollback. These functions never commit or retry."
+  },
+  "x-postgresql-relations": {
+    "aap_workspace_fixture_v1.templates": {
+      "columns": ["id", "display_id"],
+      "row_key": ["id"],
+      "read_only": true,
+      "security_barrier": true,
+      "database_guard": "database name ends in _test or _e2e"
+    }
+  }
+}
