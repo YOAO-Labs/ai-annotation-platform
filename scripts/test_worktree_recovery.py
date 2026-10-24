@@ -181,6 +181,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         from app.db.models.dataset_source import DatasetSourcePreview
         from app.db.models.original_cache import OriginalCacheEntry
         from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+        from app.db.models.managed_original_creation import ManagedOriginalCreation
         from app.db.models.prediction_input import PredictionInputLease
         from app.db.models.training_storage_deletion import TrainingStorageDeletion
         from app.db.models.training_dataset import TrainingDatasetVersion
@@ -199,6 +200,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         )
         from app.db.models.project_guide_asset import ProjectGuideAsset
         from app.db.models.audit_archive_output import AuditArchiveOutput
+        from app.db.models.task_original import TaskOriginal
         from app.services.dataset_assets import LEGACY_LOCATION_ID
 
         self.models = SimpleNamespace(
@@ -210,6 +212,8 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             input=PredictionInputLease,
             deletion=TrainingStorageDeletion,
             retirement=ManagedOriginalRetirement,
+            creation=ManagedOriginalCreation,
+            task_original=TaskOriginal,
             version=TrainingDatasetVersion,
             run=TrainingRun,
             training_preview=TrainingPreview,
@@ -594,6 +598,39 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 created_at=comment.created_at,
             )
         ]
+        task_original = SimpleNamespace(
+            id=uuid.UUID(int=41),
+            creation_id=uuid.UUID(int=41),
+            task_id=uuid.UUID(int=42),
+            project_id=project_id,
+            location_id=LEGACY_LOCATION_ID,
+            storage_identity=identity(self.endpoint, self.source["MINIO_BUCKET"]),
+            bucket=self.source["MINIO_BUCKET"],
+            object_key=f"__aap_task_originals__/{uuid.UUID(int=42)}/{uuid.UUID(int=41)}/payload",
+            sha256=hashlib.sha256(b"original").hexdigest(),
+            size_bytes=8,
+            etag='"source-etag"',
+            version_id="source-version",
+            created_at=comment.created_at,
+        )
+        self.rows[TaskOriginal] = [task_original]
+        self.rows[ManagedOriginalCreation] = [
+            SimpleNamespace(
+                id=task_original.creation_id,
+                owner_kind="task",
+                dataset_id=None,
+                project_id=project_id,
+                task_id=task_original.task_id,
+                bucket=self.source["MINIO_BUCKET"],
+                object_key=task_original.object_key,
+                configuration={"endpoint": self.endpoint, "buckets": self.source},
+                receipt={
+                    "ETag": task_original.etag,
+                    "VersionId": task_original.version_id,
+                },
+                status="verified",
+            )
+        ]
         self.db = SimpleNamespace(
             get=AsyncMock(
                 return_value=SimpleNamespace(
@@ -616,9 +653,11 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
 
         references = deepcopy(self.rows[self.models.guide_reference])
         publications = deepcopy(self.rows[self.models.raster_publication])
+        creations = deepcopy(self.rows[self.models.creation])
         ledger = await remap_storage(self.db, self.source, self.target, self.endpoint)
         self.assertEqual(self.rows[self.models.guide_reference], references)
         self.assertEqual(self.rows[self.models.raster_publication], publications)
+        self.assertEqual(self.rows[self.models.creation], creations)
         self.assertEqual(
             {entry["table"] for entry in ledger},
             {
@@ -640,6 +679,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 "comment_attachment_uploads",
                 "guide_asset_uploads",
                 "raster_mask_objects",
+                "task_originals",
                 "audit_archive_outputs",
             },
         )
@@ -654,6 +694,9 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         )
         for rows in self.rows.values():
             for row in rows:
+                if row in self.rows[self.models.creation]:
+                    self.assertEqual(row.bucket, self.source["MINIO_BUCKET"])
+                    continue
                 if hasattr(row, "bucket"):
                     self.assertIn(row.bucket, self.target.values())
                 if getattr(row, "storage_ref", None) is not None:
@@ -1126,6 +1169,110 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             digest(protected_row("project_guide_assets", rows["project_guide_assets"])),
             digest([]),
         )
+
+    async def test_invalid_task_original_refuses_before_any_mapping_mutation(self):
+        from worktree_recovery_fixture import digest
+
+        original = deepcopy(self.rows)
+        mutations = (
+            ("bucket", self.source["MINIO_DATASETS_BUCKET"]),
+            ("bucket", "outside-backup"),
+            ("storage_identity", "f" * 64),
+            ("location_id", uuid.UUID(int=99)),
+            ("creation_id", uuid.UUID(int=99)),
+            ("object_key", "recovery/legacy-task.png"),
+            ("task_id", uuid.UUID(int=99)),
+            ("sha256", "invalid"),
+            ("size_bytes", True),
+            ("etag", ""),
+            ("version_id", "null"),
+        )
+        for field, value in mutations:
+            self.rows = deepcopy(original)
+            setattr(self.rows[self.models.task_original][0], field, value)
+            before = digest(
+                {
+                    model.__tablename__: [vars(row) for row in rows]
+                    for model, rows in self.rows.items()
+                }
+            )
+            with self.subTest(field=field), self.assertRaises(WorktreeError):
+                await remap_storage(self.db, self.source, self.target, self.endpoint)
+            self.assertEqual(
+                before,
+                digest(
+                    {
+                        model.__tablename__: [vars(row) for row in rows]
+                        for model, rows in self.rows.items()
+                    }
+                ),
+            )
+            self.db.execute.assert_not_awaited()
+            self.db.flush.assert_not_awaited()
+
+    async def test_task_original_mapping_keeps_an_older_historical_creation_location(
+        self,
+    ):
+        creation = self.rows[self.models.creation][0]
+        creation.bucket = "historical-annotations-before-an-earlier-restore"
+        before = deepcopy(creation)
+        ledger = await remap_storage(self.db, self.source, self.target, self.endpoint)
+        self.assertEqual(creation, before)
+        owner = self.rows[self.models.task_original][0]
+        self.assertEqual(owner.bucket, self.target["MINIO_BUCKET"])
+        self.assertEqual(owner.storage_identity, identity(self.endpoint, owner.bucket))
+        self.assertEqual(
+            {entry["field"] for entry in ledger if entry["table"] == "task_originals"},
+            {"bucket", "storage_identity"},
+        )
+
+    async def test_task_original_wrong_purpose_with_valid_identity_is_not_remapped(
+        self,
+    ):
+        row = self.rows[self.models.task_original][0]
+        row.bucket = self.source["MINIO_DATASETS_BUCKET"]
+        row.storage_identity = identity(self.endpoint, row.bucket)
+        before = deepcopy(self.rows)
+        with self.assertRaisesRegex(WorktreeError, "annotations"):
+            await remap_storage(self.db, self.source, self.target, self.endpoint)
+        self.assertEqual(self.rows, before)
+        self.db.execute.assert_not_awaited()
+        self.db.flush.assert_not_awaited()
+
+    def test_task_original_mapping_protects_receipt_and_all_historical_creation_facts(
+        self,
+    ):
+        from worktree_recovery_fixture import digest, protected_row
+
+        row = vars(self.rows[self.models.task_original][0])
+        before = digest(protected_row("task_originals", row))
+        for field in row:
+            changed = {**row, field: "changed"}
+            after = digest(protected_row("task_originals", changed))
+            with self.subTest(field=field):
+                if field in {"bucket", "storage_identity"}:
+                    self.assertEqual(before, after)
+                else:
+                    self.assertNotEqual(before, after)
+        creation = vars(self.rows[self.models.creation][0])
+        self.assertEqual(
+            protected_row("managed_original_creations", creation), creation
+        )
+        for field in creation:
+            self.assertNotEqual(
+                digest(protected_row("managed_original_creations", creation)),
+                digest(
+                    protected_row(
+                        "managed_original_creations", {**creation, field: "changed"}
+                    )
+                ),
+            )
+        task = {
+            "id": str(row["task_id"]),
+            "original_id": str(row["id"]),
+            "file_path": row["object_key"],
+        }
+        self.assertEqual(protected_row("tasks", task), task)
 
     async def test_unknown_raster_object_refuses_without_partial_mapping(self):
         from worktree_recovery_fixture import digest

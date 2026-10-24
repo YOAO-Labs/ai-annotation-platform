@@ -32,6 +32,7 @@ MAPPED_COLUMNS = {
     "prediction_input_leases": {"bucket", "storage_identity"},
     "training_storage_deletions": {"bucket"},
     "managed_original_retirements": {"bucket", "storage_identity"},
+    "task_originals": {"bucket", "storage_identity"},
 }
 
 
@@ -138,6 +139,212 @@ async def inspect_database(db):
                 .order_by(AsyncJob.id)
             )
         ],
+    }
+
+
+TASK_ORIGINAL_CASES = ("current", "deleted", "unbound", "unfinished")
+
+
+def task_original_identifier(case):
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"aap:recovery-task-original:{case}")
+
+
+def task_original_content():
+    from PIL import Image
+
+    with io.BytesIO() as output, Image.new("RGB", (2, 2), "purple") as image:
+        image.save(output, format="PNG")
+        return output.getvalue()
+
+
+async def seed_task_originals(db, *, actor, project, storage):
+    from app.db.models.task import Task
+    from app.services import managed_original_creation as creations
+    from app.services import task_originals
+
+    raw = task_original_content()
+    for case in TASK_ORIGINAL_CASES:
+        task = Task(
+            id=task_original_identifier(case),
+            project_id=project.id,
+            display_id="T-REC-ORIGINAL-" + case.upper(),
+            file_name=case + ".png",
+            file_path="recovery/unallocated-task-original.png",
+            file_type="image",
+            status="uploading",
+        )
+        db.add(task)
+        await db.flush()
+        allocation = await creations.allocate_task(
+            db,
+            project_id=project.id,
+            task_id=task.id,
+            logical_path=task.file_name,
+            max_bytes=len(raw),
+            requested_by=actor.id,
+            content_type="image/png",
+        )
+        task.file_path = allocation["object_key"]
+        storage.client.put_object(
+            Bucket=allocation["staging_bucket"],
+            Key=allocation["staging_key"],
+            Body=raw,
+            ContentType="image/png",
+        )
+        if case != "unfinished":
+            created = await creations.complete_direct(db, allocation)
+            if case in ("current", "deleted"):
+                await task_originals.publish(db, task, allocation, created)
+                task.status = "pending"
+                await db.flush()
+        if case != "current":
+            await db.delete(task)
+            await db.flush()
+
+    # A historical same-content key remains unknown, even beside verified uploads.
+    unknown_key = "recovery/unknown-task-original.png"
+    storage.client.put_object(
+        Bucket=storage.bucket, Key=unknown_key, Body=raw, ContentType="image/png"
+    )
+    db.add(
+        Task(
+            id=task_original_identifier("legacy"),
+            project_id=project.id,
+            display_id="T-REC-ORIGINAL-LEGACY",
+            file_name="unknown-task-original.png",
+            file_path=unknown_key,
+            file_type="image",
+            status="pending",
+        )
+    )
+    await db.flush()
+
+
+async def verify_task_originals(db, *, storage):
+    from sqlalchemy import select
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+    from app.db.models.task import Task
+    from app.db.models.task_original import TaskOriginal
+    from app.services import (
+        managed_original_creation as creations,
+        managed_original_writer,
+    )
+    from app.services import task_originals
+    from app.services.content_snapshot import ContentError
+
+    raw = task_original_content()
+    source_rows = list(
+        await db.scalars(
+            select(ManagedOriginalCreation).where(
+                ManagedOriginalCreation.owner_kind == "task"
+            )
+        )
+    )
+    assert len(source_rows) == len(TASK_ORIGINAL_CASES)
+    by_task = {row.task_id: row for row in source_rows}
+    assert set(by_task) == {
+        task_original_identifier(case) for case in TASK_ORIGINAL_CASES
+    }
+    owners = list(await db.scalars(select(TaskOriginal)))
+    assert len(owners) == 2
+    assert {row.task_id for row in owners} == {
+        task_original_identifier(case) for case in ("current", "deleted")
+    }
+    for row in owners:
+        owner = task_originals.resolve(
+            row, endpoint_url=storage.client.meta.endpoint_url
+        )
+        original = by_task[row.task_id]
+        assert owner.bucket == storage.bucket and original.bucket != storage.bucket
+        assert row.id == row.creation_id == original.id
+        assert row.project_id == original.project_id
+        assert row.object_key == original.object_key
+        assert row.sha256 == original.sha256 == hashlib.sha256(raw).hexdigest()
+        assert row.size_bytes == original.size_bytes == len(raw)
+        assert row.etag == original.etag and row.version_id == original.version_id
+        assert row.created_at == original.completed_at
+        # Target observations can differ from historical ETag/version receipts.
+        observed = managed_original_writer.inspect_staging(
+            storage.client,
+            owner.bucket,
+            owner.object_key,
+            max_bytes=len(raw),
+            timeout_seconds=60,
+        )
+        assert observed.sha256 == row.sha256 and observed.size_bytes == row.size_bytes
+    for case in TASK_ORIGINAL_CASES:
+        task_id = task_original_identifier(case)
+        original = by_task[task_id]
+        assert original.owner_kind == "task" and original.dataset_id is None
+        assert original.status == ("allocated" if case == "unfinished" else "verified")
+        assert original.bucket != storage.bucket
+        assert original.staging_bucket != storage.import_bucket
+        task = await db.get(Task, task_id)
+        if case == "current":
+            assert task is not None and task.status == "pending"
+            assert (
+                task.original_id == original.id
+                and task.file_path == original.object_key
+            )
+        else:
+            assert task is None
+        if case in ("unbound", "unfinished"):
+            assert all(row.creation_id != original.id for row in owners)
+        if case == "unfinished":
+            assert original.receipt is None and original.verification is None
+            assert original.operation_id is None and original.claimed_at is None
+        else:
+            assert original.receipt is not None and original.verification is not None
+            assert original.settled_at is not None
+        staged = managed_original_writer.inspect_staging(
+            storage.client,
+            storage.import_bucket,
+            original.staging_key,
+            max_bytes=len(raw),
+            timeout_seconds=60,
+        )
+        assert staged.sha256 == hashlib.sha256(raw).hexdigest()
+        if case == "unbound":
+            unbound = managed_original_writer.inspect_staging(
+                storage.client,
+                storage.bucket,
+                original.object_key,
+                max_bytes=len(raw),
+                timeout_seconds=60,
+            )
+            assert unbound.sha256 == original.sha256
+        try:
+            await creations.for_task(
+                db, task_id=task_id, object_key=original.object_key
+            )
+        except ContentError as exc:
+            assert exc.code == "managed_original_configuration_changed"
+        else:
+            raise AssertionError("Restoration cannot adopt a historical Task creation")
+    legacy = await db.get(Task, task_original_identifier("legacy"))
+    assert (
+        legacy is not None
+        and legacy.original_id is None
+        and legacy.dataset_item_id is None
+    )
+    assert legacy.file_path == "recovery/unknown-task-original.png"
+    assert all(row.task_id != legacy.id for row in owners)
+    unknown = managed_original_writer.inspect_staging(
+        storage.client,
+        storage.bucket,
+        legacy.file_path,
+        max_bytes=len(raw),
+        timeout_seconds=60,
+    )
+    assert unknown.sha256 == hashlib.sha256(raw).hexdigest()
+    return {
+        "pinned_task_originals": len(owners),
+        "verified_task_original_files": len(owners),
+        "deleted_task_original_owners": 1,
+        "unbound_verified_task_creations": 1,
+        "unfinished_task_creations": 1,
+        "preserved_task_upload_staging_objects": len(source_rows),
+        "unowned_legacy_task_originals": 1,
     }
 
 
@@ -611,6 +818,7 @@ async def seed(db, external: Path):
         await seed_raster_objects(
             db, actor=actor, project=project, storage=storage, now=now
         )
+        await seed_task_originals(db, actor=actor, project=project, storage=storage)
         from worktree_recovery_audit_archives import seed_audit_archives
 
         await seed_audit_archives(db, storage=storage, now=now)
@@ -712,13 +920,14 @@ async def verify_application(db, external: Path):
     retirements = list(await db.scalars(select(ManagedOriginalRetirement)))
     assert len(retirements) == 2
     creation_rows = list(await db.scalars(select(ManagedOriginalCreation)))
-    assert len(creation_rows) == 2
-    assert all(row.status == "verified" for row in creation_rows)
+    dataset_creations = [row for row in creation_rows if row.owner_kind == "dataset"]
+    assert len(dataset_creations) == 2
+    assert all(row.status == "verified" for row in dataset_creations)
     # Restoration maps physical locations, never historical successful writes.
-    assert all(row.bucket != storage.datasets_bucket for row in creation_rows)
+    assert all(row.bucket != storage.datasets_bucket for row in dataset_creations)
     from app.services import managed_original_creation as creations
 
-    for creation in creation_rows:
+    for creation in dataset_creations:
         try:
             await creations.for_key(
                 db,
@@ -729,6 +938,7 @@ async def verify_application(db, external: Path):
             assert exc.code == "managed_original_configuration_changed"
         else:
             raise AssertionError("Source creation cannot be adopted in target context")
+    task_originals = await verify_task_originals(db, storage=storage)
     assert sum(row.creation_id is not None for row in retirements) == 1
     assert {row.creation_id for row in retirements if row.creation_id} <= {
         row.id for row in creation_rows
@@ -1003,6 +1213,7 @@ async def verify_application(db, external: Path):
         **comment_attachments,
         **guide_assets,
         **raster_objects,
+        **task_originals,
         **audit_archives,
         "pinned_training_versions": ready_count + partial_count,
         "pinned_training_deletions": deletion_count,

@@ -71,6 +71,7 @@ async def remap_storage(
     from app.db.models.comment_attachment_upload import CommentAttachmentUpload
     from app.db.models.guide_asset_upload import GuideAssetUpload
     from app.db.models.raster_mask_object import RasterMaskObject
+    from app.db.models.task_original import TaskOriginal
     from app.services import avatar_storage
     from app.services import export_storage
     from app.services import bug_attachment_storage
@@ -78,6 +79,7 @@ async def remap_storage(
     from app.services import comment_attachment_storage
     from app.services import guide_asset_storage
     from app.services import raster_object_storage
+    from app.services import task_originals
     from app.services import (
         training_dataset_storage,
         training_run_storage,
@@ -364,6 +366,25 @@ async def remap_storage(
                 "storage_identity": identity(endpoint_url, bucket),
             },
             AuditArchiveOutput.__tablename__,
+            str(row.id),
+        )
+    for row in await db.scalars(select(TaskOriginal)):
+        try:
+            owner = task_originals.resolve(row, endpoint_url=endpoint_url)
+        except ValueError:
+            raise WorktreeError("Task原件含未知归属或内容回执") from None
+        if (
+            owner.location_id != LEGACY_LOCATION_ID
+            or owner.bucket != source["MINIO_BUCKET"]
+            or owner.storage_identity != identity(endpoint_url, source["MINIO_BUCKET"])
+        ):
+            raise WorktreeError("Task原件归属与备份annotations用途不一致")
+        change(row, "bucket", target["MINIO_BUCKET"], "task_originals", str(row.id))
+        change(
+            row,
+            "storage_identity",
+            identity(endpoint_url, target["MINIO_BUCKET"]),
+            "task_originals",
             str(row.id),
         )
     for row in await db.scalars(select(ManagedOriginalRetirement)):
