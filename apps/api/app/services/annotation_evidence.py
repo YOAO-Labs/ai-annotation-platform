@@ -1,52 +1,9 @@
-"""Task contributor evidence, review-round snapshots and first-review facts.
-
-Task workflows need durable records of who contributed annotation-phase work,
-who is frozen into the current review round, and who receives first-review
-attribution. The authorization evidence uses these task fields:
-
-* ``Task.annotation_contributor_ids`` — accumulated annotation-phase actors.
-  ``None`` means completeness is **unknown** (legacy rows created before the
-  recording binary, or a rolled-back recording interval).  ``[]`` means a
-  known-empty set for a task created by the recording binary.  Any other list
-  is the accumulated actor set.
-* ``Task.review_contributor_ids`` — the contributor set frozen for the current
-  ``review_round_id`` at submit/skip/batch-send/video completion.
-* ``Task.review_submitter_id`` — the actor who actually submitted that round.
-
-Workflow snapshots and first-review facts retain audit/fallback attribution.
-Authorization uses current-round evidence, not historical performance facts.
-
-Unknown is sticky.  A later edit on a legacy task whose accumulator is ``NULL``
-must not narrow it to a known set containing only the new actor, because the
-missing history would be silently treated as complete.  Malformed evidence
-(any non-list value, or a list containing a non-canonical user id) is treated
-as unknown too, never silently dropped.
-
-Locking policy
---------------
-
-Producers must call :func:`record_annotation_actor` (or
-:func:`record_annotation_actors_for_tasks`) **before** they take an Annotation
-or SceneTrack row lock, because the existing writers already order
-``Task -> Annotation``; a failed transaction rolls the evidence update back with
-the mutation that failed.  Where a producer instead records after the mutation,
-the task must already be locked first (for example the single-task
-PATCH/DELETE endpoints).
-
-Some producers are inherently mixed-order — an AAP import envelope, an
-interpolation range, a resume, or a tracker accept cannot lock every task before
-the resource rows without a repository-wide rewrite.  Those boundaries pass
-``nowait=True``: the task row is acquired with ``FOR UPDATE NOWAIT`` and a busy
-lock rolls the transaction back and surfaces a retryable 409 instead of
-introducing a blocking wait cycle.  See
-``app/services/user_lifecycle.py`` for the same nonblocking conflict pattern.
-"""
+"""Read task evidence and route its durable writes through Labeling's owner."""
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
-from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -54,26 +11,46 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_audit.read_relation_postgres import audit_events
+from aap_labeling.review_evidence_policy import (
+    ReviewActorIneligible,
+    ReviewEvidenceUnknown,
+    assert_review_evidence_current as _assert_review_evidence_current,
+    canonical_actor_id,
+    canonical_actor_set,
+    capture_first_review_contributor_snapshot,
+    clear_review_contributor_evidence,
+    current_review_evidence,
+    ensure_review_round,
+    freeze_review_contributor_evidence,
+    known_annotation_contributor_ids,
+    record_first_review_fact,
+    start_review_round,
+)
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.services.audit_read_relations import execute_audit_relation_read
 
-# Retryable PostgreSQL lock/transaction conflicts: lock_not_available (NOWAIT),
-# deadlock_detected, serialization_failure.
 _BUSY_SQLSTATES = {"55P03", "40P01", "40001"}
-
-
-def start_review_round(task: Task) -> uuid.UUID:
-    """Create the stable identifier shared by one submit and its review."""
-    task.review_round_id = uuid.uuid4()
-    return task.review_round_id
-
-
-def ensure_review_round(task: Task) -> uuid.UUID:
-    """Return a round id, assigning one for legacy tasks when needed."""
-    if task.review_round_id is None:
-        task.review_round_id = uuid.uuid4()
-    return task.review_round_id
+__all__ = [
+    "assert_review_evidence_current",
+    "canonical_actor_id",
+    "canonical_actor_set",
+    "capture_first_review_contributor_snapshot",
+    "clear_review_contributor_evidence",
+    "current_review_evidence",
+    "ensure_review_round",
+    "freeze_review_contributor_evidence",
+    "known_annotation_contributor_ids",
+    "lock_tasks_for_evidence",
+    "record_annotation_actor",
+    "record_annotation_actor_for_task",
+    "record_annotation_actors_for_tasks",
+    "record_first_review_fact",
+    "refresh_task_evidence",
+    "review_round_contributor_snapshot",
+    "start_review_round",
+    "task_contributor_snapshot",
+]
 
 
 async def task_contributor_snapshot(
@@ -81,12 +58,7 @@ async def task_contributor_snapshot(
     task: Task,
     extra_user_ids: Iterable[uuid.UUID | None] = (),
 ) -> list[str]:
-    """Return stable annotator contributors for workflow audit evidence.
-
-    The task assignee is retained even when no annotation remains.  Active
-    annotation authors cover collaborative video/scene tasks and imported
-    histories where the task's mutable assignee is no longer sufficient.
-    """
+    """Read the current assignee and surviving annotation authors."""
     ids = {value for value in extra_user_ids if value is not None}
     if task.assignee_id is not None:
         ids.add(task.assignee_id)
@@ -104,26 +76,8 @@ async def task_contributor_snapshot(
     return sorted(str(value) for value in ids)
 
 
-def capture_first_review_contributor_snapshot(
-    task: Task,
-    contributor_ids: Iterable[str],
-) -> None:
-    """Persist the first-round contributors before audit retention can run."""
-
-    if task.first_review_eligible is not True or task.first_reviewed_at is not None:
-        return
-    task.first_review_contributor_ids = sorted(
-        {str(value) for value in contributor_ids if value}
-    )
-
-
 async def review_round_contributor_snapshot(db: AsyncSession, task: Task) -> list[str]:
-    """Load the contributor snapshot captured by this task's submit audit or row.
-
-    Approval happens in a later request, after annotations or assignment may
-    have changed.  Re-reading those mutable rows would credit the wrong
-    people, so a round without a matching submit snapshot stays unknown.
-    """
+    """Read this round's submit evidence or its retention-safe task snapshot."""
     if task.review_round_id is None:
         return []
     row = (
@@ -144,10 +98,6 @@ async def review_round_contributor_snapshot(db: AsyncSession, task: Task) -> lis
     ).scalar_one_or_none()
     values = row.get("contributor_ids") if isinstance(row, dict) else None
     if not isinstance(values, list):
-        # The submit audit is intentionally retained as an audit trail, but it
-        # may already have been archived when a long-running review reaches a
-        # decision. New tasks carry the same snapshot on the task row so the
-        # first-review fact remains attributable after that retention boundary.
         values = (
             task.first_review_contributor_ids
             if task.first_reviewed_at is None
@@ -158,60 +108,27 @@ async def review_round_contributor_snapshot(db: AsyncSession, task: Task) -> lis
     return sorted({str(value) for value in values if value})
 
 
-def record_first_review_fact(
+def assert_review_evidence_current(
     task: Task,
+    actor_id: object,
     *,
-    reviewed_at: datetime,
-    result: str,
-    contributor_ids: Iterable[str],
-) -> bool:
-    """Write the first completed review fact once for eligible new tasks."""
-    if task.first_review_eligible is not True or task.first_reviewed_at is not None:
-        return False
-    task.first_reviewed_at = reviewed_at
-    task.first_review_result = result
-    task.first_review_contributor_ids = sorted(
-        {str(value) for value in contributor_ids if value}
-    )
-    return True
-
-
-def canonical_actor_id(value: object) -> str | None:
-    """Return the canonical (lowercase) UUID string for a stored actor id.
-
-    ``None`` means the value is not a usable user id.  Callers treat an invalid
-    element as evidence corruption, not as an actor to skip.
-    """
-    if isinstance(value, uuid.UUID):
-        return str(value)
-    if not isinstance(value, str):
-        return None
+    effective_annotator_id: object | None = None,
+) -> None:
+    """Map pure owner-policy failures to the existing API status and detail."""
     try:
-        return str(uuid.UUID(value))
-    except (ValueError, AttributeError, TypeError):
-        return None
-
-
-def canonical_actor_set(values: object) -> set[str] | None:
-    """Canonicalize a stored accumulator, or ``None`` when it is malformed.
-
-    A non-array, a ``null``/empty element, or an element that is not a UUID makes
-    the whole set unknown.  Evidence is never silently narrowed.
-    """
-    if not isinstance(values, list):
-        return None
-    canonical: set[str] = set()
-    for value in values:
-        parsed = canonical_actor_id(value)
-        if parsed is None:
-            return None
-        canonical.add(parsed)
-    return canonical
-
-
-def known_annotation_contributor_ids(task: Task) -> set[str] | None:
-    """Return the accumulated actor set, or ``None`` when completeness is unknown."""
-    return canonical_actor_set(task.annotation_contributor_ids)
+        _assert_review_evidence_current(
+            task, actor_id, effective_annotator_id=effective_annotator_id
+        )
+    except ReviewEvidenceUnknown:
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "review_contributors_unknown"},
+        ) from None
+    except ReviewActorIneligible:
+        raise HTTPException(
+            status_code=403,
+            detail={"reason": "self_review_denied"},
+        ) from None
 
 
 async def lock_tasks_for_evidence(
@@ -220,27 +137,24 @@ async def lock_tasks_for_evidence(
     *,
     nowait: bool = False,
 ) -> None:
-    """Acquire task row locks in stable id order before resource locks.
-
-    Use ``nowait=True`` at mixed-order boundaries: a busy lock is rolled back and
-    reported as a retryable 409 instead of forming a blocking wait cycle.
-    """
+    """Lock task rows in stable order before mixed-order annotation writes."""
     ids = sorted({task_id for task_id in task_ids if task_id is not None}, key=str)
     if not ids:
         return
-    stmt = (
+    statement = (
         select(Task.id)
         .where(Task.id.in_(ids))
         .order_by(Task.id)
         .with_for_update(nowait=nowait)
     )
     try:
-        # An autoflush UPDATE can wait before the NOWAIT SELECT ever executes.
-        # Acquire the locks before flushing any pending resource changes.
         with db.no_autoflush:
-            await db.execute(stmt)
+            await db.execute(statement)
     except DBAPIError as exc:
-        if getattr(exc.orig, "sqlstate", None) in _BUSY_SQLSTATES:
+        sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
+            exc.orig, "pgcode", None
+        )
+        if sqlstate in _BUSY_SQLSTATES:
             await db.rollback()
             raise HTTPException(
                 status_code=409,
@@ -255,23 +169,19 @@ async def lock_tasks_for_evidence(
 async def refresh_task_evidence(
     db: AsyncSession, task: Task, *, nowait: bool = False
 ) -> None:
-    """Lock the task row and refresh the evidence-relevant attributes.
-
-    Callers that must freeze/clear evidence under the same task lock as a
-    workflow transition use this to avoid trusting a stale in-memory row.
-    Pending session changes are flushed first: ``Session.refresh`` expires the
-    target attributes before its autoflush and would otherwise discard them.
-
-    At mixed-order boundaries acquire NOWAIT before autoflush, then reuse the
-    same flush/refresh path while holding the lock. This preserves pending
-    same-transaction contributions without a second evidence merge algorithm.
-    """
+    """Lock and refresh command scope before the Native owner rechecks it."""
     if nowait:
         await lock_tasks_for_evidence(db, [task.id], nowait=True)
     await db.flush()
     await db.refresh(
         task,
-        ["annotation_contributor_ids", "status"],
+        [
+            "project_id",
+            "batch_id",
+            "status",
+            "review_round_id",
+            "annotation_contributor_ids",
+        ],
         with_for_update=True,
     )
 
@@ -284,42 +194,48 @@ async def record_annotation_actor(
     lock: bool = True,
     nowait: bool = False,
 ) -> bool:
-    """Accumulate one annotation-phase actor on ``task``.
-
-    Returns ``True`` when the stored accumulator changed.  ``actor_id`` is the
-    acting user, not the original ``Annotation.user_id`` of a mutated row.
-
-    With ``lock`` the task row is locked and both the accumulator and the
-    workflow phase are re-read under that lock.  The default blocking path
-    flushes pending changes before the refresh because ``Session.refresh``
-    expires the target attributes before its autoflush and would otherwise
-    discard an earlier accumulator addition from the same transaction.
-    ``nowait=True`` is for mixed-order boundaries and reports a busy lock as a
-    retryable 409.
-
-    No-op for a ``None``/malformed actor, a ``NULL`` (unknown) or malformed
-    accumulator: unknown evidence stays unknown.
-
-    A write while the fresh locked phase is ``review`` is a review-phase
-    adjustment (the annotation endpoints only admit reviewers and privileged
-    managers in that state), so it must not turn the reviewer into an
-    annotation author.
-    """
+    """Persist one actor through Labeling; ``lock=False`` requires a held task lock."""
     actor = canonical_actor_id(actor_id)
     if actor is None:
         return False
     if lock:
+        from app.services.identity_account_lock_data import IdentityAccountLockData
+
+        try:
+            if nowait:
+                with db.no_autoflush:
+                    await IdentityAccountLockData(db).lock_accounts(
+                        [uuid.UUID(actor)], mode="share", nowait=True
+                    )
+            else:
+                await IdentityAccountLockData(db).lock_accounts(
+                    [uuid.UUID(actor)], mode="share", nowait=False
+                )
+        except DBAPIError as exc:
+            sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
+                exc.orig, "pgcode", None
+            )
+            if sqlstate in _BUSY_SQLSTATES:
+                await db.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "reason": "task_evidence_busy",
+                        "message": "task is being updated; refresh and retry",
+                    },
+                ) from exc
+            raise
+        # Mixed-order producers acquire both locks without flushing first.
         await refresh_task_evidence(db, task, nowait=nowait)
-    if task.status == "review":
-        return False
-    current = known_annotation_contributor_ids(task)
-    if current is None:
-        return False
-    if actor in current:
-        return False
-    current.add(actor)
-    task.annotation_contributor_ids = sorted(current)
-    return True
+    from app.services.labeling_tasks import LabelingTaskService
+    from app.application.task_workflow_errors import TaskWorkflowError
+
+    try:
+        return await LabelingTaskService(db).record_annotation_actor(
+            task, uuid.UUID(actor)
+        )
+    except TaskWorkflowError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 async def record_annotation_actor_for_task(
@@ -329,14 +245,13 @@ async def record_annotation_actor_for_task(
     *,
     nowait: bool = False,
 ) -> bool:
-    """Accumulate ``actor_id`` on a task addressed by id, locking it first."""
     if canonical_actor_id(actor_id) is None:
         return False
     with db.no_autoflush:
         task = await db.get(Task, task_id)
     if task is None:
         return False
-    return await record_annotation_actor(db, task, actor_id, lock=True, nowait=nowait)
+    return await record_annotation_actor(db, task, actor_id, nowait=nowait)
 
 
 async def record_annotation_actors_for_tasks(
@@ -346,12 +261,6 @@ async def record_annotation_actors_for_tasks(
     *,
     nowait: bool = False,
 ) -> set[uuid.UUID]:
-    """Accumulate one actor across distinct tasks in stable id order.
-
-    Sorting keeps the per-task lock acquisition order deterministic.  Use
-    ``nowait=True`` at mixed-order boundaries; a busy task is reported as a
-    retryable 409 with the transaction rolled back.
-    """
     ids = sorted(set(task_ids), key=str)
     if nowait:
         await lock_tasks_for_evidence(db, ids, nowait=True)
@@ -360,116 +269,3 @@ async def record_annotation_actors_for_tasks(
         await record_annotation_actor_for_task(db, task_id, actor_id, nowait=nowait)
         touched.add(task_id)
     return touched
-
-
-def freeze_review_contributor_evidence(
-    task: Task,
-    *,
-    submitter_id: uuid.UUID | None,
-    contributor_ids: Iterable[str] = (),
-) -> list[str] | None:
-    """Freeze the current round's contributor evidence on the task row.
-
-    The frozen set is the accumulated annotation contributors plus the surviving
-    annotation authors, the effective annotation assignee and the actual
-    submitter.  Returns the frozen list, or ``None`` when the accumulator is
-    unknown — a known review set is never manufactured from an unknown
-    accumulator.  Any malformed freeze input makes the round evidence unknown
-    rather than silently dropping that actor.  ``review_submitter_id`` is
-    recorded only when it is a canonical user id.
-    """
-    submitter = canonical_actor_id(submitter_id)
-    task.review_submitter_id = submitter
-    if submitter_id is not None and submitter is None:
-        task.review_contributor_ids = None
-        return None
-    accumulator = known_annotation_contributor_ids(task)
-    if accumulator is None:
-        task.review_contributor_ids = None
-        return None
-    frozen = set(accumulator)
-    for value in contributor_ids:
-        parsed = canonical_actor_id(value)
-        if parsed is None:
-            task.review_contributor_ids = None
-            return None
-        frozen.add(parsed)
-    if submitter is not None:
-        frozen.add(submitter)
-    task.review_contributor_ids = sorted(frozen)
-    return task.review_contributor_ids
-
-
-def clear_review_contributor_evidence(task: Task) -> None:
-    """Invalidate the current round's frozen evidence when a task leaves review.
-
-    The annotation contributor accumulator is deliberately retained: an actor
-    who ever contributed stays disqualified for the task even after a reset,
-    reassignment, rejection or reopen.
-    """
-    task.review_contributor_ids = None
-    task.review_submitter_id = None
-
-
-def current_review_evidence(task: Task) -> tuple[list[str], str] | None:
-    """Return ``(frozen_contributors, submitter_id)`` or ``None`` when unknown.
-
-    Unknown covers a missing round, a non-canonical / incomplete contributor
-    array, or a missing submitter.  Authorization callers must treat ``None``
-    as unavailable work, never as an empty contributor set.
-    """
-
-    if task.review_round_id is None:
-        return None
-    # An unknown or malformed annotation accumulator means completeness cannot
-    # be established, even when the frozen set is non-empty.
-    accumulated = known_annotation_contributor_ids(task)
-    if accumulated is None:
-        return None
-    contributors = canonical_actor_set(task.review_contributor_ids)
-    submitter = canonical_actor_id(task.review_submitter_id)
-    if not contributors or submitter is None:
-        return None
-    # The submitter must be part of the frozen set, and the frozen set must
-    # cover every accumulated annotation contributor (frozen superset).
-    if submitter not in contributors or not accumulated.issubset(contributors):
-        return None
-    return sorted(contributors), submitter
-
-
-def assert_review_evidence_current(
-    task: Task,
-    actor_id: object,
-    *,
-    effective_annotator_id: object | None = None,
-) -> None:
-    """Authorize a review write against the current frozen evidence.
-
-    Call this *before* any owner/super-admin privileged return so a manager
-    cannot review work they contributed to.  Unknown or incomplete evidence is
-    a 409; a frozen contributor, the round submitter or the effective annotator
-    is a 403.  Historical performance attribution must keep using
-    ``review_round_contributor_snapshot``; this guard only authorizes.
-    """
-
-    evidence = current_review_evidence(task)
-    if evidence is None:
-        # Missing, non-canonical or incomplete evidence is unavailable work.
-        raise HTTPException(
-            status_code=409,
-            detail={"reason": "review_contributors_unknown"},
-        )
-    contributors, submitter = evidence
-    contributor_set = set(contributors)
-    actor = canonical_actor_id(actor_id)
-    effective_annotator = canonical_actor_id(effective_annotator_id)
-    if (
-        actor is None
-        or actor in contributor_set
-        or actor == submitter
-        or (effective_annotator is not None and actor == effective_annotator)
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail={"reason": "self_review_denied"},
-        )

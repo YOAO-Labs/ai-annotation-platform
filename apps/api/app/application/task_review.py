@@ -15,8 +15,6 @@ from app.db.models.task_batch import TaskBatch
 from app.services import task_access
 from app.services.annotation_evidence import (
     assert_review_evidence_current,
-    clear_review_contributor_evidence,
-    record_first_review_fact,
     review_round_contributor_snapshot,
     task_contributor_snapshot,
 )
@@ -134,7 +132,7 @@ class TaskReviewWorkflow:
                         "reviewer_id": str(effective_reviewer_id),
                     },
                 )
-            review_round_id = self.labeling.claim_review(
+            review_round_id = await self.labeling.claim_review(
                 task, reviewer_id=actor.id, claimed_at=datetime.now(timezone.utc)
             )
             await AuditService.log(
@@ -246,12 +244,13 @@ class TaskReviewWorkflow:
                 )
 
         now = datetime.now(timezone.utc)
-        review_round_id = self.labeling.approve_review(
+        review_round_id = await self.labeling.approve_review(
             task, reviewer_id=actor.id, reviewed_at=now
         )
         contributor_ids = await review_round_contributor_snapshot(self.db, task)
-        record_first_review_fact(
+        await self.labeling.record_first_review_fact(
             task,
+            actor_id=actor.id,
             reviewed_at=now,
             result="approved",
             contributor_ids=contributor_ids,
@@ -327,7 +326,7 @@ class TaskReviewWorkflow:
 
         reason_text = reason.strip() if reason else None
         now = datetime.now(timezone.utc)
-        review_round_id = self.labeling.reject_review(
+        review_round_id = await self.labeling.reject_review(
             task,
             reviewer_id=actor.id,
             reviewed_at=now,
@@ -335,15 +334,16 @@ class TaskReviewWorkflow:
             reason=reason_text,
         )
         contributor_ids = await review_round_contributor_snapshot(self.db, task)
-        record_first_review_fact(
+        await self.labeling.record_first_review_fact(
             task,
+            actor_id=actor.id,
             reviewed_at=now,
             result="rejected",
             contributor_ids=contributor_ids,
         )
         rejected_review_contributor_ids = task.review_contributor_ids
         rejected_review_submitter_id = task.review_submitter_id
-        clear_review_contributor_evidence(task)
+        await self.labeling.clear_review_contributor_evidence(task, actor_id=actor.id)
         await self.db.flush()
         await FeedbackService(self.db).mirror_task_reject(task, reviewer_id=actor.id)
 

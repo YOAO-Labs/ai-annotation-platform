@@ -21,11 +21,7 @@ from app.db.models.mask_qc import MaskQCRun
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.schemas.mask_qc import MaskQCRunRequest
-from app.services.annotation_evidence import (
-    capture_first_review_contributor_snapshot,
-    freeze_review_contributor_evidence,
-    task_contributor_snapshot,
-)
+from app.services.annotation_evidence import task_contributor_snapshot
 from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services.batch import BatchService
@@ -116,9 +112,13 @@ async def _prepare_submission(
             mask_qc_status = mask_qc_run.status
 
     contributor_ids = await task_contributor_snapshot(db, task)
-    capture_first_review_contributor_snapshot(task, contributor_ids)
-    freeze_review_contributor_evidence(
-        task, submitter_id=actor.id, contributor_ids=contributor_ids
+    await labeling.capture_first_review_contributor_snapshot(
+        task, actor_id=actor.id, contributor_ids=contributor_ids
+    )
+    await labeling.freeze_review_contributor_evidence(
+        task,
+        submitter_id=actor.id,
+        contributor_ids=contributor_ids,
     )
     return {
         "review_round_id": review_round_id,

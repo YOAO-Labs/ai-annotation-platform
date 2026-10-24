@@ -98,8 +98,8 @@ from app.services.video_tracking.jobs import (
     save_video_mask_keyframe,
 )
 from app.services.video_collaboration import heartbeat_task_lock_for_legacy_video
+from app.application.task_workflow_errors import TaskWorkflowError
 from app.services.annotation_evidence import (
-    capture_first_review_contributor_snapshot,
     task_contributor_snapshot,
 )
 from app.services.assets_media import media_gateway, media_http_error
@@ -467,6 +467,10 @@ def _raise_quality_error(exc: VideoTrackQualityError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
+def _raise_task_workflow_error(exc: TaskWorkflowError) -> None:
+    raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
 @router.post(
     "/{task_id}/video/segments/{segment_id}:submit",
     response_model=VideoSegmentOut,
@@ -490,14 +494,17 @@ async def submit_video_segment(
         dataset_item_id=task.dataset_item_id,
     )
     was_in_review = task.status == "review"
-    body = await submit_segment(
-        db,
-        ctx,
-        segment_id,
-        current_user,
-        privileged=await _segment_privileged(db, task, current_user),
-        task=task,
-    )
+    try:
+        body = await submit_segment(
+            db,
+            ctx,
+            segment_id,
+            current_user,
+            privileged=await _segment_privileged(db, task, current_user),
+            task=task,
+        )
+    except TaskWorkflowError as exc:
+        _raise_task_workflow_error(exc)
     from app.db.models.dataset import VideoSegment
 
     neighbors = list(
@@ -545,7 +552,14 @@ async def submit_video_segment(
                 task,
                 extra_user_ids=(current_user.id,),
             )
-            capture_first_review_contributor_snapshot(task, contributor_ids)
+            from app.services.labeling_tasks import LabelingTaskService
+
+            try:
+                await LabelingTaskService(db).capture_first_review_contributor_snapshot(
+                    task, actor_id=current_user.id, contributor_ids=contributor_ids
+                )
+            except TaskWorkflowError as exc:
+                _raise_task_workflow_error(exc)
             await AuditService.log(
                 db,
                 actor=current_user,
@@ -605,7 +619,12 @@ async def reopen_video_segment(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    body = await reopen_segment(db, ctx, segment_id, task=task)
+    try:
+        body = await reopen_segment(
+            db, ctx, segment_id, task=task, actor_id=current_user.id
+        )
+    except TaskWorkflowError as exc:
+        _raise_task_workflow_error(exc)
     await mark_boundary_runs_stale(db, segment_id)
     await db.commit()
     return body

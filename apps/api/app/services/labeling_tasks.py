@@ -6,15 +6,37 @@ import json
 from datetime import datetime
 
 from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.util import identity_key
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.sql.selectable import FromClause
 
+from aap_labeling.task_workflow_contract import (
+    TASK_WORKFLOW_PROTOCOL,
+    AcceptRejection,
+    ApproveReview,
+    CaptureFirstReviewSnapshot,
+    ClaimReview,
+    ClearReviewEvidence,
+    CompleteVideoReview,
+    FreezeReviewEvidence,
+    RecordAnnotationActor,
+    RecordFirstReviewFact,
+    RejectReview,
+    ReopenTask,
+    ReopenVideoSegment,
+    SkipTask,
+    SubmitTask,
+    TaskWorkflowCommand,
+    TaskWorkflowFailure,
+    TaskWorkflowUnavailable,
+    WithdrawTask,
+)
+from aap_labeling.task_workflow_data import LabelingTaskWorkflowData
+from app.application.task_workflow_errors import TaskWorkflowError
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.services import task_access
-from app.services.annotation_evidence import ensure_review_round, start_review_round
 from app.services.labeling_project_counter_data import (
     clear_project_counter_projection,
     register_project_counter_projection,
@@ -60,6 +82,33 @@ class LabelingUploadTarget:
 class LabelingTaskService(LabelingTaskCreationPort):
     """Own task writes, task-linked media, and labeling progress projections."""
 
+    _WORKFLOW_STATE_FIELDS = (
+        "project_id",
+        "batch_id",
+        "status",
+        "assignee_id",
+        "assigned_at",
+        "submitted_at",
+        "reviewer_id",
+        "reviewer_is_override",
+        "reviewer_claimed_at",
+        "reviewed_at",
+        "reject_reason",
+        "reject_reason_type",
+        "skip_reason",
+        "skipped_at",
+        "reopened_count",
+        "last_reopened_at",
+        "review_round_id",
+        "annotation_contributor_ids",
+        "review_contributor_ids",
+        "review_submitter_id",
+        "first_review_eligible",
+        "first_reviewed_at",
+        "first_review_result",
+        "first_review_contributor_ids",
+    )
+
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
@@ -71,118 +120,170 @@ class LabelingTaskService(LabelingTaskCreationPort):
             )
         )
 
-    async def _submission_assignment_start(
-        self, task_id: uuid.UUID, user_id: uuid.UUID, now: datetime
-    ) -> datetime:
-        """Preserve the actor's active work start before releasing its lock."""
-        from app.db.models.task_lock import TaskLock
-
-        started_at = await self.db.scalar(
-            select(TaskLock.created_at).where(
-                TaskLock.task_id == task_id,
-                TaskLock.user_id == user_id,
-                TaskLock.expire_at > now,
-                TaskLock.created_at <= now,
+    async def _task_workflow(self, task: Task, command: TaskWorkflowCommand):
+        async def execute(request_json: str):
+            await self.db.flush()
+            return await self.db.scalar(
+                text(
+                    "SELECT aap_labeling_v1.task_workflow_command("
+                    "CAST(:request AS jsonb))"
+                ),
+                {"request": request_json},
             )
-        )
-        return started_at or now
+
+        try:
+            result = await LabelingTaskWorkflowData(execute).command(command)
+        except DBAPIError as exc:
+            sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
+                exc.orig, "pgcode", None
+            )
+            if sqlstate in {"55P03", "40P01", "40001"}:
+                raise TaskWorkflowError(409, {"reason": "task_busy"}) from exc
+            raise
+        except TaskWorkflowFailure as exc:
+            details = dict(exc.details)
+            if exc.code == "task_not_found":
+                raise TaskWorkflowError(404, "Task not found") from exc
+            if exc.code == "actor_inactive":
+                raise TaskWorkflowError(403, {"reason": "actor_inactive"}) from exc
+            if exc.code == "task_target_changed":
+                raise TaskWorkflowError(409, {"reason": "task_target_changed"}) from exc
+            if exc.code == "task_already_claimed":
+                reviewer_id = details.get("reviewer_id")
+                raise TaskWorkflowError(
+                    409,
+                    {
+                        "reason": "task_already_claimed",
+                        "reviewer_id": str(reviewer_id) if reviewer_id else None,
+                    },
+                ) from exc
+            if exc.code == "task_state_changed":
+                raise TaskWorkflowError(
+                    409, details or {"reason": "task_state_changed"}
+                ) from exc
+            raise TaskWorkflowError(409, {"reason": exc.code, **details}) from exc
+        except TaskWorkflowUnavailable as exc:
+            raise TaskWorkflowError(
+                503, {"reason": "task_workflow_unavailable"}
+            ) from exc
+
+        for field in self._WORKFLOW_STATE_FIELDS:
+            set_committed_value(task, field, getattr(result.task, field))
+        self.db.expire(task, ["updated_at"])
+        return result
+
+    @staticmethod
+    def _scope(task: Task, actor_id: uuid.UUID) -> dict[str, object]:
+        return {
+            "schema": TASK_WORKFLOW_PROTOCOL,
+            "task_id": task.id,
+            "project_id": task.project_id,
+            "batch_id": task.batch_id,
+            "actor_id": actor_id,
+            "expected_status": task.status,
+            "expected_review_round_id": task.review_round_id,
+        }
 
     async def submit_task(
         self, task: Task, *, actor_id: uuid.UUID, now: datetime
     ) -> uuid.UUID:
-        if task.assignee_id is None:
-            task.assignee_id = (
-                await task_access.resolve_effective_task_assignee_id(self.db, task)
-                or actor_id
-            )
-            task.assigned_at = await self._submission_assignment_start(
-                task.id, task.assignee_id, now
-            )
-
-        review_round_id = start_review_round(task)
-        task.status = "review"
-        task.submitted_at = now
-        task.reviewer_id = None
-        task.reviewer_is_override = False
-        task.reviewer_claimed_at = None
-        task.reviewed_at = None
-        task.reject_reason = None
-        task.reject_reason_type = None
+        result = await self._task_workflow(
+            task,
+            SubmitTask(**self._scope(task, actor_id), operation="submit", at=now),
+        )
         await TaskLockService(self.db).release(task.id, actor_id)
-        return review_round_id
+        assert result.task.review_round_id is not None
+        return result.task.review_round_id
+
+    async def complete_video_review(
+        self, task: Task, *, actor_id: uuid.UUID, now: datetime
+    ) -> None:
+        await self._task_workflow(
+            task,
+            CompleteVideoReview(
+                **self._scope(task, actor_id),
+                operation="complete_video_review",
+                at=now,
+            ),
+        )
+
+    async def reopen_video_segment(self, task: Task, *, actor_id: uuid.UUID) -> None:
+        await self._task_workflow(
+            task,
+            ReopenVideoSegment(
+                **self._scope(task, actor_id), operation="reopen_video_segment"
+            ),
+        )
 
     async def skip_task(
         self, task: Task, *, reason: str, actor_id: uuid.UUID, now: datetime
     ) -> tuple[uuid.UUID, uuid.UUID | None]:
-        inherited_assignee_id = await task_access.resolve_effective_task_assignee_id(
-            self.db, task
+        result = await self._task_workflow(
+            task,
+            SkipTask(
+                **self._scope(task, actor_id),
+                operation="skip",
+                at=now,
+                reason=reason,
+            ),
         )
-        if task.assignee_id is None:
-            task.assignee_id = actor_id
-            task.assigned_at = await self._submission_assignment_start(
-                task.id, actor_id, now
-            )
-
-        review_round_id = start_review_round(task)
-        task.status = "review"
-        task.skip_reason = reason
-        task.skipped_at = now
-        task.submitted_at = now
-        task.reviewer_id = None
-        task.reviewer_is_override = False
-        task.reviewer_claimed_at = None
-        task.reviewed_at = None
-        task.reject_reason = None
-        task.reject_reason_type = None
         await TaskLockService(self.db).release(task.id, actor_id)
-        return review_round_id, inherited_assignee_id
+        assert result.task.review_round_id is not None
+        return result.task.review_round_id, result.inherited_assignee_id
 
-    @staticmethod
-    def withdraw_task(task: Task) -> None:
-        task.status = "in_progress"
-        task.submitted_at = None
+    async def withdraw_task(self, task: Task, *, actor_id: uuid.UUID) -> None:
+        await self._task_workflow(
+            task,
+            WithdrawTask(**self._scope(task, actor_id), operation="withdraw"),
+        )
 
-    @staticmethod
-    def reopen_task(task: Task, *, now: datetime) -> uuid.UUID | None:
-        original_reviewer_id = task.reviewer_id
-        task.status = "in_progress"
-        task.reopened_count = (task.reopened_count or 0) + 1
-        task.last_reopened_at = now
-        task.reviewer_id = None
-        task.reviewer_is_override = False
-        task.reviewer_claimed_at = None
-        task.reviewed_at = None
-        task.reject_reason = None
-        task.reject_reason_type = None
-        task.submitted_at = None
-        return original_reviewer_id
+    async def reopen_task(
+        self, task: Task, *, actor_id: uuid.UUID, now: datetime
+    ) -> uuid.UUID | None:
+        result = await self._task_workflow(
+            task,
+            ReopenTask(**self._scope(task, actor_id), operation="reopen", at=now),
+        )
+        return result.original_reviewer_id
 
-    @staticmethod
-    def accept_rejection(task: Task) -> None:
-        task.status = "in_progress"
+    async def accept_rejection(self, task: Task, *, actor_id: uuid.UUID) -> None:
+        await self._task_workflow(
+            task,
+            AcceptRejection(
+                **self._scope(task, actor_id), operation="accept_rejection"
+            ),
+        )
 
-    @staticmethod
-    def claim_review(
-        task: Task, *, reviewer_id: uuid.UUID, claimed_at: datetime
+    async def claim_review(
+        self, task: Task, *, reviewer_id: uuid.UUID, claimed_at: datetime
     ) -> uuid.UUID:
-        task.reviewer_id = reviewer_id
-        task.reviewer_claimed_at = claimed_at
-        return ensure_review_round(task)
+        result = await self._task_workflow(
+            task,
+            ClaimReview(
+                **self._scope(task, reviewer_id),
+                operation="claim_review",
+                at=claimed_at,
+            ),
+        )
+        assert result.task.review_round_id is not None
+        return result.task.review_round_id
 
-    @staticmethod
-    def approve_review(
-        task: Task, *, reviewer_id: uuid.UUID, reviewed_at: datetime
+    async def approve_review(
+        self, task: Task, *, reviewer_id: uuid.UUID, reviewed_at: datetime
     ) -> uuid.UUID:
-        task.status = "completed"
-        task.reviewed_at = reviewed_at
-        if task.reviewer_id is None:
-            task.reviewer_id = reviewer_id
-        if task.reviewer_claimed_at is None:
-            task.reviewer_claimed_at = reviewed_at
-        return ensure_review_round(task)
+        result = await self._task_workflow(
+            task,
+            ApproveReview(
+                **self._scope(task, reviewer_id),
+                operation="approve_review",
+                at=reviewed_at,
+            ),
+        )
+        assert result.task.review_round_id is not None
+        return result.task.review_round_id
 
-    @staticmethod
-    def reject_review(
+    async def reject_review(
+        self,
         task: Task,
         *,
         reviewer_id: uuid.UUID,
@@ -190,15 +291,93 @@ class LabelingTaskService(LabelingTaskCreationPort):
         reason_type: str,
         reason: str | None,
     ) -> uuid.UUID:
-        task.status = "rejected"
-        task.reviewed_at = reviewed_at
-        task.reject_reason_type = reason_type
-        task.reject_reason = reason
-        if task.reviewer_id is None:
-            task.reviewer_id = reviewer_id
-        if task.reviewer_claimed_at is None:
-            task.reviewer_claimed_at = reviewed_at
-        return ensure_review_round(task)
+        result = await self._task_workflow(
+            task,
+            RejectReview(
+                **self._scope(task, reviewer_id),
+                operation="reject_review",
+                at=reviewed_at,
+                reason_type=reason_type,
+                reason=reason,
+            ),
+        )
+        assert result.task.review_round_id is not None
+        return result.task.review_round_id
+
+    async def record_annotation_actor(self, task: Task, actor_id: uuid.UUID) -> bool:
+        result = await self._task_workflow(
+            task,
+            RecordAnnotationActor(
+                **self._scope(task, actor_id), operation="record_annotation_actor"
+            ),
+        )
+        return result.changed
+
+    async def freeze_review_contributor_evidence(
+        self,
+        task: Task,
+        *,
+        submitter_id: uuid.UUID,
+        contributor_ids: list[str],
+    ) -> list[str] | None:
+        result = await self._task_workflow(
+            task,
+            FreezeReviewEvidence(
+                **self._scope(task, submitter_id),
+                operation="freeze_review_evidence",
+                contributor_ids=contributor_ids,
+            ),
+        )
+        value = result.task.review_contributor_ids
+        return value if isinstance(value, list) else None
+
+    async def clear_review_contributor_evidence(
+        self, task: Task, *, actor_id: uuid.UUID
+    ) -> None:
+        await self._task_workflow(
+            task,
+            ClearReviewEvidence(
+                **self._scope(task, actor_id), operation="clear_review_evidence"
+            ),
+        )
+
+    async def capture_first_review_contributor_snapshot(
+        self,
+        task: Task,
+        *,
+        actor_id: uuid.UUID,
+        contributor_ids: list[str],
+    ) -> bool:
+        result = await self._task_workflow(
+            task,
+            CaptureFirstReviewSnapshot(
+                **self._scope(task, actor_id),
+                operation="capture_first_review_snapshot",
+                contributor_ids=contributor_ids,
+            ),
+        )
+        return result.changed
+
+    async def record_first_review_fact(
+        self,
+        task: Task,
+        *,
+        actor_id: uuid.UUID,
+        reviewed_at: datetime,
+        result: str,
+        contributor_ids: list[str],
+    ) -> bool:
+        result_data = await self._task_workflow(
+            task,
+            RecordFirstReviewFact(
+                **self._scope(task, actor_id),
+                operation="record_first_review_fact",
+                at=reviewed_at,
+                result=result,
+                contributor_ids=contributor_ids,
+            ),
+        )
+        return result_data.changed
 
     async def decrement_project_review_count(self, project: Project) -> None:
         count = await self.db.scalar(

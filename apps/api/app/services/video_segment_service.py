@@ -20,8 +20,6 @@ from app.services.video_collaboration import (
     segment_work_bounds,
 )
 from app.services.annotation_evidence import (
-    clear_review_contributor_evidence,
-    freeze_review_contributor_evidence,
     refresh_task_evidence,
     task_contributor_snapshot,
 )
@@ -395,18 +393,16 @@ async def submit_segment(
             ).scalar_one()
         )
         if remaining == 0:
-            if task.status != "review":
-                task.review_round_id = uuid.uuid4()
-            task.status = "review"
-            task.submitted_at = now
-            task.reviewer_id = None
-            task.reviewer_is_override = False
-            task.reviewer_claimed_at = None
-            task.reviewed_at = None
+            from app.services.labeling_tasks import LabelingTaskService
+
+            labeling = LabelingTaskService(db)
+            await labeling.complete_video_review(task, actor_id=user.id, now=now)
             # A2 · freeze the round evidence when the video task enters review.
             contributor_ids = await task_contributor_snapshot(db, task)
-            freeze_review_contributor_evidence(
-                task, submitter_id=user.id, contributor_ids=contributor_ids
+            await labeling.freeze_review_contributor_evidence(
+                task,
+                submitter_id=user.id,
+                contributor_ids=contributor_ids,
             )
     await db.flush()
     return await _segment_out_for_context(db, ctx, row)
@@ -418,6 +414,7 @@ async def reopen_segment(
     segment_id: uuid.UUID,
     *,
     task: Task | None = None,
+    actor_id: uuid.UUID | None = None,
 ) -> VideoSegmentOut:
     _assert_context_task_binding(ctx, task)
     if task is not None:
@@ -428,10 +425,13 @@ async def reopen_segment(
     row.locked_at = None
     row.lock_expires_at = None
     if task is not None:
-        task.status = "in_progress"
-        task.submitted_at = None
-        task.reviewed_at = None
-        clear_review_contributor_evidence(task)
+        if actor_id is None:
+            raise ValueError("Reopening a task video segment requires its actor")
+        from app.services.labeling_tasks import LabelingTaskService
+
+        labeling = LabelingTaskService(db)
+        await labeling.reopen_video_segment(task, actor_id=actor_id)
+        await labeling.clear_review_contributor_evidence(task, actor_id=actor_id)
     await db.flush()
     return await _segment_out_for_context(db, ctx, row)
 

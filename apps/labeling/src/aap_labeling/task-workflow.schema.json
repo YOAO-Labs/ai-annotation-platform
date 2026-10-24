@@ -1,0 +1,1613 @@
+{
+  "$defs": {
+    "AcceptRejection": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "accept_rejection",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation"
+      ],
+      "title": "AcceptRejection",
+      "type": "object"
+    },
+    "ApproveReview": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "approve_review",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "at"
+      ],
+      "title": "ApproveReview",
+      "type": "object"
+    },
+    "CaptureFirstReviewSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "contributor_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Contributor Ids",
+          "type": "array"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "capture_first_review_snapshot",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "contributor_ids"
+      ],
+      "title": "CaptureFirstReviewSnapshot",
+      "type": "object"
+    },
+    "ClaimReview": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "claim_review",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "at"
+      ],
+      "title": "ClaimReview",
+      "type": "object"
+    },
+    "ClearReviewEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "clear_review_evidence",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation"
+      ],
+      "title": "ClearReviewEvidence",
+      "type": "object"
+    },
+    "CompleteVideoReview": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "complete_video_review",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "at"
+      ],
+      "title": "CompleteVideoReview",
+      "type": "object"
+    },
+    "FreezeReviewEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "contributor_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Contributor Ids",
+          "type": "array"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "freeze_review_evidence",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "contributor_ids"
+      ],
+      "title": "FreezeReviewEvidence",
+      "type": "object"
+    },
+    "RecordAnnotationActor": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "record_annotation_actor",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation"
+      ],
+      "title": "RecordAnnotationActor",
+      "type": "object"
+    },
+    "RecordFirstReviewFact": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "contributor_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Contributor Ids",
+          "type": "array"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "record_first_review_fact",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "result": {
+          "enum": ["approved", "rejected"],
+          "title": "Result",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "at",
+        "result",
+        "contributor_ids"
+      ],
+      "title": "RecordFirstReviewFact",
+      "type": "object"
+    },
+    "RejectReview": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reject_review",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "reason_type": {
+          "enum": ["missing", "extra", "wrong_label", "wrong_geometry"],
+          "title": "Reason Type",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "at",
+        "reason_type",
+        "reason"
+      ],
+      "title": "RejectReview",
+      "type": "object"
+    },
+    "ReopenTask": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reopen",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "at"
+      ],
+      "title": "ReopenTask",
+      "type": "object"
+    },
+    "ReopenVideoSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reopen_video_segment",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation"
+      ],
+      "title": "ReopenVideoSegment",
+      "type": "object"
+    },
+    "SkipTask": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "skip",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "at",
+        "reason"
+      ],
+      "title": "SkipTask",
+      "type": "object"
+    },
+    "SubmitTask": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "submit",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation",
+        "at"
+      ],
+      "title": "SubmitTask",
+      "type": "object"
+    },
+    "TaskWorkflowData": {
+      "additionalProperties": false,
+      "properties": {
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        },
+        "inherited_assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inherited Assignee Id"
+        },
+        "original_reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Original Reviewer Id"
+        },
+        "task": {
+          "$ref": "#/$defs/TaskWorkflowState"
+        }
+      },
+      "required": ["task", "changed"],
+      "title": "TaskWorkflowData",
+      "type": "object"
+    },
+    "TaskWorkflowError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "details": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Details"
+        }
+      },
+      "required": ["code"],
+      "title": "TaskWorkflowError",
+      "type": "object"
+    },
+    "TaskWorkflowState": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_contributor_ids": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Contributor Ids"
+        },
+        "assigned_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assigned At"
+        },
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assignee Id"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "first_review_contributor_ids": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Review Contributor Ids"
+        },
+        "first_review_eligible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Review Eligible"
+        },
+        "first_review_result": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Review Result"
+        },
+        "first_reviewed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Reviewed At"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "last_reopened_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Reopened At"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reject_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reject Reason"
+        },
+        "reject_reason_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reject Reason Type"
+        },
+        "reopened_count": {
+          "title": "Reopened Count",
+          "type": "integer"
+        },
+        "review_contributor_ids": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Contributor Ids"
+        },
+        "review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Round Id"
+        },
+        "review_submitter_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Submitter Id"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewed At"
+        },
+        "reviewer_claimed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Claimed At"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "reviewer_is_override": {
+          "title": "Reviewer Is Override",
+          "type": "boolean"
+        },
+        "skip_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Skip Reason"
+        },
+        "skipped_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Skipped At"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "submitted_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Submitted At"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "batch_id",
+        "status",
+        "assignee_id",
+        "assigned_at",
+        "submitted_at",
+        "reviewer_id",
+        "reviewer_is_override",
+        "reviewer_claimed_at",
+        "reviewed_at",
+        "reject_reason",
+        "reject_reason_type",
+        "skip_reason",
+        "skipped_at",
+        "reopened_count",
+        "last_reopened_at",
+        "review_round_id",
+        "annotation_contributor_ids",
+        "review_contributor_ids",
+        "review_submitter_id",
+        "first_review_eligible",
+        "first_reviewed_at",
+        "first_review_result",
+        "first_review_contributor_ids"
+      ],
+      "title": "TaskWorkflowState",
+      "type": "object"
+    },
+    "WithdrawTask": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "operation": {
+          "const": "withdraw",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-workflow/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "task_id",
+        "project_id",
+        "batch_id",
+        "actor_id",
+        "expected_status",
+        "expected_review_round_id",
+        "operation"
+      ],
+      "title": "WithdrawTask",
+      "type": "object"
+    }
+  },
+  "$id": "aap-labeling-task-workflow/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TaskWorkflowData"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TaskWorkflowError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "accept_rejection": "#/$defs/AcceptRejection",
+          "approve_review": "#/$defs/ApproveReview",
+          "capture_first_review_snapshot": "#/$defs/CaptureFirstReviewSnapshot",
+          "claim_review": "#/$defs/ClaimReview",
+          "clear_review_evidence": "#/$defs/ClearReviewEvidence",
+          "complete_video_review": "#/$defs/CompleteVideoReview",
+          "freeze_review_evidence": "#/$defs/FreezeReviewEvidence",
+          "record_annotation_actor": "#/$defs/RecordAnnotationActor",
+          "record_first_review_fact": "#/$defs/RecordFirstReviewFact",
+          "reject_review": "#/$defs/RejectReview",
+          "reopen": "#/$defs/ReopenTask",
+          "reopen_video_segment": "#/$defs/ReopenVideoSegment",
+          "skip": "#/$defs/SkipTask",
+          "submit": "#/$defs/SubmitTask",
+          "withdraw": "#/$defs/WithdrawTask"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SubmitTask"
+        },
+        {
+          "$ref": "#/$defs/CompleteVideoReview"
+        },
+        {
+          "$ref": "#/$defs/SkipTask"
+        },
+        {
+          "$ref": "#/$defs/WithdrawTask"
+        },
+        {
+          "$ref": "#/$defs/ReopenTask"
+        },
+        {
+          "$ref": "#/$defs/ReopenVideoSegment"
+        },
+        {
+          "$ref": "#/$defs/AcceptRejection"
+        },
+        {
+          "$ref": "#/$defs/ClaimReview"
+        },
+        {
+          "$ref": "#/$defs/ApproveReview"
+        },
+        {
+          "$ref": "#/$defs/RejectReview"
+        },
+        {
+          "$ref": "#/$defs/RecordAnnotationActor"
+        },
+        {
+          "$ref": "#/$defs/FreezeReviewEvidence"
+        },
+        {
+          "$ref": "#/$defs/ClearReviewEvidence"
+        },
+        {
+          "$ref": "#/$defs/CaptureFirstReviewSnapshot"
+        },
+        {
+          "$ref": "#/$defs/RecordFirstReviewFact"
+        }
+      ],
+      "title": "Request"
+    },
+    "schema": {
+      "const": "aap-labeling-task-workflow/v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": ["schema", "ok", "request"],
+  "title": "TaskWorkflowReply",
+  "type": "object",
+  "x-postgresql-functions": ["aap_labeling_v1.task_workflow_command(jsonb)"]
+}
