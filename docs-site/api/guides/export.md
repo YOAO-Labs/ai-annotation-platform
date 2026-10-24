@@ -35,6 +35,32 @@ last_reviewed: 2026-10-24
 
 AAP JSON 中可移植 mask 对象累计最多400万条 RLE 游程和256MiB JSON；Indexed PNG 每图最多255个实例、累计400万条游程，实例数量在读取 mask 前检查。超限需拆分导出；Binary PNG 和 Brush 仍逐实例处理。
 
+## 视频独立媒体交付
+
+项目和批次的十种异步视频目标使用同一冻结合同：`video_json`、`aap_json`、`mot`、`kitti`、`yolo-frames-det`、`yolo-frames-seg`、`coco-frames-seg`、`davis`、`youtube-vos`、`mots`。入队事务固定项目配置、准确 Task 范围、canonical 原件、标注、分段、质检 Run／pairs，以及 AAP 所需的预测与场景轨迹。显式选中任务入口保留现有图片限制，不因本合同开放视频选择；权限沿用项目导出能力，不新增读取 scope。
+
+原件可来自已登记 Dataset 或独立 `TaskOriginal`。HTTP 只核对身份、关系及范围形状，不下载视频，也不使用旧 `Item.metadata.video` 判断实际帧数。Worker 从保存位置完整核对 SHA-256、大小与条件读取，再在同一临时文件上运行受限 `ffprobe -count_frames`，取得实际解码帧数、fps、尺寸及可用时长。探测失败、实际范围越界或标注帧越界时作业失败，不以最大标注帧补长、不裁短范围，也不替换成播放转码。
+
+每个视频的 `metadata_receipt` 包含 `probe_contract=1`、探测得到的 `video`、原件 `sha256` 与 `size_bytes`；ZIP manifest、Video JSON 的 `source` 和 AAP 视频来源均保存该回执。此探测只服务本次导出，不更新业务元数据或视频派生 generation。Worker 从冻结视图序列化，物理读取和最终发布前重核原请求凭据、完整输入、分段及质检关联；中途变化不发布部分包。
+
+完整核验的原视频字节写入独立交付副本，与预分配 ZIP 配对发布，共用首次 bundle 登记起168小时截止和一次3600秒 claim；重复投递、缓存命中或恢复均不续期。相同 canonical 身份可共用一次物理复制，各 Task 绑定仍分别复核。缓存完整核验保存位置的 ZIP 和全部媒体，未知旧原件不按当前桶接管；缺少私有 `video_media` 证明的旧未完成 Job 须重新发起。该证明不出现在公开 Job DTO。
+
+本地视频路径为 `videos/tasks/<task UUID>/<安全文件名>`，序列为 `tasks/<task UUID>/<安全文件名去扩展名>`。`fetch_videos.py` 按 manifest 校验大小和完整 SHA，已有正确文件才复用；错误文件仅在新下载完整校验后原子替换。相对媒体 URL 使用 `--base-url https://平台地址`，只接受无凭据、路径、查询或片段的 HTTP(S) origin。过期返回退出码2，需重新导出。`fetch_frames.py` 先核对本地视频，再按 `frame_outputs` 中各目录的源帧、编号起点与位数调用本地 FFmpeg，不从混合目标的全局编号推断。
+
+视频资源限制在完整探测后、逐帧列表或插值结构分配前检查；输入数量与 JSON 在 SQL 水合前另有限额。超限需拆分任务、范围或目标，不静默截断：
+
+| 项目       | 上限                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------ |
+| Task／原件 | 1000个 Task，单件5GiB，去重后的原件累计20GiB                                                                 |
+| 冻结输入   | JSON256MiB，标注／预测各100000行                                                                             |
+| 帧数       | 每视频实际1000000帧；累计采样帧及额外 YouTube-VOS 精确帧1000000帧                                            |
+| 展开       | 各目标轨迹逐帧求值累计10000000次，解析工作估算100000000，展开字节估算256MiB                                  |
+| 轨迹结构   | 每轨关键帧／outside各10000条，关键帧与outside合计1000000条；单帧1024顶点、累计4000000顶点                    |
+| Mask       | 可移植RLE累计4000000条游程／256MiB JSON；单Mask4MiB、边长4096、16777216像素；DAVIS／YouTube-VOS每序列254对象 |
+| 栅格与ZIP  | 栅格工作累计268435456像素，预计200000个ZIP成员；既有单成员512MiB／临时ZIP8GiB限制继续执行                    |
+
+解析工作估算包含关键帧、outside、顶点配准及 Mask 游程；展开字节估算包含插值后的浮点、逐帧字典和多目标重复结构，可能先于帧数上限拒绝。格式不需要的展开不计入相应预算。这些是资源边界，不是生产规模或性能指标。
+
 ## 点云独立媒体交付
 
 点云项目的 `kitti`、`pointmask`、`coco-multicamera` 通过项目或批次入口登记冻结输入；selected-task 仍不支持这些场景格式。同步预检只读取可信登记及格式配置，不下载原件。Worker 执行时重新核对原请求凭据和冻结输入，逐文件条件读取、核对完整 SHA／大小、保存并回读独立副本，最后复核输入和权限才发布 ZIP 与完成结果。冻结后的修改需要重新发起导出，不能混入旧作业。
@@ -51,7 +77,7 @@ AAP JSON 中可移植 mask 对象累计最多400万条 RLE 游程和256MiB JSON�
 
 AAP 的格式标识为 `aap`；视觉任务使用 `detect`、`segment`、`classify`、`pose`、`obb`。混合 AAP 保留全部原标注，`task` 可为空、`available_tasks` 列出候选；存在尚未映射的工具时不能将整个包声明成单一检测任务。COCO 的原生 `segmentation`、`keypoints` 等字段不改名。
 
-视频 JSON 的任务 `source`、AAP 的视频块和 ZIP manifest 保留原项目 `video_sampling`/`video_collaboration`、原始源 key、DatasetItem/内容身份、`resolved_step`、绝对 `source_frame_indices` 和逐帧 `source_sample_ids`。帧网格始终锚定源视频第 0 帧，范围导出只裁网格，不从范围起点重编号。标签展开方式与采样网格相互独立。
+视频 JSON 的任务 `source`、AAP 的视频块和 ZIP manifest 保留原项目 `video_sampling`/`video_collaboration`、原始源 key、可空 DatasetItem 身份、原件完整摘要／大小、`metadata_receipt`、`resolved_step`、绝对 `source_frame_indices` 和逐帧 `source_sample_ids`。帧网格始终锚定源视频第 0 帧，范围导出只裁网格，不从范围起点重编号。标签展开方式与采样网格相互独立。
 
 ## 触发导出
 
@@ -72,7 +98,7 @@ POST /api/v1/projects/{project_id}/batches/{batch_id}/export?targets=coco&includ
 ```
 
 Segment 模式把 `selection` 改为
-`{"kind":"segments","start_segment_id":"...","end_segment_id":"..."}`，并自动包含两端之间按索引连续的全部 segment。task 必须属于当前项目；批次导出时还必须属于当前批次。图片或点云项目传 `scope`、范围越界或 segment 不连续均返回 422。省略请求体时保持完整项目 / 批次导出。
+`{"kind":"segments","start_segment_id":"...","end_segment_id":"..."}`，并自动包含两端之间按索引连续的全部 segment。task 必须属于当前项目；批次导出时还必须属于当前批次。独立 TaskOriginal 可用帧范围；Segment 模式须绑定对应 DatasetItem。图片或点云项目传 `scope`、范围形状非法或 segment 不连续时 HTTP 返回422；合法形状先入队，实际源边界由 Worker 完整核验并计帧后检查，越界作业失败。省略请求体时保持完整项目／批次导出。
 
 点云 KITTI 导出在请求体中显式选择相机 role：
 
@@ -161,7 +187,7 @@ COCO / YOLO 会按各自能消费的几何映射。COCO 对图片 `raster_mask` 
 `video_frame_mode`：
 
 - `keyframes`：只输出持久化关键帧，适合备份、质检和后续可编辑 ingest。
-- `all_frames`：在每条 track 的 `frames[]` 中展开逐帧 bbox。后端按相邻有效关键帧线性插值，`outside` 段阻断跨段插值、不输出 bbox。缺少 `frame_count` 时用最大已标注帧兜底。
+- `all_frames`：在每条 track 的 `frames[]` 中展开逐帧 bbox。后端按相邻有效关键帧线性插值，`outside` 段阻断跨段插值、不输出 bbox。帧数使用本次完整核验原件的实际计帧回执；探测失败或标注越界明确失败，不用最大标注帧兜底，展开前先检查预算。
 
 `include_attributes=false` 时，视频 JSON 不输出 `project.attribute_schema`，也不输出 track / legacy `video_bbox` 的 `attributes`。
 
@@ -175,6 +201,8 @@ COCO / YOLO 会按各自能消费的几何映射。COCO 对图片 `raster_mask` 
 - `video_bbox` 单帧框只在 `frame_index` 落网格时输出。
 - `video_track_bbox` 先用 `resolved_track_frames(..., frame_mode="all_frames")` 展开，再筛采样网格；`outside` 区间不输出框。
 - ZIP 内写 `labels/{sequence}/{frame:06d}.txt`、`classes.txt`、`data.yaml`、`manifest.json`、`fetch_videos.py`、`fetch_frames.py`。帧图不打包，`fetch_frames.py` 会抽到 `images/{sequence}`，与 label 路径对齐。
+
+MOT 输出密集1基帧号，KITTI为0基，YOLO／COCO为1基；DAVIS为0基五位，MOTS按 `mots_frame_base`。混合 MOT／KITTI 分别抽到各自目标目录，避免同目录混用编号。YouTube-VOS 的 `frame_outputs.source_frames` 使用裁剪后的精确 Mask 关键帧，可包含普通采样网格之外的帧。
 
 schema 语义见 [视频标注工作台](/dev/concepts/video-annotation-workbench)。
 

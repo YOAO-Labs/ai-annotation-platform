@@ -97,6 +97,16 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py --report /tmp/reco
 
 缓存只复用关联ready且完整内容核对通过的产物，签名仅使用原期限剩余窗口。旧NULL关联缓存不做物理探测，按miss重新构建。缺失或损坏只失效缓存索引，旧产物责任继续保留。过期清理先排除同产物未收尾读取、提交retired，再按保存桶精确删除；失败保留重试。Job或Project消失不会丢失独立产物责任，清理不能删访问账本来绕过未知关闭。有任何产物时拒绝破坏性降级；回退应用仍须保留归属、期限和状态。完整export用途切换仍未开放。
 
+### 视频独立媒体交付的部署与恢复
+
+迁移0237在既有 ExportMediaBundle 上增加视频输入 schema4 约束与 ZIP 配对检查：仅接受已登记 DatasetAsset／TaskOriginal 视频，单件原件／副本最多5GiB、最多1000个Task、唯一原件累计20GiB；旧点云和图片合同保持原有限额。升级前暂停视频项目／批次导出，等待旧 export Worker 的读写、探测和打包实际收尾；应用迁移后同步刷新API、export／cleanup Worker及Beat，再恢复入口。仅挂载源码变化不需要重建镜像；须核对实际Worker能运行既有本地 FFmpeg／ffprobe。旧未完成视频Job没有 `video_media` 冻结证明时须重新导出，不能在重放时补取今天的输入。
+
+Worker完整核验原视频，在相同stage上通过 `ffprobe -count_frames` 取得实际帧数，并把探测合同、元数据、SHA和大小写入包内回执，不信任旧业务JSON或播放转码。共享transfer每进程两个槽，视频profile最多声明10GiB原件暂存，另计临时ZIP最多8GiB及其他读写临时空间；多Worker进程须累计评估。探测有300秒合作式预算，stdout／stderr各64KiB，逐帧和Mask展开另有[资源限制](/api/guides/export#视频独立媒体交付)。取消或软时限须等物理线程、探测进程、文件和客户端真实关闭；期限不是硬墙钟退出保证，未知关闭保留许可与槽，不能删账绕过排空。
+
+bundle、预分配ZIP和Job／缓存关联须一致备份。输入摘要、Task／Dataset关系、scope、原始标注、分段、质检Run／pairs、逻辑路径、库存SHA／大小、探测合同、claim／状态／发布时间和首次168小时共同截止均为保护事实；ZIP内metadata receipt与原视频副本须按原字节保留。存在任何视频bundle或配对ZIP时迁移拒绝破坏性降级，回退应用须保留表、约束与未收尾责任，不缩回旧单件上限后继续清理。
+
+受控恢复仅映射保存的 `storage_ref.bucket/storage_identity`，分别完整核验ZIP及所有副本，并核对准确配对与共同截止。冻结输入、原件创建历史、物理UUID键、媒体逻辑名、包内URL与探测回执均不改写，pending不发布、claim不重放、期限不延长。换桶不会使不可改写ZIP中的旧签名URL自动可用；准确关联的缓存索引须失效，新请求创建新的bundle／ZIP，旧owner照原期限保留。恢复工具和合成夹具的存在不代表当前部署已完成视频HTTP、Celery或离线恢复验收，结果以相应环境的执行报告为准。
+
 ## 报告附件归属的部署顺序
 
 增量迁移0225增加独立 `bug_attachment_uploads` 表，保存上传者、内容回执、180天固定期限、状态及首次报告绑定，不回填旧附件。升级前暂停附件写入，盘点并等待旧直传请求实际收尾；旧upload-init不再签发PUT链接，改为返回409并指向认证的原始图片上传接口。前端和API须一起更新，旧客户端需刷新。

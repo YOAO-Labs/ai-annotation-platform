@@ -3,7 +3,7 @@ audience: [project_admin, super_admin]
 type: reference
 since: v0.1.0
 status: stable
-last_reviewed: 2026-08-27
+last_reviewed: 2026-10-24
 ---
 
 # Mask 标注导入与数据导出格式
@@ -442,12 +442,18 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 
 `video-track` 项目导出统一走异步 zip 管线，可选 **Video JSON / YOLO 逐帧检测 / YOLO 逐帧分割 / COCO 逐帧分割 / DAVIS Mask / YouTube-VOS / MOTS / AAP JSON / MOT / KITTI**。导出包含标注主体 + `manifest.json` + `fetch_videos.py`；需要图像序列的目标另带 `fetch_frames.py`，按每个输出目录自己的起始编号、位数与扩展名抽帧。
 
-部分导出会把同一 task 和闭区间应用到所有已选目标：单帧标注只保留范围内帧，轨迹裁剪后保留范围内关键帧与 outside，并补齐可见边界状态。帧格式先按原视频的全局采样网格取帧，再过滤范围，所以不会因范围起点改变采样相位；`manifest.json` 的 `export_scope` 与 `grid_source_frames` 可还原源帧。
+项目和批次导出在排队时固定本次任务、标注、采样设置、分段和质检关联。已登记的数据集视频与独立 TaskOriginal 视频沿保存位置完整核验，再实际解码计帧；旧 JSON 帧数、播放转码或最大标注帧不作为源长度。探测得到的 fps、实际帧数、尺寸与原件 SHA-256／大小组成 `metadata_receipt`，随 manifest、Video JSON 和 AAP 视频来源保存。输入、权限或内容在执行期间变化时整包失败，需要重新导出。
+
+原视频逐字节复制为独立交付文件，下载链接指向副本。副本与 ZIP 共用首次登记起七天截止，重试或命中缓存不延长。解压后先运行 `python fetch_videos.py`：脚本校验已有文件和下载字节的完整 SHA-256／大小，错误文件仅在新副本校验成功后原子替换。站内相对链接需加 `--base-url https://平台地址`；过期返回退出码2，需重新导出。然后运行 `python fetch_frames.py`，使用本地 FFmpeg 从已核验视频抽帧；此脚本按 manifest 中每种格式的 `frame_outputs` 工作。
+
+每个任务使用唯一目录：视频在 `videos/tasks/<任务 UUID>/<安全文件名>`，下文 `{sequence}` 为 `tasks/<任务 UUID>/<安全文件名去扩展名>`。同名视频不会互相覆盖。旧未完成视频导出缺少冻结媒体证明时须重新发起；不会按当前桶猜测旧文件位置。
+
+部分导出会把同一 task 和闭区间应用到所有已选目标：单帧标注只保留范围内帧，轨迹裁剪后保留范围内关键帧与 outside，并补齐可见边界状态。帧格式先按原视频的全局采样网格取帧，再过滤范围，所以不会因范围起点改变采样相位；`manifest.json` 的 `export_scope` 与 `grid_source_frames` 可还原源帧。请求时只检查任务、范围形状和分段关系，实际边界在后台完整计帧后检查；越界作业失败，不自动截短。独立 TaskOriginal 可按帧范围导出，分段选择仍须关联数据集样本。
 
 **Video JSON**（帧模式二选一）：
 
 - **关键帧**：默认模式，只导出人工 / 预测关键帧，适合备份、质检和后续继续编辑。
-- **所有帧**：导出时按相邻有效关键帧线性插值展开每帧 bbox，适合下游训练或逐帧质检。
+- **所有帧**：导出时按相邻有效关键帧线性插值展开每帧 bbox，适合下游训练或逐帧质检。展开限于实际计帧结果与本次范围，先检查资源预算，不以最大标注帧补长视频。
 - 顶层包含 `export_type: "video_tracks"`、`frame_mode`、项目 / 类别 / 任务信息、`tracks[]`、扁平 `keyframes[]`、旧版 `video_bbox[]` 和 `video_metadata`。
 
 **YOLO 逐帧（检测）**：目标名 `yolo-frames-det`。每个视频 = 一个 sequence，按项目采样网格抽帧，包内写 `labels/{sequence}/{frame:06d}.txt`，行格式与图片 YOLO 检测一致：`<cls> <cx> <cy> <w> <h>`（归一化）。来源同时包含：
@@ -461,9 +467,9 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 
 **COCO 逐帧（分割）**：目标名 `coco-frames-seg`。产出单个标准 COCO `annotations.json`。polygon 使用顶点数组与 `iscrowd=0`；Mask 轨迹使用标准 compressed RLE、像素面积、紧致 bbox 与 `iscrowd=1`，并在 attributes 中携带轨迹与遮挡信息。bbox / polyline 跳过。帧由 `fetch_frames.py` 抽到 `images/{sequence}/`，ZIP 不含帧图。
 
-**DAVIS Mask**：目标名 `davis`。每个采样帧写 `Annotations/Full-Resolution/{sequence}/{frame:05d}.png`，PNG 模式为 `P`，背景为 0，对象 ID 在整个 sequence 内稳定分配为 1–254，255 保留为 void。存在实例重叠时默认阻止导出，也可显式选择 `z_order`、`larger_area` 或 `smaller_area` winner；取舍会进入有损报告。`outside` 帧不写该对象，`occluded` 通过 `davis_manifest.json` 保留。`fetch_frames.py` 把对应图像抽到 `JPEGImages/Full-Resolution/{sequence}/{frame:05d}.jpg`。
+**DAVIS Mask**：目标名 `davis`。输出帧号为0基五位，每个采样帧写 `Annotations/Full-Resolution/{sequence}/{frame:05d}.png`，PNG 模式为 `P`，背景为 0，对象 ID 在整个 sequence 内稳定分配为 1–254，255 保留为 void。存在实例重叠时默认阻止导出，也可显式选择 `z_order`、`larger_area` 或 `smaller_area` winner；取舍会进入有损报告。`outside` 帧不写该对象，`occluded` 通过 `davis_manifest.json` 保留。`fetch_frames.py` 把对应图像抽到 `JPEGImages/Full-Resolution/{sequence}/{frame:05d}.jpg`。
 
-**YouTube-VOS**：目标名 `youtube-vos`。只把 Mask 关键帧写为 `Annotations/{sequence}/{frame:05d}.png`，`meta.json` 保存对象类别、轨迹身份、输出帧与源帧映射。palette 约束和实例重叠策略与 DAVIS 一致。导入时必须显式选择稀疏 gap 语义，避免把数据集未采样帧静默解释为对象离场。
+**YouTube-VOS**：目标名 `youtube-vos`。只把裁剪后的精确 Mask 关键帧写为 `Annotations/{sequence}/{frame:05d}.png`，输出为0基五位，`meta.json` 保存对象类别、轨迹身份、输出帧与源帧映射。`fetch_frames.py` 使用相同的精确源帧集合抽到 `JPEGImages/{sequence}/`，包含普通采样网格之外的关键帧。palette 约束和实例重叠策略与 DAVIS 一致。导入时必须显式选择稀疏 gap 语义，避免把数据集未采样帧静默解释为对象离场。
 
 **MOTS**：目标名 `mots`。每行使用 `frame track class height width compressed_rle` 六列格式；可选择 0-based 或 1-based 输出帧号。`mots_manifest.json` 明确序列路径、类别、轨迹、源 annotation 与输出帧到源帧的映射，因此导入不依赖整数 ID 猜测业务身份。MOTS 没有遮挡字段，预检会报告对应损失。
 
@@ -475,13 +481,13 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 
 ### 视频 ZIP 包目录树（多目标 MOT + YOLO 逐帧示例）
 
-视频导出不物理打包帧：包内只带标注 + 网格帧号，帧由 `fetch_frames.py` 用本地 FFmpeg 5.1 或更新版本就地抽取。MOT/KITTI 的 `{sequence}/img1/` 与 YOLO 逐帧的 `images/{sequence}/` 都是抽帧后才出现的目录。
+视频 ZIP 包含标注、独立视频副本的下载清单及源帧映射，不直接打包视频或帧图。帧由 `fetch_frames.py` 用本地 FFmpeg 5.1 或更新版本抽取。MOT 为1基、KITTI为0基，二者混合时各在 `mot/{sequence}/img1/` 与 `kitti/{sequence}/img1/`，不共享编号不同的目录；YOLO／COCO为1基。图像目录均在抽帧后出现。
 
 ```
 {下载文件名}.zip 解压后/
-├── manifest.json                  # 各 sequence 的预签名 URL + 网格帧号 + frame_start_number
-├── fetch_videos.py                # 回源视频到 videos/
-├── fetch_frames.py                # 按网格帧号抽帧（MOT/KITTI/YOLO 逐帧才有）
+├── manifest.json                  # 副本 URL、固定截止、SHA/大小、元数据回执与 frame_outputs
+├── fetch_videos.py                # 核验并下载独立视频副本到 videos/
+├── fetch_frames.py                # 各格式使用自己的源帧、起始编号与位数
 ├── mot/
 │   └── {sequence}/
 │       ├── gt/gt.txt              # frame,id,bb_left,bb_top,bb_w,bb_h,conf,x,y,z（帧号 1-based）
@@ -494,11 +500,21 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 │       └── {sequence}/
 │           ├── 000001.txt         # 每个采样帧一个 .txt，空帧写空文件
 │           └── 000002.txt
-└── videos/                        # fetch_videos.py 回源后出现
-    └── {sequence}.mp4
+└── videos/                        # fetch_videos.py 下载后出现
+    └── tasks/
+        └── {task UUID}/
+            └── {安全文件名}.mp4
 ```
 
 > 视频**单目标**时该目标落包根（无 `{target}/` 前缀），多目标才各落子目录；`manifest.json` / `fetch_videos.py` 始终在包根共享。
+
+### 视频导出资源边界
+
+单次最多1000个视频任务，单原件5GiB，去重后的原件总量20GiB；冻结 JSON256MiB，标注与预测各100000行。每视频最多1000000个实际源帧，累计采样帧和额外稀疏 Mask 帧最多1000000帧。原件共享不抵消各任务的标签和抽帧开销。
+
+逐帧求值累计最多10000000次，解析工作估算最多100000000，展开字节估算256MiB；插值浮点、属性、逐帧结构和多目标重复输出都计入估算，因此可能在帧数上限前要求拆分。每轨关键帧／outside各最多10000条，两者合计1000000条；单帧最多1024顶点，累计4000000顶点。
+
+可移植 Mask 累计4000000条游程／256MiB JSON，单Mask4MiB、边长4096及16777216像素。DAVIS／YouTube-VOS每序列最多254对象；栅格工作累计268435456像素，预计 ZIP 成员最多200000个，另保留单成员512MiB与临时ZIP8GiB限制。超限需减少任务、范围或目标，平台不会省略部分任务来完成导出。完整接口限制见[视频独立媒体交付](/api/guides/export#视频独立媒体交付)。
 
 目标消失语义（各格式共用）：
 
