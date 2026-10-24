@@ -65,7 +65,7 @@ class PredictionInputLease(Base):
             name="ck_prediction_input_times",
         ),
         CheckConstraint(
-            "contract_version=1 OR owner_kind IN ('batch_predict','prediction_retry','interactive_predict','predict_test','mask_repair')",
+            "contract_version=1 OR owner_kind IN ('batch_predict','prediction_retry','interactive_predict','predict_test','mask_repair','secondary_inference')",
             name="ck_prediction_input_owner",
         ),
         CheckConstraint(

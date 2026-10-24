@@ -571,6 +571,7 @@ class PredictionInputs:
             "interactive_predict",
             "predict_test",
             "mask_repair",
+            "secondary_inference",
         }:
             raise ValueError("unsupported prediction input owner")
         if guard is not None and not callable(guard):
@@ -915,27 +916,37 @@ class PredictionInputs:
                 media_type="image/jpeg",
             )
 
+    def _adopt_snapshot(self, snapshot):
+        if (
+            self._closed
+            or self._unsettled
+            or self._snapshot is not None
+            or not isinstance(snapshot, Snapshot)
+            or snapshot._closed
+            or snapshot.inspection_error
+            or snapshot.media_type not in _TYPES
+            or not isinstance(snapshot.sha256, str)
+            or _SHA.fullmatch(snapshot.sha256) is None
+            or type(snapshot.size) is not int
+            or not 0 < snapshot.size <= MAX_BYTES
+            or type(snapshot.width) is not int
+            or type(snapshot.height) is not int
+            or snapshot.width <= 0
+            or snapshot.height <= 0
+            or snapshot.width * snapshot.height > MAX_PIXELS
+        ):
+            reject("snapshot_invalid")
+        self._snapshot = snapshot
+
+    async def adopt_snapshot(self, snapshot):
+        """Own a verified Snapshot for crop-only delivery, without uploading it."""
+        async with self._lock:
+            self._adopt_snapshot(snapshot)
+
     async def upload_snapshot(self, snapshot):
         """Transfer ownership of one strictly verified Snapshot, never its source."""
         async with self._lock:
-            if (
-                self._snapshot is not None
-                or not isinstance(snapshot, Snapshot)
-                or snapshot._closed
-                or snapshot.inspection_error
-                or snapshot.media_type not in _TYPES
-                or not isinstance(snapshot.sha256, str)
-                or _SHA.fullmatch(snapshot.sha256) is None
-                or type(snapshot.size) is not int
-                or not 0 < snapshot.size <= MAX_BYTES
-                or type(snapshot.width) is not int
-                or type(snapshot.height) is not int
-                or snapshot.width <= 0
-                or snapshot.height <= 0
-                or snapshot.width * snapshot.height > MAX_PIXELS
-            ):
-                reject("snapshot_invalid")
-            self._snapshot = snapshot
+            self._adopt_snapshot(snapshot)
             relative = f"original/{snapshot.sha256}.{_TYPES[snapshot.media_type]}"
             return await self._upload(
                 relative,

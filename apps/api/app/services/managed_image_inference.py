@@ -61,6 +61,8 @@ def managed_inference_http_error(exc):
         "prediction_original_receipt_invalid": "本次原图校验已失效，请刷新页面后重新运行推理。",
         "content_binding_changed": "原图来源已变化，请刷新页面后重新运行推理。",
         "prediction_input_expired": "本次推理输入已过期，请刷新页面后重新运行推理。",
+        "secondary_annotation_changed": "父标注已变化，请刷新页面并重新选择对象后再运行二次推理。",
+        "secondary_crop_invalid": "裁剪参数无效，请重新选择对象后再运行二次推理。",
     }
     if isinstance(exc, ContentError) and exc.code in messages:
         error.detail = {**error.detail, "message": messages[exc.code]}
@@ -110,7 +112,12 @@ class ManagedImageOperation:
     provenance_key = "original_input"
 
     def __init__(self, db, task, actor, request, operation, prompt_source=None):
-        if operation not in {"predict_test", "interactive_predict", "ai_mask_accept"}:
+        if operation not in {
+            "predict_test",
+            "interactive_predict",
+            "ai_mask_accept",
+            "secondary_inference",
+        }:
             raise ValueError("unsupported managed image operation")
         self.db, self.task_id, self.project_id = db, task.id, task.project_id
         self.actor_id, self.operation = actor.id, operation
@@ -220,7 +227,16 @@ class ManagedImageOperation:
         if self._annotations_read:
             await key_authority(db, actor, self.key_id, "annotations:read")
 
-    async def _bound(self, db, task, actor):
+    async def _freeze_extra(self, db, task):
+        """Capture consumer facts after locking the canonical source."""
+
+    async def _check_extra(self, db, task, *, final=False):
+        """Check consumer facts in the source-to-input lock order."""
+
+    def _input_source_ref(self):
+        return self.binding
+
+    async def _bound(self, db, task, actor, *, final=False):
         await self._business(db, task, actor)
         current = {
             **task_binding(task),
@@ -228,6 +244,7 @@ class ManagedImageOperation:
         }
         if current != self.binding:
             raise ContentError("content_binding_changed")
+        await self._check_extra(db, task, final=final)
         await self._prompt(db, lock=True)
         return task
 
@@ -267,6 +284,7 @@ class ManagedImageOperation:
                 "original": await originals.managed_binding(self.db, task, lock=True),
             }
         )
+        await self._freeze_extra(self.db, task)
         await self._prompt(self.db, lock=True)
         await self.db.commit()
 
@@ -289,9 +307,13 @@ class ManagedImageOperation:
             }
         )
 
-    async def open(self, factory, *, annotations_read=False):
+    async def open(self, factory, *, annotations_read=False, upload_full=True):
         if self.operation == "ai_mask_accept":
             raise ValueError("native acceptance must not upload model inputs")
+        if not upload_full and self.operation != "secondary_inference":
+            raise ValueError(
+                "only secondary inference may deliver crops without a full input"
+            )
         try:
             await self._freeze(annotations_read=annotations_read)
             self.inputs = await originals.settled(
@@ -301,7 +323,7 @@ class ManagedImageOperation:
                     owner_kind=self.operation,
                     task_id=self.task_id,
                     guard=self._guard,
-                    source_ref=self.binding,
+                    source_ref=self._input_source_ref(),
                 ),
                 late=lambda value: value.close(),
             )
@@ -318,7 +340,10 @@ class ManagedImageOperation:
             )
             self.snapshot = self.source.snapshot
             self._freeze_identity()
-            self.url = await self.inputs.upload_snapshot(self.snapshot)
+            if upload_full:
+                self.url = await self.inputs.upload_snapshot(self.snapshot)
+            else:
+                await self.inputs.adopt_snapshot(self.snapshot)
             self._ready = True
             await self.validate()
             return self
@@ -390,7 +415,7 @@ class ManagedImageOperation:
             raise ContentError("content_binding_changed")
         if task.batch_id is not None:
             await self.db.get(TaskBatch, task.batch_id, populate_existing=True)
-        await self._bound(self.db, task, actor)
+        await self._bound(self.db, task, actor, final=True)
         if self.inputs is not None:
             await prediction_inputs.check_metadata(self.db, self.inputs)
         elif self.operation != "ai_mask_accept" or not self._acceptance_closed:

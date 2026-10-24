@@ -33,10 +33,14 @@ async def authorize_image_operation(db, task, *, actor_id, project_id, operation
         if not access.is_manager:
             raise ContentError("prediction_authority_revoked", 403)
     else:
-        if project.ai_interactive_enabled is False:
+        secondary = operation == "secondary_inference"
+        if not secondary and project.ai_interactive_enabled is False:
             raise ContentError("ai_interactive_disabled", 403)
-        assert_annotation_write_allowed(task, access)
-        await _assert_review_adjustment_evidence(db, task, actor, access)
+        assert_annotation_write_allowed(
+            task, access, allow_review_adjustment=not secondary
+        )
+        if not secondary:
+            await _assert_review_adjustment_evidence(db, task, actor, access)
         _assert_task_editable(task, actor, access=access)
         await assert_phase_write_allowed(db, task, actor, lock_membership=False)
         if any(
