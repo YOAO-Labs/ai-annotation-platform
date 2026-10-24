@@ -17,6 +17,7 @@ import pytest
 from app.services.exporting.lidar_fetch import (
     FETCH_LIDAR_IMAGES_TEMPLATE,
     FETCH_POINTCLOUDS_TEMPLATE,
+    FETCH_TRUSTED_MEDIA_TEMPLATE,
 )
 
 
@@ -55,7 +56,8 @@ def media_server():
         target=lambda: server.serve_forever(poll_interval=0.01), daemon=True
     )
     thread.start()
-    state.url = f"http://127.0.0.1:{server.server_port}/media?signature=never-print-this-signature"
+    state.origin = f"http://127.0.0.1:{server.server_port}"
+    state.url = state.origin + "/media?signature=never-print-this-signature"
     try:
         yield state
     finally:
@@ -67,15 +69,23 @@ def media_server():
 
 @pytest.fixture(params=["pointclouds", "images"])
 def fetcher(tmp_path, media_server, request):
-    kind = request.param
+    yield from _fetcher(tmp_path, media_server, request.param)
+
+
+@pytest.fixture(params=["pointclouds", "images", "media"])
+def origin_fetcher(tmp_path, media_server, request):
+    yield from _fetcher(tmp_path, media_server, request.param)
+
+
+def _fetcher(tmp_path, media_server, kind):
     root, outside = tmp_path / "export", tmp_path / "outside"
     root.mkdir()
     outside.mkdir()
-    template = (
-        FETCH_POINTCLOUDS_TEMPLATE
-        if kind == "pointclouds"
-        else FETCH_LIDAR_IMAGES_TEMPLATE
-    )
+    template = {
+        "pointclouds": FETCH_POINTCLOUDS_TEMPLATE,
+        "images": FETCH_LIDAR_IMAGES_TEMPLATE,
+        "media": FETCH_TRUSTED_MEDIA_TEMPLATE,
+    }[kind]
     script = root / f"fetch_{kind}.py"
     script.write_text(template)
     relative = (
@@ -83,7 +93,11 @@ def fetcher(tmp_path, media_server, request):
         if kind == "pointclouds"
         else "front/scene-a/camera/frame.jpg"
     )
-    directory = "velodyne" if kind == "pointclouds" else "images"
+    if kind == "media":
+        relative = "images/" + relative
+    directory = {"pointclouds": "velodyne", "images": "images", "media": "."}[kind]
+    size_field = "source_file_size" if kind == "media" else "size_bytes"
+    sha_field = "source_sha256" if kind == "media" else "sha256"
     state = SimpleNamespace(
         root=root,
         outside=outside,
@@ -92,6 +106,8 @@ def fetcher(tmp_path, media_server, request):
         kind=kind,
         directory=directory,
         relative=relative,
+        size_field=size_field,
+        sha_field=sha_field,
         server=media_server,
         destination=root / directory / relative,
     )
@@ -100,8 +116,8 @@ def fetcher(tmp_path, media_server, request):
         item = {
             "rel_path": relative,
             "presigned_url": media_server.url,
-            "size_bytes": len(media_server.body),
-            "sha256": hashlib.sha256(media_server.body).hexdigest(),
+            size_field: len(media_server.body),
+            sha_field: hashlib.sha256(media_server.body).hexdigest(),
             "frame": "scene-a/frame",
             "camera": "front",
             "dataset_id": "legacy-compatible",
@@ -115,7 +131,7 @@ def fetcher(tmp_path, media_server, request):
         (root / f"{kind}_manifest.json").write_text(json.dumps(payload))
         return item
 
-    def run():
+    def run(*arguments):
         environment = dict(os.environ)
         environment.update(
             {
@@ -129,7 +145,7 @@ def fetcher(tmp_path, media_server, request):
             }
         )
         result = subprocess.run(
-            [sys.executable, str(script)],
+            [sys.executable, str(script), *arguments],
             capture_output=True,
             text=True,
             timeout=10,
@@ -428,3 +444,164 @@ def test_portable_branch_keeps_receipts_and_static_symlink_protection(fetcher):
     world.destination.symlink_to(target)
     assert namespace["main"]() == 1
     assert target.read_bytes() == b"safe" and len(world.server.requests) == 1
+
+
+def test_root_relative_signed_url_uses_explicit_platform_origin_with_exact_query(
+    origin_fetcher,
+):
+    world = origin_fetcher
+    signed = (
+        "/minio/a%20bucket/objects/a%2fb.bin?X-Amz-Signature=private%2Bvalue%2F"
+        "&X-Amz-Credential=a%252Fb&part=second+value&part=first&empty="
+    )
+    world.write(presigned_url=signed)
+    result = world.run("--base-url", world.server.origin)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert world.server.requests == [signed]
+    assert world.destination.read_bytes() == world.server.body
+    assert "private" not in result.stdout + result.stderr
+    if world.kind == "media":
+        assert world.destination == world.root / world.relative
+        assert not (world.root / "images/images").exists()
+
+
+def test_relative_url_without_base_has_actionable_safe_error(origin_fetcher):
+    world = origin_fetcher
+    signed = "/minio/object?X-Amz-Signature=private"
+    world.write(presigned_url=signed)
+    result = world.run()
+    assert result.returncode == 1
+    assert "--base-url https://your-platform" in result.stdout
+    assert signed not in result.stdout + result.stderr
+    assert "private" not in result.stdout + result.stderr
+    assert not world.server.requests and not world.destination.exists()
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "",
+        "https://user:private@safe.invalid",
+        "https://@safe.invalid",
+        "https://safe.invalid/path",
+        "https://safe.invalid/",
+        "https://safe.invalid?token=private",
+        "https://safe.invalid#private",
+        "https://safe.invalid?",
+        "https://safe.invalid#",
+        "file:///tmp",
+        "//safe.invalid",
+        "safe.invalid",
+        "http:///empty",
+        "http://safe.invalid:0",
+        "http://safe.invalid:65536",
+        "http://safe.invalid:bad",
+        "http://safe.invalid:",
+        "http://safe.invalid\\@other.invalid",
+        "http://safe.invalid/\n",
+        " http://safe.invalid",
+        "http://safe.invalid ",
+        "http://safe%2einvalid",
+        "http://[::1",
+    ],
+)
+def test_unsafe_base_origins_are_rejected_before_download(origin_fetcher, origin):
+    world = origin_fetcher
+    world.write(presigned_url="/minio/object?signature=private")
+    result = world.run("--base-url", origin)
+    assert result.returncode == 1
+    assert "Invalid --base-url" in result.stdout
+    assert "private" not in result.stdout + result.stderr
+    assert not world.server.requests and not world.destination.exists()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "//other.invalid/minio/object?token=private",
+        "///other.invalid/object?token=private",
+        "/\\other.invalid/object",
+        "/minio/object?token=bad\nprivate",
+        "/minio/object?token=bad\tprivate",
+        "/minio/object?token=bad private",
+        "/minio/object#private",
+        "http://user:private@other.invalid/object",
+        "http://@other.invalid/object",
+        "http://other.invalid:bad/object",
+        "http://other.invalid:0/object",
+        "http://other.invalid\\@safe.invalid/object",
+        "object?token=private",
+    ],
+)
+def test_unsafe_media_urls_cannot_change_platform_origin(origin_fetcher, url):
+    world = origin_fetcher
+    world.write(presigned_url=url)
+    result = world.run("--base-url", world.server.origin)
+    assert result.returncode == 1
+    assert "private" not in result.stdout + result.stderr
+    assert not world.server.requests and not world.destination.exists()
+
+
+def test_absolute_signed_url_keeps_original_origin_when_a_different_base_is_given(
+    origin_fetcher,
+):
+    world = origin_fetcher
+    path = (
+        "/saved/object%2f.bin?signature=never-print-this-signature&v=a%2Bb&v=second+one"
+    )
+    world.write(presigned_url=world.server.origin + path)
+    # A rewrite would connect to an unused endpoint rather than this controlled source.
+    result = world.run("--base-url", "http://127.0.0.1:1")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert world.server.requests == [path]
+    assert world.destination.read_bytes() == world.server.body
+
+
+def test_validated_items_keeps_single_argument_compatibility_and_does_not_mutate_urls(
+    origin_fetcher,
+):
+    world = origin_fetcher
+    world.write()
+    manifest = json.loads((world.root / f"{world.kind}_manifest.json").read_text())
+    namespace = _namespace(world)
+    assert namespace["validated_items"](manifest)[0][1] == world.server.url
+    relative = "/minio/object%2F.bin?signature=private%2Bvalue&order=2&order=1"
+    manifest[world.kind][0]["presigned_url"] = relative
+    result = namespace["validated_items"](manifest, base_url=world.server.origin)
+    assert result[0][1] == world.server.origin + relative
+    assert manifest[world.kind][0]["presigned_url"] == relative
+    assert not world.server.requests
+
+
+def test_imported_main_accepts_explicit_origin_and_ignores_host_process_arguments(
+    origin_fetcher, monkeypatch
+):
+    world = origin_fetcher
+    world.write(presigned_url="/minio/object?signature=private")
+    namespace = _namespace(world)
+    monkeypatch.setattr(
+        namespace["sys"], "argv", ["pytest", "--unrelated-host-argument"]
+    )
+    assert namespace["main"](["--base-url", world.server.origin]) == 0
+    assert world.destination.read_bytes() == world.server.body
+    world.write()
+    assert namespace["main"]() == 0
+    assert len(world.server.requests) == 1
+
+
+@pytest.mark.parametrize("field", ["source_file_size", "source_sha256"])
+@pytest.mark.parametrize("origin_fetcher", ["media"], indirect=True)
+def test_trusted_media_requires_source_receipts_without_falling_back_to_other_fields(
+    origin_fetcher, field
+):
+    world = origin_fetcher
+    world.write(
+        **{
+            field: None,
+            "size_bytes": len(world.server.body),
+            "sha256": hashlib.sha256(world.server.body).hexdigest(),
+        }
+    )
+    result = world.run("--base-url", world.server.origin)
+    assert result.returncode == 1
+    assert not world.server.requests and not world.destination.exists()

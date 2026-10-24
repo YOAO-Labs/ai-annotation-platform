@@ -2,6 +2,7 @@
 
 _FETCH_TEMPLATE = r'''#!/usr/bin/env python3
 """Fetch exact exported media, verifying original SHA-256 and byte receipts."""
+import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
@@ -19,6 +20,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MANIFEST = "@MANIFEST@"
 ITEMS = "@ITEMS@"
 DIRECTORY = "@DIRECTORY@"
+SIZE_FIELD = "@SIZE_FIELD@"
+SHA_FIELD = "@SHA_FIELD@"
 MAX_BYTES = 256 * 1024 * 1024
 CHUNK_BYTES = 256 * 1024
 _DIRFD = (
@@ -33,6 +36,68 @@ class Invalid(ValueError):
 
 class Expired(Invalid):
     pass
+
+
+class MissingBaseOrigin(Invalid):
+    pass
+
+
+class InvalidBaseOrigin(Invalid):
+    pass
+
+
+def safe_url_text(value):
+    return (
+        isinstance(value, str) and bool(value) and value.isascii()
+        and "\\" not in value
+        and not any(ord(char) <= 32 or ord(char) == 127 for char in value)
+    )
+
+
+def http_authority(parts):
+    try:
+        return (
+            parts.scheme in ("http", "https") and bool(parts.hostname)
+            and parts.username is None and parts.password is None
+            and "%" not in parts.netloc and not parts.netloc.endswith(":")
+            and (parts.port is None or parts.port > 0)
+        )
+    except ValueError:
+        return False
+
+
+def base_origin(value):
+    if value is None:
+        return None
+    try:
+        if not safe_url_text(value):
+            raise ValueError
+        parts = urlsplit(value)
+        if not http_authority(parts) or parts.path or "?" in value or "#" in value:
+            raise ValueError
+    except ValueError:
+        raise InvalidBaseOrigin("invalid_base_origin") from None
+    return value
+
+
+def media_url(value, origin):
+    if not safe_url_text(value) or "#" in value:
+        raise Invalid("invalid_media_url")
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        raise Invalid("invalid_media_url") from None
+    if value.startswith("/"):
+        if value.startswith("//") or parts.scheme or parts.netloc:
+            raise Invalid("invalid_media_url")
+        if origin is None:
+            raise MissingBaseOrigin("relative_media_url_requires_base_origin")
+        # Concatenation preserves the signed path/query exactly; urljoin can
+        # normalize segments or replace an origin for protocol-relative input.
+        return origin + value
+    if not http_authority(parts):
+        raise Invalid("invalid_media_url")
+    return value
 
 
 def deadline(value):
@@ -143,16 +208,17 @@ def file_matches(parent, path, expected_size, expected_sha256):
     return size == expected_size and digest.hexdigest() == expected_sha256
 
 
-def validated_items(manifest):
+def validated_items(manifest, base_url=None):
     if not isinstance(manifest, dict) or not isinstance(manifest.get(ITEMS), list):
         raise Invalid("invalid_media_manifest")
     expires = deadline(manifest.get("expires_at"))
     check_deadline(expires)
+    origin = base_origin(base_url)
     result, seen = [], set()
     for item in manifest[ITEMS]:
         if not isinstance(item, dict):
             raise Invalid("invalid_media_receipt")
-        size, sha256 = item.get("size_bytes"), item.get("sha256")
+        size, sha256 = item.get(SIZE_FIELD), item.get(SHA_FIELD)
         if type(size) is not int or not 0 <= size <= MAX_BYTES:
             raise Invalid("invalid_media_size")
         if not isinstance(sha256, str) or re.fullmatch(r"[0-9a-fA-F]{64}", sha256) is None:
@@ -162,11 +228,7 @@ def validated_items(manifest):
         if destination in seen:
             raise Invalid("duplicate_media_path")
         seen.add(destination)
-        if not isinstance(url, str) or any(ord(char) < 32 or ord(char) == 127 for char in url):
-            raise Invalid("invalid_media_url")
-        parts = urlsplit(url)
-        if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password:
-            raise Invalid("invalid_media_url")
+        url = media_url(url, origin)
         item_expires = min(expires, deadline(item["expires_at"])) if "expires_at" in item else expires
         check_deadline(item_expires)
         result.append((relative, url, size, sha256.lower(), item_expires))
@@ -234,10 +296,19 @@ def fetch(item):
                     pass
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base-url", help="Platform HTTP(S) origin for root-relative signed URLs")
+    arguments = parser.parse_args([] if argv is None else argv)
     try:
         with open(os.path.join(HERE, MANIFEST), encoding="utf-8") as source:
-            items = validated_items(json.load(source))
+            items = validated_items(json.load(source), base_url=arguments.base_url)
+    except MissingBaseOrigin:
+        print("[x] Relative media URL requires --base-url https://your-platform (origin only).")
+        return 1
+    except InvalidBaseOrigin:
+        print("[x] Invalid --base-url: use an HTTP(S) origin without credentials, path, query or fragment.")
+        return 1
     except Expired:
         print("[!] Media links expired; export again.")
         return 2
@@ -261,15 +332,24 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
 '''
 
 
-def _template(manifest: str, items: str, directory: str) -> str:
+def _template(
+    manifest: str,
+    items: str,
+    directory: str,
+    *,
+    size_field: str = "size_bytes",
+    sha_field: str = "sha256",
+) -> str:
     return (
         _FETCH_TEMPLATE.replace("@MANIFEST@", manifest)
         .replace("@ITEMS@", items)
         .replace("@DIRECTORY@", directory)
+        .replace("@SIZE_FIELD@", size_field)
+        .replace("@SHA_FIELD@", sha_field)
     )
 
 
@@ -277,3 +357,10 @@ FETCH_POINTCLOUDS_TEMPLATE = _template(
     "pointclouds_manifest.json", "pointclouds", "velodyne"
 )
 FETCH_LIDAR_IMAGES_TEMPLATE = _template("images_manifest.json", "images", "images")
+FETCH_TRUSTED_MEDIA_TEMPLATE = _template(
+    "media_manifest.json",
+    "media",
+    ".",
+    size_field="source_file_size",
+    sha_field="source_sha256",
+)
