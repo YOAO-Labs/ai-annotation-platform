@@ -383,6 +383,9 @@ async def accept_prediction(
             repair_original_receipt=getattr(
                 request.state, "repair_original_acceptance", None
             ),
+            video_acceptance_receipt=getattr(
+                request.state, "video_prediction_acceptance", None
+            ),
         )
     except ContentError as exc:
         from app.services.managed_mask_repair import repair_http_error
@@ -416,6 +419,15 @@ async def accept_prediction(
             await recheck_credentials(db, repair_receipt)
         except ContentError as exc:
             raise repair_http_error(exc) from None
+    video_receipt = getattr(request.state, "video_prediction_acceptance", None)
+    if video_receipt is not None:
+        from app.services.video_prediction_acceptance import recheck_credentials
+        from app.services.dataset_content import content_http_error
+
+        try:
+            await recheck_credentials(db, video_receipt)
+        except ContentError as exc:
+            raise content_http_error(exc) from None
     await db.commit()
     return anns
 
@@ -424,6 +436,7 @@ async def accept_prediction(
 async def reject_prediction(
     task_id: uuid.UUID,
     prediction_id: uuid.UUID,
+    request: Request,
     shape_index: int | None = Query(
         None,
         ge=0,
@@ -462,5 +475,14 @@ async def reject_prediction(
             current_set.add(idx)
     pred.rejected_shape_indexes = current
     await TaskLockService(db).heartbeat(task_id, current_user.id)
+    video_receipt = getattr(request.state, "video_prediction_rejection", None)
+    if video_receipt is not None:
+        from app.services.video_prediction_acceptance import recheck_credentials
+        from app.services.dataset_content import content_http_error
+
+        try:
+            await recheck_credentials(db, video_receipt)
+        except ContentError as exc:
+            raise content_http_error(exc) from None
     await db.commit()
     return None

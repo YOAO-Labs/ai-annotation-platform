@@ -337,6 +337,7 @@ class AnnotationService:
         video_segment_id: uuid.UUID | None = None,
         reference_receipt=None,
         repair_original_receipt=None,
+        video_acceptance_receipt=None,
     ) -> list[Annotation] | None:
         """采纳预测 → 转 annotation。
 
@@ -362,7 +363,26 @@ class AnnotationService:
         from app.services.reference_access import reject_reference_scope
 
         selection = None
-        if repair_original_receipt is not None:
+        if video_acceptance_receipt is not None:
+            from app.services.video_prediction_acceptance import (
+                selection_value,
+                validate_acceptance as validate_video_acceptance,
+            )
+            from app.services.content_snapshot import ContentError
+
+            if reference_receipt is not None or repair_original_receipt is not None:
+                raise ContentError("prediction_video_acceptance_receipt_invalid")
+            selection = selection_value(
+                shape_index, override_class_name, attribute_overrides, video_segment_id
+            )
+            await validate_video_acceptance(
+                self.db,
+                prediction,
+                user_id,
+                video_acceptance_receipt,
+                selection=selection,
+            )
+        elif repair_original_receipt is not None:
             from app.services.managed_repair_acceptance import (
                 selection_value,
                 validate_acceptance,
@@ -412,6 +432,26 @@ class AnnotationService:
             if raw_shapes and not indexed:
                 raise HTTPException(409, detail="Prediction has no available shapes")
         task = await self.db.get(Task, prediction.task_id)
+        if task is not None and task.file_type == "video":
+            from app.db.models.prediction import PredictionMeta as VideoPredictionMeta
+            from app.services.video_prediction_acceptance import (
+                requires_qualification,
+                selected_shape_indexes,
+            )
+            from app.services.content_snapshot import ContentError
+
+            video_metadata = await self.db.scalar(
+                select(VideoPredictionMeta).where(
+                    VideoPredictionMeta.prediction_id == prediction.id
+                )
+            )
+            if requires_qualification(prediction, video_metadata):
+                if video_acceptance_receipt is None:
+                    raise ContentError("prediction_video_requires_new_request")
+                selected = set(selected_shape_indexes(video_acceptance_receipt))
+                indexed = [
+                    (index, shape) for index, shape in indexed if index in selected
+                ]
         if (
             task is not None
             and task.file_type == "image"
@@ -430,6 +470,7 @@ class AnnotationService:
             task,
             [shape.get("geometry", {}) for _, shape in indexed],
             repair_original_receipt=repair_original_receipt,
+            video_acceptance_receipt=video_acceptance_receipt,
         )
         if repair_original_receipt is not None:
             # Owned RLE I/O may outlive credentials; recheck before constructing
@@ -657,6 +698,10 @@ class AnnotationService:
             from app.services.managed_mask_repair import recheck_credentials
 
             await recheck_credentials(self.db, repair_original_receipt)
+        if video_acceptance_receipt is not None:
+            from app.services.video_prediction_acceptance import recheck_credentials
+
+            await recheck_credentials(self.db, video_acceptance_receipt)
         return anns
 
     async def list_by_task(

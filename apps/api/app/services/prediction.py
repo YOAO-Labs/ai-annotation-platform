@@ -28,6 +28,12 @@ logger = logging.getLogger("app.services.prediction")
 TOOL_UNIT_IDS = frozenset(_SCHEMA_TOOL_UNIT_IDS)
 
 
+def _public_video_provenance(evidence):
+    from app.services.video_prediction_references import public_provenance
+
+    return public_provenance(evidence)
+
+
 async def claim_failed_prediction_retry(
     db: AsyncSession, failed_id: uuid.UUID, max_retries: int
 ) -> FailedPrediction | None:
@@ -494,14 +500,64 @@ class PredictionService:
         original_receipt=None,
         native_original_receipt=None,
         repair_original_receipt=None,
+        video_input_receipt=None,
+        video_result_receipt=None,
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
         from app.services.reference_access import reject_reference_scope
 
         reference_evidence = None
         original_evidence = None
+        video_evidence = None
         native_qualification = None
-        if repair_original_receipt is not None:
+        if video_input_receipt is not None:
+            from app.services.video_prediction_references import validate_result_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                source != "ml_backend"
+                or video_result_receipt is None
+                or any(
+                    receipt is not None
+                    for receipt in (
+                        reference_receipt,
+                        native_reference_receipt,
+                        repair_reference_receipt,
+                        background_native_reference_receipt,
+                        original_receipt,
+                        native_original_receipt,
+                        repair_original_receipt,
+                    )
+                )
+            ):
+                raise ContentError("prediction_video_receipt_invalid")
+            if getattr(video_result_receipt, "anchor", None) is not video_input_receipt:
+                raise ContentError("prediction_video_receipt_invalid")
+            video_evidence = await validate_result_receipt(
+                self.db,
+                task_id,
+                project_id,
+                video_result_receipt,
+                dict(
+                    task_id=task_id,
+                    project_id=project_id,
+                    ml_backend_id=ml_backend_id,
+                    result=result,
+                    score=score,
+                    model_version=model_version,
+                    inference_time_ms=inference_time_ms,
+                    token_meta=token_meta,
+                    source=source,
+                    pipeline_extra=pipeline_extra,
+                    ml_backend_pool_id=ml_backend_pool_id,
+                    model_provenance=model_provenance,
+                ),
+            )
+        elif video_result_receipt is not None:
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("prediction_video_receipt_invalid")
+        elif repair_original_receipt is not None:
             from app.services.managed_mask_repair import validate_receipt
             from app.services.content_snapshot import ContentError
 
@@ -680,6 +736,19 @@ class PredictionService:
 
             if not is_reference(task.file_path) and repair_original_receipt is None:
                 raise ContentError("repair_original_requires_new_plan")
+        if (
+            task is not None
+            and task.file_type == "video"
+            and source == "ml_backend"
+            and result
+            and video_evidence is None
+        ):
+            from types import SimpleNamespace
+            from app.services.video_prediction_acceptance import requires_qualification
+            from app.services.content_snapshot import ContentError
+
+            if requires_qualification(SimpleNamespace(source=source, result=result)):
+                raise ContentError("prediction_video_requires_new_request")
         await prepare_mask_payload_for_write(
             self.db,
             task,
@@ -689,6 +758,7 @@ class PredictionService:
             else None,
             native_original_receipt=native_original_receipt,
             repair_original_receipt=repair_original_receipt,
+            video_result_receipt=video_result_receipt,
         )
         prediction = Prediction(
             id=uuid.uuid4(),
@@ -732,6 +802,8 @@ class PredictionService:
                         "reference_execution",
                         "reference_native",
                         "original_input",
+                        "original_video_input",
+                        "video_prediction_proof",
                     }
                 },
                 **(
@@ -740,6 +812,11 @@ class PredictionService:
                     else {}
                 ),
                 **({"original_input": original_evidence} if original_evidence else {}),
+                **(
+                    {"original_video_input": _public_video_provenance(video_evidence)}
+                    if video_evidence is not None
+                    else {}
+                ),
                 **({"trained_model": model_provenance} if model_provenance else {}),
                 **(
                     {"inference_runtime": meta_data["inference_runtime"]}
@@ -765,6 +842,18 @@ class PredictionService:
                     prediction, meta.extra, native_qualification
                 ),
             }
+        if video_evidence is not None:
+            from app.services.video_prediction_acceptance import (
+                PROOF_KEY as VIDEO_PROOF_KEY,
+                persisted_qualification as qualify_video_prediction,
+            )
+
+            meta.extra = {
+                **meta.extra,
+                VIDEO_PROOF_KEY: qualify_video_prediction(
+                    prediction, meta.extra, video_evidence
+                ),
+            }
         self.db.add(meta)
 
         await self.db.execute(select(Task).where(Task.id == task_id).with_for_update())
@@ -777,6 +866,8 @@ class PredictionService:
             from app.services.managed_mask_repair import recheck_credentials
 
             await recheck_credentials(self.db, repair_original_receipt)
+        if video_input_receipt is not None:
+            await video_input_receipt.owner.recheck_credentials()
         return prediction
 
     async def create_failed(

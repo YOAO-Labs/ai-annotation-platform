@@ -44,6 +44,7 @@ class AsyncJobOut(BaseModel):
                 "image_media",
                 "video_media",
                 "prediction_authority",
+                "video_prediction_authority",
                 "repair_authority",
                 "point_cloud_quality_authority",
             }

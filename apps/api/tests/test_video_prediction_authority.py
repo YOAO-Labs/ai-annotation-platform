@@ -548,11 +548,12 @@ async def test_retry_requires_first_model_evidence_before_recapturing_credential
     capture.assert_not_awaited()
 
 
-async def test_video_job_does_not_grant_native_mask_qualification():
+async def test_source_only_video_job_does_not_grant_any_result_qualification():
     world = setup_job()
     writes = [{"result": [{"type": "video_track_bbox", "keyframes": []}]}]
-    assert await world.owner.qualify_native_results(world.task, None, writes) == [None]
-    with pytest.raises(ContentError, match="native_output_unsupported"):
+    with pytest.raises(ContentError, match="receipt_invalid"):
+        await world.owner.qualify_native_results(world.task, None, writes)
+    with pytest.raises(ContentError, match="receipt_invalid"):
         await world.owner.qualify_native_results(
             world.task, None, [{"result": [], "token_meta": {"mask_objects": {}}}]
         )

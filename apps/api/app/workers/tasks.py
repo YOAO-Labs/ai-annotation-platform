@@ -98,10 +98,44 @@ def _require_image_inputs(task, owner, inputs):
         raise ContentError("prediction_original_requires_new_request", 409)
 
 
+def _require_video_job_proof(project, proof, execution_unit=None):
+    if (
+        project is not None
+        and project.data_type == "video"
+        and execution_unit in {None, "video"}
+        and (
+            not isinstance(proof, dict)
+            or type(proof.get("schema")) is not int
+            or proof["schema"] != 1
+            or proof.get("media_type") != "video"
+        )
+    ):
+        from app.services.content_snapshot import ContentError
+
+        raise ContentError("prediction_video_requires_new_request", 409)
+
+
+def _require_video_inputs(task, owner, inputs, execution_unit=None):
+    if (
+        task.file_type == "video"
+        and execution_unit in {None, "video"}
+        and (
+            getattr(owner, "media_type", None) != "video"
+            or inputs is None
+            or inputs.record.contract_version != 3
+        )
+    ):
+        from app.services.content_snapshot import ContentError
+
+        raise ContentError("prediction_video_requires_new_request", 409)
+
+
 def _failure_input(owner, task_id):
     """Keep the original binding even when capture failed before opening inputs."""
     if owner is None or task_id not in owner.bindings:
         return {}
+    if getattr(owner, "media_type", None) == "video":
+        return owner.failure_evidence(task_id)
     binding = owner.failure_binding(task_id)
     if "original" in binding:
         return {"original_input": binding}
@@ -111,6 +145,12 @@ def _failure_input(owner, task_id):
 
 
 def _input_receipt_kwargs(owner, task_id, receipt):
+    if getattr(owner, "media_type", None) == "video":
+        if receipt is None:
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("prediction_video_requires_new_request", 409)
+        return {"video_input_receipt": receipt}
     if owner is not None and owner.is_managed(task_id):
         if receipt is None:
             from app.services.content_snapshot import ContentError
@@ -424,6 +464,10 @@ async def _run_task_pipeline(
     input_owner_id=None,
     input_owner_kind="batch_predict",
     before_dispatch=None,
+    before_transport=None,
+    max_response_bytes=None,
+    settle_model_requests=False,
+    validate_results=None,
 ):
     """Own image handles and, for production ROI calls, durable temporary inputs."""
     images = []
@@ -445,6 +489,10 @@ async def _run_task_pipeline(
             execution_snapshot_id=execution_snapshot_id,
             load_image=owned_image,
             before_dispatch=before_dispatch,
+            before_transport=before_transport,
+            max_response_bytes=max_response_bytes,
+            settle_model_requests=settle_model_requests,
+            validate_results=validate_results,
         )
 
     modes = stage_modes or ["crop"] * len(stages)
@@ -477,6 +525,10 @@ async def _execute_task_pipeline(
     execution_snapshot_id=None,
     load_image=None,
     before_dispatch=None,
+    before_transport=None,
+    max_response_bytes=None,
+    settle_model_requests=False,
+    validate_results=None,
 ):
     """v0.18.1 ~ v0.18.14 · 对单个 task 按受限树形拓扑跑各阶段, 返回 (pred_results, pipeline_extra, stage_stats)。
 
@@ -513,6 +565,30 @@ async def _execute_task_pipeline(
         collect_mask_geometries,
         collect_mask_references,
     )
+
+    async def predict(stage_index, tasks, context):
+        options = {}
+        if before_transport is not None:
+
+            async def dispatched(transport):
+                await before_transport(transport, stages[stage_index]["stage"])
+
+            options["before_dispatch"] = dispatched
+        if max_response_bytes is not None:
+            options["max_response_bytes"] = max_response_bytes
+        pending = stage_clients[stage_index].predict(tasks, context=context, **options)
+        if settle_model_requests:
+            from app.services.prediction_originals import settled
+
+            results = await settled(pending)
+        else:
+            results = await pending
+        if validate_results is not None:
+            checked = validate_results(results, stages[stage_index]["stage"], context)
+            checked = await checked if inspect.isawaitable(checked) else checked
+            if checked is not None:
+                results = checked
+        return results
 
     def validate_child_results(child_results):
         if any(
@@ -596,8 +672,8 @@ async def _execute_task_pipeline(
     if before_dispatch:
         await before_dispatch()
     executed_stages.add(0)
-    results = await stage_clients[0].predict(
-        [{"id": str(task.id), "file_path": url}], context=stage_contexts[0]
+    results = await predict(
+        0, [{"id": str(task.id), "file_path": url}], stage_contexts[0]
     )
     # Validate every original envelope before pruning, enrichment or child I/O.
     # The routed transport has already mapped native classes exactly once.
@@ -684,7 +760,8 @@ async def _execute_task_pipeline(
                     await before_dispatch()
                 try:
                     executed_stages.add(si)
-                    seg_results = await stage_clients[si].predict(
+                    seg_results = await predict(
+                        si,
                         [
                             {
                                 "id": str(task.id),
@@ -692,7 +769,7 @@ async def _execute_task_pipeline(
                                 "prompts": geo.prompts,
                             }
                         ],
-                        context=stage_contexts[si],
+                        stage_contexts[si],
                     )
                     validate_child_results(seg_results)
                     shapes = collect_geometry_shapes(seg_results, parent_boxes)
@@ -780,9 +857,7 @@ async def _execute_task_pipeline(
                 await before_dispatch()
             try:
                 executed_stages.add(si)
-                ds_results = await stage_clients[si].predict(
-                    crop_inputs, context=stage_contexts[si]
-                )
+                ds_results = await predict(si, crop_inputs, stage_contexts[si])
                 validate_child_results(ds_results)
                 if target == "attributes":
                     merged = merge_classify_attributes(
@@ -1038,6 +1113,7 @@ async def _run_batch(
         )
         precreated_job: AsyncJob | None = None
         reference_proof = None
+        video_proof = None
         if async_job_id is not None:
             try:
                 precreated_job_id = uuid.UUID(async_job_id)
@@ -1069,6 +1145,14 @@ async def _run_batch(
             reference_proof = deepcopy(
                 (precreated_job.payload or {}).get("prediction_authority")
             )
+            video_proof = deepcopy(
+                (precreated_job.payload or {}).get("video_prediction_authority")
+            )
+            if video_proof is not None and (
+                precreated_job.celery_task_id != celery_task_id
+            ):
+                # Never let an old delivery replace the queued attempt identity.
+                return
             if precreated_job.execution_snapshot_id:
                 from app.services.prediction_execution import load_snapshot
 
@@ -1108,6 +1192,11 @@ async def _run_batch(
             )
             await db.commit()
         _require_image_job_proof(project, reference_proof)
+        _require_video_job_proof(project, video_proof, execution_unit)
+        if reference_proof is not None and video_proof is not None:
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("video_prediction_authority_invalid")
         if batch_id:
             selected_batch = await db.get(TaskBatch, uuid.UUID(batch_id))
             if (
@@ -1436,14 +1525,23 @@ async def _run_batch(
 
         snapshot_id = precreated_job.execution_snapshot_id if precreated_job else None
         reference_job = None
-        if reference_proof is not None:
+        if reference_proof is not None or video_proof is not None:
             from app.services.content_snapshot import ContentError
             from app.services.prediction_references import ReferencePredictionJob
 
-            reference_job = ReferencePredictionJob(
+            owner_type = ReferencePredictionJob
+            proof = reference_proof
+            owner_options = {}
+            if video_proof is not None:
+                from app.services.video_prediction_references import VideoPredictionJob
+
+                owner_type = VideoPredictionJob
+                proof = video_proof
+                owner_options["celery_task_id"] = celery_task_id
+            reference_job = owner_type(
                 db,
                 async_job_id,
-                reference_proof,
+                proof,
                 project_id=project_uuid,
                 actor_id=uuid.UUID(user_id) if user_id else None,
                 task_ids=requested_task_ids,
@@ -1454,6 +1552,7 @@ async def _run_batch(
                 snapshot_digest=snapshot_digest,
                 node_id=worker_node_id,
                 execution_unit=execution_unit,
+                **owner_options,
             )
             try:
                 await reference_job.authorize()
@@ -1732,8 +1831,52 @@ async def _run_batch(
 
                     await validate_task_scope(db, project, task, actor, execution_scope)
                 if reference_job is not None:
+                    if getattr(reference_job, "media_type", None) == "video":
+                        await db.commit()
                     task_inputs = await reference_job.open_inputs(task, SessionLocal)
                 _require_image_inputs(task, reference_job, task_inputs)
+                _require_video_inputs(task, reference_job, task_inputs, execution_unit)
+                video_owner = (
+                    reference_job
+                    if getattr(reference_job, "media_type", None) == "video"
+                    else None
+                )
+
+                async def before_video_transport(transport, stage_id):
+                    # Routing reads belong to the caller; end them before setup
+                    # and source/storage checks perform any physical I/O.
+                    await db.commit()
+                    await video_owner.before_dispatch(
+                        task, transport, stage_id=stage_id
+                    )
+                    await db.commit()
+
+                async def validate_video_results(results, stage_id, context):
+                    from app.services.video_prediction_results import adapt_results
+
+                    context = context or {}
+                    window = (
+                        (context.get("from_frame"), context.get("to_frame"))
+                        if "from_frame" in context or "to_frame" in context
+                        else None
+                    )
+                    direction = context.get("direction") or "forward"
+                    qualified = await adapt_results(
+                        results,
+                        task_uuid,
+                        video_owner.video_probe(task_uuid),
+                        window=window,
+                        direction=direction,
+                    )
+                    await video_owner.register_results(
+                        task_uuid,
+                        stage_id,
+                        qualified,
+                        window=window,
+                        direction=direction,
+                    )
+                    return qualified.results
+
                 results, pipeline_extra, stage_stats = await _run_task_pipeline(
                     task,
                     stages,
@@ -1745,13 +1888,21 @@ async def _run_batch(
                     upload_crop=task_inputs.upload_crop if task_inputs else None,
                     load_image=task_inputs.load_image if task_inputs else None,
                     before_dispatch=(lambda: reference_job.before_dispatch(task))
-                    if reference_job
+                    if reference_job and video_owner is None
                     else None,
+                    before_transport=before_video_transport if video_owner else None,
+                    max_response_bytes=64 * 1024**2 if video_owner else None,
+                    settle_model_requests=video_owner is not None,
+                    validate_results=validate_video_results if video_owner else None,
                     stage_modes=stage_modes,
                     execution_snapshot_id=snapshot_id,
                     input_session_factory=None if task_inputs else SessionLocal,
                     input_owner_id=async_job_id,
                 )
+                if video_owner is not None:
+                    # The original file and source permit end before taking
+                    # cancellation, account, task or candidate write locks.
+                    await video_owner.finish_source(task_uuid)
                 _accumulate_stage_stats(stage_stats)
                 gpu_arbiter_failures.extend(
                     (pipeline_extra or {})
@@ -1861,7 +2012,9 @@ async def _run_batch(
                     created_prediction = await pred_svc.create_from_ml_result(
                         **write,
                         **(
-                            {"background_native_reference_receipt": native_receipt}
+                            {**receipt_kwargs, "video_result_receipt": native_receipt}
+                            if video_owner is not None
+                            else {"background_native_reference_receipt": native_receipt}
                             if native_receipt is not None
                             else receipt_kwargs
                         ),
@@ -1898,6 +2051,8 @@ async def _run_batch(
                     )
                     partial_failure.execution_snapshot_id = snapshot_id
                     partial_failure_id = str(partial_failure.id)
+                if video_owner is not None:
+                    await video_owner.recheck_credentials()
                 await db.commit()
                 running_total_cost += task_cost
                 if partial:

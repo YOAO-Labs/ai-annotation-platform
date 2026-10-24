@@ -2712,8 +2712,25 @@ async def trigger_preannotation(
     from app.services import prediction_references
 
     freeze_image_scope = project.data_type == "image"
+    # Frame fan-out keeps its own derived-frame contract. Whole-video models
+    # need a frozen source even when their pipeline has only one stage.
+    requested_unit = next(
+        (
+            (stage.source or {}).get("execution_unit")
+            for stage in (body.pipeline_stages or [])
+            if stage.parent_stage is None
+        ),
+        None,
+    )
+    freeze_video_scope = project.data_type == "video" and requested_unit in {
+        None,
+        "video",
+    }
     needs_snapshot = (
-        uses_controlled_model or bool(body.pipeline_stages) or freeze_image_scope
+        uses_controlled_model
+        or bool(body.pipeline_stages)
+        or freeze_image_scope
+        or freeze_video_scope
     )
     execution_snapshot = None
     frozen_model_ref = None
@@ -3136,9 +3153,9 @@ async def trigger_preannotation(
 
     input_tasks = None
 
-    async def freeze_image_selection():
+    async def freeze_input_selection():
         nonlocal input_tasks, explicit_task_ids, total_tasks_hint
-        if not freeze_image_scope:
+        if not (freeze_image_scope or freeze_video_scope):
             return
         query = prediction_references.selection_query(
             project.id,
@@ -3156,23 +3173,34 @@ async def trigger_preannotation(
                 422,
                 detail={
                     "code": "prediction_scope_budget_exceeded",
-                    "message": "单次图片预标最多选择1000题，请拆分批次后重试",
+                    "message": "单次预标最多选择1000题，请拆分批次后重试",
                 },
             )
-        if execution_unit not in {None, "image"}:
+        allowed_units = {None, "video"} if freeze_video_scope else {None, "image"}
+        if execution_unit not in allowed_units:
             raise HTTPException(
-                409, detail={"code": "prediction_requires_image_execution"}
+                409,
+                detail={
+                    "code": "prediction_requires_video_execution"
+                    if freeze_video_scope
+                    else "prediction_requires_image_execution"
+                },
             )
         explicit_task_ids = [row.id for row in input_tasks]
         total_tasks_hint = len(explicit_task_ids)
 
-    async def image_authority_payload():
-        if not freeze_image_scope:
+    async def input_authority_payload():
+        if not (freeze_image_scope or freeze_video_scope):
             return {}
         from app.services.dataset_content import content_http_error
 
         try:
-            proof = await prediction_references.capture_authority(
+            owner = prediction_references
+            if freeze_video_scope:
+                from app.services import video_prediction_references
+
+                owner = video_prediction_references
+            proof = await owner.capture_authority(
                 db,
                 project,
                 current_user,
@@ -3186,7 +3214,11 @@ async def trigger_preannotation(
             )
         except Exception as exc:
             raise content_http_error(exc) from None
-        return {"prediction_authority": proof}
+        return {
+            "video_prediction_authority"
+            if freeze_video_scope
+            else "prediction_authority": proof
+        }
 
     # 派发前预建持久作业, 让客户端可轮询同一 job、并发重试不会重复入队。
     # - 数据管理重试可带幂等键 (复用/去重)。
@@ -3240,6 +3272,30 @@ async def trigger_preannotation(
             # the worker's row lock makes a duplicate delivery a no-op.
             precreated_job = existing
             saved_ids = ((existing.payload or {}).get("scope") or {}).get("task_ids")
+            if freeze_video_scope:
+                proof = (existing.payload or {}).get("video_prediction_authority")
+                if (
+                    saved_ids is None
+                    or existing.execution_snapshot_id is None
+                    or not isinstance(proof, dict)
+                    or type(proof.get("schema")) is not int
+                    or proof["schema"] != 1
+                    or proof.get("media_type") != "video"
+                    or not isinstance(proof.get("tasks"), list)
+                    or any(
+                        not isinstance(binding, dict)
+                        or not isinstance(binding.get("original"), dict)
+                        or binding["original"].get("schema") != 3
+                        for binding in proof["tasks"]
+                    )
+                ):
+                    raise HTTPException(
+                        409,
+                        detail={
+                            "code": "prediction_video_requires_new_request",
+                            "message": "旧任务缺少可信视频原件或配置证明，请重新发起预标",
+                        },
+                    )
             if freeze_image_scope:
                 proof = (existing.payload or {}).get("prediction_authority")
                 if (
@@ -3279,7 +3335,7 @@ async def trigger_preannotation(
                 )
                 frozen_model_ref = root.get("frozen_model_ref")
         else:
-            await freeze_image_selection()
+            await freeze_input_selection()
             scoped_ids = (
                 [str(task_id) for task_id in explicit_task_ids]
                 if explicit_task_ids is not None
@@ -3302,7 +3358,7 @@ async def trigger_preannotation(
             if needs_snapshot:
                 frozen_model_ref = await freeze_execution()
                 precreated_payload["frozen_model_ref"] = frozen_model_ref
-            precreated_payload.update(await image_authority_payload())
+            precreated_payload.update(await input_authority_payload())
             precreated_job = await async_job_svc.create_job(
                 db,
                 kind="batch_predict",
@@ -3321,11 +3377,12 @@ async def trigger_preannotation(
         (body.execution_scope == "workbench" and explicit_task_ids is not None)
         or needs_snapshot
         or freeze_image_scope
+        or freeze_video_scope
     ):
         # issue #121 review · 工作台单题请求 (无幂等键) 同样预建持久作业: worker 在派发
         # 前的范围复校验失败时, on_failure 能按 celery_task_id 落一条 failed 作业,
         # 工作台面板不会因找不到终态记录而无限轮询。
-        await freeze_image_selection()
+        await freeze_input_selection()
         scoped_ids = (
             [str(task_id) for task_id in explicit_task_ids]
             if explicit_task_ids is not None
@@ -3352,7 +3409,7 @@ async def trigger_preannotation(
                     else {}
                 ),
                 **({"frozen_model_ref": frozen_model_ref} if frozen_model_ref else {}),
-                **(await image_authority_payload()),
+                **(await input_authority_payload()),
             },
         )
         if execution_snapshot is not None:

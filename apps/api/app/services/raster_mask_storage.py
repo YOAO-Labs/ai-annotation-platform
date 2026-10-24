@@ -414,12 +414,44 @@ async def validate_mask_geometry_for_task(
     native_original_receipt=None,
     repair_original_receipt=None,
     repair_read_receipt=None,
+    video_result_receipt=None,
+    video_acceptance_receipt=None,
 ) -> None:
     """验证掩码几何是否与任务数据集项匹配。
 
     支持 video_mask / video_track_mask（视频）和 raster_mask（图片）。
     """
     geom_type = geometry.get("type")
+
+    if video_result_receipt is not None or video_acceptance_receipt is not None:
+        if (
+            (video_result_receipt is not None and video_acceptance_receipt is not None)
+            or any(
+                value is not None
+                for value in (
+                    native_original_receipt,
+                    repair_original_receipt,
+                    repair_read_receipt,
+                )
+            )
+            or geom_type not in {"video_mask", "video_track_mask"}
+        ):
+            raise ContentError("prediction_video_receipt_invalid")
+        if video_result_receipt is not None:
+            from app.services.video_prediction_references import (
+                validate_result_geometry,
+            )
+
+            await validate_result_geometry(db, task, video_result_receipt, geometry)
+        else:
+            from app.services.video_prediction_acceptance import (
+                validate_geometry_receipt,
+            )
+
+            await validate_geometry_receipt(
+                db, task, video_acceptance_receipt, geometry
+            )
+        return
 
     if repair_original_receipt is not None or repair_read_receipt is not None:
         from app.services.managed_repair_acceptance import validate_geometry_receipt
@@ -536,6 +568,8 @@ async def prepare_mask_payload_for_write(
     portable_mask_meta: dict[str, Any] | None = None,
     native_original_receipt=None,
     repair_original_receipt=None,
+    video_result_receipt=None,
+    video_acceptance_receipt=None,
 ) -> None:
     """Gate, validate and claim every mask in a nested persistence payload.
 
@@ -593,6 +627,8 @@ async def prepare_mask_payload_for_write(
                 geometry,
                 native_original_receipt=native_original_receipt,
                 repair_original_receipt=repair_original_receipt,
+                video_result_receipt=video_result_receipt,
+                video_acceptance_receipt=video_acceptance_receipt,
             )
         except RasterMaskContractError:
             raise
@@ -628,7 +664,19 @@ async def prepare_mask_payload_for_write(
             db,
             references_to_commit,
             foreground_object_keys=foreground_keys,
+            **(
+                {"verify": False}
+                if video_result_receipt is not None
+                or video_acceptance_receipt is not None
+                else {}
+            ),
         )
+        if video_result_receipt is not None or video_acceptance_receipt is not None:
+            # The private video receipt already verified physical RLE before
+            # business locks and rechecked its exact ready owner above.
+            from app.services.raster_mask_objects import bind_publications
+
+            await bind_publications(db, references_to_commit)
         required = sorted(required_upload_keys or set())
         if required:
             owned = set(

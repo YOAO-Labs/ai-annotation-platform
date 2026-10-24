@@ -1,4 +1,4 @@
-"""Prepare image retries with fresh authority and the original failed input."""
+"""Prepare qualified retries with fresh authority and the original failed input."""
 
 from dataclasses import dataclass
 from uuid import UUID
@@ -92,8 +92,22 @@ async def prepare_retry(db, failure, actor, request, *, project_id=None):
     project = await db.get(Project, failure.project_id, populate_existing=True)
     reference_input = (failure.extra or {}).get("reference_input")
     original_input = (failure.extra or {}).get("original_input")
+    video_input = (failure.extra or {}).get("original_video_input")
+    video_execution = (failure.extra or {}).get("video_execution")
+    whole_video = bool(
+        video_input
+        or video_execution
+        or (
+            (
+                (project and project.data_type == "video")
+                or (task and task.file_type == "video")
+            )
+            and (snapshot is None or snapshot.get("execution_unit") in {None, "video"})
+        )
+    )
     if (
-        not (project and project.data_type == "image")
+        not whole_video
+        and not (project and project.data_type == "image")
         and not (task and task.file_type == "image")
         and not reference_input
         and not original_input
@@ -101,8 +115,39 @@ async def prepare_retry(db, failure, actor, request, *, project_id=None):
         return RetryDispatch(failure.id, queue)
     try:
         if not task or task.project_id != failure.project_id or not snapshot:
-            raise ContentError("prediction_original_requires_new_request")
-        if is_reference(task.file_path):
+            raise ContentError(
+                "prediction_video_requires_new_request"
+                if whole_video
+                else "prediction_original_requires_new_request"
+            )
+        if whole_video:
+            from app.services.video_prediction_originals import managed_binding
+            from app.services.video_prediction_references import (
+                capture_authority as capture_video,
+            )
+            from app.services.prediction_originals import encoded
+
+            if (
+                not isinstance(video_input, dict)
+                or not isinstance(video_execution, dict)
+                or not isinstance(video_execution.get("models"), list)
+                or reference_input is not None
+                or original_input is not None
+                or task.file_type != "video"
+                or project is None
+                or project.data_type != "video"
+                or snapshot.get("execution_unit") not in {None, "video"}
+                or video_execution.get("snapshot_id")
+                != str(failure.execution_snapshot_id)
+                or video_execution.get("snapshot_digest") != digest
+                or video_input.get("task_id") != str(task.id)
+            ):
+                raise ContentError("prediction_video_requires_new_request")
+            current = await managed_binding(db, task)
+            if encoded(current) != encoded(video_input.get("original")):
+                raise ContentError("content_binding_changed")
+            capture = capture_video
+        elif is_reference(task.file_path):
             if not isinstance(reference_input, dict) or original_input is not None:
                 raise ContentError("reference_retry_requires_original_binding")
             current = await reference_binding(db, task)
@@ -147,7 +192,9 @@ async def prepare_retry(db, failure, actor, request, *, project_id=None):
         frozen = await db.get(
             PredictionExecutionSnapshot, failure.execution_snapshot_id
         )
-        proof = await capture_authority(
+        if not whole_video:
+            capture = capture_authority
+        proof = await capture(
             db,
             project,
             actor,
@@ -159,11 +206,14 @@ async def prepare_retry(db, failure, actor, request, *, project_id=None):
             predict_mode="append",
             execution_unit=snapshot.get("execution_unit"),
             job_kind="prediction_retry",
+            **({"expected_models": video_execution["models"]} if whole_video else {}),
         )
         from app.workers.predictions_retry import _retry_job_metadata
 
         _, payload = await _retry_job_metadata(db, failure.id)
-        payload["prediction_authority"] = proof
+        payload[
+            "video_prediction_authority" if whole_video else "prediction_authority"
+        ] = proof
         job = await jobs.create_job(
             db,
             kind="prediction_retry",
@@ -235,7 +285,10 @@ async def finish_retry_attempt(
     if (
         not job
         or job.kind != "prediction_retry"
-        or not (job.payload or {}).get("prediction_authority")
+        or not (
+            (job.payload or {}).get("prediction_authority")
+            or (job.payload or {}).get("video_prediction_authority")
+        )
         or (celery_task_id is not None and job.celery_task_id != celery_task_id)
     ):
         return None

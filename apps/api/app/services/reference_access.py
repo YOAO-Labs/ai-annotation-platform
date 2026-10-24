@@ -128,6 +128,38 @@ async def reference_task_guard(
             raise content_http_error(exc) from None
         return
     if not is_reference(task.file_path):
+        video_operation = re.fullmatch(
+            r"/api/v1/tasks/[^/]+/predictions/[^/]+/(accept|reject)", request.url.path
+        )
+        if task.file_type == "video" and request.method == "POST" and video_operation:
+            from app.services import video_prediction_acceptance
+
+            try:
+                prediction_id = uuid.UUID(str(request.path_params["prediction_id"]))
+            except (ValueError, TypeError, KeyError):
+                return
+            try:
+                prediction, metadata = await video_prediction_acceptance._candidate(
+                    db, task.id, prediction_id
+                )
+                if video_prediction_acceptance.requires_qualification(
+                    prediction, metadata
+                ):
+                    if video_operation[1] == "accept":
+                        request.state.video_prediction_acceptance = (
+                            await video_prediction_acceptance.qualify_acceptance(
+                                db, task, actor, request, prediction_id
+                            )
+                        )
+                    else:
+                        request.state.video_prediction_rejection = (
+                            await video_prediction_acceptance.qualify_rejection(
+                                db, task, actor, request, prediction_id
+                            )
+                        )
+            except Exception as exc:
+                raise content_http_error(exc) from None
+            return
         # Only the owned repair-candidate write enters this managed dispatcher.
         # Ordinary managed predictions and non-image operations keep their path.
         if (

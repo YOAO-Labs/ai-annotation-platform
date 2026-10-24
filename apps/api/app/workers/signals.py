@@ -75,8 +75,9 @@ async def _apply_terminal(
                     await notify_job_terminal(db, job_id=aj.id)
                     await db.commit()
                 return
-            if aj.kind == "prediction_retry" and (aj.payload or {}).get(
-                "prediction_authority"
+            if aj.kind == "prediction_retry" and (
+                (aj.payload or {}).get("prediction_authority")
+                or (aj.payload or {}).get("video_prediction_authority")
             ):
                 from app.services.prediction_retries import finish_retry_attempt
 

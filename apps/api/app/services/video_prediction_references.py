@@ -505,6 +505,61 @@ class _Receipt:
     evidence: str = field(repr=False)
 
 
+@dataclass(frozen=True, slots=True)
+class _ResultReceipt:
+    issuer: object = field(repr=False)
+    owner: object = field(repr=False)
+    anchor: object = field(repr=False)
+    write_digest: str
+    geometries: frozenset[str]
+
+
+async def validate_result_geometry(db, task, receipt, geometry):
+    from app.services.video_prediction_acceptance import lock_mask_references
+    from app.services.raster_mask_storage import collect_mask_references
+
+    if (
+        type(receipt) is not _ResultReceipt
+        or receipt.issuer is not _ISSUER
+        or receipt.owner.db is not db
+        or authority.digest(geometry) not in receipt.geometries
+    ):
+        reject("prediction_video_result_receipt_invalid")
+    await validate_receipt(db, task.id, task.project_id, receipt.anchor)
+    keys = {ref["object_key"] for ref in collect_mask_references(geometry)}
+    facts = {
+        fact["reference"]["object_key"]: fact
+        for record in receipt.owner.result_records[task.id]
+        for fact in record["masks"]
+        if fact["reference"]["object_key"] in keys
+    }
+    await lock_mask_references(
+        db,
+        [{"type": geometry["type"], "geometry": geometry}],
+        receipt.owner.video_probe(task.id),
+        list(facts.values()),
+    )
+
+
+async def validate_result_receipt(db, task_id, project_id, receipt, write):
+    from app.services.reference_native_predictions import write_digest
+
+    if (
+        type(receipt) is not _ResultReceipt
+        or receipt.issuer is not _ISSUER
+        or receipt.owner.db is not db
+        or receipt.anchor.owner is not receipt.owner
+        or write_digest(**write) != receipt.write_digest
+    ):
+        reject("prediction_video_result_receipt_invalid")
+    evidence = await validate_receipt(db, task_id, project_id, receipt.anchor)
+    receipt.owner._check_results(task_id, write["result"])
+    return {
+        **evidence,
+        "result_qualification": receipt.owner.result_evidence(task_id),
+    }
+
+
 async def validate_receipt(db, task_id, project_id, receipt):
     """Return private evidence; callers must project any public provenance."""
     if (
@@ -598,6 +653,7 @@ class VideoPredictionJob:
         self.deliveries, self.sources, self.probes, self.input_receipts = {}, {}, {}, {}
         self.finished, self.unsettled, self.executions = set(), set(), {}
         self.selected_transports = {}
+        self.result_records, self.result_shapes, self.result_bytes = {}, {}, {}
 
     async def authorize(self, db=None):
         db = self.db if db is None else db
@@ -884,20 +940,120 @@ class VideoPredictionJob:
             },
         }
 
-    async def qualify_native_results(self, task, anchor, writes):
-        from app.services.raster_mask_storage import (
-            collect_mask_geometries,
-            collect_mask_references,
+    async def register_results(
+        self, task_id, stage_id, qualified, *, window=None, direction="forward"
+    ):
+        from app.services.video_prediction_results import validate_adaptation
+        from app.services.video_prediction_acceptance import qualify_mask_references
+        from app.services.prediction import to_internal_shape
+
+        if (task_id, stage_id) not in self.executions or task_id in self.finished:
+            reject("prediction_video_dispatch_unrecorded")
+        probe = self.video_probe(task_id)
+        correspondence = validate_adaptation(
+            qualified,
+            qualified.results,
+            task_id,
+            probe,
+            window=window,
+            direction=direction,
+        )
+        envelopes = [
+            envelope if isinstance(envelope, dict) else vars(envelope)
+            for envelope in qualified.results
+        ]
+        size = len(authority.encoded(envelopes).encode())
+        total = self.result_bytes.get(task_id, 0) + size
+        if total > 64 * 1024**2:
+            reject("prediction_video_result_budget_exceeded", 413)
+        shapes = self.result_shapes.setdefault(task_id, {})
+        for ri, envelope in enumerate(envelopes):
+            for index, shape in enumerate(envelope["result"]):
+                ident = str(
+                    uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        f"{self.proof['snapshot_id']}:{task_id}:{stage_id}:{ri}:{index}",
+                    )
+                )
+                if ident in shapes:
+                    reject("prediction_video_dispatch_repeated")
+                internal = to_internal_shape(deepcopy(shape))
+                shapes[ident] = authority.digest(internal.get("geometry"))
+        masks = await qualify_mask_references(
+            self.db,
+            [shape for envelope in envelopes for shape in envelope["result"]],
+            probe,
+        )
+        self.result_bytes[task_id] = total
+        self.result_records.setdefault(task_id, []).append(
+            {
+                "stage": stage_id,
+                **correspondence,
+                "masks": masks,
+            }
         )
 
-        if any(
-            (write.get("token_meta") or {}).get("mask_objects") is not None
-            or collect_mask_geometries(write.get("result"))
-            or collect_mask_references(write.get("result"))
-            for write in writes
-        ):
-            reject("prediction_video_native_output_unsupported")
-        return [None] * len(writes)
+    def _check_results(self, task_id, results):
+        from app.services.prediction import to_internal_shape
+
+        records = self.result_records.get(task_id)
+        if not records:
+            reject("prediction_video_results_unrecorded")
+        expected = self.result_shapes.get(task_id, {})
+        seen = set()
+        for shape in results:
+            ident = shape.get("pipeline_shape_id")
+            if (
+                ident in seen
+                or ident not in expected
+                or authority.digest(to_internal_shape(deepcopy(shape)).get("geometry"))
+                != expected[ident]
+            ):
+                reject("prediction_video_result_changed")
+            seen.add(ident)
+
+    def result_evidence(self, task_id):
+        if task_id not in self.result_records:
+            reject("prediction_video_results_unrecorded")
+        records = self.result_records[task_id]
+        masks = {}
+        for record in records:
+            for fact in record["masks"]:
+                key = fact["reference"]["object_key"]
+                if key in masks and not _same(masks[key], fact):
+                    reject("prediction_video_mask_changed")
+                masks[key] = fact
+        return {
+            "schema": 1,
+            "stages": [
+                {
+                    key: deepcopy(value)
+                    for key, value in record.items()
+                    if key != "masks"
+                }
+                for record in records
+            ],
+            "masks": [deepcopy(masks[key]) for key in sorted(masks)],
+        }
+
+    async def qualify_native_results(self, task, anchor, writes):
+        from app.services.reference_native_predictions import write_digest
+        from app.services.prediction import to_internal_shape
+
+        await validate_receipt(self.db, task.id, self.project_id, anchor)
+        receipts = []
+        for write in writes:
+            if (write.get("token_meta") or {}).get("mask_objects") is not None:
+                reject("prediction_video_result_changed")
+            self._check_results(task.id, write["result"])
+            geometries = frozenset(
+                authority.digest(to_internal_shape(deepcopy(shape)).get("geometry"))
+                for shape in write["result"]
+            )
+            receipts.append(
+                _ResultReceipt(_ISSUER, self, anchor, write_digest(**write), geometries)
+            )
+        return receipts
 
     async def _final_check(self, task_id):
         if (

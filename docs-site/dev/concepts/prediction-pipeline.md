@@ -145,17 +145,19 @@ WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分�
 
 ### 前端按 data_type 模态分流
 
-`/ai-pre` 执行页按项目 `data_type` 在前端分流，不再统一进入批量预标流水线：
+`/ai-pre` 执行页按项目 `data_type` 在前端分流：
 
-| `data_type` | `/ai-pre` 行为                                                                |
-| ----------- | ----------------------------------------------------------------------------- |
-| `image`     | 批量预标与多阶段流水线面板 → 走本页描述的 `batch_predict` 流水线              |
-| `video`     | 视频引导提示 → 跳工作台逐轨迹 Shift+T 发起追踪，**不进入批量 predict 流水线** |
-| `lidar`     | 显示占位提示，批量预标注入口暂不执行                                          |
+| `data_type` | `/ai-pre` 行为                                                            |
+| ----------- | ------------------------------------------------------------------------- |
+| `image`     | 批量预标与多阶段流水线面板 → 走本页描述的 `batch_predict` 流水线          |
+| `video`     | 编排画布选择整段视频追踪或逐帧图像检测，进入相应 `batch_predict` 执行分支 |
+| `lidar`     | 显示占位提示，批量预标注入口暂不执行                                      |
 
-视频项目的 AI 标注通过工作台 video tracker 发起，运行态保留 `video_tracker_jobs` 专表；历史汇总在 `/ai-pre/jobs?tab=video`，由 `async_jobs(kind=video_tracker)` 提供。
+视频项目也可从工作台发起交互 video tracker，运行态保留 `video_tracker_jobs` 专表；这类历史汇总在 `/ai-pre/jobs?tab=video`，由 `async_jobs(kind=video_tracker)` 提供。
 
 **数据边界**：本页的批量预标流水线以 `Prediction` 为候选存储，按 shape 采纳；交互视频 tracker 则把逐帧、多目标结果暂存在 `VideoTrackerJob.staged_result`，按 job 接受 / 丢弃，接受后才写入轨迹 annotation。两者共享 ML Backend 能力协议，但不共享候选表、计数或状态机。视频链路详见[视频 AI 追踪架构](./video-ai-tracking)。
+
+托管整段视频使用独立原件与输入 owner：三 canonical 来源的完整读取、同 FD probe、每 attempt 固定版本临时副本、实际 transport 前的授权／配置复核，以及源文件真实关闭后的最终短事务。输出先限制响应和几何预算，再适配聚合轨迹或逐帧框／多边形／Mask；私有结果资格绑定实际输出与 pipeline shape 身份，不能用仅有来源的 receipt 授予任意结果写入权限。普通采纳重新完整核验当前原件和实际 RLE，最终只在调用者事务核元信息与对象 owner；公开 Job／Prediction 不暴露私有授权和存储定位。逐帧与专用交互 Tracker 保持各自合同，见[固定输入 API](../../api/guides/predictions.md#托管视频的固定输入)。
 
 ## 按后端动态参数透传
 

@@ -618,6 +618,8 @@ POST /api/v1/tasks/:id/annotations/accept
 2. 反查类别配置把 alias 映射回原类别名
 3. 写审计 `annotation.prediction_accepted`
 
+托管视频整段预标的普通候选采纳还会按当前调用者核对已保存候选、当前原件、真实视频尺寸及实际掩码内容，支持独立 TaskOriginal 和 primary 关联。生成凭据到期或原 Job 清理不妨碍当前合法用户采纳；来源、候选或权限变化则拒绝整次写入。缺少服务端证明的历史整段候选需重新预标，既有逐帧框和外部导入沿各自合同处理。完整说明见[视频固定输入](./predictions.md#托管视频的固定输入)。
+
 ## 驳回预测
 
 ```http

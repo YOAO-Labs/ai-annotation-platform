@@ -1238,13 +1238,31 @@ async def predict_test(
     task = await _get_task_in_project(db, task_id, project_id)
     await db.commit()
 
-    async with reference_image_operation(
-        db, task, current_user, request, "predict_test", input_session_factory
-    ) as image_input:
+    video_input = task.file_type == "video"
+    if video_input:
+        from app.services.video_sync_inference import video_predict_test_operation
 
-        async def before_dispatch(_transport):
-            await image_input.validate()
-            await db.commit()
+        operation = video_predict_test_operation(
+            db,
+            task,
+            current_user,
+            request,
+            input_session_factory,
+            backend_id=backend_id,
+        )
+    else:
+        operation = reference_image_operation(
+            db, task, current_user, request, "predict_test", input_session_factory
+        )
+    async with operation as image_input:
+
+        async def before_dispatch(transport):
+            if video_input:
+                await db.commit()
+                await image_input.before_dispatch(transport)
+            else:
+                await image_input.validate()
+                await db.commit()
 
         client = RoutedMLBackendClient(
             db,
@@ -1255,7 +1273,7 @@ async def predict_test(
             shadow_session_factory=shadow_session_factory,
             dispatch_context_factory=dispatch_context_factory,
         )
-        results = await client.predict(
+        pending = client.predict(
             [
                 {
                     "id": str(task.id),
@@ -1265,7 +1283,19 @@ async def predict_test(
                 }
             ],
             **({"before_dispatch": before_dispatch} if image_input else {}),
+            **({"max_response_bytes": 64 * 1024**2} if video_input else {}),
         )
+        if video_input:
+            from app.services.prediction_originals import settled
+            from app.services.content_snapshot import ContentError
+
+            results = await settled(pending)
+            if len(results) > 1 or any(
+                str(result.task_id) != str(task.id) for result in results
+            ):
+                raise ContentError("prediction_video_result_task_mismatch", 502)
+        else:
+            results = await pending
         if image_input:
             await image_input.final()
         return {
