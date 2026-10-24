@@ -375,13 +375,37 @@ async def _submit_tracker(
 ):
     response = await client.post(
         f"/api/v1/tasks/{world['task_id']}/video:track",
-        json=_tracker_request(),
+        json={**_tracker_request(), "segment_id": world["segment_id"]},
         headers=headers,
     )
     assert response.status_code == 202, redact(response.text)
     body = response.json()
     assert body.get("task_id") == str(world["task_id"])
     return body
+
+
+async def _claim_tracker_segment(client, headers, world, *, redact) -> dict:
+    path = f"/api/v1/tasks/{world['task_id']}/video/segments"
+    response = await client.get(path, headers=headers)
+    assert response.status_code == 200, redact(response.text)
+    segments = [
+        row
+        for row in response.json()["segments"]
+        if row["work_start_frame"] <= 0 and row["work_end_frame"] >= 5
+    ]
+    assert len(segments) == 1
+    segment_id = segments[0]["id"]
+    claimed = await client.post(path + f"/{segment_id}:claim", headers=headers)
+    assert claimed.status_code == 200, redact(claimed.text)
+    body = claimed.json()
+    assert body["locked_by"] == str(world["actor_id"])
+    assert body["status"] == "locked" and body["lock_expires_at"]
+    world["segment_id"] = segment_id
+    return {
+        "segment_id": segment_id,
+        "locked_by": body["locked_by"],
+        "lock_expires_at": body["lock_expires_at"],
+    }
 
 
 async def _exercise_api_tracker_phase(
@@ -453,6 +477,10 @@ async def _exercise_api_tracker_phase(
             {"registry_id": str(world["registry_id"]), "phase": "completed"}
         ]
         assert peer.controller.phase == "bound"
+        record_property(
+            f"video_tracker_segment_{phase}",
+            await _claim_tracker_segment(client, headers, world, redact=stack.redact),
+        )
 
         await _pause_gpu_consumer(sender, worker)
         if queue_outage:
