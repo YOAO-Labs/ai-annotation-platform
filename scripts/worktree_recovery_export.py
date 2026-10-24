@@ -298,7 +298,7 @@ def media_inputs(
 
 
 def _read_exact(storage, bucket, key, sha256, size, *, metadata=None):
-    assert type(size) is int and 0 < size <= 1024**2
+    assert type(size) is int and 0 <= size <= 1024**2
     params = {"Bucket": bucket, "Key": key}
     head = storage.client.head_object(**params)
     assert head["ContentLength"] == size and head.get("ETag")

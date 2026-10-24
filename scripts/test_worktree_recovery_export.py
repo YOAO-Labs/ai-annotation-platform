@@ -12,6 +12,7 @@ import uuid
 from worktree_recovery_export import (
     MEDIA_CACHE_KEY,
     MEDIA_STATES,
+    _read_exact,
     media_bytes,
     seed_media_bundles,
     seed_media_sources,
@@ -93,6 +94,132 @@ class Objects(Client):
 
     def generate_presigned_url(self, operation, **options):
         return f"{self.meta.endpoint_url}/{options['Params']['Bucket']}/{options['Params']['Key']}?X-Amz-Signature=source-only"
+
+
+class ExactRecoveryRead(unittest.TestCase):
+    bucket, key = "saved-original-bucket", "auxiliary/raw/payload"
+    empty_sha = hashlib.sha256(b"").hexdigest()
+
+    def empty_client(self, *, versioned=True):
+        client = Objects()
+        client.versioned = versioned
+        client.add(self.key, b"")
+        client.metadata[self.key] = {"sha256": self.empty_sha}
+        return client
+
+    def read_empty(self, client, *, sha=None):
+        return _read_exact(
+            SimpleNamespace(client=client, datasets_bucket="unrelated-current-bucket"),
+            self.bucket,
+            self.key,
+            self.empty_sha if sha is None else sha,
+            0,
+            metadata={"sha256": self.empty_sha},
+        )
+
+    def test_empty_object_uses_saved_head_conditional_get_eof_and_closes(self):
+        for versioned in (True, False):
+            with self.subTest(versioned=versioned):
+                client, reads = self.empty_client(versioned=versioned), []
+
+                def track(response):
+                    body = response["Body"]
+                    original_read = body.read
+
+                    def read(size=-1):
+                        reads.append(size)
+                        return original_read(size)
+
+                    body.read = read
+                    return response
+
+                client.mutate_get = track
+                self.assertEqual(self.read_empty(client), b"")
+                self.assertEqual(reads, [1, 1])
+                self.assertEqual(
+                    [name for name, _ in client.calls], ["head", "get", "head"]
+                )
+                self.assertTrue(
+                    all(params["Bucket"] == self.bucket for _, params in client.calls)
+                )
+                params = client.calls[1][1]
+                self.assertEqual(params["IfMatch"], client.current(self.key)["ETag"])
+                self.assertEqual("VersionId" in params, versioned)
+                self.assertTrue(client.bodies[0].closed)
+                self.assertEqual(client.bodies[0].close_count, 1)
+
+    def test_empty_object_still_requires_its_full_sha(self):
+        client = self.empty_client()
+        with self.assertRaises(AssertionError):
+            self.read_empty(client, sha=hashlib.sha256(b"different").hexdigest())
+        self.assertTrue(client.bodies[0].closed)
+
+    def test_empty_head_mismatch_refuses_before_get(self):
+        client = self.empty_client()
+        client.mutate_head = lambda response: {**response, "ContentLength": 1}
+        with self.assertRaises(AssertionError):
+            self.read_empty(client)
+        self.assertEqual([name for name, _ in client.calls], ["head"])
+
+    def test_empty_get_rejects_extra_bytes_and_non_eof_and_closes(self):
+        for chunks in ((b"x", b""), (b"", b"x")):
+            with self.subTest(chunks=chunks):
+                client = self.empty_client()
+                returned = iter(chunks)
+
+                def change_body(response):
+                    response["Body"].read = lambda _size: next(returned)
+                    return response
+
+                client.mutate_get = change_body
+                with self.assertRaises(AssertionError):
+                    self.read_empty(client)
+                self.assertTrue(client.bodies[0].closed)
+                self.assertEqual(client.bodies[0].close_count, 1)
+
+    def test_empty_get_receipt_mismatch_or_late_head_change_refuses(self):
+        for changed in ("get", "after"):
+            with self.subTest(changed=changed):
+                client = self.empty_client()
+                if changed == "get":
+                    client.mutate_get = lambda response: {**response, "ETag": "other"}
+                else:
+                    heads = iter((0, 1))
+
+                    def change_head(response):
+                        return {**response, "ContentLength": next(heads)}
+
+                    client.mutate_head = change_head
+                with self.assertRaises(AssertionError):
+                    self.read_empty(client)
+                self.assertTrue(client.bodies[0].closed)
+
+    def test_empty_read_or_close_failure_is_not_success(self):
+        for failure in ("read", "close"):
+            with self.subTest(failure=failure):
+                client = self.empty_client()
+                if failure == "read":
+
+                    def break_read(response):
+                        def read(_size):
+                            raise OSError("body read failed")
+
+                        response["Body"].read = read
+                        return response
+
+                    client.mutate_get = break_read
+                else:
+                    client.body_close_failure = OSError("body close unknown")
+                try:
+                    with self.assertRaises(OSError):
+                        self.read_empty(client)
+                    self.assertEqual(client.bodies[0].close_count, 1)
+                    if failure == "read":
+                        self.assertTrue(client.bodies[0].closed)
+                finally:
+                    client.bodies[0].failure = None
+                    if not client.bodies[0].closed:
+                        client.bodies[0].close()
 
 
 class ExportMediaRecovery(unittest.IsolatedAsyncioTestCase):
