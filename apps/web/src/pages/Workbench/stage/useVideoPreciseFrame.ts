@@ -16,6 +16,8 @@ import {
   videoDerivativeKey,
   verifyVideoChunkBytes,
   retryPreparingVideoMetadata,
+  retryTransientVideoDerivative,
+  transientVideoDerivativeRetryDelay,
   videoMetadataRetryDelay,
 } from "@/api/videoDerivatives";
 import { ByteLru } from "./videoByteLru";
@@ -373,7 +375,8 @@ export function useVideoPreciseFrame({
     // Keep metadata briefly; a renewed lease may publish a different output.
     staleTime: MANIFEST_STALE_MS,
     gcTime: 0,
-    retry: false,
+    retry: retryTransientVideoDerivative,
+    retryDelay: transientVideoDerivativeRetryDelay,
   });
 
   const chunk: VideoChunkOut | undefined = chunkQuery.data;
@@ -446,7 +449,8 @@ export function useVideoPreciseFrame({
     enabled: pipelineEnabled && chunkReady && !!datasetItemId,
     staleTime: MANIFEST_STALE_MS,
     gcTime: 0,
-    retry: false,
+    retry: retryTransientVideoDerivative,
+    retryDelay: transientVideoDerivativeRetryDelay,
   });
   const samples: VideoChunkSamplesResponse | undefined = samplesQuery.data;
 

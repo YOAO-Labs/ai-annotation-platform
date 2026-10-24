@@ -101,14 +101,23 @@ function videoMetadataRetryKind(error: unknown): "preparing" | "busy" | null {
   return null;
 }
 
+export function retryTransientVideoDerivative(failureCount: number, error: unknown): boolean {
+  return videoMetadataRetryKind(error) === "busy" && failureCount < 3;
+}
+
+export function transientVideoDerivativeRetryDelay(attempt: number): number {
+  return 200 * (Math.min(2, Math.max(0, attempt)) + 1);
+}
+
 export function retryPreparingVideoMetadata(failureCount: number, error: unknown): boolean {
   const kind = videoMetadataRetryKind(error);
-  return kind === "preparing" ? failureCount < 10 : kind === "busy" && failureCount < 3;
+  return kind === "preparing"
+    ? failureCount < 10
+    : retryTransientVideoDerivative(failureCount, error);
 }
 
 export function videoMetadataRetryDelay(attempt: number, error: unknown): number {
-  if (videoMetadataRetryKind(error) === "busy")
-    return 200 * (Math.min(2, Math.max(0, attempt)) + 1);
+  if (videoMetadataRetryKind(error) === "busy") return transientVideoDerivativeRetryDelay(attempt);
   const seconds = error instanceof ApiError ? Number(error.headers?.["retry-after"]) : NaN;
   return Number.isFinite(seconds) && seconds > 0
     ? Math.min(10_000, Math.max(1_000, seconds * 1_000))

@@ -9,6 +9,8 @@ import {
   videoDerivativeOwnerKey,
   verifyVideoChunkBytes,
   retryPreparingVideoMetadata,
+  retryTransientVideoDerivative,
+  transientVideoDerivativeRetryDelay,
   videoMetadataRetryDelay,
 } from "./videoDerivatives";
 
@@ -121,6 +123,16 @@ describe("video derivative content and authority", () => {
       expect([0, 1, 2, 3, 10].map((attempt) => videoMetadataRetryDelay(attempt, error))).toEqual([
         200, 400, 600, 600, 600,
       ]);
+      expect([0, 1, 2, 3, 10].map((count) => retryTransientVideoDerivative(count, error))).toEqual([
+        true,
+        true,
+        true,
+        false,
+        false,
+      ]);
+      expect([0, 1, 2, 3, 10].map(transientVideoDerivativeRetryDelay)).toEqual([
+        200, 400, 600, 600, 600,
+      ]);
     },
   );
 
@@ -136,8 +148,13 @@ describe("video derivative content and authority", () => {
     [503, "content_busy"],
     [503, "storage_original_busy"],
     [503, "storage_maintenance_busy"],
+    [404, "content_busy"],
+    [500, "content_busy"],
   ] as const)("does not retry status %i code %s", (status, code) => {
     expect(retryPreparingVideoMetadata(0, new ApiError(status, "rejected", { code }))).toBe(false);
+    expect(retryTransientVideoDerivative(0, new ApiError(status, "rejected", { code }))).toBe(
+      false,
+    );
   });
 
   it("does not infer a transient conflict from missing, malformed or untrusted error details", () => {
@@ -159,6 +176,7 @@ describe("video derivative content and authority", () => {
         { code: "video_metadata_preparing" },
         hint ? { "retry-after": hint } : undefined,
       );
+    expect(retryTransientVideoDerivative(0, preparing())).toBe(false);
     expect(retryPreparingVideoMetadata(9, preparing())).toBe(true);
     expect(retryPreparingVideoMetadata(10, preparing())).toBe(false);
     expect(videoMetadataRetryDelay(0, preparing())).toBe(2_000);

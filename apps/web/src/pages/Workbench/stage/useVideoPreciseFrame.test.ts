@@ -9,6 +9,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { tasksApi } from "@/api/tasks";
 import { videoApi } from "@/api/videos";
+import { ApiError } from "@/api/client";
 import type { VideoChunkOut, VideoChunkSamplesResponse, VideoManifestV2Response } from "@/types";
 import { WEBCODECS_FLAG_STORAGE_KEY } from "./useVideoChunkDecoder";
 import { retryAfterSecondsToMs, useVideoPreciseFrame } from "./useVideoPreciseFrame";
@@ -271,6 +272,81 @@ describe("useVideoPreciseFrame", () => {
     expect(retryAfterSecondsToMs(0.25)).toBe(1000);
     expect(retryAfterSecondsToMs(30)).toBe(10_000);
   });
+
+  it.each(["chunk", "samples"] as const)(
+    "%s retries three explicit short locks then reaches ready without waiting for polling",
+    async (stage) => {
+      getManifestV2.mockResolvedValue(manifest());
+      getChunk.mockResolvedValue(readyChunk());
+      getSamples.mockResolvedValue(samples());
+      const request = stage === "chunk" ? getChunk : getSamples;
+      for (const code of ["content_busy", "storage_original_busy", "storage_maintenance_busy"])
+        request.mockRejectedValueOnce(new ApiError(409, "busy", { code }));
+      vi.mocked(global.fetch).mockResolvedValue({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => makeBytes(),
+      } as Response);
+      const { result } = renderPrecise({
+        taskId: "t1",
+        frameIndex: 5,
+        enabled: true,
+        bitmapBudgetBytes: 4_000_000,
+        chunkBudgetBytes: 8_000_000,
+        prefetchFrames: 0,
+      });
+      await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+      expect(result.current.fallbackReason).toBeNull();
+      await waitFor(() => expect(result.current.sourceState).toBe("ready"), { timeout: 3000 });
+      expect(request).toHaveBeenCalledTimes(4);
+      expect(result.current.bitmap?.frameIndex).toBe(5);
+      expect(result.current.fallbackReason).toBeNull();
+      expect(stage === "chunk" ? getSamples : getChunk).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(
+    (["chunk", "samples"] as const).flatMap((stage) => [
+      { stage, status: 409, code: "video_metadata_changed" },
+      { stage, status: 409, code: "video_output_changed" },
+      { stage, status: 403, code: "content_busy" },
+      { stage, status: 404, code: "content_busy" },
+      { stage, status: 500, code: "content_busy" },
+      { stage, status: 503, code: "video_metadata_preparing" },
+    ]),
+  )(
+    "$stage immediately rejects $status $code without retrying",
+    async ({ stage, status, code }) => {
+      getManifestV2.mockResolvedValue(manifest());
+      getChunk.mockResolvedValue(readyChunk());
+      getSamples.mockResolvedValue(samples());
+      const request = stage === "chunk" ? getChunk : getSamples;
+      request.mockRejectedValue(new ApiError(status, "rejected", { code }));
+      vi.mocked(global.fetch).mockResolvedValue({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => makeBytes(),
+      } as Response);
+      const { result } = renderPrecise({
+        taskId: "t1",
+        frameIndex: 5,
+        enabled: true,
+        bitmapBudgetBytes: 4_000_000,
+        chunkBudgetBytes: 8_000_000,
+        prefetchFrames: 0,
+      });
+      await waitFor(() => expect(result.current.sourceState).toBe("fallback"));
+      const query = queryClient.getQueryCache().findAll({
+        queryKey: [stage === "chunk" ? "video-chunk" : "video-chunk-samples"],
+      })[0];
+      expect(query?.state.status).toBe("error");
+      expect(query?.state.fetchStatus).toBe("idle");
+      expect(query?.state.fetchFailureCount).toBe(1);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(result.current.bitmap).toBeNull();
+      expect(decoders).toHaveLength(0);
+    },
+  );
 
   it("flag 关闭(decoder inactive)→ manifest/chunk/samples/bytes 零请求,sourceState=disabled", async () => {
     vi.unstubAllGlobals(); // jsdom 无 WebCodecs → decoder inactive
