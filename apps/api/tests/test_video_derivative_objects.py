@@ -371,11 +371,20 @@ async def test_cancelled_constructor_drains_and_closes_its_late_client(
                 pytest.fail("cancelled enter must not deliver the client")
 
         task = asyncio.create_task(run())
-        await asyncio.wait_for(started.wait(), 2)
-        task.cancel()
-        release.set()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        try:
+            await asyncio.wait_for(started.wait(), 2)
+            task.cancel()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            release.set()
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except BaseException:
+                pass
         assert owned.provider.closed
         assert not list(
             await db.scalars(
