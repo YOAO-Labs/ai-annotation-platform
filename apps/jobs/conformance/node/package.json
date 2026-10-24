@@ -1,0 +1,15 @@
+{
+  "name": "@aap/jobs-list-query-conformance",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "pg": "8.16.3"
+  },
+  "scripts": {
+    "check": "node --check list_query_acceptance.mjs && node list_query_acceptance.mjs --self-check"
+  }
+}
