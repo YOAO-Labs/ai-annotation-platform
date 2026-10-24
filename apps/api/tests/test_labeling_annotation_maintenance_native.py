@@ -1,5 +1,6 @@
 """Saved function-only draft/cleanup proof for the owned module database."""
 
+import json
 import os
 import uuid
 
@@ -77,6 +78,15 @@ async def test_maintenance_owner_keeps_cleanup_json_and_outer_rollback(test_engi
         )
 
         async def execute(payload):
+            request = json.loads(payload)
+            if request["operation"] == "cleanup_schema":
+                # Native clients may send valid uppercase UUIDs without Python normalization.
+                request["project_id"] = request["project_id"].upper()
+                for row in request["annotations"] + request["tasks"]:
+                    for field in ("id", "task_id", "project_id", "batch_id"):
+                        if isinstance(row.get(field), str):
+                            row[field] = row[field].upper()
+                payload = json.dumps(request)
             return await connection.fetchval(
                 "SELECT aap_labeling_v1.annotation_maintenance_command($1::jsonb)",
                 payload,

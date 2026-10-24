@@ -167,7 +167,7 @@ BEGIN
            OR EXISTS (SELECT FROM jsonb_array_elements(p_request -> 'tasks') AS item(value)
                       WHERE (value ->> 'project_id')::uuid IS DISTINCT FROM v_project_id
                          OR NOT EXISTS (SELECT FROM jsonb_array_elements(p_request -> 'annotations') AS annotation(value)
-                                        WHERE annotation.value ->> 'task_id'=item.value ->> 'id')) THEN
+                                        WHERE (annotation.value ->> 'task_id')::uuid=(item.value ->> 'id')::uuid)) THEN
             RAISE EXCEPTION 'Invalid Annotation cleanup scope references' USING ERRCODE='22023';
         END IF;
         v_phase := 'batch_busy';
@@ -188,7 +188,7 @@ BEGIN
         LOOP
             IF v_row.project_id IS DISTINCT FROM v_project_id OR v_row.batch_id IS DISTINCT FROM (
                 SELECT (value ->> 'batch_id')::uuid FROM jsonb_array_elements(p_request -> 'tasks') AS item(value)
-                WHERE value ->> 'id'=v_row.id::text
+                WHERE (value ->> 'id')::uuid=v_row.id
             ) THEN
                 RAISE EXCEPTION USING ERRCODE='P0001',MESSAGE='aap_annotation_maintenance_error',DETAIL='{"reason":"task_target_changed"}';
             END IF;
@@ -203,7 +203,7 @@ BEGIN
         LOOP
             IF v_row.project_id IS DISTINCT FROM v_project_id
                OR NOT EXISTS (SELECT FROM jsonb_array_elements(p_request -> 'annotations') AS item(value)
-                              WHERE value ->> 'id'=v_row.id::text AND value ->> 'task_id'=v_row.task_id::text)
+                              WHERE (value ->> 'id')::uuid=v_row.id AND (value ->> 'task_id')::uuid=v_row.task_id)
                OR NOT (v_row.task_id=ANY(v_task_ids)) THEN
                 RAISE EXCEPTION USING ERRCODE='P0001',MESSAGE='aap_annotation_maintenance_error',DETAIL='{"reason":"annotation_target_changed"}';
             END IF;
