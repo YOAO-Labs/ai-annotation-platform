@@ -31,6 +31,7 @@ packages = ["src/aap_notifications"]
 "src/aap_notifications/sql/0318_notifications_delete.sql" = "aap_notifications/sql/0318_notifications_delete.sql"
 "src/aap_notifications/sql/0319_notifications_read_relations.sql" = "aap_notifications/sql/0319_notifications_read_relations.sql"
 "src/aap_notifications/sql/0321_notifications_terminal_append.sql" = "aap_notifications/sql/0321_notifications_terminal_append.sql"
+"src/aap_notifications/sql/0324_notifications_inbox_query.sql" = "aap_notifications/sql/0324_notifications_inbox_query.sql"
 "src/aap_notifications/preferences.schema.json" = "aap_notifications/preferences.schema.json"
 "src/aap_notifications/preferences.policy.json" = "aap_notifications/preferences.policy.json"
 "src/aap_notifications/append.schema.json" = "aap_notifications/append.schema.json"
@@ -38,6 +39,7 @@ packages = ["src/aap_notifications"]
 "src/aap_notifications/delete.schema.json" = "aap_notifications/delete.schema.json"
 "src/aap_notifications/read_relations.schema.json" = "aap_notifications/read_relations.schema.json"
 "src/aap_notifications/terminal_append.schema.json" = "aap_notifications/terminal_append.schema.json"
+"src/aap_notifications/inbox_query.schema.json" = "aap_notifications/inbox_query.schema.json"
 "src/aap_notifications/notification_delivery_protocol.schema.json" = "aap_notifications/notification_delivery_protocol.schema.json"
 "src/aap_notifications/realtime_event.schema.json" = "aap_notifications/realtime_event.schema.json"
 

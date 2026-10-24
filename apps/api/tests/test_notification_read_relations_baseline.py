@@ -66,6 +66,37 @@ async def test_legacy_notification_list_keeps_order_counts_and_dirty_identity(
 
 
 @pytest.mark.asyncio
+async def test_inbox_query_preserves_native_jsonb_payload_shapes(db_session, annotator):
+    user, _ = annotator
+    payloads = [None, {}, [], ["project_id"], "scalar", 5, True]
+    rows = [
+        Notification(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            type=f"inbox.jsonb.{index}",
+            target_type="task",
+            target_id=uuid.uuid4(),
+            payload=payload,
+            created_at=datetime(2026, 2, 1, tzinfo=timezone.utc)
+            + timedelta(seconds=index),
+        )
+        for index, payload in enumerate(payloads)
+    ]
+    db_session.add_all(rows)
+    await db_session.flush()
+
+    page, total, unread = await NotificationService(db_session).list_for_user(
+        user.id,
+        limit=len(rows),
+    )
+
+    assert total == unread == len(payloads)
+    assert {row.id: row.payload for row in page} == {
+        row.id: payload for row, payload in zip(rows, payloads, strict=True)
+    }
+
+
+@pytest.mark.asyncio
 async def test_legacy_notification_get_keeps_cached_and_expired_identity_behavior(
     db_session, annotator, reviewer
 ):

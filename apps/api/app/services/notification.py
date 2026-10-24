@@ -14,13 +14,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import (
-    String,
-    and_,
-    case,
     delete,
-    func,
     inspect as sa_inspect,
-    or_,
     select,
     tuple_,
     update,
@@ -43,19 +38,14 @@ from app.db.models.notification import Notification
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.identity_contracts import IdentityActorStatus
 from app.services.identity_read_relations import account_profiles
 from app.services.async_job_access import GLOBAL_ASYNC_JOB_KINDS
-from aap_workspace_contract.access import platform_role_is_manager
 from app.services.project_aggregates import (
-    membership_project_ids,
-    owned_project_ids,
     valid_membership_conditions,
 )
 from app.services.workspace_read_relations import (
     project_member_facts,
     project_facts,
-    project_search_scope,
 )
 from app.services.jobs_notification_scope import notification_scope_facts
 from app.services.notification_read_relations import notification_rows
@@ -81,6 +71,7 @@ from aap_notifications.terminal_append_contract import (
 from aap_notifications.terminal_append_postgres import (
     NotificationTerminalAppendPostgresData,
 )
+from aap_notifications.inbox_query_postgres import NotificationInboxQueryPostgresData
 
 
 log = logging.getLogger(__name__)
@@ -102,138 +93,6 @@ def _notification_project_id(row: Notification) -> uuid.UUID | None:
 
 
 _ACTUAL_TARGET_TYPES = ("export", "async_job")
-
-
-def _job_project_text_expr(notification=Notification):
-    job_scope = notification_scope_facts()
-    return (
-        select(func.cast(job_scope.c.scope_project_id, String))
-        .where(job_scope.c.id == notification.target_id)
-        .correlate(notification)
-        .scalar_subquery()
-    )
-
-
-def _job_kind_expr(notification=Notification):
-    job_scope = notification_scope_facts()
-    return (
-        select(job_scope.c.kind)
-        .where(job_scope.c.id == notification.target_id)
-        .correlate(notification)
-        .scalar_subquery()
-    )
-
-
-def _job_exists_expr(notification=Notification):
-    job_scope = notification_scope_facts()
-    return (
-        select(job_scope.c.id)
-        .where(job_scope.c.id == notification.target_id)
-        .correlate(notification)
-        .exists()
-    )
-
-
-def _job_project_exists_expr(user: IdentityActorStatus, notification=Notification):
-    workspace_projects = project_search_scope(user)
-    job_scope = notification_scope_facts()
-    return (
-        select(job_scope.c.id)
-        .join(
-            workspace_projects,
-            workspace_projects.c.project_id == job_scope.c.scope_project_id,
-        )
-        .where(job_scope.c.id == notification.target_id)
-        .correlate(notification)
-        .exists()
-    )
-
-
-def _effective_project_text_expr(notification=Notification):
-    """SQL text expression for a notification's actual project scope.
-
-    For an export/async-job target Jobs' public scope fact is authoritative and
-    wins over a stale or forged ``payload.project_id``. Other notifications use
-    the payload project. A missing/malformed value yields NULL, which matches no
-    accessible project and therefore fails closed.
-    """
-
-    return case(
-        (
-            notification.target_type.in_(_ACTUAL_TARGET_TYPES),
-            _job_project_text_expr(notification),
-        ),
-        else_=notification.payload["project_id"].astext,
-    )
-
-
-def _is_restricted_expr(notification=Notification):
-    """A notification is project-restricted when it names or targets a project.
-
-    Export targets are always restricted. An async-job target is restricted
-    when its real job is project-scoped, and fails closed (restricted with a
-    NULL project) when the job is missing or requires a project but has no
-    authoritative scope. Only known global job kinds remain global.
-    """
-
-    payload_project = notification.payload["project_id"].astext
-    return or_(
-        notification.target_type == "export",
-        and_(
-            notification.target_type == "async_job",
-            or_(
-                _job_project_text_expr(notification).is_not(None),
-                ~_job_exists_expr(notification),
-                _job_kind_expr(notification).not_in(GLOBAL_ASYNC_JOB_KINDS),
-            ),
-        ),
-        and_(
-            notification.target_type.not_in(_ACTUAL_TARGET_TYPES),
-            payload_project.is_not(None),
-        ),
-    )
-
-
-def _requires_export_capability_expr(notification=Notification):
-    """True for full-export notifications, including export-kind async jobs."""
-
-    return or_(
-        notification.target_type == "export",
-        and_(
-            notification.target_type == "async_job",
-            _job_kind_expr(notification) == "export",
-        ),
-    )
-
-
-def _member_project_text_select(user: IdentityActorStatus, *project_roles: str):
-    memberships = membership_project_ids(user, *project_roles).subquery()
-    return select(func.cast(memberships.c.project_id, String))
-
-
-def _owned_project_text_select(user: IdentityActorStatus):
-    owned_projects = owned_project_ids(user).subquery()
-    return select(func.cast(owned_projects.c.project_id, String))
-
-
-def _accessible_project_clause(user: IdentityActorStatus, project_text):
-    if user.role == PlatformRole.SUPER_ADMIN.value:
-        return None
-    arms = [project_text.in_(_member_project_text_select(user))]
-    if platform_role_is_manager(user.role):
-        arms.append(project_text.in_(_owned_project_text_select(user)))
-    return or_(*arms)
-
-
-def _export_capable_project_clause(user: IdentityActorStatus, project_text):
-    if user.role == PlatformRole.SUPER_ADMIN.value:
-        return None
-    arms = [
-        project_text.in_(_member_project_text_select(user, ProjectRole.REVIEWER.value))
-    ]
-    if platform_role_is_manager(user.role):
-        arms.append(project_text.in_(_owned_project_text_select(user)))
-    return or_(*arms)
 
 
 class NotificationService:
@@ -743,54 +602,6 @@ class NotificationService:
                 e,
             )
 
-    def _scope_conditions(
-        self, user: IdentityActorStatus, notification=Notification
-    ) -> list:
-        """SQL conditions hiding project-restricted rows the account cannot read.
-
-        Mirrors the shared resolver: super administrators see everything; every
-        other account sees explicit global rows plus rows whose actual project is
-        one they manage or hold a valid membership in.  Export rows additionally
-        require the reviewer/manager export capability.
-
-        The membership SQL contract comes from
-        :func:`app.services.project_aggregates.valid_membership_conditions` and
-        the management predicate from
-        :func:`aap_workspace_contract.access.platform_role_is_manager`; this
-        helper only adapts them to the correlated text expression of the
-        notification row.
-        """
-
-        if user.role == PlatformRole.SUPER_ADMIN.value:
-            actual_target = notification.target_type.in_(_ACTUAL_TARGET_TYPES)
-            valid_global_scope = and_(
-                notification.target_type == "async_job",
-                _job_project_text_expr(notification).is_(None),
-                _job_kind_expr(notification).in_(GLOBAL_ASYNC_JOB_KINDS),
-            )
-            valid_project_scope = and_(
-                _job_project_text_expr(notification).is_not(None),
-                _job_project_exists_expr(user, notification),
-            )
-            return [
-                or_(
-                    ~actual_target,
-                    and_(
-                        _job_exists_expr(notification),
-                        or_(valid_global_scope, valid_project_scope),
-                    ),
-                )
-            ]
-        project_text = _effective_project_text_expr(notification)
-        restricted = _is_restricted_expr(notification)
-        return [
-            or_(~restricted, _accessible_project_clause(user, project_text)),
-            or_(
-                ~_requires_export_capability_expr(notification),
-                _export_capable_project_clause(user, project_text),
-            ),
-        ]
-
     async def list_for_user(
         self,
         user_id: uuid.UUID,
@@ -802,40 +613,24 @@ class NotificationService:
         user = await IdentityAccountLockData(self.db).read_actor_status(user_id)
         if user is None:
             return [], 0, 0
-        notification = notification_rows()
-        scope = self._scope_conditions(user, notification)
-        base = select(notification).where(notification.user_id == user_id, *scope)
-        count_q = select(func.count(notification.id)).where(
-            notification.user_id == user_id, *scope
+        inbox = NotificationInboxQueryPostgresData(self.db, Notification)
+        items = await inbox.page(
+            user.id,
+            user.role,
+            unread_only=unread_only,
+            limit=limit,
+            offset=offset,
         )
-        unread_q = select(func.count(notification.id)).where(
-            notification.user_id == user_id,
-            notification.read_at.is_(None),
-            *scope,
-        )
-
-        q = base
-        if unread_only:
-            q = q.where(notification.read_at.is_(None))
-        q = q.order_by(notification.created_at.desc()).offset(offset).limit(limit)
-
-        items = list((await self.db.execute(q)).scalars().all())
-        total = (await self.db.execute(count_q)).scalar() or 0
-        unread = (await self.db.execute(unread_q)).scalar() or 0
-        return items, int(total), int(unread)
+        total = await inbox.total_count(user.id, user.role)
+        unread = await inbox.unread_count(user.id, user.role)
+        return items, total, unread
 
     async def unread_count(self, user_id: uuid.UUID) -> int:
         user = await IdentityAccountLockData(self.db).read_actor_status(user_id)
         if user is None:
             return 0
-        notification = notification_rows()
-        scope = self._scope_conditions(user, notification)
-        q = select(func.count(notification.id)).where(
-            notification.user_id == user_id,
-            notification.read_at.is_(None),
-            *scope,
-        )
-        return int((await self.db.execute(q)).scalar() or 0)
+        inbox = NotificationInboxQueryPostgresData(self.db, Notification)
+        return await inbox.unread_count(user.id, user.role)
 
     async def mark_read(self, user_id: uuid.UUID, notification_id: uuid.UUID) -> bool:
         """Mark one row read. The handler publishes ``reason=read`` after commit."""

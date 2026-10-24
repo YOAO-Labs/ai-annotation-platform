@@ -1,0 +1,111 @@
+{
+  "additionalProperties": false,
+  "description": "Native Notifications row; JSONB payload shapes pass through unchanged.",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    },
+    "type": {
+      "title": "Type",
+      "type": "string"
+    },
+    "target_type": {
+      "title": "Target Type",
+      "type": "string"
+    },
+    "target_id": {
+      "format": "uuid",
+      "title": "Target Id",
+      "type": "string"
+    },
+    "payload": {
+      "title": "Payload"
+    },
+    "read_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Read At"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "user_id",
+    "type",
+    "target_type",
+    "target_id",
+    "payload",
+    "read_at",
+    "created_at"
+  ],
+  "title": "AAP Notifications REST inbox query",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-notifications-inbox-query/v1",
+  "$comment": "The API passes the authenticated actor ID and platform role from its immediately preceding Identity actor-status snapshot. The capability owns inbox visibility, page filtering, ordering, and counts; calls borrow the caller's transaction.",
+  "x-postgresql-functions": {
+    "aap_notifications_v1.inbox_page": {
+      "arguments": "uuid, text, boolean, integer, integer",
+      "returns": "SETOF aap_notifications_v1.notification_facts"
+    },
+    "aap_notifications_v1.inbox_total_count": {
+      "arguments": "uuid, text",
+      "returns": "bigint"
+    },
+    "aap_notifications_v1.inbox_unread_count": {
+      "arguments": "uuid, text",
+      "returns": "bigint"
+    }
+  },
+  "x-row-columns": [
+    "id",
+    "user_id",
+    "type",
+    "target_type",
+    "target_id",
+    "payload",
+    "read_at",
+    "created_at"
+  ],
+  "x-row-key": ["id"],
+  "x-payload": {
+    "postgresql_type": "jsonb",
+    "preserve_native_json_shapes": true
+  },
+  "x-bigint-wire": "Keep PostgreSQL bigint counts as decimal text in Node clients.",
+  "x-trusted-role-snapshot": "IdentityAccountLockData.read_actor_status",
+  "x-trusted-actor-id": "Authenticated API actor ID checked by Identity preflight",
+  "x-activity-policy": "No endpoint-wide active-account filter; membership access still requires an active Identity profile",
+  "x-global-async-job-kinds": ["audit_archive", "dataset_import"],
+  "x-security": {
+    "functions": "security_definer",
+    "search_path": ["pg_catalog", "pg_temp"],
+    "public_execute": false,
+    "inbox_query_client_execute": "three public inbox functions only",
+    "private_helper_execute": false
+  },
+  "x-private-helper": "aap_notifications_v1._visible_inbox_rows(uuid, text)",
+  "x-borrowed-transaction": {
+    "commit": false,
+    "rollback": false,
+    "autoflush": "preserve caller setting at every ORM query boundary"
+  }
+}

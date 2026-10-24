@@ -6,38 +6,12 @@ import uuid
 import pytest
 from sqlalchemy import delete
 from sqlalchemy import select
-from sqlalchemy.dialects import postgresql
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.db.models.project_member import ProjectMember
-from app.services.jobs_notification_scope import notification_scope_facts
-from app.services.identity_contracts import IdentityActorStatus
-from app.services.notification import (
-    NotificationService,
-    _job_exists_expr,
-    _job_kind_expr,
-    _job_project_exists_expr,
-    _job_project_text_expr,
-)
+from app.services.notification import NotificationService
 from tests.factory import create_membership, create_project
-
-
-def test_notification_scope_sql_uses_only_the_jobs_public_relation():
-    job_scope = notification_scope_facts()
-    actor = IdentityActorStatus(id=uuid.uuid4(), role="annotator", is_active=True)
-    statement = select(
-        _job_project_text_expr(),
-        _job_kind_expr(),
-        _job_exists_expr(),
-        _job_project_exists_expr(actor),
-    ).select_from(Notification)
-    sql = str(statement.compile(dialect=postgresql.dialect()))
-
-    assert "aap_jobs_v1.notification_scope_facts" in sql
-    assert "async_jobs" not in sql
-    assert "scope_project_id" in sql
-    assert job_scope.name == "jobs_notification_scope_facts"
 
 
 @pytest.mark.asyncio

@@ -10,7 +10,7 @@
     "pg": "8.16.3"
   },
   "scripts": {
-    "check": "node --check provider.mjs && node --check append_provider.mjs && node --check terminal_append_provider.mjs && node --check read_state_provider.mjs && node --check delete_provider.mjs && node --check read_relations_provider.mjs && node --check jobs_notification_scope_provider.mjs && node --check realtime_event_provider.mjs && node provider.mjs --self-check && node append_provider.mjs --self-check && node terminal_append_provider.mjs --self-check && node read_state_provider.mjs --self-check && node delete_provider.mjs --self-check && node read_relations_provider.mjs --self-check && node jobs_notification_scope_provider.mjs --self-check && node realtime_event_provider.mjs --self-check"
+    "check": "node --check provider.mjs && node --check append_provider.mjs && node --check terminal_append_provider.mjs && node --check read_state_provider.mjs && node --check delete_provider.mjs && node --check read_relations_provider.mjs && node --check jobs_notification_scope_provider.mjs && node --check realtime_event_provider.mjs && node --check inbox_query_provider.mjs && node provider.mjs --self-check && node append_provider.mjs --self-check && node terminal_append_provider.mjs --self-check && node read_state_provider.mjs --self-check && node delete_provider.mjs --self-check && node read_relations_provider.mjs --self-check && node jobs_notification_scope_provider.mjs --self-check && node realtime_event_provider.mjs --self-check && node inbox_query_provider.mjs --self-check"
   },
   "packageManager": "pnpm@10.28.1+sha512.7d7dbbca9e99447b7c3bf7a73286afaaf6be99251eb9498baefa7d406892f67b879adb3a1d7e687fc4ccc1a388c7175fbaae567a26ab44d1067b54fcb0d6a316"
 }
