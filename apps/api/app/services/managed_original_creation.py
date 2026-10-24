@@ -43,6 +43,7 @@ TERMINAL = {"verified", "failed", "conflict", "unknown"}
 _SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{0,79}")
 STAGING_PREFIX = "__aap_upload_staging__"
 TASK_ORIGINAL_PREFIX = "__aap_task_originals__"
+AUXILIARY_ORIGINAL_PREFIX = "__aap_auxiliary_originals__"
 
 
 @dataclass(frozen=True)
@@ -234,6 +235,43 @@ async def allocate(
     )
 
 
+async def allocate_auxiliary(
+    db,
+    *,
+    dataset_id,
+    kind,
+    source_contract,
+    logical_path,
+    max_bytes,
+    authority,
+    requested_by=None,
+    content_type="application/octet-stream",
+):
+    from app.services.auxiliary_originals import contract
+
+    if (
+        not isinstance(dataset_id, uuid.UUID)
+        or not isinstance(authority, dict)
+        or not authority
+    ):
+        reject("managed_original_invalid_allocation", 422)
+    frozen = contract(kind, source_contract)
+    return await _allocate(
+        db,
+        owner_kind="dataset_auxiliary",
+        dataset_id=dataset_id,
+        project_id=None,
+        task_id=None,
+        logical_path=logical_path,
+        origin="connector",
+        max_bytes=max_bytes,
+        requested_by=requested_by,
+        authority={**authority, "auxiliary": {"kind": kind, "source_contract": frozen}},
+        staging=False,
+        content_type=content_type,
+    )
+
+
 async def allocate_task(
     db,
     *,
@@ -308,7 +346,11 @@ async def _allocate(
     object_key = (
         f"{TASK_ORIGINAL_PREFIX}/{task_id}/{creation_id}/payload"
         if owner_kind == "task"
-        else managed_dataset_key(dataset_id, logical_path)
+        else (
+            f"{AUXILIARY_ORIGINAL_PREFIX}/{dataset_id}/{creation_id}/payload"
+            if owner_kind == "dataset_auxiliary"
+            else managed_dataset_key(dataset_id, logical_path)
+        )
     )
     if (
         len(object_key) > 1000
@@ -457,16 +499,45 @@ def _error(exc):
     )
 
 
+async def _drain(task):
+    """Keep ownership through repeated cancellation and signal BaseExceptions."""
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except BaseException:
+            continue
+    return task.result()
+
+
+class _Physical:
+    def __init__(self):
+        self.interrupted = None
+
+    async def run(self, function, *args, **kwargs):
+        future = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+        try:
+            return await asyncio.shield(future)
+        except BaseException as exc:
+            if future.done():
+                return future.result()
+            # Adopt late client/preparation/receipt results in the caller so its
+            # normal persistence and finally-close path still owns every handle.
+            if self.interrupted is None:
+                self.interrupted = exc
+            return await _drain(future)
+
+
 async def _physical(db, row, stream):
     from app.services import managed_original_writer as writer
 
     client, prepared, completion_started = None, None, False
+    physical = _Physical()
     try:
-        client = await asyncio.to_thread(
+        client = await physical.run(
             create_client, timeout_seconds=row["timeout_seconds"]
         )
         if row["origin"] == "direct":
-            source = await asyncio.to_thread(
+            source = await physical.run(
                 writer.inspect_staging,
                 client,
                 row["staging_bucket"],
@@ -485,7 +556,7 @@ async def _physical(db, row, stream):
                     "observation": _json(source.observation),
                 },
             )
-            prepared = await asyncio.to_thread(
+            prepared = await physical.run(
                 writer.prepare_copy,
                 client,
                 row["staging_bucket"],
@@ -497,7 +568,7 @@ async def _physical(db, row, stream):
                 timeout_seconds=row["timeout_seconds"],
             )
         else:
-            prepared = await asyncio.to_thread(
+            prepared = await physical.run(
                 writer.prepare_stream,
                 client,
                 row["bucket"],
@@ -529,7 +600,7 @@ async def _physical(db, row, stream):
             db, row["id"], "prepared", status="writing", write_started_at=now()
         )
         completion_started = True
-        receipt = await asyncio.to_thread(
+        receipt = await physical.run(
             writer.complete,
             client,
             row["bucket"],
@@ -558,7 +629,7 @@ async def _physical(db, row, stream):
             raise storage_access.mark_unsettled(
                 ContentError("managed_original_receipt_persistence_unknown", 503)
             ) from None
-        verified = await asyncio.to_thread(
+        verified = await physical.run(
             writer.verify,
             client,
             row["bucket"],
@@ -592,7 +663,7 @@ async def _physical(db, row, stream):
             # A failed freeze/config fence may clean only its exact unfinished
             # MPU. This never deletes or retries the final object.
             try:
-                await asyncio.to_thread(
+                await physical.run(
                     writer.abort_prepared,
                     client,
                     row["bucket"],
@@ -607,11 +678,14 @@ async def _physical(db, row, stream):
     finally:
         if client is not None:
             try:
-                await asyncio.to_thread(storage_access.close_registered, client)
+                await physical.run(storage_access.close_registered, client)
             except BaseException:
                 raise storage_access.mark_unsettled(
                     ContentError("managed_original_close_unknown", 503)
                 ) from None
+
+        if physical.interrupted is not None:
+            raise physical.interrupted
 
 
 async def _execute(db, allocation, stream):
@@ -702,11 +776,11 @@ async def _shielded(db, allocation, stream):
     task = asyncio.create_task(_execute(db, allocation, stream))
     try:
         return await asyncio.shield(task)
-    except asyncio.CancelledError:
+    except BaseException:
         # Do not let request cancellation abandon its source or skip write-ack
         # persistence, readback, client close, or permit settlement.
         try:
-            await storage_access.finish(task)
+            await _drain(task)
         except BaseException:
             pass
         raise

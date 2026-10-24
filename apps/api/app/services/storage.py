@@ -270,7 +270,11 @@ class StorageService:
         from app.services.dataset_storage_keys import MANAGED_DATASET_PREFIX
 
         if key.lstrip("/").startswith(
-            (MANAGED_DATASET_PREFIX + "/", "__aap_task_originals__/")
+            (
+                MANAGED_DATASET_PREFIX + "/",
+                "__aap_task_originals__/",
+                "__aap_auxiliary_originals__/",
+            )
         ):
             raise ValueError("Managed originals require controlled server creation")
         url = self.client.generate_presigned_url(

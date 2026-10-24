@@ -84,6 +84,12 @@ class Scene(Base):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    nuscenes_map_original_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("dataset_auxiliary_originals.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     source_format: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source_metadata: Mapped[dict] = mapped_column(
         JSONB, server_default="{}", nullable=False, default=dict
@@ -131,6 +137,12 @@ class DatasetItem(Base):
     video_building_output_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("video_derivative_outputs.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    nuscenes_raw_original_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("dataset_auxiliary_originals.id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
     )

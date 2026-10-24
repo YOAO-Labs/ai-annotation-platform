@@ -1,3 +1,4 @@
+from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
 from app.db.models.guide_asset_upload import GuideAssetUpload
 from app.db.models.project_guide_asset import ProjectGuideAsset
 from app.db.models.comment_attachment_upload import CommentAttachmentUpload
@@ -173,6 +174,7 @@ from app.db.models.dataset_source import (
 )
 
 __all__ = [
+    "DatasetAuxiliaryOriginal",
     "StorageMaintenanceGate",
     "StorageOperation",
     "PredictionInputLease",

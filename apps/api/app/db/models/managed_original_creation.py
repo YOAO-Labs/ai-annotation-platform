@@ -31,7 +31,7 @@ class ManagedOriginalCreation(Base):
         Index("ix_managed_creation_dataset", "dataset_id", "allocated_at", "id"),
         Index("ix_managed_creation_task", "task_id", "allocated_at", "id"),
         CheckConstraint(
-            "(owner_kind='dataset' AND dataset_id IS NOT NULL AND project_id IS NULL AND task_id IS NULL) OR (owner_kind='task' AND dataset_id IS NULL AND project_id IS NOT NULL AND task_id IS NOT NULL AND origin='direct' AND object_key='__aap_task_originals__/' || task_id::text || '/' || id::text || '/payload')",
+            "(owner_kind='dataset' AND dataset_id IS NOT NULL AND project_id IS NULL AND task_id IS NULL) OR (owner_kind='dataset_auxiliary' AND dataset_id IS NOT NULL AND project_id IS NULL AND task_id IS NULL AND origin<>'direct' AND object_key='__aap_auxiliary_originals__/' || dataset_id::text || '/' || id::text || '/payload') OR (owner_kind='task' AND dataset_id IS NULL AND project_id IS NOT NULL AND task_id IS NOT NULL AND origin='direct' AND object_key='__aap_task_originals__/' || task_id::text || '/' || id::text || '/payload')",
             name="ck_managed_creation_scope",
         ),
         CheckConstraint(

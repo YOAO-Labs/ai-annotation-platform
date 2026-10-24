@@ -52,6 +52,7 @@ def ensure_dataset_storage_name_is_writable(name: str) -> None:
             TRUSTED_NUSCENES_PREFIX,
             MANAGED_DATASET_PREFIX,
             "__aap_upload_staging__",
+            "__aap_auxiliary_originals__",
             PREFIX.rstrip("/"),
         )
     ):
@@ -744,6 +745,11 @@ class DatasetService:
         ext = base_for_ext.rsplit(".", 1)[-1].lower() if "." in base_for_ext else ""
         file_type = _infer_file_type_from_ext(ext)
         creation = None
+
+        if storage_key and storage_key.lstrip("/").startswith(
+            "__aap_auxiliary_originals__/"
+        ):
+            raise HTTPException(422, "Auxiliary originals cannot become dataset items")
 
         if storage_key:
             duplicate_path = await self._find_by_file_path(dataset_id, storage_key)
