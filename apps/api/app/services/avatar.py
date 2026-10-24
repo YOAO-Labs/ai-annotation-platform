@@ -15,15 +15,15 @@
 
 from __future__ import annotations
 
-import logging
 import re
 import uuid
 
+import hashlib
+
 from botocore.exceptions import ClientError
 
+from app.services import avatar_storage, storage_access
 from app.services.storage import storage_service
-
-logger = logging.getLogger(__name__)
 
 PRESET_PREFIX = "preset:"
 UPLOAD_PREFIX = "upload:"
@@ -74,7 +74,7 @@ def is_upload_token(token: str) -> bool:
 
 
 def upload_object_key(token: str) -> str:
-    return f"{token}.webp"
+    return avatar_storage.object_key_for(token)
 
 
 def validate_client_ref(ref: str | None) -> str | None:
@@ -94,48 +94,60 @@ def validate_client_ref(ref: str | None) -> str | None:
     return build_preset_ref(slug)
 
 
-def write_avatar_object(token: str, data: bytes) -> None:
+def write_avatar_object(record, data: bytes) -> None:
+    """Write only the exact saved object, then independently verify its bytes."""
+    owner = avatar_storage.resolve(record)
+    if (
+        len(data) != record.size_bytes
+        or hashlib.sha256(data).hexdigest() != record.sha256
+    ):
+        raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
     storage_service.put_bytes(
-        upload_object_key(token),
+        owner.object_key,
         data,
         content_type="image/webp",
         cache_control=AVATAR_CACHE_CONTROL,
-        bucket=storage_service.avatars_bucket,
+        bucket=owner.bucket,
     )
+    if read_avatar_object(record) is None:
+        raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
 
 
-def read_avatar_object(token: str) -> tuple[bytes, str] | None:
-    """读取头像字节与 ETag；对象不存在返回 None。"""
-    key = upload_object_key(token)
+def read_avatar_object(record) -> tuple[bytes, str] | None:
+    """Bound a full read by the independent receipt; always close its body."""
+    owner = avatar_storage.resolve(record)
     try:
-        head = storage_service.client.head_object(
-            Bucket=storage_service.avatars_bucket, Key=key
+        response = storage_service.client.get_object(
+            Bucket=owner.bucket, Key=owner.object_key
         )
-    except ClientError:
-        return None
-    response = storage_service.client.get_object(
-        Bucket=storage_service.avatars_bucket, Key=key
-    )
-    body = response["Body"]
-    try:
-        data = body.read()
-    finally:
-        body.close()
-    return data, str(head.get("ETag") or "")
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in {
+            "404",
+            "NoSuchKey",
+            "NotFound",
+        }:
+            return None
+        raise
+    with storage_access.closing_registered(response["Body"]) as body:
+        checksum = hashlib.sha256()
+        chunks, size = [], 0
+        while True:
+            chunk = body.read(min(64 * 1024, record.size_bytes - size + 1))
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > record.size_bytes:
+                raise avatar_storage.AvatarStorageError(
+                    "avatar_storage_invalid_receipt"
+                )
+            checksum.update(chunk)
+            chunks.append(chunk)
+        if size != record.size_bytes or checksum.hexdigest() != record.sha256:
+            raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
+    return b"".join(chunks), f'"{record.sha256}"'
 
 
-def delete_ref_object(ref: str | None) -> None:
-    """删除某个引用指向的上传对象(若存在)。
-
-    尽力而为：清理失败只记日志，不影响调用方已完成的头像变更；遗留的是一个几十 KB
-    的无引用孤儿对象，运维可按「桶内 key 不在 users.avatar_ref 中」比对清理。
-    """
-    parsed = parse_ref(ref)
-    if parsed is None or parsed[0] != "upload":
-        return
-    try:
-        storage_service.delete_object(
-            upload_object_key(parsed[1]), bucket=storage_service.avatars_bucket
-        )
-    except Exception as exc:  # noqa: BLE001 - 清理失败不得影响主流程
-        logger.warning("Failed to delete avatar object for %s: %s", ref, exc)
+def delete_avatar_object(record) -> None:
+    """The caller owns the committed retirement; never infer its current bucket."""
+    owner = avatar_storage.resolve(record)
+    storage_service.delete_object(owner.object_key, bucket=owner.bucket)

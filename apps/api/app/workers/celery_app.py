@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.workers.media",
         "app.workers.image_pyramid",
         "app.workers.cleanup",
+        "app.workers.avatar_cleanup",
         "app.workers.audit",
         "app.workers.deactivation",
         "app.workers.audit_partition",
@@ -112,6 +113,7 @@ celery_app.conf.update(
         "app.workers.mask_repair.run_mask_repair": {"queue": "media"},
         "app.workers.mask_repair.rollback_mask_repair": {"queue": "media"},
         "app.workers.mask_format_import.run_mask_format_import": {"queue": "media"},
+        "app.workers.avatar_cleanup.purge_retired_avatars": {"queue": "cleanup"},
         "app.workers.cleanup.purge_soft_deleted_attachments": {"queue": "cleanup"},
         "app.workers.cleanup.purge_unreferenced_raster_masks": {"queue": "cleanup"},
         # v0.10.16 · DuckDB 同步 + async_jobs 清理走 cleanup 队列
@@ -200,6 +202,10 @@ celery_app.conf.update(
         "check-training-studies": {
             "task": "app.workers.training_study.check_studies",
             "schedule": timedelta(seconds=10),
+        },
+        "purge-retired-avatars": {
+            "task": "app.workers.avatar_cleanup.purge_retired_avatars",
+            "schedule": 300.0,
         },
         "purge-soft-deleted-attachments": {
             "task": "app.workers.cleanup.purge_soft_deleted_attachments",

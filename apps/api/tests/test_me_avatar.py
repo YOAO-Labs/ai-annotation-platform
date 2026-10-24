@@ -14,13 +14,12 @@ import re
 import pytest
 from PIL import Image
 
-from app.services import avatar as avatar_service
 from app.services.avatar_image import (
     MAX_AVATAR_FILE_BYTES,
     AvatarImageError,
     normalize_avatar,
 )
-from tests._avatar_storage import FakeAvatarStorage
+from tests._avatar_storage import FakeAvatarStorage, patch_storage
 
 AVATAR_URL = "/api/v1/auth/me/avatar"
 UPLOAD_REF_RE = re.compile(r"^upload:[0-9a-f]{32}$")
@@ -58,9 +57,7 @@ def _pixel(webp: bytes, x: int, y: int) -> tuple[int, int, int]:
 
 @pytest.fixture
 def fake_storage(monkeypatch) -> FakeAvatarStorage:
-    fake = FakeAvatarStorage()
-    monkeypatch.setattr(avatar_service, "storage_service", fake)
-    return fake
+    return patch_storage(monkeypatch)
 
 
 # ── 1. normalize_avatar 纯函数 ────────────────────────────────────────
@@ -299,6 +296,8 @@ async def test_upload_survives_failed_old_object_cleanup(
     )
     assert second.status_code == 200
     assert UPLOAD_REF_RE.match(second.json()["avatar_ref"])
+    assert second.json()["name"]
+    assert second.json()["email"]
 
 
 async def test_me_and_brief_expose_avatar_ref(

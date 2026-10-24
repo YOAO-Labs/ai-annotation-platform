@@ -5,18 +5,21 @@
 不适合出现在几乎每个列表里的头像(会造成反复重下与解码)。
 
 安全边界:URL 是 128 位随机 token 的「能力 URL」——持有 URL 即可读取该图片,但 token
-不可枚举、URL 不含用户 ID 或任何 PII、响应只有图片字节、无写操作、不查库。头像本身对
+不可枚举、URL 不含用户 ID 或任何 PII、响应只有图片字节、无写操作；查询独立上传记录后读取已固定对象。头像本身对
 全部登录用户可见,因此新增暴露面是「头像图片可被未登录者读取」,不是身份或权限泄露。
 """
 
 from __future__ import annotations
 
-import asyncio
 import re
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.deps import get_db
 
 from app.services import avatar as avatar_service
+from app.services import avatar_uploads
 
 router = APIRouter()
 
@@ -37,13 +40,13 @@ _TOKEN_RE = re.compile(r"[0-9a-f]{32}")
         304: {"description": "`If-None-Match` 命中，客户端缓存仍然新鲜。"},
     },
 )
-async def get_avatar(token: str, request: Request) -> Response:
+async def get_avatar(
+    token: str, request: Request, db: AsyncSession = Depends(get_db)
+) -> Response:
     if not _TOKEN_RE.fullmatch(token):
         raise HTTPException(status_code=404, detail="头像不存在")
 
-    # ``read_avatar_object`` 用 boto3 同步 HEAD + GET；直接调用会阻塞事件循环，
-    # 令单 worker 上的其它请求在冷列表场景下排队。放进线程池执行。
-    stored = await asyncio.to_thread(avatar_service.read_avatar_object, token)
+    stored = await avatar_uploads.read(db, token)
     if stored is None:
         raise HTTPException(status_code=404, detail="头像不存在")
     data, etag = stored
