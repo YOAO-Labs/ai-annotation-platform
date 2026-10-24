@@ -19,15 +19,24 @@ AS $function$
             p_platform_role
         ) AS project_scope
     ),
+    current_actor_facts AS (
+        SELECT actor.actor_id, actor.platform_role, actor.is_active
+        FROM aap_identity_v1.read_actor_facts(p_actor_id) AS actor
+    ),
     valid_memberships AS (
         SELECT membership.project_id, membership.member_role
         FROM aap_workspace_v1.actor_project_memberships(p_actor_id) AS membership
+        JOIN current_actor_facts AS actor ON actor.actor_id = p_actor_id
         WHERE p_platform_role IN (
+                  'super_admin', 'project_admin', 'employee', 'viewer'
+              )
+          AND actor.is_active IS TRUE
+          AND actor.platform_role IN (
                   'super_admin', 'project_admin', 'employee', 'viewer'
               )
           AND membership.member_role IN ('annotator', 'reviewer', 'viewer')
           AND (
-              p_platform_role <> 'viewer'
+              actor.platform_role <> 'viewer'
               OR membership.member_role = 'viewer'
           )
     ),

@@ -43,6 +43,18 @@ def test_async_job_list_schema_sql_and_migration_resource_are_identical():
     assert row_schema["required"] == list(ASYNC_JOB_LIST_ROW_COLUMNS)
     assert set(row_schema["properties"]) == set(ASYNC_JOB_LIST_ROW_COLUMNS)
     assert schema["x-result"]["row_schema"] == "#/$defs/AsyncJobListRow"
+    assert schema["x-identity-snapshot"]["preflight_reads_per_list_request"] == 1
+    assert (
+        "aap_identity_v1.read_actor_facts(uuid)"
+        in schema["x-identity-snapshot"]["same_statement_membership_facts"]
+    )
+    assert "aap_identity_v1.read_actor_facts(uuid)" in schema["x-owner-capabilities"]
+    assert (
+        schema["x-owner-capabilities"]["aap_identity_v1.read_actor_facts(uuid)"][
+            "grant_to"
+        ]
+        == "jobs_owner"
+    )
     assert (
         schema["x-postgresql-functions"][ASYNC_JOB_LIST_PAGE_FUNCTION]["arguments"]
         == "uuid, text, text[], text[], uuid, text, integer, integer"
@@ -63,6 +75,11 @@ def test_async_job_list_schema_sql_and_migration_resource_are_identical():
     assert "CREATE FUNCTION aap_jobs_v1.async_job_list_page(" in sql
     assert "CREATE FUNCTION aap_jobs_v1.async_job_list_total(" in sql
     assert "SELECT job.*" in sql
+    assert "aap_identity_v1.read_actor_facts(p_actor_id)" in sql
+    assert "actor.is_active IS TRUE" in sql
+    assert "actor.platform_role IN" in sql
+    assert "actor.platform_role <> 'viewer'" in sql
+    assert "FROM public.users" not in sql
     assert "ORDER BY job.created_at DESC, job.id DESC" in sql
     assert "COALESCE(job.project_id, job.retained_project_id)" in sql
     assert "job.kind IN ('audit_archive', 'dataset_import')" in sql

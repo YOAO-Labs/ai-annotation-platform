@@ -2,20 +2,27 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import uuid
 
 import pytest
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.application.async_job_read import (
     SqlAsyncJobReadAdapter,
     _build_async_job_query,
 )
+from app.services.jobs_list_query_data import JobsListQueryPostgresData
+from aap_jobs.async_job_list_query_contract import AsyncJobListQuery
 from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
+from app.db.models.project_member import ProjectMember
+from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorStatus
-from tests.factory import create_membership, create_project
+from tests.factory import create_membership, create_project, create_user
 
 
 async def _assert_matches_legacy_list(
@@ -102,6 +109,106 @@ def _job(
     if created_at is not None:
         values["created_at"] = created_at
     return AsyncJob(**values)
+
+
+@asynccontextmanager
+async def _committed_identity_scope_world(test_engine, *, actor_role="employee"):
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False)
+    suffix = uuid.uuid4().hex
+    async with sessions() as setup:
+        actor = await create_user(
+            setup, actor_role, f"jobs-list-actor-{suffix}@test.local", "List actor"
+        )
+        manager = await create_user(
+            setup,
+            "project_admin",
+            f"jobs-list-manager-{suffix}@test.local",
+            "List manager",
+        )
+        project = await create_project(setup, owner_id=manager.id)
+        membership = await create_membership(
+            setup,
+            project_id=project.id,
+            user_id=actor.id,
+            role="annotator",
+            assigned_by=manager.id,
+        )
+        jobs = [
+            _job(
+                job_id=uuid.uuid4(),
+                user_id=actor.id,
+                kind="batch_predict",
+                project_id=project.id,
+                payload={},
+            ),
+            _job(
+                job_id=uuid.uuid4(),
+                user_id=actor.id,
+                kind="audit_archive",
+                payload={},
+            ),
+            _job(
+                job_id=uuid.uuid4(),
+                user_id=manager.id,
+                kind="batch_predict",
+                project_id=project.id,
+                payload={},
+            ),
+        ]
+        setup.add_all(jobs)
+        await setup.commit()
+        world = {
+            "sessions": sessions,
+            "actor_id": actor.id,
+            "manager_id": manager.id,
+            "project_id": project.id,
+            "membership_id": membership.id,
+            "project_job_id": jobs[0].id,
+            "global_job_id": jobs[1].id,
+            "manager_job_id": jobs[2].id,
+        }
+
+    try:
+        yield world
+    finally:
+        async with sessions() as cleanup:
+            await cleanup.execute(
+                delete(AsyncJob).where(
+                    AsyncJob.id.in_(
+                        [
+                            world["project_job_id"],
+                            world["global_job_id"],
+                            world["manager_job_id"],
+                        ]
+                    )
+                )
+            )
+            await cleanup.execute(
+                delete(ProjectMember).where(ProjectMember.id == world["membership_id"])
+            )
+            await cleanup.execute(
+                delete(Project).where(Project.id == world["project_id"])
+            )
+            await cleanup.execute(
+                delete(User).where(
+                    User.id.in_([world["actor_id"], world["manager_id"]])
+                )
+            )
+            await cleanup.commit()
+
+
+async def _commit_user_change(sessions, user_id, **values):
+    async with sessions() as mutation:
+        await mutation.execute(update(User).where(User.id == user_id).values(**values))
+        await mutation.commit()
+
+
+def _return_preflight_snapshot(monkeypatch, actor_id, snapshot):
+    async def read_actor_status(_self, requested_actor_id):
+        assert requested_actor_id == actor_id
+        return snapshot
+
+    monkeypatch.setattr(IdentityAccountLockData, "read_actor_status", read_actor_status)
 
 
 @pytest.mark.asyncio
@@ -329,6 +436,182 @@ async def test_owner_page_and_total_match_membership_export_and_retained_scope_p
     )
     assert jobs[7].id not in {row.id for row in hidden_unresolved_scope.items}
     assert hidden_unresolved_scope.total == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("initial_role", "current_change", "expected_scope_jobs"),
+    [
+        ("employee", {"is_active": False}, {"global_job_id"}),
+        ("employee", {"role": "viewer"}, {"global_job_id"}),
+        ("employee", {"role": "reviewer"}, {"global_job_id"}),
+        (
+            "viewer",
+            {"role": "employee"},
+            {"project_job_id", "global_job_id"},
+        ),
+    ],
+)
+async def test_owner_membership_uses_current_identity_but_keeps_preflight_role_snapshot(
+    db_session,
+    monkeypatch,
+    test_engine,
+    initial_role,
+    current_change,
+    expected_scope_jobs,
+):
+    async with _committed_identity_scope_world(
+        test_engine, actor_role=initial_role
+    ) as world:
+        snapshot = await IdentityAccountLockData(db_session).read_actor_status(
+            world["actor_id"]
+        )
+        assert snapshot is not None and snapshot.is_active
+        assert snapshot.role == initial_role
+
+        await _commit_user_change(
+            world["sessions"], world["actor_id"], **current_change
+        )
+
+        legacy = _build_async_job_query(
+            current_user=snapshot,
+            status=None,
+            kind=None,
+            project_id=None,
+            search=None,
+        )
+        legacy_page = (
+            legacy.order_by(AsyncJob.created_at.desc(), AsyncJob.id.desc())
+            .offset(0)
+            .limit(50)
+            .execution_options(populate_existing=True)
+        )
+        legacy_total = select(func.count()).select_from(
+            legacy.order_by(None).subquery()
+        )
+        expected_rows = (await db_session.execute(legacy_page)).scalars().all()
+        expected_count = (await db_session.execute(legacy_total)).scalar_one()
+
+        _return_preflight_snapshot(monkeypatch, world["actor_id"], snapshot)
+        actual = await SqlAsyncJobReadAdapter(db_session).list_jobs(
+            actor_id=world["actor_id"],
+            status=None,
+            kind=None,
+            project_id=None,
+            search=None,
+            limit=50,
+            offset=0,
+        )
+
+        expected_ids = {world[name] for name in expected_scope_jobs}
+        assert {row.id for row in expected_rows} == expected_ids
+        assert {row.id for row in actual.items} == expected_ids
+        assert actual.total == expected_count == len(expected_ids)
+
+
+@pytest.mark.asyncio
+async def test_owner_snapshot_manager_branch_survives_same_statement_deactivation(
+    db_session, monkeypatch, test_engine
+):
+    async with _committed_identity_scope_world(test_engine) as world:
+        snapshot = await IdentityAccountLockData(db_session).read_actor_status(
+            world["manager_id"]
+        )
+        assert snapshot is not None
+        assert snapshot.role == "project_admin" and snapshot.is_active
+
+        await _commit_user_change(
+            world["sessions"], world["manager_id"], is_active=False
+        )
+        legacy = _build_async_job_query(
+            current_user=snapshot,
+            status=None,
+            kind=None,
+            project_id=None,
+            search=None,
+        )
+        expected_rows = (
+            (
+                await db_session.execute(
+                    legacy.order_by(AsyncJob.created_at.desc(), AsyncJob.id.desc())
+                    .offset(0)
+                    .limit(50)
+                    .execution_options(populate_existing=True)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        expected_total = await db_session.scalar(
+            select(func.count()).select_from(legacy.order_by(None).subquery())
+        )
+
+        _return_preflight_snapshot(monkeypatch, world["manager_id"], snapshot)
+        actual = await SqlAsyncJobReadAdapter(db_session).list_jobs(
+            actor_id=world["manager_id"],
+            status=None,
+            kind=None,
+            project_id=None,
+            search=None,
+            limit=50,
+            offset=0,
+        )
+
+        assert {row.id for row in expected_rows} == {world["manager_job_id"]}
+        assert {row.id for row in actual.items} == {world["manager_job_id"]}
+        assert actual.total == expected_total == 1
+
+
+@pytest.mark.asyncio
+async def test_owner_page_and_total_keep_independent_identity_snapshots(
+    db_session, test_engine
+):
+    async with _committed_identity_scope_world(test_engine) as world:
+        snapshot = await IdentityAccountLockData(db_session).read_actor_status(
+            world["actor_id"]
+        )
+        assert (
+            snapshot is not None and snapshot.role == "employee" and snapshot.is_active
+        )
+
+        legacy = _build_async_job_query(
+            current_user=snapshot,
+            status=None,
+            kind=None,
+            project_id=None,
+            search=None,
+        )
+        legacy_page = (
+            legacy.order_by(AsyncJob.created_at.desc(), AsyncJob.id.desc())
+            .limit(50)
+            .offset(0)
+            .execution_options(populate_existing=True)
+        )
+        legacy_total = select(func.count()).select_from(
+            legacy.order_by(None).subquery()
+        )
+        query = AsyncJobListQuery(
+            actor_id=snapshot.id,
+            platform_role=snapshot.role,
+            statuses=[],
+            kinds=[],
+            project_id=None,
+            search_pattern=None,
+            limit=50,
+            offset=0,
+        )
+        owner_data = JobsListQueryPostgresData(db_session, AsyncJob)
+
+        expected_page = (await db_session.execute(legacy_page)).scalars().all()
+        actual_page = await owner_data.page(query)
+        expected_page_ids = {world["project_job_id"], world["global_job_id"]}
+        assert {row.id for row in expected_page} == expected_page_ids
+        assert {row.id for row in actual_page} == expected_page_ids
+
+        await _commit_user_change(world["sessions"], world["actor_id"], is_active=False)
+        expected_total = (await db_session.execute(legacy_total)).scalar_one()
+        actual_total = await owner_data.total(query)
+        assert expected_total == actual_total == 1
 
 
 @pytest.mark.asyncio

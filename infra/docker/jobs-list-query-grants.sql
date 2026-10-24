@@ -77,8 +77,11 @@ $guard$;
 
 GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_project_query_v1
     TO :"jobs_owner";
+GRANT USAGE ON SCHEMA aap_identity_v1 TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.actor_project_memberships(uuid),
     aap_workspace_project_query_v1.project_search_scope(uuid,text)
+    TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
     TO :"jobs_owner";
 
 REVOKE ALL ON SCHEMA aap_jobs_v1 FROM :"list_client";
@@ -132,6 +135,8 @@ GRANT EXECUTE ON FUNCTION
 
 DO $verify$
 DECLARE
+    v_jobs oid := (SELECT oid FROM pg_catalog.pg_roles
+                   WHERE rolname=current_setting('aap.jobs_owner'));
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles
                   WHERE rolname=current_setting('aap.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
@@ -154,8 +159,16 @@ BEGIN
             'aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)','EXECUTE')
        OR pg_catalog.has_table_privilege(v_client,'public.async_jobs','SELECT')
        OR pg_catalog.has_any_column_privilege(v_client,'public.async_jobs','SELECT')
+       OR NOT pg_catalog.has_function_privilege(v_jobs,
+            'aap_identity_v1.read_actor_facts(uuid)','EXECUTE')
+       OR pg_catalog.has_table_privilege(v_jobs,'public.users','SELECT')
+       OR pg_catalog.has_any_column_privilege(v_jobs,'public.users','SELECT')
+       OR pg_catalog.has_table_privilege(v_jobs,
+            'aap_identity_v1.account_profiles','SELECT')
+       OR pg_catalog.has_any_column_privilege(v_jobs,
+            'aap_identity_v1.account_profiles','SELECT')
        OR pg_catalog.has_database_privilege(v_client,current_database(),'CREATE,TEMP') THEN
-        RAISE EXCEPTION 'Jobs list client exposes a private helper or base table';
+        RAISE EXCEPTION 'Jobs list profile exposes private reads or a helper';
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_proc AS function

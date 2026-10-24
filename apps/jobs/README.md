@@ -21,7 +21,10 @@ same-transaction capabilities. Page rows have a fixed column contract suitable
 for hydrating the API's existing `AsyncJob` identity-map objects; the private
 predicate helper retains the underlying table composite. The API still reads
 the actor's current Identity status once before calling Jobs and enriches each
-page with Workspace project display data afterward.
+page with Workspace project display data afterward. Each page and total
+statement also reads the small Identity facts capability for its membership
+arm, preserving the old same-statement active/known-role/viewer pairing check;
+the original preflight role snapshot still selects the global and owner branches.
 
 The query keeps current and retained project scopes, the two audited
 unscoped-global kinds, reviewer/manager export visibility, six JSONB text search

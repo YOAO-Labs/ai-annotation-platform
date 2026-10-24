@@ -104,10 +104,11 @@ def async_job_list_query_schema() -> dict[str, Any]:
             "$id": ASYNC_JOB_LIST_QUERY_PROTOCOL,
             "title": "AAP Jobs async-job list query",
             "$comment": (
-                "The API reads Identity actor status once before calling Jobs. "
-                "The page and total are separate ordered statements in the "
-                "caller's transaction; ORM autoflush and identity refresh are "
-                "preserved."
+                "The API reads Identity actor status once before calling Jobs and "
+                "passes the trusted role snapshot. Each page and total statement "
+                "also reads current Identity facts only for membership validation. "
+                "They remain separate ordered statements in the caller's transaction; "
+                "ORM autoflush and identity refresh are preserved."
             ),
             "x-postgresql-functions": {
                 ASYNC_JOB_LIST_PAGE_FUNCTION: {
@@ -134,9 +135,14 @@ def async_job_list_query_schema() -> dict[str, Any]:
             "x-result": {"row_schema": "#/$defs/AsyncJobListRow"},
             "x-identity-snapshot": {
                 "source": "IdentityAccountLockData.read_actor_status",
-                "reads_per_list_request": 1,
+                "preflight_reads_per_list_request": 1,
                 "passed_fields": ["actor_id", "platform_role"],
                 "inactive_actor": "return empty items and total before Jobs call",
+                "same_statement_membership_facts": (
+                    "Each page/total statement reads current actor active/role facts "
+                    "through aap_identity_v1.read_actor_facts(uuid), matching the "
+                    "old membership predicate without replacing the preflight snapshot."
+                ),
             },
             "x-policy": {
                 "owner": "non-super-admin rows require matching user_id",
@@ -144,11 +150,22 @@ def async_job_list_query_schema() -> dict[str, Any]:
                 "global_unscoped_kinds": ["audit_archive", "dataset_import"],
                 "project_scope": "coalesce(project_id, retained_project_id)",
                 "export": "reviewer membership or manager-owned project; super-admin remains global",
+                "membership_identity_facts": (
+                    "Current Identity active/known-role/viewer-pairing facts gate only "
+                    "the membership arm. The preflight role snapshot still selects the "
+                    "super-admin and manager-owned branches."
+                ),
                 "workspace_facts": [
                     "aap_workspace_v1.actor_project_memberships(uuid)",
                     "aap_workspace_project_query_v1.project_search_scope(uuid,text)",
                 ],
                 "unknown_kinds": "preserved as open strings and only visible under normal scope rules",
+            },
+            "x-owner-capabilities": {
+                "aap_identity_v1.read_actor_facts(uuid)": {
+                    "grant_to": "jobs_owner",
+                    "use": "membership predicate only; no direct Identity table access",
+                }
             },
             "x-filter-semantics": {
                 "empty_statuses_or_kinds": "no filter",

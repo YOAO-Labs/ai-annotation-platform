@@ -1,5 +1,5 @@
 {
-  "$comment": "The API reads Identity actor status once before calling Jobs. The page and total are separate ordered statements in the caller's transaction; ORM autoflush and identity refresh are preserved.",
+  "$comment": "The API reads Identity actor status once before calling Jobs and passes the trusted role snapshot. Each page and total statement also reads current Identity facts only for membership validation. They remain separate ordered statements in the caller's transaction; ORM autoflush and identity refresh are preserved.",
   "$defs": {
     "AsyncJobListRow": {
       "additionalProperties": false,
@@ -242,8 +242,15 @@
   "x-identity-snapshot": {
     "inactive_actor": "return empty items and total before Jobs call",
     "passed_fields": ["actor_id", "platform_role"],
-    "reads_per_list_request": 1,
+    "preflight_reads_per_list_request": 1,
+    "same_statement_membership_facts": "Each page/total statement reads current actor active/role facts through aap_identity_v1.read_actor_facts(uuid), matching the old membership predicate without replacing the preflight snapshot.",
     "source": "IdentityAccountLockData.read_actor_status"
+  },
+  "x-owner-capabilities": {
+    "aap_identity_v1.read_actor_facts(uuid)": {
+      "grant_to": "jobs_owner",
+      "use": "membership predicate only; no direct Identity table access"
+    }
   },
   "x-page-semantics": {
     "empty_page_still_counts": true,
@@ -261,6 +268,7 @@
   "x-policy": {
     "export": "reviewer membership or manager-owned project; super-admin remains global",
     "global_unscoped_kinds": ["audit_archive", "dataset_import"],
+    "membership_identity_facts": "Current Identity active/known-role/viewer-pairing facts gate only the membership arm. The preflight role snapshot still selects the super-admin and manager-owned branches.",
     "owner": "non-super-admin rows require matching user_id",
     "project_scope": "coalesce(project_id, retained_project_id)",
     "super_admin": "all existing project scopes; global jobs retain kind policy",
