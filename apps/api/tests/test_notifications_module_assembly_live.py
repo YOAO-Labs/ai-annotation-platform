@@ -24,6 +24,9 @@ import websockets
 from aap_assets_source.import_delivery_contract import (
     decode_dataset_import_delivery_claim,
 )
+from aap_notifications.notification_delivery_contract import (
+    decode_notification_claim_reply,
+)
 from aap_notifications.realtime_event_contract import notification_sync_message
 from aap_notifications.websocket import (
     _NOTIFICATION_GATE_ATTEMPTS,
@@ -951,16 +954,10 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                     }
                                 ),
                             )
-                            claim = (
-                                json.loads(raw_claim)
-                                if isinstance(raw_claim, str)
-                                else raw_claim
+                            claim = decode_notification_claim_reply(raw_claim)
+                            assert {item.id for item in claim.data.items} == set(
+                                notification_ids
                             )
-                            assert claim["ok"] is True
-                            assert {
-                                uuid.UUID(item["notification_id"])
-                                for item in claim["data"]["items"]
-                            } == set(notification_ids)
                         finally:
                             await claim_connection.close(timeout=3)
 
