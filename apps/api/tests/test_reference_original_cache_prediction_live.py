@@ -12,7 +12,7 @@ import subprocess
 import sys
 import threading
 from types import SimpleNamespace
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import urlopen
 import uuid
 
@@ -36,7 +36,6 @@ from app.db.models.original_cache import (
 )
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.prediction_execution import PredictionExecutionSnapshot
-from app.db.models.prediction_input import PredictionInputLease
 from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
@@ -50,7 +49,7 @@ from app.db.models.trained_model import (
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
 from app.deps import get_db
-from app.services import original_cache as cache, prediction_inputs, trained_models
+from app.services import original_cache as cache, trained_models
 from app.services.raster_mask_storage import (
     build_rle_reference,
     lock_raster_mask_references,
@@ -68,6 +67,10 @@ from tests.test_reference_original_cache import (
     seed_cache,
 )
 from tests.test_trained_models import ready_deployment, seed_source
+from tests.prediction_input_live_assertions import (
+    assert_retired_input_versions,
+    retire_known_inputs,
+)
 
 
 def _unique_mask():
@@ -275,23 +278,8 @@ async def _owned_worker(tmp_path, test_db_url, queue, node, published):
 
 
 async def _cleanup_inputs(world):
-    # All test-owned writers have stopped before these callbacks run.
-    async with world.factory() as db:
-        leases = list(
-            await db.scalars(
-                select(PredictionInputLease).where(
-                    PredictionInputLease.task_id == world.task.id
-                )
-            )
-        )
-        for lease in leases:
-            lease.state = "cleanup_pending"
-            lease.expires_at = lease.retain_until = lease.next_cleanup_at = (
-                prediction_inputs.now() - timedelta(seconds=1)
-            )
-        await db.commit()
-    for lease in leases:
-        assert await prediction_inputs.purge_input(world.factory, lease.id) == "removed"
+    # All writers have stopped. Only the owner's actual cleanup deadline is used.
+    await retire_known_inputs(world.factory, world.task.id)
 
 
 async def _cleanup_cache(world):
@@ -426,7 +414,7 @@ async def test_independent_worker_predicts_and_adopts_cached_reference_without_s
     )
     queue = f"cached-prediction-{uuid.uuid4().hex}"
     node = f"cached-prediction-{uuid.uuid4().hex}@local"
-    seen, inputs, errors, published = [], [], [], []
+    seen, inputs, errors, published, observed = [], [], [], [], []
     response_model = None
 
     class Handler(BaseHTTPRequestHandler):
@@ -448,7 +436,10 @@ async def test_independent_worker_predicts_and_adopts_cached_reference_without_s
                     bucket, key = parsed.path.lstrip("/").split("/", 1)
                     assert bucket == storage_service.import_bucket
                     assert key.startswith("prediction-inputs/") and "/original/" in key
+                    version = parse_qs(parsed.query)["versionId"][0]
+                    assert version not in {"", "null"}
                     inputs.append((bucket, key))
+                    observed.append((bucket, key, version))
                     with urlopen(task["file_path"], timeout=5) as response:
                         raw = response.read()
                     assert raw == world.data
@@ -586,14 +577,6 @@ async def test_independent_worker_predicts_and_adopts_cached_reference_without_s
             )
             assert (
                 await db.scalar(
-                    select(PredictionInputLease.id).where(
-                        PredictionInputLease.task_id == world.task.id
-                    )
-                )
-                is None
-            )
-            assert (
-                await db.scalar(
                     select(StorageLocationProbe.node_id).where(
                         StorageLocationProbe.location_id == world.location_id
                     )
@@ -607,10 +590,10 @@ async def test_independent_worker_predicts_and_adopts_cached_reference_without_s
         assert adopted.status_code == 200, adopted.text
         assert adopted.json()[0]["geometry"]["mask"]["sha256"] == mask["sha256"]
         assert inputs and not source_path.exists()
-        for bucket, key in inputs:
-            assert (
-                await asyncio.to_thread(
-                    storage_service.verify_upload, key, bucket=bucket
-                )
-                is None
-            )
+        await retire_known_inputs(world.factory, world.task.id)
+        await assert_retired_input_versions(
+            world.factory,
+            world.task.id,
+            storage_service,
+            observed=observed,
+        )

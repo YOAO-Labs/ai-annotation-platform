@@ -5,16 +5,14 @@ import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import threading
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import urlopen
 import uuid
 
 from aap_protocol_v2 import CocoRlePayload, native_mask_candidate_id
-from sqlalchemy import select
 
 from app.config import settings
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.db.models.prediction_input import PredictionInputLease
 from app.services import raster_mask_storage, prediction_inputs
 from app.services.ml_client import MLBackendClient
 from app.services.ml_capabilities import extract_capabilities
@@ -22,6 +20,10 @@ from app.services.storage import storage_service
 from app.workers import mask_repair as worker
 from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_prediction_inputs import input_world as input_world
+from tests.prediction_input_live_assertions import (
+    assert_retired_input_versions,
+    retire_known_inputs,
+)
 from tests.test_reference_mask_repair import (
     reference_repair as reference_repair,
     repair_client as repair_client,
@@ -64,7 +66,7 @@ async def test_real_http_minio_repair_candidate_and_acceptance(
     reference = raster_mask_storage.build_rle_reference(rle.model_dump(mode="json"))
     mask_key = reference["object_key"]
     preexisting = storage_service.verify_upload(mask_key) is not None
-    received, input_keys = [], []
+    received, input_keys, observed = [], [], []
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -90,9 +92,12 @@ async def test_real_http_minio_repair_candidate_and_acceptance(
                 raw = response.read()
             assert raw == w.content[1]
             received.append(hashlib.sha256(raw).hexdigest())
-            input_keys.append(
-                urlsplit(task["file_path"]).path.lstrip("/").split("/", 1)[1]
-            )
+            parsed = urlsplit(task["file_path"])
+            bucket, key = parsed.path.lstrip("/").split("/", 1)
+            version = parse_qs(parsed.query)["versionId"][0]
+            assert version not in {"", "null"}
+            input_keys.append(key)
+            observed.append((bucket, key, version))
             assert context["model_id"] == "native-interactive"
             self.reply(
                 {
@@ -145,25 +150,15 @@ async def test_real_http_minio_repair_candidate_and_acceptance(
         assert input_keys and all(
             key.startswith("prediction-inputs/") for key in input_keys
         )
-        assert all(
-            storage_service.verify_upload(key, bucket=storage_service.import_bucket)
-            is None
-            for key in input_keys
-        )
         response = await repair_client.post(
             f"/api/v1/tasks/{w.task_id}/predictions/{predictions[0].id}/accept"
         )
         assert response.status_code == 200, response.text
         assert response.json()[0]["geometry"]["mask"]["sha256"] == reference["sha256"]
-        async with w.factory() as db:
-            assert (
-                await db.scalar(
-                    select(PredictionInputLease.id).where(
-                        PredictionInputLease.task_id == w.task_id
-                    )
-                )
-                is None
-            )
+        await retire_known_inputs(w.factory, w.task_id)
+        await assert_retired_input_versions(
+            w.factory, w.task_id, storage_service, observed=observed
+        )
         assert await raster_mask_storage.load_coco_rle(reference) == rle.model_dump(
             mode="json"
         )

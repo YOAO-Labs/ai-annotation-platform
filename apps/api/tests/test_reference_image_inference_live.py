@@ -7,16 +7,14 @@ import json
 import threading
 from types import SimpleNamespace
 from urllib.request import urlopen
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 import uuid
 
 from aap_protocol_v2 import CocoRlePayload, native_mask_candidate_id
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
-from app.db.models.prediction_input import PredictionInputLease
 from app.deps import get_prediction_input_session_factory
 from app.services.raster_mask_storage import build_rle_reference
 from app.services.storage import storage_service
@@ -25,6 +23,10 @@ from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_references import reference_world as reference_world
 from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_reference_image_inference import accept_body, call
+from tests.prediction_input_live_assertions import (
+    assert_retired_input_versions,
+    retire_known_inputs,
+)
 
 
 async def test_real_http_minio_native_create_refine_and_predict_test(
@@ -51,7 +53,7 @@ async def test_real_http_minio_native_create_refine_and_predict_test(
         "ml_backend_storage_host",
         urlsplit(storage_service.client.meta.endpoint_url).netloc,
     )
-    received, keys = [], []
+    received, keys, observed = [], [], []
     rles = [
         {"encoding": "coco_rle", "size": [32, 48], "counts": [13, 7, 1516]},
         {"encoding": "coco_rle", "size": [32, 48], "counts": [13, 9, 1514]},
@@ -86,9 +88,12 @@ async def test_real_http_minio_native_create_refine_and_predict_test(
                     raw = response.read()
                 assert raw == content[1]
                 received.append(hashlib.sha256(raw).hexdigest())
-                keys.append(
-                    urlsplit(current["file_path"]).path.lstrip("/").split("/", 1)[1]
-                )
+                parsed = urlsplit(current["file_path"])
+                bucket, key = parsed.path.lstrip("/").split("/", 1)
+                version = parse_qs(parsed.query)["versionId"][0]
+                assert version not in {"", "null"}
+                keys.append(key)
+                observed.append((bucket, key, version))
             if "tasks" in body:
                 self.reply(
                     {
@@ -193,20 +198,10 @@ async def test_real_http_minio_native_create_refine_and_predict_test(
         tested = await call(httpx_client, w, headers(super_admin), "test")
         assert tested.status_code == 200, tested.text
         assert len(received) == 3 and len(set(received)) == 1
-        async with factory() as db:
-            assert (
-                await db.scalar(
-                    select(PredictionInputLease.id).where(
-                        PredictionInputLease.task_id == w.task_id
-                    )
-                )
-                is None
-            )
-        for key in keys:
-            assert (
-                storage_service.verify_upload(key, bucket=storage_service.import_bucket)
-                is None
-            )
+        await retire_known_inputs(factory, w.task_id)
+        await assert_retired_input_versions(
+            factory, w.task_id, storage_service, observed=observed
+        )
     finally:
         app_module.dependency_overrides.pop(get_prediction_input_session_factory, None)
         await asyncio.to_thread(server.shutdown)

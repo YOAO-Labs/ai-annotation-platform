@@ -2,7 +2,7 @@
 
 import asyncio
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import threading
 from types import SimpleNamespace
@@ -17,10 +17,12 @@ from aap_protocol_v2 import (
 from aap_protocol_v2 import encode_low_res_mask, native_mask_candidate_id
 from fastapi import HTTPException
 import numpy as np
+import httpx
 import pytest
 from sqlalchemy import func, select
 
 from app.config import settings
+from app.deps import get_db
 from app.db.models.annotation import Annotation
 from app.db.models.api_key import ApiKey
 from app.db.models.prediction import Prediction, PredictionMeta
@@ -46,6 +48,33 @@ from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_ml_backend_project_scope import _seed_backend
 from tests.test_prediction_reference_actions import api_key
 from tests.test_reference_image_inference import accept_body, call
+
+
+@pytest.fixture
+async def httpx_client(app_module, sync_world):
+    """Each request owns its actual transaction; seed ORM never owns that handle."""
+
+    async def database():
+        async with sync_world.factory() as db:
+            try:
+                yield db
+            finally:
+                await db.rollback()
+
+    missing = object()
+    previous = app_module.dependency_overrides.get(get_db, missing)
+    app_module.dependency_overrides[get_db] = database
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_module),
+            base_url="http://test",
+        ) as client:
+            yield client
+    finally:
+        if previous is missing:
+            app_module.dependency_overrides.pop(get_db, None)
+        else:
+            app_module.dependency_overrides[get_db] = previous
 
 
 @pytest.fixture
@@ -344,6 +373,7 @@ async def test_native_create_refine_and_expired_candidate_replay_preserve_proven
         unsigned,
         now=int(datetime.now(timezone.utc).timestamp()) - 3600,
     )
+    await db_session.refresh(world.task)
     world.task.version += 1
     await db_session.commit()
     replay = await httpx_client.post(url, json=body, headers=auth(super_admin))
@@ -608,3 +638,207 @@ async def test_unknown_source_close_retains_cross_location_cleanup_responsibilit
     finally:
         # No ledger is falsely settled; teardown destroys this owned schema.
         world.sources.source_close_hook = None
+
+
+@pytest.mark.parametrize("with_prompt", [False, True])
+async def test_native_refine_only_requires_annotation_read_for_a_source_prompt(
+    httpx_client,
+    db_session,
+    managed_world,
+    super_admin,
+    accept_storage_mocks,
+    with_prompt,
+):
+    from tests.test_ai_mask_accept import _body
+    from app.services.raster_mask_storage import build_rle_reference
+
+    world = managed_world
+    rle = {"encoding": "coco_rle", "size": [32, 48], "counts": [1, 2, 1533]}
+    source = Annotation(
+        task_id=world.task_id,
+        project_id=world.project_id,
+        user_id=super_admin[0].id,
+        source="manual",
+        annotation_type="raster_mask",
+        tool_unit_id="region",
+        class_name="car",
+        geometry={"type": "raster_mask", "mask": build_rle_reference(rle)},
+        version=1,
+    )
+    db_session.add(source)
+    await db_session.commit()
+    from app.db.models.ml_backend_pool import MLBackendServicePool
+
+    pool = await db_session.scalar(
+        select(MLBackendServicePool).where(
+            MLBackendServicePool.legacy_instance_id == world.backend_id,
+        )
+    )
+    # Mint the same signed native contract, with an explicit refine target. A
+    # point-only candidate has no source-Mask prompt and needs no read scope.
+    body = _body(
+        world.task, world.backend, pool, rle=rle, source=source, class_name="car"
+    )
+    claims = verify_ai_mask_receipt(body["candidate"]["receipt"])
+    for key in ("v", "iat", "exp"):
+        claims.pop(key)
+    if not with_prompt:
+        claims["prompt_source"] = None
+    body["candidate"]["receipt"] = issue_ai_mask_receipt(claims)
+    _, key_headers = await api_key(httpx_client, super_admin, ["annotations:write"])
+    result = await httpx_client.post(
+        f"/api/v1/tasks/{world.task_id}/ai-mask-candidates/accept",
+        json=body,
+        headers={**key_headers, "If-Match": 'W/"1"'},
+    )
+    assert result.status_code == (403 if with_prompt else 200), result.text
+    if with_prompt:
+        accept_storage_mocks[0].assert_not_awaited()
+    else:
+        assert result.json()["annotation"]["id"] == str(source.id)
+        assert result.json()["result_version"] == 2
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["actor", "session", "transaction", "nested", "request", "mask", "version"],
+)
+async def test_native_private_receipt_cannot_leave_its_actual_transaction(
+    httpx_client,
+    db_session,
+    managed_world,
+    super_admin,
+    change,
+    monkeypatch,
+):
+    from app.schemas.ai_mask import AiMaskAcceptRequest
+    from app.services.managed_native_inference import (
+        qualify_native_acceptance,
+        validate_native_receipt,
+    )
+
+    world = managed_world
+    world.mask = True
+    response = await call(httpx_client, world, auth(super_admin))
+    assert response.status_code == 200, response.text
+    data = AiMaskAcceptRequest.model_validate(accept_body(response.json()))
+    actor = await db_session.get(User, super_admin[0].id, populate_existing=True)
+    task = await db_session.get(Task, world.task_id, populate_existing=True)
+    receipt = await qualify_native_acceptance(
+        db_session,
+        task,
+        actor,
+        SimpleNamespace(
+            state=SimpleNamespace(api_key_id=None),
+            headers={"authorization": "Bearer " + super_admin[1]},
+        ),
+        data,
+    )
+    await validate_native_receipt(
+        db_session,
+        world.task_id,
+        world.project_id,
+        receipt,
+        actor_id=actor.id,
+        data=data,
+    )
+    session, other, nested, kwargs = db_session, None, None, {}
+    if change == "actor":
+        kwargs["actor_id"] = uuid.uuid4()
+    elif change == "session":
+        session = other = world.sources.factory()
+    elif change == "transaction":
+        await db_session.commit()
+    elif change == "nested":
+        nested = await db_session.begin_nested()
+    elif change == "request":
+        data.class_name = "another"
+        kwargs["data"] = data
+    elif change == "mask":
+        kwargs["result"] = [
+            {"geometry": {"type": "raster_mask", "mask": {"sha256": "0" * 64}}}
+        ]
+    else:
+        task.version += 1
+        await db_session.flush()
+    try:
+        with pytest.raises(ContentError):
+            await validate_native_receipt(
+                session, world.task_id, world.project_id, receipt, **kwargs
+            )
+    finally:
+        if nested:
+            await nested.rollback()
+        if other:
+            await other.close()
+        await db_session.rollback()
+    await clean(world, monkeypatch)
+
+
+async def test_key_expiry_during_mask_storage_rolls_back_every_business_write(
+    httpx_client,
+    db_session,
+    managed_world,
+    super_admin,
+    accept_storage_mocks,
+    monkeypatch,
+):
+    from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
+    from app.db.models.audit_log import AuditLog
+    from app.services import prediction_originals as originals
+
+    world = managed_world
+    world.mask = True
+    key_id, key_headers = await api_key(
+        httpx_client, super_admin, ["annotations:write"]
+    )
+    expires = datetime.now(timezone.utc) + timedelta(minutes=5)
+    key = await db_session.get(ApiKey, key_id)
+    key.expires_at = expires
+    await db_session.commit()
+    response = await call(httpx_client, world, key_headers)
+    assert response.status_code == 200, response.text
+    body = accept_body(response.json())
+    writes = []
+
+    class ExpiredDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = expires + timedelta(seconds=1)
+            return instant if tz is not None else instant.replace(tzinfo=None)
+
+    async def store(*args, **kwargs):
+        writes.append(True)
+        monkeypatch.setattr(originals, "datetime", ExpiredDateTime)
+
+    accept_storage_mocks[0].side_effect = store
+    result = await httpx_client.post(
+        f"/api/v1/tasks/{world.task_id}/ai-mask-candidates/accept",
+        json=body,
+        headers=key_headers,
+    )
+    assert writes and result.status_code == 403, result.text
+    await db_session.rollback()
+    for model in (Prediction, Annotation, AiMaskAcceptDecision):
+        assert (
+            await db_session.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(model.task_id == world.task_id)
+            )
+            == 0
+        )
+    assert (
+        await db_session.scalar(select(func.count()).select_from(PredictionMeta)) == 0
+    )
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(
+                AuditLog.action == "mask_ai.candidate_accept",
+            )
+        )
+        == 0
+    )
+    await clean(world, monkeypatch)
