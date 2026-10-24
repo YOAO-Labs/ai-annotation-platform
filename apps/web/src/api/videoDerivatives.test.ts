@@ -88,7 +88,7 @@ describe("video derivative content and authority", () => {
     expect(videoDerivativeOwnerKey()).toBeNull();
     expect(() => assertVideoDerivativeOwner(owner)).toThrow("会话");
   });
-  it("retries only the bounded, explicit metadata preparing response", () => {
+  it("preserves the bounded metadata-preparing policy and server retry hint", () => {
     const preparing = new ApiError(
       503,
       "preparing",
@@ -105,5 +105,66 @@ describe("video derivative content and authority", () => {
         new ApiError(409, "unverified", { code: "video_source_unverified" }),
       ),
     ).toBe(false);
+  });
+
+  it.each(["content_busy", "storage_original_busy", "storage_maintenance_busy"])(
+    "retries only three times with short bounded delays for explicit 409 %s",
+    (code) => {
+      const error = new ApiError(409, "busy", { code }, { "retry-after": "120" });
+      expect([0, 1, 2, 3, 10].map((count) => retryPreparingVideoMetadata(count, error))).toEqual([
+        true,
+        true,
+        true,
+        false,
+        false,
+      ]);
+      expect([0, 1, 2, 3, 10].map((attempt) => videoMetadataRetryDelay(attempt, error))).toEqual([
+        200, 400, 600, 600, 600,
+      ]);
+    },
+  );
+
+  it.each([
+    [401, "content_busy"],
+    [403, "content_busy"],
+    [409, "video_source_unverified"],
+    [409, "video_source_unknown"],
+    [409, "storage_gate_closed"],
+    [409, "video_metadata_changed"],
+    [409, "video_metadata_preparing"],
+    [409, "unknown_conflict"],
+    [503, "content_busy"],
+    [503, "storage_original_busy"],
+    [503, "storage_maintenance_busy"],
+  ] as const)("does not retry status %i code %s", (status, code) => {
+    expect(retryPreparingVideoMetadata(0, new ApiError(status, "rejected", { code }))).toBe(false);
+  });
+
+  it("does not infer a transient conflict from missing, malformed or untrusted error details", () => {
+    for (const error of [
+      new ApiError(409, "content_busy"),
+      new ApiError(409, "busy", { code: ["content_busy"] }),
+      new ApiError(409, "busy", { code: "content_busy_extra" }),
+      { status: 409, detailRaw: { code: "content_busy" } },
+      new Error("content_busy"),
+    ])
+      expect(retryPreparingVideoMetadata(0, error)).toBe(false);
+  });
+
+  it("keeps ten preparing retries at two seconds by default and bounds valid retry hints", () => {
+    const preparing = (hint?: string) =>
+      new ApiError(
+        503,
+        "preparing",
+        { code: "video_metadata_preparing" },
+        hint ? { "retry-after": hint } : undefined,
+      );
+    expect(retryPreparingVideoMetadata(9, preparing())).toBe(true);
+    expect(retryPreparingVideoMetadata(10, preparing())).toBe(false);
+    expect(videoMetadataRetryDelay(0, preparing())).toBe(2_000);
+    expect(videoMetadataRetryDelay(9, preparing())).toBe(2_000);
+    expect(videoMetadataRetryDelay(0, preparing("invalid"))).toBe(2_000);
+    expect(videoMetadataRetryDelay(0, preparing("0.2"))).toBe(1_000);
+    expect(videoMetadataRetryDelay(0, preparing("120"))).toBe(10_000);
   });
 });

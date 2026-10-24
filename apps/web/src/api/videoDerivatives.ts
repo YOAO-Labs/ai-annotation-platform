@@ -81,20 +81,34 @@ export async function verifyVideoChunkBytes(
   if (sha256 !== identity.sha256) throw new Error("视频分块内容校验失败");
 }
 
-export function retryPreparingVideoMetadata(failureCount: number, error: unknown): boolean {
-  const detail = error instanceof ApiError ? error.detailRaw : null;
-  return (
-    failureCount < 10 &&
-    error instanceof ApiError &&
-    error.status === 503 &&
-    !!detail &&
-    typeof detail === "object" &&
-    "code" in detail &&
-    detail.code === "video_metadata_preparing"
-  );
+const VIDEO_METADATA_BUSY_CODES = new Set([
+  "content_busy",
+  "storage_original_busy",
+  "storage_maintenance_busy",
+]);
+
+function videoMetadataRetryKind(error: unknown): "preparing" | "busy" | null {
+  if (!(error instanceof ApiError)) return null;
+  const detail = error.detailRaw;
+  if (!detail || typeof detail !== "object" || !("code" in detail)) return null;
+  if (error.status === 503 && detail.code === "video_metadata_preparing") return "preparing";
+  if (
+    error.status === 409 &&
+    typeof detail.code === "string" &&
+    VIDEO_METADATA_BUSY_CODES.has(detail.code)
+  )
+    return "busy";
+  return null;
 }
 
-export function videoMetadataRetryDelay(_attempt: number, error: unknown): number {
+export function retryPreparingVideoMetadata(failureCount: number, error: unknown): boolean {
+  const kind = videoMetadataRetryKind(error);
+  return kind === "preparing" ? failureCount < 10 : kind === "busy" && failureCount < 3;
+}
+
+export function videoMetadataRetryDelay(attempt: number, error: unknown): number {
+  if (videoMetadataRetryKind(error) === "busy")
+    return 200 * (Math.min(2, Math.max(0, attempt)) + 1);
   const seconds = error instanceof ApiError ? Number(error.headers?.["retry-after"]) : NaN;
   return Number.isFinite(seconds) && seconds > 0
     ? Math.min(10_000, Math.max(1_000, seconds * 1_000))
