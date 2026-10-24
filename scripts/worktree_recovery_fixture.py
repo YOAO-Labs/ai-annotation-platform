@@ -271,7 +271,10 @@ async def verify_task_originals(db, *, storage, actor):
     source_rows = list(
         await db.scalars(
             select(ManagedOriginalCreation).where(
-                ManagedOriginalCreation.owner_kind == "task"
+                ManagedOriginalCreation.owner_kind == "task",
+                ManagedOriginalCreation.task_id.in_(
+                    [task_original_identifier(case) for case in TASK_ORIGINAL_CASES]
+                ),
             )
         )
     )
@@ -280,7 +283,15 @@ async def verify_task_originals(db, *, storage, actor):
     assert set(by_task) == {
         task_original_identifier(case) for case in TASK_ORIGINAL_CASES
     }
-    owners = list(await db.scalars(select(TaskOriginal)))
+    owners = list(
+        await db.scalars(
+            select(TaskOriginal).where(
+                TaskOriginal.task_id.in_(
+                    [task_original_identifier(case) for case in TASK_ORIGINAL_CASES]
+                )
+            )
+        )
+    )
     assert len(owners) == 2
     assert {row.task_id for row in owners} == {
         task_original_identifier(case) for case in ("current", "deleted")
@@ -1278,6 +1289,9 @@ async def seed(db, external: Path):
                 task_original_identifier("current"): task_original_content(),
             },
         )
+        from worktree_recovery_video_export import seed_video_exports
+
+        await seed_video_exports(db, actor=actor, storage=storage)
         # Keep both positive and negative immutable observations, plus an
         # undispatched pending attempt. Restoring bytes must not rewrite these
         # source facts or automatically resume an old queue.
@@ -1362,7 +1376,13 @@ async def verify_application(db, external: Path):
     retirements = list(await db.scalars(select(ManagedOriginalRetirement)))
     assert len(retirements) == 2
     creation_rows = list(await db.scalars(select(ManagedOriginalCreation)))
-    dataset_creations = [row for row in creation_rows if row.owner_kind == "dataset"]
+    from worktree_recovery_video_export import identifier as video_identifier
+
+    dataset_creations = [
+        row
+        for row in creation_rows
+        if row.owner_kind == "dataset" and row.dataset_id != video_identifier("dataset")
+    ]
     assert len(dataset_creations) == 3
     assert all(row.status == "verified" for row in dataset_creations)
     # Restoration maps physical locations, never historical successful writes.
@@ -1579,6 +1599,9 @@ async def verify_application(db, external: Path):
             task_original_identifier("current"): task_original_content(),
         },
     )
+    from worktree_recovery_video_export import verify_video_exports
+
+    video_exports = await verify_video_exports(db, storage=storage)
     from worktree_recovery_bug_attachments import verify_bug_attachments
 
     bug_attachments = await verify_bug_attachments(db, storage=storage)
@@ -1683,6 +1706,7 @@ async def verify_application(db, external: Path):
         **avatars,
         **exports,
         **image_exports,
+        **video_exports,
         **bug_attachments,
         **comment_attachments,
         **guide_assets,
