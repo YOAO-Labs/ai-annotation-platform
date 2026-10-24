@@ -1,10 +1,8 @@
-"""视频分块 ffmpeg 抽取(纯 subprocess 封装)。
+"""Video chunk extraction from a path or an inherited verified descriptor.
 
-从 workers/media.py 抽出:transcode 分块 extract_video_chunk 与 smart-copy
-extract_video_chunk_smart_copy 及其超时常量。无 DB/存储依赖,不 import media.py
-→ 无循环;media.py 经 re-export 保持旧入口与 monkeypatch target(
-app.workers.media.extract_video_chunk*)不变 —— 调用方 _store_video_chunk 仍在
-media.py 以裸名调用,走 media 模块全局查找。
+The media module re-exports these helpers for existing callers. Independent
+output publication belongs to media_derivatives; these helpers never sign or
+write storage objects.
 """
 
 from __future__ import annotations

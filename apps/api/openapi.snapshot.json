@@ -47671,6 +47671,18 @@
             "title": "Frames",
             "type": "array"
           },
+          "metadata_generation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata Generation Id"
+          },
           "source": {
             "enum": [
               "ffprobe",
@@ -47714,6 +47726,18 @@
           },
           "metadata": {
             "$ref": "#/components/schemas/VideoMetadata"
+          },
+          "metadata_generation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata Generation Id"
           },
           "original_identity_path": {
             "anyOf": [
@@ -55830,6 +55854,30 @@
             ],
             "title": "Generation Mode"
           },
+          "metadata_generation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata Generation Id"
+          },
+          "output_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Id"
+          },
           "retry_after": {
             "anyOf": [
               {
@@ -55840,6 +55888,17 @@
               }
             ],
             "title": "Retry After"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
           },
           "start_frame": {
             "title": "Start Frame",
@@ -55943,12 +56002,47 @@
             "title": "Height",
             "type": "integer"
           },
+          "metadata_generation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata Generation Id"
+          },
+          "output_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Id"
+          },
           "samples": {
             "items": {
               "$ref": "#/components/schemas/VideoChunkSampleOut"
             },
             "title": "Samples",
             "type": "array"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
           },
           "width": {
             "title": "Width",
@@ -56124,6 +56218,17 @@
       },
       "VideoFrameOut": {
         "properties": {
+          "byte_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Byte Size"
+          },
           "error": {
             "anyOf": [
               {
@@ -56147,6 +56252,30 @@
             "title": "Frame Index",
             "type": "integer"
           },
+          "metadata_generation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata Generation Id"
+          },
+          "output_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Id"
+          },
           "retry_after": {
             "anyOf": [
               {
@@ -56157,6 +56286,17 @@
               }
             ],
             "title": "Retry After"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
           },
           "status": {
             "enum": [
@@ -56443,6 +56583,18 @@
           "frame_timetable_url": {
             "title": "Frame Timetable Url",
             "type": "string"
+          },
+          "metadata_generation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata Generation Id"
           },
           "poster_url": {
             "anyOf": [
@@ -99533,6 +99685,23 @@
               ],
               "title": "To"
             }
+          },
+          {
+            "in": "query",
+            "name": "expected_metadata_generation_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Metadata Generation Id"
+            }
           }
         ],
         "responses": {
@@ -103288,6 +103457,23 @@
               "title": "Chunk Id",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "expected_output_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Output Id"
+            }
           }
         ],
         "responses": {
@@ -103369,6 +103555,23 @@
                 }
               ],
               "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_metadata_generation_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Metadata Generation Id"
             }
           }
         ],

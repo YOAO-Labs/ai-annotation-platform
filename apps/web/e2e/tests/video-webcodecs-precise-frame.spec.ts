@@ -9,6 +9,7 @@ import type { Page } from "@playwright/test";
 import { test, expect } from "../fixtures/seed";
 import type { SeedAPI } from "../fixtures/seed";
 import { expectVideoFramePixels, type FrameExpectations } from "../fixtures/video-frame-pixels";
+import { injectVideoResponseFault } from "../fixtures/video-response-fault";
 
 const WEBCODECS_FLAG = "video.experimental.webcodecs";
 const TERMINAL_TIMEOUT_MS = 20_000;
@@ -124,6 +125,7 @@ async function seedAndOpenVideoTask(
     fixture,
     chunkStatus: options?.chunkStatus ?? "ready",
   });
+  await injectVideoResponseFault(page, video.dataset_item_id, video.frame_expectations);
   await seed.injectToken(page, data.admin_email);
   await setWebCodecsFlag(page, options?.flag ?? true);
   await page.goto(`/projects/${data.project_id}/annotate?task=${video.task_id}`);

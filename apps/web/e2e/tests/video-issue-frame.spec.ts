@@ -15,6 +15,7 @@ import type {
 import { randomUUID } from "node:crypto";
 
 import { expect, test as base, type SeedData } from "../fixtures/seed";
+import { injectVideoResponseFault } from "../fixtures/video-response-fault";
 import {
   expectVideoFramePixels,
   sampleFrameMarkers,
@@ -106,6 +107,7 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
   issueCase: async ({ page, request, seed, browser, videoFixture }, provideFixture, testInfo) => {
     const data = await seed.owned();
     const video = await seed.videoWebCodecs(data.project_id, { fixture: videoFixture });
+    await injectVideoResponseFault(page, video.dataset_item_id, video.frame_expectations);
     const token = await seed.accessToken(data.admin_email);
     await json(
       await request.patch(`${API_BASE}/api/v1/projects/${data.project_id}`, {

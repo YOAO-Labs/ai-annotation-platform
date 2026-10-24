@@ -60,6 +60,7 @@ class VideoDerivativeOutput(Base):
     """One immutable physical attempt that survives business-object cascades."""
 
     __tablename__ = "video_derivative_outputs"
+    __mapper_args__ = {"eager_defaults": True}
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     dataset_item_id: Mapped[uuid.UUID] = mapped_column(

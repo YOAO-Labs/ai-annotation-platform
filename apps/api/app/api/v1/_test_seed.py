@@ -690,6 +690,15 @@ async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
         .values(video_output_id=None, video_building_output_id=None)
     )
     await db.execute(
+        update(VideoDerivativeOutput)
+        .where(
+            VideoDerivativeOutput.id.in_(list(expected)),
+            VideoDerivativeOutput.state == "retiring",
+        )
+        .values(state="deleted")
+    )
+    await db.flush()
+    await db.execute(
         delete(VideoDerivativeOutput).where(
             VideoDerivativeOutput.id.in_(list(expected))
         )
@@ -2636,9 +2645,9 @@ async def _publish_fixture_video_outputs(db, output_ids):
                 await final.commit()
     except BaseException as exc:
         for claimed in claims:
-            await storage_access.finish(
+            await originals.drain(
                 asyncio.create_task(
-                    worker.fail(
+                    worker.fail_with_retry(
                         factory,
                         claimed.output.id,
                         claimed.token,
@@ -2934,17 +2943,37 @@ async def seed_video_webcodecs(
         video_derivatives.chunk_spec(generation, chunk_id)
         for chunk_id in range((count + chunk_size - 1) // chunk_size)
     ]
-    await _stage_fixture_video_outputs(
+    chunk_outputs = await _stage_fixture_video_outputs(
         db, item, "chunk", specs, pending=payload.chunk_status == "pending"
     )
+    expected_samples = meta.get("samples", [])
+    if not qualification and payload.chunk_status == "ready":
+        from app.db.models.video_derivative import VideoDerivativeOutput
+
+        expected_samples = []
+        for identifier in chunk_outputs:
+            output = await db.get(
+                VideoDerivativeOutput, identifier, populate_existing=True
+            )
+            expected_samples.extend(output.result["diagnostics"].get("samples", []))
+    expectations = (
+        {} if qualification else frame_expectations(fixture, expected_samples)
+    )
+    if not qualification:
+        # Pixel signatures remain independently defined by the source fixture.
+        # Decoder timestamps use the actual muxed chunk clock, which can shift
+        # for B-frame DTS preroll without changing presentation frame identity.
+        source_pts = {
+            entry["frame_index"]: entry["pts_ms"] for entry in meta["frame_timetable"]
+        }
+        for frame in expectations["frames"]:
+            frame["source_pts_ms"] = source_pts.get(frame["frame_index"])
     return SeedVideoWebCodecsResponse(
         task_id=task_id,
         dataset_item_id=str(item_id),
         chunk_id=0,
         chunk_size_frames=chunk_size,
-        frame_expectations=(
-            {} if qualification else frame_expectations(fixture, meta["samples"])
-        ),
+        frame_expectations=expectations,
     )
 
 

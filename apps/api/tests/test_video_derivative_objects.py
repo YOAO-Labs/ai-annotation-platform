@@ -249,7 +249,7 @@ async def test_lease_is_claimed_once_and_never_renewed(owned, monkeypatch):
         await db.rollback()
 
 
-@pytest.mark.parametrize("ttl", [True, 0, -1, 901])
+@pytest.mark.parametrize("ttl", [True, 0, -1, objects.originals.JOB_SECONDS + 1])
 async def test_invalid_lease_budget_cannot_change_attempt(owned, ttl):
     async with owned.factory() as db:
         row = await _new(db, owned)

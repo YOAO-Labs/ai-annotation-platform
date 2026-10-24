@@ -401,8 +401,9 @@ async def test_ready_frame_receipt_and_force_retry_keep_old_physical_owner(
 
 
 async def test_chunk_samples_full_verify_exact_output_and_ignore_mutable_row_diagnostics(
-    world, db_session, httpx_client, super_admin
+    world, db_session, httpx_client, super_admin, monkeypatch
 ):
+    monkeypatch.setattr(service.settings, "video_chunk_size_frames", 1)
     generation = await _publish(db_session, world)
     diagnostics = {
         "codec_string": "avc1.4d001e",

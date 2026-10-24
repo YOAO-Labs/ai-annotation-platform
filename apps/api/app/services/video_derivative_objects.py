@@ -149,7 +149,7 @@ async def access(db, receipt, guard):
                     )
             await guard(permit.revision)
     finally:
-        await storage_access.finish(asyncio.create_task(session.close()))
+        await originals.drain(asyncio.create_task(session.close()))
 
 
 def _no_operations(identifier):
