@@ -106,6 +106,10 @@ class Project(Base):
     guide_assets: Mapped[list] = mapped_column(
         JSONB, nullable=False, server_default="[]", default=list
     )
+    # The database advances this only when the asset list actually changes.
+    guide_assets_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", default=1
+    )
     model_version: Mapped[str | None] = mapped_column(String(100))
     task_lock_ttl_seconds: Mapped[int] = mapped_column(Integer, default=300)
     total_tasks: Mapped[int] = mapped_column(Integer, default=0)
