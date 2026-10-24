@@ -1070,7 +1070,8 @@ def _lidar_readme(target: str) -> str:
             "detection/tracking benchmark split and does not map project categories to "
             "the official ontology. JSON tables live in v1.0-aap/; media keeps its exact "
             "source-relative path. Presigned media links expire at the time recorded in "
-            "media_manifest.json.\n"
+            "media_manifest.json. For root-relative media URLs, run python "
+            "fetch_nuscenes_media.py --base-url https://your-platform (origin only).\n"
         )
     if target == "coco-multicamera":
         return (

@@ -449,8 +449,9 @@ async def test_kitti_still_requires_canonical_trusted_axis_and_removes_failed_zi
     assert not (world.root / "export.zip").exists()
 
 
-async def test_mixed_nuscenes_uses_owned_raw_map_cameras_and_frozen_pcd(
-    world, monkeypatch
+@pytest.mark.parametrize("targets", [["nuscenes"], ["pointmask", "nuscenes"]])
+async def test_nuscenes_uses_owned_raw_map_cameras_and_frozen_pcd(
+    world, monkeypatch, targets
 ):
     world.data["primary_lidar"] = world.data["primary_lidar"].replace(
         b"nan 0 0", b"0 0 0"
@@ -511,24 +512,30 @@ async def test_mixed_nuscenes_uses_owned_raw_map_cameras_and_frozen_pcd(
         return {"sample": [{"token": "frozen-export"}]}
 
     monkeypatch.setattr(packaging, "build_nuscenes_frame_records", records)
-    async with archive(world, ["pointmask", "nuscenes"]) as result:
-        assert "nuscenes/v1.0-aap/sample.json" in result.namelist()
+    prefix = "nuscenes/" if len(targets) > 1 else ""
+    async with archive(world, targets) as result:
+        assert prefix + "v1.0-aap/sample.json" in result.namelist()
         assert not any("support/pointclouds" in name for name in result.namelist())
-        manifest = json.loads(result.read("nuscenes/media_manifest.json"))
+        manifest = json.loads(result.read(prefix + "media_manifest.json"))
         assert len(manifest["media"]) == 4
         assert {entry["presigned_url"] for entry in manifest["media"]} == {
             world.entries[role]["presigned_url"]
             for role in ("raw_lidar", "map", "camera_front", "camera_back")
         }
-        assert b"--base-url" in result.read("nuscenes/fetch_nuscenes_media.py")
-        assert (
-            len(
-                result.read(
-                    next(name for name in result.namelist() if name.endswith(".label"))
+        assert b"--base-url" in result.read(prefix + "fetch_nuscenes_media.py")
+        if "pointmask" in targets:
+            assert (
+                len(
+                    result.read(
+                        next(
+                            name
+                            for name in result.namelist()
+                            if name.endswith(".label")
+                        )
+                    )
                 )
+                == 16
             )
-            == 16
-        )
     assert world.pcd_calls == [world.task.id] and frames[0].scene_name == "frozen scene"
     assert {"raw_lidar", "map", "camera_front", "camera_back"}.issubset(
         world.entry_calls
@@ -654,3 +661,25 @@ def test_logical_paths_reject_unsafe_camera_names_and_ambiguous_binding(world):
     frozen["media"].append(deepcopy(frozen["media"][0]))
     with pytest.raises(ValueError, match="lidar_media_binding_conflict"):
         logical_sources(frozen)
+
+
+@pytest.mark.parametrize(
+    "damage", ["sha256", "size_bytes", "expires_at", "presigned_url"]
+)
+def test_nuscenes_manifest_rejects_changed_saved_delivery_receipts(damage):
+    saved = {
+        "size_bytes": 80,
+        "sha256": "a" * 64,
+        "expires_at": "2030-01-01T00:00:00+00:00",
+        "presigned_url": "https://saved.invalid/copy",
+    }
+    saved[damage] = None
+    with pytest.raises(ValueError, match="nuscenes_delivery_receipt_changed"):
+        packaging._trusted_media_entry(
+            rel_path="samples/LIDAR_TOP/a.bin",
+            saved=saved,
+            kind="lidar",
+            source_file_size=80,
+            source_sha256="a" * 64,
+            expires_iso="2030-01-01T00:00:00+00:00",
+        )

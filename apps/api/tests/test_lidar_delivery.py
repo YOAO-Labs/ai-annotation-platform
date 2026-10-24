@@ -696,3 +696,81 @@ async def test_shared_map_second_task_revocation_prevents_copy(world, monkeypatc
         relative for binding, relative, _ in world.calls if binding["role"] == "map"
     ]
     assert not any(relative in world.copies for relative in map_calls)
+
+
+@pytest.mark.parametrize("targets", [["nuscenes"], ["kitti", "nuscenes"]])
+def test_nuscenes_paths_cover_aux_all_cameras_and_private_pcd_in_pure_and_mixed(
+    world, targets
+):
+    task = add_task(world, cameras=(("camera_front", "front"), ("camera_back", "back")))
+    add_nuscenes_auxiliary(world, task, map_owner=uuid.uuid4())
+    world.data["targets"] = targets
+    world.data["options"] = {"lidar": {"kitti_camera_role": "camera_front"}}
+    paths = logical_sources(world.data)
+    public = paths["nuscenes"]
+    assert set(public.values()) == {row["source_key"] for row in world.data["media"]}
+    assert len(public) == 5
+    if "kitti" in targets:
+        assert len(paths["kitti"]) == 2
+        rear = next(
+            row["source_key"]
+            for row in world.data["media"]
+            if row["role"] == "camera_back"
+        )
+        assert rear in public.values() and rear not in paths["kitti"].values()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "README.txt",
+        "v1.0-aap/sample.json",
+        "media_manifest.json",
+        "support/map.bin",
+        "maps/../escape",
+        "maps/a\nbin",
+    ],
+)
+def test_nuscenes_original_paths_cannot_overwrite_generated_files_or_escape(
+    world, path
+):
+    task = add_task(world)
+    add_nuscenes_auxiliary(world, task, map_owner=uuid.uuid4())
+    world.data["scenes"][0]["source_metadata"]["nuscenes_export"]["map"]["filename"] = (
+        path
+    )
+    with pytest.raises(ValueError, match="lidar_media_path_(collision|invalid)"):
+        logical_sources(world.data)
+
+
+def test_auxiliary_canonical_identity_deduplicates_owner_without_changing_g1_keys():
+    from app.services.exporting.lidar_sources import canonical_identity
+
+    for kind in ("dataset_asset", "task_original"):
+        source = {
+            "owner_kind": kind,
+            "item_id": "item",
+            "item_facts": {"id": "item"},
+            "relation": {"task_id": "task"},
+            "sha256": "a" * 64,
+        }
+        assert canonical_identity(source) == {**source, "relation": None}
+    source = {
+        "owner_kind": "dataset_auxiliary",
+        "item_id": "item-1",
+        "item_facts": {"id": "item-1"},
+        "relation": {"task_id": "task-1"},
+        "ownership_facts": {"id": "same-map"},
+        "sha256": "b" * 64,
+    }
+    other = {
+        **source,
+        "item_id": "item-2",
+        "item_facts": {"id": "item-2"},
+        "relation": {"task_id": "task-2"},
+    }
+    assert canonical_identity(source) == canonical_identity(other)
+    assert source["relation"]["task_id"] == "task-1"
+    assert canonical_identity(source) != canonical_identity(
+        {**other, "ownership_facts": {"id": "different-map"}}
+    )
