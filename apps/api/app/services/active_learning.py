@@ -28,6 +28,7 @@ from app.schemas.sample_evaluation import DetectionPrediction, EvaluationProfile
 from app.services import (
     active_learning_engine as engine,
     active_learning_pool as pool,
+    active_learning_storage as owners,
     async_job as jobs,
     managed_inference as managed,
     sample_evaluation_engine as detection,
@@ -297,6 +298,7 @@ async def create_round(db, project, user, body, prepared, api_key_id=None):
     validate_spec(round)
     db.add(round)
     await db.flush()
+    await owners.allocate(db, round)
     for sample in spec["pool"]:
         db.add(
             Member(
@@ -325,6 +327,7 @@ async def create_round(db, project, user, body, prepared, api_key_id=None):
 
 
 async def new_attempt(db, round):
+    owners.resolve(round)
     validate_spec(round)
     round.generation += 1
     ordinal = (
@@ -362,8 +365,10 @@ def media_descriptor(round, sample):
 
 
 def read_retained_png(round, sample):
+    owner = owners.resolve(round)
     artifact = media_descriptor(round, sample)
-    params = {"Bucket": storage.training_bucket, "Key": artifact["key"]}
+    owners.expect_media(owner, sample["ordinal"], artifact["key"])
+    params = {"Bucket": owner.bucket, "Key": artifact["key"]}
     head = storage.client.head_object(**params)
     size = head.get("ContentLength")
     if type(size) is not int or not 0 < size <= detection.MAX_PNG_BYTES:
@@ -389,6 +394,7 @@ def read_retained_png(round, sample):
 
 
 def prepare_image(round, sample):
+    owner = owners.resolve(round)
     try:
         return read_retained_png(round, sample)
     except ClientError as exc:
@@ -412,8 +418,9 @@ def prepare_image(round, sample):
     ):
         raise ValueError("Current source differs from the frozen round")
     artifact = media_descriptor(round, sample)
+    owners.expect_media(owner, sample["ordinal"], artifact["key"])
     storage.client.put_object(
-        Bucket=storage.training_bucket,
+        Bucket=owner.bucket,
         Key=artifact["key"],
         Body=png,
         ContentType="image/png",

@@ -69,6 +69,7 @@ async def claim(factory, attempt_id, celery_task_id):
             return None
         try:
             await service.authority(db, round)
+            service.owners.resolve(round)
         except TrainingDatasetError as exc:
             round = await service.load_round(db, round.project_id, round.id, lock=True)
             if round.current_attempt_id == attempt_id and round.status == "queued":
@@ -286,6 +287,8 @@ async def execute(factory, attempt_id, celery_task_id=None):
                 await db.commit()
             try:
                 png = await asyncio.to_thread(service.prepare_image, round, sample)
+            except TrainingDatasetError:
+                raise
             except Exception as exc:
                 raise RoundFailure(
                     "frozen_input_unavailable",

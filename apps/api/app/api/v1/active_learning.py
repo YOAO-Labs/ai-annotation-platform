@@ -220,6 +220,7 @@ async def retry(
         )
     try:
         await service.authority(db, round)
+        service.owners.resolve(round)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
     previous = await attempt_for(db, round, round.current_attempt_id)
@@ -292,9 +293,12 @@ async def image(
         raise service.reject("candidate_missing", "冻结候选不存在", 404)
     await db.commit()
     try:
+        service.owners.resolve(round)
         png = await asyncio.to_thread(
             service.read_retained_png, round, spec["samples"][ordinal]
         )
+    except TrainingDatasetError as exc:
+        raise service.reject(exc.code, str(exc), exc.status_code) from exc
     except Exception as exc:
         raise service.reject(
             "frozen_image_unavailable", "冻结图片尚未就绪或未通过完整性检查"

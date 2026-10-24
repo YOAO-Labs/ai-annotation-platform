@@ -157,6 +157,10 @@ async def create(
     )
     db.add(run)
     await db.flush()
+    try:
+        await service.owners.allocate(db, run)
+    except TrainingDatasetError as exc:
+        raise service.reject(exc.code, str(exc), exc.status_code) from exc
     for frozen in spec["samples"]:
         db.add(
             Sample(
@@ -332,6 +336,7 @@ async def retry(
         )
     try:
         await service.authority(db, run)
+        service.owners.resolve(run)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
     previous = await db.get(Attempt, run.current_attempt_id)
@@ -504,6 +509,10 @@ async def delete(
     await guard_source(db, evaluation_id=run.id)
     if run.status not in service.TERMINAL:
         raise service.reject("evaluation_active", "评估尚未确认结束，不能删除")
+    try:
+        service.owners.resolve(run)
+    except TrainingDatasetError as exc:
+        raise service.reject(exc.code, str(exc), exc.status_code) from exc
     run.deletion_requested_at = run.deletion_requested_at or service.now()
     await db.commit()
     try:

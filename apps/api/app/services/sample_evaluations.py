@@ -30,6 +30,7 @@ from app.schemas.sample_evaluation import (
 from app.services import (
     async_job as jobs,
     sample_evaluation_engine as engine,
+    sample_evaluation_storage as owners,
     trained_models,
 )
 from app.services.async_job_notify import notify_job_terminal
@@ -360,6 +361,7 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
 
 
 async def new_attempt(db, run):
+    owners.resolve(run)
     run.generation += 1
     ordinal = (
         await db.scalar(
@@ -691,10 +693,15 @@ def report_metadata(run, attempt):
 
 
 def report_prefix(run):
-    return f"projects/{run.project_id}/sample-evaluations/{run.id}/"
+    return owners.prefix_for(run.project_id, run.id)
 
 
 def upload_report(run, attempt, report):
+    owner = owners.resolve(run)
+    if attempt.run_id != run.id:
+        raise TrainingDatasetError(
+            "training_storage_invalid_key", "报告执行尝试不属于该评估", status_code=409
+        )
     _bounded(report, budget=[engine.REPORT_NODE_BUDGET])
     raw = json.dumps(
         report, ensure_ascii=False, allow_nan=False, separators=(",", ":")
@@ -707,8 +714,9 @@ def upload_report(run, attempt, report):
         "sha256": sha,
         "size_bytes": len(raw),
     }
+    owners.expect_report(owner, attempt.id, artifact["key"], sha)
     storage.client.put_object(
-        Bucket=storage.training_bucket,
+        Bucket=owner.bucket,
         Key=artifact["key"],
         Body=raw,
         ContentType="application/json",
@@ -718,6 +726,7 @@ def upload_report(run, attempt, report):
         read_json_artifact(
             artifact,
             attempt.id,
+            bucket=owner.bucket,
             required_metadata=report_metadata(run, attempt),
             node_budget=engine.REPORT_NODE_BUDGET,
         )
@@ -730,16 +739,24 @@ def upload_report(run, attempt, report):
 async def read_report(db, run, attempt):
     if run.deletion_requested_at:
         raise reject("evaluation_deleting", "评估正在删除，报告已停止提供")
+    if attempt.run_id != run.id:
+        raise reject("report_corrupt", "报告执行尝试不属于该评估")
     if attempt.status not in TERMINAL or not attempt.report:
         raise reject("report_pending", "该执行尝试尚无已核验报告")
     artifact = attempt.report
-    if not artifact.get("key", "").startswith(f"{report_prefix(run)}{attempt.id}/"):
-        raise reject("report_corrupt", "报告存储身份不匹配")
+    try:
+        owner = owners.resolve(run)
+        owners.expect_report(owner, attempt.id, artifact["key"], artifact["sha256"])
+    except TrainingDatasetError as exc:
+        raise reject(exc.code, str(exc), exc.status_code) from exc
+    except (KeyError, TypeError) as exc:
+        raise reject("report_corrupt", "报告存储身份不匹配") from exc
     try:
         report = await asyncio.to_thread(
             read_json_artifact,
             artifact,
             attempt.id,
+            bucket=owner.bucket,
             required_metadata=report_metadata(run, attempt),
             node_budget=engine.REPORT_NODE_BUDGET,
         )
@@ -847,19 +864,34 @@ async def output(db, run):
 
 
 async def purge_requested(db, run_id):
-    run = await db.get(Run, run_id)
+    run = await db.scalar(
+        select(Run)
+        .where(Run.id == run_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if not run or not run.deletion_requested_at or run.status not in TERMINAL:
         return False
     from app.services.active_learning_pool import guard_source
 
+    owner = owners.resolve(run)
     await guard_source(db, evaluation_id=run.id)
-    prefix = report_prefix(run)
     await db.commit()
-    await asyncio.to_thread(
-        storage.delete_prefix, prefix, bucket=storage.training_bucket
+    await asyncio.to_thread(storage.delete_prefix, owner.prefix, bucket=owner.bucket)
+    run = await db.scalar(
+        select(Run)
+        .where(Run.id == run_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    run = await db.scalar(select(Run).where(Run.id == run_id).with_for_update())
     if run and run.deletion_requested_at and run.status in TERMINAL:
+        if owners.resolve(run).ref != owner.ref:
+            raise TrainingDatasetError(
+                "training_storage_unproven",
+                "评估清理期间存储归属已变化",
+                status_code=409,
+            )
+        await guard_source(db, evaluation_id=run.id)
         await db.delete(run)
         await db.commit()
     return True
