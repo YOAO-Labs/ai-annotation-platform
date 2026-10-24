@@ -384,6 +384,7 @@ export function useVideoPlaybackController({
     prefetch: prefetchFrames,
   } = useVideoFramePreview({
     taskId: manifest?.task_id,
+    metadataGenerationId: manifest?.metadata_generation_id,
     maxFrame,
     enabled: Boolean(manifest) && playableSource,
     width: 320,

@@ -1,6 +1,8 @@
 // useVideoPreciseFrame pipeline 编排:manifest v2 → chunk 轮询 → samples → bytes → decode。
 // query 层 mock tasksApi/videoApi/fetch;decode 层用真实 useVideoChunkDecoder + stub WebCodecs。
 import { createElement } from "react";
+import { createHash, webcrypto } from "node:crypto";
+import { useAuthStore } from "@/stores/authStore";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -109,10 +111,22 @@ function installWebCodecs() {
   defaultDecodeEmitChunk();
 }
 
+const METADATA_GENERATION = "10000000-0000-4000-8000-000000000001";
+function identity(chunkId = 0, size = 64) {
+  return {
+    metadata_generation_id: METADATA_GENERATION,
+    output_id: `20000000-0000-4000-8000-${String(chunkId + 1).padStart(12, "0")}`,
+    sha256: createHash("sha256")
+      .update(new Uint8Array(makeBytes(size)))
+      .digest("hex"),
+  };
+}
+
 // ── fixtures ──────────────────────────────────────────────────────────────────
 
 function manifest(chunkSize = 10): VideoManifestV2Response {
   return {
+    metadata_generation_id: METADATA_GENERATION,
     task_id: "t1",
     dataset_item_id: "ds-1",
     video_url: "http://x/v.mp4",
@@ -129,14 +143,15 @@ function manifest(chunkSize = 10): VideoManifestV2Response {
     expires_in: 3600,
   };
 }
-function readyChunk(url = "http://storage/chunk.mp4", chunkId = 0): VideoChunkOut {
+function readyChunk(url = "http://storage/chunk.mp4", chunkId = 0, size = 64): VideoChunkOut {
   return {
+    ...identity(chunkId, size),
     chunk_id: chunkId,
     start_frame: chunkId * 10,
     end_frame: chunkId * 10 + 9,
     status: "ready",
     url,
-    byte_size: 100,
+    byte_size: size,
     generation_mode: null,
     diagnostics: null,
     retry_after: null,
@@ -151,6 +166,7 @@ function failedChunk(): VideoChunkOut {
 }
 function samples(frame = 5, ptsMs = 166, chunkId = 0): VideoChunkSamplesResponse {
   return {
+    ...identity(chunkId),
     dataset_item_id: "ds-1",
     chunk_id: chunkId,
     codec_string: "avc1.4d001e",
@@ -181,6 +197,7 @@ function multiSamples(frameCount = 10): VideoChunkSamplesResponse {
     offset_in_chunk: f * 10,
   }));
   return {
+    ...identity(0, 116),
     dataset_item_id: "ds-1",
     chunk_id: 0,
     codec_string: "avc1.4d001e",
@@ -230,6 +247,13 @@ describe("useVideoPreciseFrame", () => {
     vi.spyOn(global, "fetch").mockReset();
     localStorage.setItem(WEBCODECS_FLAG_STORAGE_KEY, "1");
     installWebCodecs();
+    vi.stubGlobal("crypto", webcrypto);
+    localStorage.setItem("token", "video-test-token");
+    useAuthStore.setState({
+      token: "video-test-token",
+      sessionId: "video-test-session",
+      user: { id: "user-1" } as NonNullable<ReturnType<typeof useAuthStore.getState>["user"]>,
+    });
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -747,7 +771,7 @@ describe("useVideoPreciseFrame", () => {
 
   it("standard 档前进方向预取同 GOP 后续 2 帧,后续命中计入 prefetchHits", async () => {
     getManifestV2.mockResolvedValue(manifest(10));
-    getChunk.mockResolvedValue(readyChunk());
+    getChunk.mockResolvedValue(readyChunk(undefined, 0, 116));
     getSamples.mockResolvedValue(multiSamples(10));
     vi.spyOn(global, "fetch").mockResolvedValue({
       ok: true,
@@ -793,7 +817,7 @@ describe("useVideoPreciseFrame", () => {
 
   it("原生 seek 未稳定时立即展示已缓存精确帧，不启动新的 decode", async () => {
     getManifestV2.mockResolvedValue(manifest(10));
-    getChunk.mockResolvedValue(readyChunk());
+    getChunk.mockResolvedValue(readyChunk(undefined, 0, 116));
     getSamples.mockResolvedValue(multiSamples(10));
     vi.spyOn(global, "fetch").mockResolvedValue({
       ok: true,
@@ -836,7 +860,7 @@ describe("useVideoPreciseFrame", () => {
 
   it("light 档(prefetchFrames=0)与播放态(enabled=false)均不预取", async () => {
     getManifestV2.mockResolvedValue(manifest(10));
-    getChunk.mockResolvedValue(readyChunk());
+    getChunk.mockResolvedValue(readyChunk(undefined, 0, 116));
     getSamples.mockResolvedValue(multiSamples(10));
     vi.spyOn(global, "fetch").mockResolvedValue({
       ok: true,
@@ -875,6 +899,187 @@ describe("useVideoPreciseFrame", () => {
       });
     });
     expect(result.current.performance.prefetchRequests).toBe(0);
+  });
+
+  it("rejects packet offsets from another output before downloading or decoding", async () => {
+    getManifestV2.mockResolvedValue(manifest());
+    getChunk.mockResolvedValue(readyChunk());
+    getSamples.mockResolvedValue({
+      ...samples(),
+      output_id: "20000000-0000-4000-8000-000000000099",
+    });
+    const { result } = renderPrecise({
+      taskId: "t1",
+      frameIndex: 5,
+      enabled: true,
+      bitmapBudgetBytes: 4_000_000,
+      chunkBudgetBytes: 8_000_000,
+      prefetchFrames: 0,
+    });
+    await waitFor(() => expect(result.current.fallbackReason).toBe("api_unavailable"));
+    expect(getSamples.mock.calls[0][3]).toBe(readyChunk().output_id);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(decoders).toHaveLength(0);
+  });
+
+  it("rejects mutated bytes of the same length without admitting them to caches", async () => {
+    getManifestV2.mockResolvedValue(manifest());
+    getChunk.mockResolvedValue(readyChunk());
+    getSamples.mockResolvedValue(samples());
+    const corrupt = makeBytes();
+    new Uint8Array(corrupt)[63] ^= 1;
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => corrupt,
+    } as Response);
+    const { result } = renderPrecise({
+      taskId: "t1",
+      frameIndex: 5,
+      enabled: true,
+      bitmapBudgetBytes: 4_000_000,
+      chunkBudgetBytes: 8_000_000,
+      prefetchFrames: 0,
+    });
+    await waitFor(() => expect(result.current.fallbackReason).toBe("chunk_fetch_failed"));
+    expect(decoders).toHaveLength(0);
+    expect(result.current.performance.chunkBytes).toBe(0);
+    expect(result.current.bitmap).toBeNull();
+  });
+
+  it("binds new offsets and bytes when a 403 lease refresh publishes a new output", async () => {
+    const renewedBytes = makeBytes();
+    new Uint8Array(renewedBytes)[63] ^= 1;
+    const renewedIdentity = {
+      ...identity(),
+      output_id: "20000000-0000-4000-8000-000000000002",
+      sha256: createHash("sha256").update(new Uint8Array(renewedBytes)).digest("hex"),
+    };
+    getManifestV2.mockResolvedValue(manifest());
+    getChunk
+      .mockResolvedValueOnce(readyChunk("http://storage/expired.mp4"))
+      .mockResolvedValue({ ...readyChunk("http://storage/renewed.mp4"), ...renewedIdentity });
+    getSamples
+      .mockResolvedValueOnce(samples())
+      .mockResolvedValue({ ...samples(5, 200), ...renewedIdentity });
+    vi.mocked(global.fetch).mockImplementation(async (url) =>
+      String(url).includes("expired")
+        ? ({ ok: false, status: 403 } as Response)
+        : ({ ok: true, status: 200, arrayBuffer: async () => renewedBytes } as Response),
+    );
+    const { result } = renderPrecise({
+      taskId: "t1",
+      frameIndex: 5,
+      enabled: true,
+      bitmapBudgetBytes: 4_000_000,
+      chunkBudgetBytes: 8_000_000,
+      prefetchFrames: 0,
+    });
+    await waitFor(() => expect(result.current.sourceState).toBe("ready"));
+    expect(getSamples.mock.calls.map((call) => call[3])).toEqual([
+      identity().output_id,
+      renewedIdentity.output_id,
+    ]);
+    expect(
+      decoders.flatMap((decoder) => decoder.decode.mock.calls).map(([chunk]) => chunk.timestamp),
+    ).toEqual([200_000]);
+    expect(result.current.performance.bytesFetched).toBe(64);
+    for (const query of queryClient.getQueryCache().getAll()) {
+      expect(JSON.stringify(query.queryKey)).not.toContain("http://storage");
+      expect(JSON.stringify(query.queryKey)).not.toContain("video-test-token");
+    }
+  });
+
+  it("does not publish or cache late bytes from retired credentials", async () => {
+    let resolveOld: ((buffer: ArrayBuffer) => void) | undefined;
+    getManifestV2.mockResolvedValue(manifest());
+    getChunk.mockResolvedValue(readyChunk());
+    getSamples.mockResolvedValue(samples());
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        arrayBuffer: () =>
+          new Promise<ArrayBuffer>((resolve) => {
+            resolveOld = resolve;
+          }),
+      } as Response)
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => makeBytes(),
+      } as Response);
+    const { result } = renderPrecise({
+      taskId: "t1",
+      frameIndex: 5,
+      enabled: true,
+      bitmapBudgetBytes: 4_000_000,
+      chunkBudgetBytes: 8_000_000,
+      prefetchFrames: 0,
+    });
+    await waitFor(() => expect(resolveOld).toBeDefined());
+    const oldSignal = vi.mocked(global.fetch).mock.calls[0][1]?.signal;
+    act(() => useAuthStore.getState().setToken("renewed-video-token"));
+    await waitFor(() => expect(result.current.sourceState).toBe("ready"));
+    expect(oldSignal?.aborted).toBe(true);
+    expect(getManifestV2).toHaveBeenCalledTimes(2);
+    expect(getSamples).toHaveBeenCalledTimes(2);
+    const beforeDecode = decoders.reduce((n, decoder) => n + decoder.decode.mock.calls.length, 0);
+    await act(async () => {
+      resolveOld?.(makeBytes());
+      await Promise.resolve();
+    });
+    expect(decoders.reduce((n, decoder) => n + decoder.decode.mock.calls.length, 0)).toBe(
+      beforeDecode,
+    );
+    expect(result.current.performance.bytesFetched).toBe(64);
+  });
+
+  it("retires decoder bitmaps and caches when metadata regenerates for the same task", async () => {
+    let generation = METADATA_GENERATION;
+    let output = identity().output_id;
+    getManifestV2.mockImplementation(async () => ({
+      ...manifest(),
+      metadata_generation_id: generation,
+    }));
+    getChunk.mockImplementation(async () => ({
+      ...readyChunk(),
+      metadata_generation_id: generation,
+      output_id: output,
+    }));
+    getSamples.mockImplementation(async () => ({
+      ...samples(),
+      metadata_generation_id: generation,
+      output_id: output,
+    }));
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => makeBytes(),
+    } as Response);
+    const { result } = renderPrecise({
+      taskId: "t1",
+      frameIndex: 5,
+      enabled: true,
+      bitmapBudgetBytes: 4_000_000,
+      chunkBudgetBytes: 8_000_000,
+      prefetchFrames: 0,
+    });
+    await waitFor(() => expect(result.current.sourceState).toBe("ready"));
+    const oldBitmap = result.current.bitmap?.bitmap;
+    generation = "10000000-0000-4000-8000-000000000002";
+    output = "20000000-0000-4000-8000-000000000002";
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["video-manifest-v2"] });
+    });
+    await waitFor(() => {
+      expect(result.current.sourceState).toBe("ready");
+      expect(result.current.bitmap?.bitmap).not.toBe(oldBitmap);
+    });
+    expect(getSamples.mock.calls.map((call) => call[3])).toEqual([identity().output_id, output]);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(decoders).toHaveLength(2);
+    expect(result.current.performance.chunkBytes).toBe(64);
   });
 
   // latest-request-wins decode 竞态(decode 进行中切帧/task):由 decode effect 的 `cancelled`

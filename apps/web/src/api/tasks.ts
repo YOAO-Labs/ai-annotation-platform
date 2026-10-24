@@ -297,6 +297,7 @@ export interface SceneTrackOperationItem {
 }
 
 export interface VideoFrameTimetableParams {
+  expected_metadata_generation_id?: string;
   from?: number;
   to?: number;
 }
@@ -354,7 +355,7 @@ export const tasksApi = {
     apiClient.post<ImagePyramidRetryResponse>(`/tasks/${id}/image-pyramid/retry`, {}),
 
   getVideoManifest: (id: string, init?: RequestInit) =>
-    apiClient.get<TaskVideoManifestResponse>(`/tasks/${id}/video/manifest`, init),
+    apiClient.silentGet<TaskVideoManifestResponse>(`/tasks/${id}/video/manifest`, init),
 
   // manifest v2:精确帧 pipeline(WebCodecs)激活时增量查询 chunk_size_frames / dataset_item_id。
   // 实验链路失败会静默回退,不弹全局 toast;signal 让切 task / 卸载能取消旧请求。
@@ -503,6 +504,8 @@ export const tasksApi = {
     const q = new URLSearchParams();
     if (params?.from !== undefined) q.set("from", String(params.from));
     if (params?.to !== undefined) q.set("to", String(params.to));
+    if (params?.expected_metadata_generation_id)
+      q.set("expected_metadata_generation_id", params.expected_metadata_generation_id);
     const suffix = q.toString() ? `?${q}` : "";
     return apiClient.get<TaskVideoFrameTimetableResponse>(
       `/tasks/${id}/video/frame-timetable${suffix}`,

@@ -885,7 +885,11 @@ export function useWorkbenchShellModel({
       null,
     [activeVideoSegmentId, videoSegmentsQuery.data?.segments],
   );
-  const videoFrameTimetable = useVideoFrameTimetable(taskId, isVideoTask && !!videoManifest.data);
+  const videoFrameTimetable = useVideoFrameTimetable(
+    taskId,
+    isVideoTask && !!videoManifest.data,
+    videoManifest.data?.metadata_generation_id,
+  );
   const videoDatasetItemId = videoManifest.data?.dataset_item_id ?? null;
   const videoChaptersQuery = useVideoChapters(isVideoTask ? videoDatasetItemId : null);
   const videoChaptersData = useMemo(() => videoChaptersQuery.data ?? [], [videoChaptersQuery.data]);

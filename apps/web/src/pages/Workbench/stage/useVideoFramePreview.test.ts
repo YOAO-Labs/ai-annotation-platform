@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/api/client";
+import { useAuthStore } from "@/stores/authStore";
 import { tasksApi } from "@/api/tasks";
 import { useVideoFramePreview } from "./useVideoFramePreview";
 
@@ -12,10 +13,22 @@ vi.mock("@/api/tasks", () => ({
 }));
 
 const api = vi.mocked(tasksApi);
+const METADATA_GENERATION = "10000000-0000-4000-8000-000000000001";
+const FRAME_IDENTITY = {
+  metadata_generation_id: METADATA_GENERATION,
+  output_id: "20000000-0000-4000-8000-000000000001",
+  sha256: "a".repeat(64),
+};
 
 describe("useVideoFramePreview", () => {
   beforeEach(() => {
     vi.useRealTimers();
+    localStorage.setItem("token", "video-test-token");
+    useAuthStore.setState({
+      token: "video-test-token",
+      sessionId: "video-test-session",
+      user: { id: "user-1" } as NonNullable<ReturnType<typeof useAuthStore.getState>["user"]>,
+    });
     api.getVideoFrame.mockReset();
     api.prefetchVideoFrames.mockReset();
     // Scrub prefetch fires alongside every preview cache miss; default to a
@@ -38,12 +51,19 @@ describe("useVideoFramePreview", () => {
       width: 320,
       format: "webp",
       status: "ready",
+      ...FRAME_IDENTITY,
       url: "/frame-5.webp",
       retry_after: null,
       error: null,
     });
 
-    const { result } = renderHook(() => useVideoFramePreview({ taskId: "task-1", maxFrame: 9 }));
+    const { result } = renderHook(() =>
+      useVideoFramePreview({
+        metadataGenerationId: METADATA_GENERATION,
+        taskId: "task-1",
+        maxFrame: 9,
+      }),
+    );
 
     act(() => result.current.previewFor(5));
 
@@ -81,12 +101,19 @@ describe("useVideoFramePreview", () => {
         width: 320,
         format: "webp",
         status: "ready",
+        ...FRAME_IDENTITY,
         url: "/frame-2.webp",
         retry_after: null,
         error: null,
       });
 
-    const { result } = renderHook(() => useVideoFramePreview({ taskId: "task-1", maxFrame: 9 }));
+    const { result } = renderHook(() =>
+      useVideoFramePreview({
+        metadataGenerationId: METADATA_GENERATION,
+        taskId: "task-1",
+        maxFrame: 9,
+      }),
+    );
 
     act(() => result.current.previewFor(2));
     // previewFor coalesces network calls into the next animation frame.
@@ -117,6 +144,7 @@ describe("useVideoFramePreview", () => {
       width: 320,
       format: "webp" as const,
       status: "ready" as const,
+      ...FRAME_IDENTITY,
       url: "/frame-6.webp",
       retry_after: null,
       error: null,
@@ -128,7 +156,13 @@ describe("useVideoFramePreview", () => {
       }),
     );
 
-    const { result } = renderHook(() => useVideoFramePreview({ taskId: "task-1", maxFrame: 9 }));
+    const { result } = renderHook(() =>
+      useVideoFramePreview({
+        metadataGenerationId: METADATA_GENERATION,
+        taskId: "task-1",
+        maxFrame: 9,
+      }),
+    );
 
     act(() => result.current.previewFor(6));
     act(() => result.current.previewFor(6));
@@ -160,6 +194,7 @@ describe("useVideoFramePreview", () => {
               width: 320,
               format: "webp",
               status: "ready",
+              ...FRAME_IDENTITY,
               url: `/frame-${frameIndex}-latest.webp`,
               retry_after: null,
               error: null,
@@ -168,7 +203,13 @@ describe("useVideoFramePreview", () => {
         }),
     );
 
-    const { result } = renderHook(() => useVideoFramePreview({ taskId: "task-1", maxFrame: 9 }));
+    const { result } = renderHook(() =>
+      useVideoFramePreview({
+        metadataGenerationId: METADATA_GENERATION,
+        taskId: "task-1",
+        maxFrame: 9,
+      }),
+    );
 
     act(() => result.current.previewFor(1));
     await waitFor(() => expect(calls).toHaveLength(1));
@@ -193,6 +234,7 @@ describe("useVideoFramePreview", () => {
           width: 320,
           format: "webp",
           status: "ready",
+          ...FRAME_IDENTITY,
           url: "/frame-2-cached.webp",
           retry_after: null,
           error: null,
@@ -209,6 +251,7 @@ describe("useVideoFramePreview", () => {
           width: 320,
           format: "webp",
           status: "ready",
+          ...FRAME_IDENTITY,
           url: "/frame-1-latest.webp",
           retry_after: null,
           error: null,
@@ -221,7 +264,13 @@ describe("useVideoFramePreview", () => {
       });
     });
 
-    const { result } = renderHook(() => useVideoFramePreview({ taskId: "task-1", maxFrame: 9 }));
+    const { result } = renderHook(() =>
+      useVideoFramePreview({
+        metadataGenerationId: METADATA_GENERATION,
+        taskId: "task-1",
+        maxFrame: 9,
+      }),
+    );
     act(() => result.current.prefetch([2]));
     await waitFor(() => expect(result.current.diagnostics.cacheSize).toBe(1));
 
@@ -243,7 +292,13 @@ describe("useVideoFramePreview", () => {
       frames: [],
     });
 
-    const { result } = renderHook(() => useVideoFramePreview({ taskId: "task-1", maxFrame: 9 }));
+    const { result } = renderHook(() =>
+      useVideoFramePreview({
+        metadataGenerationId: METADATA_GENERATION,
+        taskId: "task-1",
+        maxFrame: 9,
+      }),
+    );
 
     act(() => result.current.prefetch([1, 1, 20, -2]));
 
@@ -291,7 +346,8 @@ describe("useVideoFramePreview", () => {
     );
 
     const { result, rerender } = renderHook(
-      ({ taskId }) => useVideoFramePreview({ taskId, maxFrame: 9 }),
+      ({ taskId }) =>
+        useVideoFramePreview({ metadataGenerationId: METADATA_GENERATION, taskId, maxFrame: 9 }),
       { initialProps: { taskId: "task-1" } },
     );
     act(() => result.current.previewFor(4));
@@ -307,7 +363,13 @@ describe("useVideoFramePreview", () => {
   it("disables frame preview for unsupported task frame-service routes", async () => {
     api.getVideoFrame.mockRejectedValue(new ApiError(404, "not found"));
 
-    const { result } = renderHook(() => useVideoFramePreview({ taskId: "task-1", maxFrame: 9 }));
+    const { result } = renderHook(() =>
+      useVideoFramePreview({
+        metadataGenerationId: METADATA_GENERATION,
+        taskId: "task-1",
+        maxFrame: 9,
+      }),
+    );
 
     act(() => result.current.previewFor(3));
 
@@ -317,5 +379,157 @@ describe("useVideoFramePreview", () => {
 
     expect(api.getVideoFrame).toHaveBeenCalledTimes(1);
     expect(result.current.preview).toBeNull();
+  });
+  it("refreshes a ready signed URL after its bounded cache lifetime", async () => {
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const ready = {
+      frame_index: 5,
+      width: 320,
+      format: "webp" as const,
+      status: "ready" as const,
+      ...FRAME_IDENTITY,
+      url: "/old.webp",
+      retry_after: null,
+      error: null,
+    };
+    api.getVideoFrame.mockResolvedValueOnce(ready).mockResolvedValueOnce({
+      ...ready,
+      output_id: "20000000-0000-4000-8000-000000000002",
+      url: "/new.webp",
+    });
+    const { result } = renderHook(() =>
+      useVideoFramePreview({
+        metadataGenerationId: METADATA_GENERATION,
+        taskId: "task-1",
+        maxFrame: 9,
+      }),
+    );
+    act(() => result.current.previewFor(5));
+    await waitFor(() => expect(result.current.preview?.url).toBe("/old.webp"));
+    now += 30_001;
+    act(() => result.current.previewFor(5));
+    await waitFor(() => expect(result.current.preview?.url).toBe("/new.webp"));
+    expect(api.getVideoFrame).toHaveBeenCalledTimes(2);
+    clock.mockRestore();
+  });
+
+  it("rejects an old generation response after the same task regenerates", async () => {
+    const ready = {
+      frame_index: 5,
+      width: 320,
+      format: "webp" as const,
+      status: "ready" as const,
+      ...FRAME_IDENTITY,
+      url: "/old.webp",
+      retry_after: null,
+      error: null,
+    };
+    let resolveOld: ((value: typeof ready) => void) | undefined;
+    const nextGeneration = "10000000-0000-4000-8000-000000000002";
+    api.getVideoFrame
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...ready,
+        metadata_generation_id: nextGeneration,
+        output_id: "20000000-0000-4000-8000-000000000002",
+        url: "/new.webp",
+      });
+    const { result, rerender } = renderHook(
+      ({ generation }) =>
+        useVideoFramePreview({ metadataGenerationId: generation, taskId: "task-1", maxFrame: 9 }),
+      { initialProps: { generation: METADATA_GENERATION } },
+    );
+    act(() => result.current.previewFor(5));
+    await waitFor(() => expect(api.getVideoFrame).toHaveBeenCalledTimes(1));
+    const oldSignal = api.getVideoFrame.mock.calls[0][3]?.signal;
+    rerender({ generation: nextGeneration });
+    expect(oldSignal?.aborted).toBe(true);
+    expect(result.current.preview).toBeNull();
+    act(() => result.current.previewFor(5));
+    await waitFor(() => expect(result.current.preview?.url).toBe("/new.webp"));
+    await act(async () => {
+      resolveOld?.(ready);
+      await Promise.resolve();
+    });
+    expect(result.current.preview?.url).toBe("/new.webp");
+  });
+
+  it("rejects late preview responses after credentials rotate", async () => {
+    const ready = {
+      frame_index: 5,
+      width: 320,
+      format: "webp" as const,
+      status: "ready" as const,
+      ...FRAME_IDENTITY,
+      url: "/retired-session.webp",
+      retry_after: null,
+      error: null,
+    };
+    let resolveOld: ((value: typeof ready) => void) | undefined;
+    api.getVideoFrame.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+    );
+    const { result } = renderHook(() =>
+      useVideoFramePreview({
+        metadataGenerationId: METADATA_GENERATION,
+        taskId: "task-1",
+        maxFrame: 9,
+      }),
+    );
+    act(() => result.current.previewFor(5));
+    await waitFor(() => expect(api.getVideoFrame).toHaveBeenCalledTimes(1));
+    const oldSignal = api.getVideoFrame.mock.calls[0][3]?.signal;
+    act(() => useAuthStore.getState().setToken("renewed-video-token"));
+    expect(oldSignal?.aborted).toBe(true);
+    await act(async () => {
+      resolveOld?.(ready);
+      await Promise.resolve();
+    });
+    expect(result.current.preview).toBeNull();
+  });
+
+  it("keeps an unknown output recoverable instead of permanently unsupported", async () => {
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const ready = {
+      frame_index: 5,
+      width: 320,
+      format: "webp" as const,
+      status: "ready" as const,
+      ...FRAME_IDENTITY,
+      url: "/regenerated.webp",
+      retry_after: null,
+      error: null,
+    };
+    api.getVideoFrame
+      .mockResolvedValueOnce({
+        ...ready,
+        status: "failed",
+        url: null,
+        error: "video_output_unrecorded",
+        output_id: null,
+      })
+      .mockResolvedValueOnce(ready);
+    const { result } = renderHook(() =>
+      useVideoFramePreview({
+        metadataGenerationId: METADATA_GENERATION,
+        taskId: "task-1",
+        maxFrame: 9,
+      }),
+    );
+    act(() => result.current.previewFor(5));
+    await waitFor(() => expect(result.current.preview?.status).toBe("error"));
+    expect(result.current.diagnostics.unsupported).toBe(false);
+    now += 1_001;
+    act(() => result.current.previewFor(5));
+    await waitFor(() => expect(result.current.preview?.url).toBe("/regenerated.webp"));
+    clock.mockRestore();
   });
 });

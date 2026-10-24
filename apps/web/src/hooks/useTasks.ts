@@ -22,6 +22,13 @@ import {
   type OfflineOp,
 } from "../pages/Workbench/state/offlineQueue";
 import { isCurrentAuthOwner, useAuthStore } from "../stores/authStore";
+import {
+  assertVideoDerivativeOwner,
+  isVideoGeneration,
+  retryPreparingVideoMetadata,
+  useVideoDerivativeOwnerKey,
+  videoMetadataRetryDelay,
+} from "@/api/videoDerivatives";
 
 const TASK_PAGE_SIZE = 100;
 
@@ -99,19 +106,71 @@ export function useMaskCapabilities(taskId: string | null | undefined, enabled =
 }
 
 export function useVideoManifest(taskId: string | undefined, enabled = true) {
+  const ownerKey = useVideoDerivativeOwnerKey();
   return useQuery({
-    queryKey: ["task-video-manifest", taskId],
-    queryFn: ({ signal }) => tasksApi.getVideoManifest(taskId!, { signal }),
-    enabled: !!taskId && enabled,
+    queryKey: ["task-video-manifest", ownerKey, taskId],
+    queryFn: async ({ signal }) => {
+      assertVideoDerivativeOwner(ownerKey, signal);
+      const value = await tasksApi.getVideoManifest(taskId!, { signal });
+      assertVideoDerivativeOwner(ownerKey, signal);
+      return value;
+    },
+    enabled: !!taskId && !!ownerKey && enabled,
+    retry: retryPreparingVideoMetadata,
+    retryDelay: videoMetadataRetryDelay,
+    refetchInterval: (query) => (query.state.error ? false : 30_000),
+    gcTime: 0,
   });
 }
 
-export function useVideoFrameTimetable(taskId: string | undefined, enabled = true) {
+export function useVideoFrameTimetable(
+  taskId: string | undefined,
+  enabled = true,
+  metadataGenerationId?: string | null,
+) {
+  const ownerKey = useVideoDerivativeOwnerKey();
+  const queryClient = useQueryClient();
   return useQuery({
-    queryKey: ["task-video-frame-timetable", taskId],
-    queryFn: ({ signal }) => tasksApi.getVideoFrameTimetable(taskId!, undefined, { signal }),
-    enabled: !!taskId && enabled,
-    staleTime: Infinity,
+    queryKey: ["task-video-frame-timetable", ownerKey, taskId, metadataGenerationId],
+    queryFn: async ({ signal }) => {
+      assertVideoDerivativeOwner(ownerKey, signal);
+      try {
+        const value = await tasksApi.getVideoFrameTimetable(
+          taskId!,
+          { expected_metadata_generation_id: metadataGenerationId! },
+          { signal },
+        );
+        assertVideoDerivativeOwner(ownerKey, signal);
+        if (
+          !isVideoGeneration(value.metadata_generation_id) ||
+          value.metadata_generation_id !== metadataGenerationId
+        ) {
+          throw new ApiError(409, "视频时间表版本已变化，请重新获取", {
+            code: "video_metadata_changed",
+          });
+        }
+        return value;
+      } catch (error) {
+        assertVideoDerivativeOwner(ownerKey, signal);
+        if (
+          error instanceof ApiError &&
+          error.status === 409 &&
+          typeof error.detailRaw === "object" &&
+          error.detailRaw &&
+          "code" in error.detailRaw &&
+          error.detailRaw.code === "video_metadata_changed"
+        ) {
+          void queryClient.invalidateQueries({
+            queryKey: ["task-video-manifest", ownerKey, taskId],
+          });
+        }
+        throw error;
+      }
+    },
+    enabled: !!taskId && !!ownerKey && isVideoGeneration(metadataGenerationId) && enabled,
+    staleTime: 30_000,
+    gcTime: 0,
+    retry: false,
   });
 }
 
