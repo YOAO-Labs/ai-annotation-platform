@@ -284,8 +284,24 @@ def _receipt_contract(metadata, owner, kind):
         reject("contract_changed")
 
 
+async def _bind_guard(db, owner):
+    async with sources._reads(db, True):
+        row = await _owner(db, owner.id, True)
+        if row is None or any(row[key] != getattr(owner, key) for key in FACTS):
+            reject("contract_changed")
+        locations = await sources._locations(
+            db, [owner.location_id], True, bounded=True
+        )
+        endpoint, _ = sources._platform_location(
+            locations[0] if len(locations) == 1 else None, bounded=True
+        )
+        resolve(row, endpoint_url=endpoint)
+        await sources._gate(db, owner.location_id, True, bounded=True)
+
+
 async def bind_raw(db, item, owner):
     _matches(owner, item.dataset_id, "raw_lidar", raw_contract(item.metadata_))
+    await _bind_guard(db, owner)
     if item.file_type != "point_cloud" or item.nuscenes_raw_original_id not in (
         None,
         owner.id,
@@ -298,6 +314,7 @@ async def bind_raw(db, item, owner):
 
 async def bind_map(db, scene, owner):
     _matches(owner, scene.dataset_id, "map", map_contract(scene.source_metadata))
+    await _bind_guard(db, owner)
     if scene.nuscenes_map_original_id not in (None, owner.id):
         reject("contract_changed")
     _scene_contract(scene.source_metadata, owner.source_contract)
@@ -342,9 +359,10 @@ async def _owner(db, identifier, lock):
     return row
 
 
-def _scene_contract(metadata, expected_map):
+def _scene_contract(metadata, expected_map, *, for_export=False):
     source = (metadata or {}).get("nuscenes_export")
-    if not isinstance(source, dict) or metadata.get("frame") != "ego":
+    allowed_frames = {"ego"} if for_export else {"ego", "sensor"}
+    if not isinstance(source, dict) or metadata.get("frame") not in allowed_frames:
         reject("contract_changed")
     scene, log = source.get("scene"), source.get("log")
     if (
@@ -419,7 +437,7 @@ async def _resolve_task(db, task_id, kind, lock):
             reject("source_budget_exceeded", 422)
         raw = raw_contract(item.metadata)
         scene_source = _scene_contract(
-            scene.source_metadata, map_contract(scene.source_metadata)
+            scene.source_metadata, map_contract(scene.source_metadata), for_export=True
         )
         if raw["sample"].get("scene_token") != scene_source["scene"]["token"]:
             reject("contract_changed")
