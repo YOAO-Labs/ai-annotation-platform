@@ -68,6 +68,9 @@ def _prompt(item):
 
 async def freeze_item(db, task, actor, item, request):
     if not is_reference(task.file_path):
+        from app.services.managed_mask_repair import freeze_item as freeze_managed
+
+        await freeze_managed(db, task, actor, item, request)
         return
     if task.file_type != "image" or item["kind"] == "rerun_tracker":
         raise ContentError("reference_requires_image_task")
@@ -92,6 +95,11 @@ async def freeze_item(db, task, actor, item, request):
     }
     if item["kind"] != "rerun_local_sam":
         return
+    item["reference_model"] = await freeze_model(db, task, item)
+
+
+async def freeze_model(db, task, item):
+    """Freeze the declared model and effective defaults for either source kind."""
     service = MLBackendService(db)
     backend = await service.get(uuid.UUID(str(item["action"]["backend_id"])))
     if backend is None or not await service.is_enabled(task.project_id, backend.id):
@@ -112,7 +120,7 @@ async def freeze_item(db, task, actor, item, request):
     context.update(
         {key: stage[key] for key in ("model_variants", "params") if stage.get(key)}
     )
-    item["reference_model"] = {
+    return {
         "backend_id": str(backend.id),
         "pool_id": str(pool)
         if (pool := await service.pool_id_for_registry(backend.id))
@@ -160,7 +168,7 @@ def pending_reference_items(batch, *, rollback=False):
     return selected
 
 
-async def capture_job_authority(
+async def _capture_reference_authority(
     db, batch, actor, request, *, rollback=False, initial=False
 ):
     """Fresh request authority, without changing frozen content or model choices."""
@@ -201,7 +209,45 @@ async def capture_job_authority(
     }
 
 
+def unwrap_authority(value, source):
+    """An explicit mixed envelope never upgrades an old managed delegation."""
+    if not isinstance(value, dict):
+        return None
+    if type(value.get("schema")) is int and value["schema"] == 2:
+        if set(value) != {"schema", "reference", "managed"}:
+            raise ContentError("repair_authority_revoked", 403)
+        return value[source]
+    if (
+        source == "reference"
+        and type(value.get("schema")) is int
+        and value["schema"] == 1
+    ):
+        return value
+    return None
+
+
+async def capture_job_authority(
+    db, batch, actor, request, *, rollback=False, initial=False
+):
+    from app.services.managed_mask_repair import (
+        capture_job_authority as capture_managed,
+    )
+
+    reference = await _capture_reference_authority(
+        db, batch, actor, request, rollback=rollback, initial=initial
+    )
+    managed = await capture_managed(
+        db, batch, actor, request, rollback=rollback, initial=initial
+    )
+    if managed is None:
+        return reference
+    return {"schema": 2, "reference": reference, "managed": managed}
+
+
 class ReferenceRepairUnit:
+    is_managed = False
+    provenance_key = "reference_input"
+
     def __init__(self, db, factory, attempt, batch, items, node_id):
         bindings = [item.get("reference_input") for item in items]
         if not items or not bindings[0] or any(row != bindings[0] for row in bindings):
@@ -229,7 +275,9 @@ class ReferenceRepairUnit:
         db, attempt = self.db, self.attempt
         job = await db.get(AsyncJob, attempt.job_id, populate_existing=True)
         batch = await db.get(MaskRepairBatch, attempt.batch_id, populate_existing=True)
-        proof = (job.payload or {}).get("repair_authority") if job else None
+        proof = unwrap_authority(
+            (job.payload or {}).get("repair_authority") if job else None, "reference"
+        )
         if (
             job is None
             or batch is None

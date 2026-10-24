@@ -38,7 +38,6 @@ from app.schemas.mask_repair import (
 )
 from app.services import async_job as async_job_svc
 from app.services.content_snapshot import ContentError
-from app.services.dataset_content import content_http_error
 from app.services.mask_mutation import MaskMutationService, scope_fingerprint
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
 from app.services.mask_qc.service import effective_issue_status
@@ -56,6 +55,13 @@ from app.utils.raster_mask_rle import coco_rle_area
 PLAN_TTL = timedelta(minutes=15)
 ROLLBACK_TTL = timedelta(days=7)
 MAX_SHARD_MUTATIONS = 100
+
+
+def _content_http_error(exc):
+    from app.services.managed_mask_repair import repair_http_error
+
+    return repair_http_error(exc)
+
 
 _DETERMINISTIC_KINDS = {
     "delete_small_islands",
@@ -104,6 +110,8 @@ def result_digest(batch: MaskRepairBatch) -> str:
 
 
 def batch_out(batch: MaskRepairBatch) -> MaskRepairBatchOut:
+    from app.services.managed_mask_repair import public_plan
+
     return MaskRepairBatchOut(
         id=batch.id,
         project_id=batch.project_id,
@@ -111,7 +119,7 @@ def batch_out(batch: MaskRepairBatch) -> MaskRepairBatchOut:
         rollback_async_job_id=batch.rollback_async_job_id,
         status=batch.status,
         plan_digest=batch.plan_digest,
-        plan=batch.plan_json or {},
+        plan=public_plan(batch.plan_json),
         result=batch.result_json or {},
         result_digest=result_digest(batch),
         receipt_expires_at=batch.receipt_expires_at,
@@ -654,7 +662,7 @@ async def create_repair_plan(
                 task = await db.get(Task, uuid.UUID(private["task_id"]))
                 await freeze_item(db, task, actor, private, http_request)
         except ContentError as exc:
-            raise content_http_error(exc) from None
+            raise _content_http_error(exc) from None
         except (KeyError, TypeError, ValueError) as exc:
             public = _skip_item(
                 action,
@@ -684,7 +692,9 @@ async def create_repair_plan(
         shard_count=len(shards),
     )
     plan = {
-        "schema_version": 1,
+        "schema_version": 2
+        if any("original_input" in item for item in executable_items)
+        else 1,
         "items": executable_items,
         "public_items": public_items,
         "shards": shards,
@@ -781,7 +791,7 @@ async def execute_repair_plan(
             db, batch, actor, http_request, initial=True
         )
     except ContentError as exc:
-        raise content_http_error(exc) from None
+        raise _content_http_error(exc) from None
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.MASK_REPAIR.value,
@@ -848,7 +858,7 @@ async def request_repair_rollback(
             db, batch, actor, http_request, rollback=True
         )
     except ContentError as exc:
-        raise content_http_error(exc) from None
+        raise _content_http_error(exc) from None
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.MASK_REPAIR_ROLLBACK.value,
@@ -899,7 +909,7 @@ async def resume_repair_batch(
     try:
         authority = await capture_job_authority(db, batch, actor, http_request)
     except ContentError as exc:
-        raise content_http_error(exc) from None
+        raise _content_http_error(exc) from None
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.MASK_REPAIR.value,
