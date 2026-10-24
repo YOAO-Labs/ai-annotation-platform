@@ -163,7 +163,9 @@ async def reference_task_guard(
                         raise HTTPException(
                             409, detail={"code": "prediction_acceptance_busy"}
                         ) from None
-                    raise content_http_error(exc) from None
+                    from app.services.managed_mask_repair import repair_http_error
+
+                    raise repair_http_error(exc) from None
         return
     if request.method == "POST" and re.fullmatch(
         r"/api/v1/tasks/[^/]+/predictions/[^/]+/accept", request.url.path

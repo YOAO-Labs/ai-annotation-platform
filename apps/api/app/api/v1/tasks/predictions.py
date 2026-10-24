@@ -238,9 +238,9 @@ async def get_prediction_raster_mask_content(
             db, task, geometry, repair_read_receipt=repair_read_receipt
         )
     except ContentError as exc:
-        from app.services.dataset_content import content_http_error
+        from app.services.managed_mask_repair import repair_http_error
 
-        raise content_http_error(exc) from None
+        raise repair_http_error(exc) from None
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
@@ -385,9 +385,9 @@ async def accept_prediction(
             ),
         )
     except ContentError as exc:
-        from app.services.dataset_content import content_http_error
+        from app.services.managed_mask_repair import repair_http_error
 
-        raise content_http_error(exc) from None
+        raise repair_http_error(exc) from None
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     # v0.20.22 · 契约: None → 404 (prediction 不存在 / shape_index 越界); 成功 →
@@ -410,12 +410,12 @@ async def accept_prediction(
     repair_receipt = getattr(request.state, "repair_original_acceptance", None)
     if repair_receipt is not None:
         from app.services.managed_mask_repair import recheck_credentials
-        from app.services.dataset_content import content_http_error
+        from app.services.managed_mask_repair import repair_http_error
 
         try:
             await recheck_credentials(db, repair_receipt)
         except ContentError as exc:
-            raise content_http_error(exc) from None
+            raise repair_http_error(exc) from None
     await db.commit()
     return anns
 

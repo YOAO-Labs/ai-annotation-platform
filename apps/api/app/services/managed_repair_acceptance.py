@@ -214,6 +214,12 @@ async def qualify_acceptance(db, task, actor, request, prediction_id):
     """A new caller qualifies a stored candidate with its own write authority."""
     from app.services.managed_mask_repair import ManagedRepairSource
 
+    try:
+        selection = await request_selection(request)
+    except (ValueError, TypeError):
+        # The route schema retains its ordinary 422 responses; malformed input
+        # never starts a source read or receives any private receipt.
+        return None
     task_id = task.id
     prediction, metadata = await _candidate(db, task_id, prediction_id)
     expected, identity, context = await _qualified_candidate(
@@ -244,7 +250,6 @@ async def qualify_acceptance(db, task, actor, request, prediction_id):
             raise ContentError("repair_candidate_provenance_invalid")
         if owner.identity() != identity:
             raise ContentError("content_binding_changed")
-        selection = await request_selection(request)
         return owner.receipt(
             "candidate_accept",
             _candidate_payload(prediction, metadata, selection),
@@ -261,10 +266,16 @@ async def request_selection(request):
     try:
         index = None if value is None else int(value)
     except (ValueError, TypeError):
-        raise ContentError("repair_candidate_provenance_invalid") from None
+        raise ValueError("invalid shape index") from None
+    if index is not None and index < 0:
+        raise ValueError("invalid shape index")
     raw = await request.body()
     body = await request.json() if raw else None
+    if body is not None and not isinstance(body, dict):
+        raise ValueError("invalid acceptance body")
     attributes = body.get("attribute_overrides") if isinstance(body, dict) else None
+    if attributes is not None and not isinstance(attributes, dict):
+        raise ValueError("invalid attribute overrides")
     return selection_value(
         index,
         query.get("override_class_name"),

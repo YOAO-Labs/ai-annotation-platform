@@ -179,9 +179,9 @@ async def _load_visible_mask_annotation(
             db, task, geometry, repair_read_receipt=repair_read_receipt
         )
     except ContentError as exc:
-        from app.services.dataset_content import content_http_error
+        from app.services.managed_mask_repair import repair_http_error
 
-        raise content_http_error(exc) from None
+        raise repair_http_error(exc) from None
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
