@@ -12,6 +12,7 @@ from app.db.models.dataset_quality_review import (
 from app.db.models.dataset_quality import DatasetQualityRun, DatasetQualityResult
 from app.db.models.dataset_saved_view import DatasetSavedView
 from app.db.models.user import User
+from app.db.models.avatar_upload import AvatarUpload
 from app.db.models.training_preview import TrainingPreview, TrainingPreviewResourceLease
 from app.db.models.training_study import TrainingStudy, TrainingTrial
 from app.db.models.group import Group
@@ -305,3 +306,5 @@ __all__ += ["ManagedOriginalRetentionHold"]
 __all__ += ["ManagedOriginalVerification"]
 
 __all__ += ["ManagedOriginalCreation"]
+
+__all__ += ["AvatarUpload"]
