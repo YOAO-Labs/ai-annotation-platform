@@ -153,6 +153,14 @@ last_reviewed: 2026-10-19
 | `video_tracker_job.decision`（与标注变更同事务）    | 目标标识、帧窗口、决定、候选数量、前后 revision、显式覆盖人工帧时的 before / after geometry digest                   | staged geometry、Mask RLE、原始媒体                |
 | `video_correction_job.create` / `cancel`            | 源 annotation / track、纠错帧、窗口、方向、源版本、corrected digest、backend / pool / model、lease、seed mode / 原因 | RLE counts、scribble 坐标、logits、receipt、原文本 |
 
+### 审计归档的独立存储归属
+
+`audit_archive_outputs` 永久保留每个归档候选的独立所有权，记录作业 ID、规范月份、源分区及父表的历史 OID、源行数与字节回执、压缩对象回执和固定 `storage_ref`。作业删除或源分区删除不会级联删除这些事实；同一月份最多只有一个 `ready` 记录。`pending` 候选可能对应尚未完成核验的远端对象，不能据此重放、覆盖或清理对象。
+
+对象键使用 `{year}/{month}/{archive_id}.jsonl.gz`，月份补足两位。只有分配新候选时读取当前 `audit-archive` 绑定；既有归档始终使用自身保存的桶与端点身份。恢复映射仅允许表所有者在专用事务标记下修改桶和存储身份，历史 OID、月份、对象键和内容回执保持不变。
+
+读取先执行 HEAD 和条件 GET，核验完整压缩字节的 SHA-256 与大小，再流式核验全部 gzip/JSONL 内容、源行顺序、UTC 月份、源行数、源字节摘要及唯一末尾元数据。分页只限制返回内存中的条目，不缩减核验范围；元数据仍作为最后一项返回。创建对象使用条件 PUT，完整读回核验成功后才允许发布，失败保留候选和对象，不执行补偿删除。
+
 ## Notification：提醒谁该处理什么
 
 ### 核心模型

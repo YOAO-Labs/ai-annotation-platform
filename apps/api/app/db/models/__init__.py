@@ -1,3 +1,4 @@
+from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.db.models.storage_usage import StorageUsageInventory, StorageUsageSnapshot
@@ -314,3 +315,6 @@ __all__ += ["AvatarUpload"]
 __all__ += ["ExportOutput"]
 
 __all__ += ["BugAttachmentUpload"]
+
+
+__all__ += ["AuditArchiveOutput"]
