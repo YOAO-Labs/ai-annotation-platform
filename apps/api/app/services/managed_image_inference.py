@@ -331,7 +331,7 @@ class ManagedImageOperation:
             self.snapshot = self.source.snapshot
             self._freeze_identity()
             await originals.settled(self._fresh())
-            await self.db.rollback()
+            await originals.settled(self.db.rollback())
             await originals.settled(self.source.close())
             self.source = None
             self._acceptance_closed = True
