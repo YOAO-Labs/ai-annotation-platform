@@ -666,7 +666,7 @@ async def test_expired_current_credential_refuses_before_reauthorization(monkeyp
     )
     expires = datetime.fromisoformat(current.credentials["jwt"]["expires_at"])
 
-    class Clock:
+    class Clock(datetime):
         @classmethod
         def now(cls, tz):
             return expires + timedelta(seconds=1)

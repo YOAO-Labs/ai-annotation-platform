@@ -116,7 +116,7 @@ def task_for(value):
         id=value.relation.task_id,
         project_id=value.relation.project_id,
         batch_id=None,
-        dataset_item_id=value.item_id,
+        dataset_item_id=value.relation.direct_item_id,
         file_name="clip.mp4",
         file_path=value.object_key,
         file_type="video",
