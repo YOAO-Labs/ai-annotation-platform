@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12 与 B13 各切片至 B3-J completed locally。完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A、B1–B12 与 B13 各切片至 B3-K completed locally；B3-L 托管图片 Mask 修复完整资格链已定稿。完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -1487,6 +1487,20 @@ README、CHANGELOG Unreleased、SAM 用户指南、ML／任务 API 和预测架�
 实际选池后的 before_dispatch 再核权并提交短事务，随后才能模型 I/O。最终沿账户→项目／成员／原 Key→Task 编辑 advisory→Batch／fresh Task→canonical 来源／Gate→父 Annotation 写锁→输入元信息顺序复核。父标注任一冻结事实变化均拒绝并提示重试，不能静默以旧属性覆盖人工编辑。最终当前 Task／Annotation 用于全部属性或子框写入、actor 证据、Audit，写入后再核原凭据时钟／JWT 注销缓存，沿同一顶层事务整体 commit；不在对象读取／模型调用／源关闭时持业务写锁。退出仍先 rollback 释放调用者事务，再真实关闭输入和来源；未知关闭保护不可由 TTL 或二次 no-op 解除。
 
 操作与窄迁移、服务／路由、回归夹具分别在当前本地 HEAD 的独立工作树实施，根树独占可销毁数据库及实际验收。覆盖三类来源、同键异桶陷阱、非方形真实 ROI 像素／固定版本、同标注并发输入、人工属性保护／AI 更新／未知类别回退／一层父子、无检出和错误映射，以及来源／Key／JWT／角色／批次／编辑锁／父标注在读取、真实派发与写入边界变化时零半套结果。验证取消真实收尾及 unknown-close 责任，执行旧 secondary／权限、共享原件／输入／引用与 Pipeline 回归及真实 HTTP／MinIO。同步用户／API／架构／CHANGELOG；迁移和运行刷新只作用于本工作树所属环境，保持 3100／8100、两 Worker／Beat 和原业务／字节指纹，精确清理后才记录 K Outcome。完整 E02／B13、用途切换与整套 Epic 仍未完成。
+
+## E02-B13-B3-K Outcome — 二次推理固定原件与独立裁剪
+
+2026-10-25 完成本地验收。原件／裁剪 owner 与迁移 0240 `0c9e53a68`、路由／服务 `3d04c3b40`、真实提交回归 `a353f97a7`、可见性与降级保护 `f1234712b`、正式文档与实际验收脚本 `563f7fcbf` 已合入。完整 E02／B13 与整套 Epic 继续活动，完整用途切换关闭，不分配发布版本。
+
+托管图片 secondary 完整核验已登记原件后按实际尺寸裁 ROI，每请求独立保存 source／父标注事实和固定非 null 版本的 crop，支持 TaskOriginal、直接 Item、primary-only，不上传无用途整图。实际选池后、模型调用前和最终写入前核当前凭据、任务、批次、来源／Gate 与父标注；属性／子框、贡献者与 Audit 同事务提交，写入后再次检查原凭据期限与 JWT 注销缓存。人工属性、AI model_ref、标签前缀、坐标回映、未知类别回退、32px 下限、空检出及后端错误语义保持；不增加 Prediction、AsyncJob、ML 协议或交互开关要求。
+
+保留 JUnit 并按用例名称合并最终结果，263 个不同 pytest 用例全部通过，无当前失败、错误或跳过。首轮 60 项的两项夹具问题已修正并精确补测：失去项目可见性沿原 resolver 返回 404，未资格化 owner 的纯单测补齐正常 Task 文件路径；没有放宽生产授权。最终共享七文件／目标组 203 项覆盖输入账本、J 同步与 native、路由、Pipeline、引用同步及 0240；新增真实 DB 降级回归证明 deleted 的 secondary tombstone 仍阻止降级，原库存／删除时间不变。恢复输入与映射的 16 项纯测试通过，未宣称新的全量恢复或生产恢复资格。
+
+真实 ASGI 鉴权／DB（无依赖覆盖）→受控 CPU HTTP 模型→MinIO 完成十四次 crop 下载。128×96 原件在登记前写入中央异色色块，64×48 ROI 的边角／中心像素、完整 SHA／长度、非 null VersionId／ETag、URL 和账本逐一匹配；每输入仅一个 crop。三来源均通过属性人工值保护／AI 更新及几何谱系／坐标回映，空检出、未知类别和关闭交互开关仍可执行；同父标注两个在途请求实际下载不同责任 UUID 的对象。仅 annotations:write Key 可执行，真实 GET 后撤 Key、人工改父属性和改绑原件分别拒绝且无部分子框。等待真实 next_cleanup_at 后十四个输入全部 deleted，准确版本 HEAD 404、前缀无对象／历史版本／删除标记，原件完整字节保留。受控响应不代表真实模型精度、GPU、独立 TCP API 或浏览器资格。
+
+人工所属 dev 已应用 0240，经原监督服务刷新两 Worker，均注册 73 项任务，绑定 Beat 恢复；HTTP 3100／8100 返回 200，十二表 155 行、24 对象完整字节和十二源文件指纹一致。刷新时测试启动器短暂预留原端口的问题已处理，后续测试显式使用 8200／3200，不再占用人工端口。test 收尾确认无活动 Job、其他 DB 客户端或 StorageOperation；数据库、专属 Redis 与九桶由 launcher 销毁并经 doctor 实际核对不存在。三棵干净、patch 等价的隔离树已移除，任务日志／JUnit、缓存与构建产物按归属清理；人工环境、共享依赖、本地虚拟环境与生成类型保留。
+
+README、CHANGELOG Unreleased、二次推理用户指南、任务 API 与预测架构已同步；OpenAPI 无漂移、API index、codegen、当前 docs build、Ruff／格式、正常 hooks 与 diff 检查通过。下一片按下述 L Design 实施完整图片 Mask 修复资格链；视频 Tracker、其他原件消费者、真实训练消费回执及生产／外部部署门禁继续独立推进。
 
 ## E02-B13-B3-L Design — 托管图片 Mask 修复的完整原件资格链
 
