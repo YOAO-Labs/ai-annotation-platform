@@ -214,7 +214,7 @@ BEGIN
                         'detail', format('parent annotation %s not found or inactive', v_parent_annotation_id)
                     )::text;
             END IF;
-            IF NOT v_parent.is_active THEN
+            IF v_parent.is_active IS NOT TRUE THEN
                 RAISE EXCEPTION USING ERRCODE = 'P0001',
                     MESSAGE = 'aap_annotation_write_error',
                     DETAIL = jsonb_build_object(
@@ -279,7 +279,7 @@ BEGIN
             RAISE EXCEPTION 'Invalid Annotation update fence' USING ERRCODE = '22023';
         END IF;
         v_expected_version := (p_request ->> 'expected_version')::integer;
-        SELECT annotation.* INTO v_annotation
+        SELECT annotation.class_name, annotation.geometry, annotation.id, annotation.is_active, annotation.is_locked, annotation.project_id, annotation.scene_track_id, annotation.sensor_role, annotation.task_id, annotation.temporal_role, annotation.track_id, annotation.version INTO v_annotation
         FROM public.annotations AS annotation
         WHERE annotation.id = v_annotation_id
         FOR UPDATE;
@@ -291,7 +291,7 @@ BEGIN
         IF v_annotation.task_id IS DISTINCT FROM v_task_id
            OR (v_annotation.project_id IS NOT NULL
                AND v_annotation.project_id IS DISTINCT FROM v_project_id)
-           OR NOT v_annotation.is_active THEN
+           OR v_annotation.is_active IS NOT TRUE THEN
             RAISE EXCEPTION USING ERRCODE = 'P0001',
                 MESSAGE = 'aap_annotation_write_error',
                 DETAIL = jsonb_build_object('status_code', 404, 'detail', 'Annotation not found')::text;
@@ -412,7 +412,7 @@ BEGIN
             version = annotation.version + 1,
             updated_at = transaction_timestamp()
         WHERE annotation.id = v_annotation.id
-        RETURNING annotation.* INTO v_annotation;
+        RETURNING annotation.class_name, annotation.geometry, annotation.id, annotation.is_active, annotation.is_locked, annotation.project_id, annotation.scene_track_id, annotation.sensor_role, annotation.task_id, annotation.temporal_role, annotation.track_id, annotation.version INTO v_annotation;
 
         IF v_annotation.scene_track_id IS NOT NULL
            AND NOT v_track_reclassified THEN
@@ -464,7 +464,7 @@ BEGIN
         v_expected_version := (p_request ->> 'expected_version')::integer;
         v_scene_id := (p_request ->> 'scene_id')::uuid;
         v_frame_index := (p_request ->> 'frame_index')::integer;
-        SELECT annotation.* INTO v_annotation
+        SELECT annotation.class_name, annotation.geometry, annotation.id, annotation.is_active, annotation.is_locked, annotation.project_id, annotation.scene_track_id, annotation.sensor_role, annotation.task_id, annotation.temporal_role, annotation.track_id, annotation.version INTO v_annotation
         FROM public.annotations AS annotation
         WHERE annotation.id = v_annotation_id
         FOR UPDATE;
@@ -476,7 +476,7 @@ BEGIN
         IF v_annotation.task_id IS DISTINCT FROM v_task_id
            OR (v_annotation.project_id IS NOT NULL
                AND v_annotation.project_id IS DISTINCT FROM v_project_id)
-           OR NOT v_annotation.is_active THEN
+           OR v_annotation.is_active IS NOT TRUE THEN
             RAISE EXCEPTION USING ERRCODE = 'P0001',
                 MESSAGE = 'aap_annotation_write_error',
                 DETAIL = jsonb_build_object('status_code', 409, 'detail', jsonb_build_object(
@@ -534,7 +534,7 @@ BEGIN
             temporal_role = p_request ->> 'temporal_role',
             updated_at = transaction_timestamp()
         WHERE annotation.id = v_annotation.id
-        RETURNING annotation.* INTO v_annotation;
+        RETURNING annotation.class_name, annotation.geometry, annotation.id, annotation.is_active, annotation.is_locked, annotation.project_id, annotation.scene_track_id, annotation.sensor_role, annotation.task_id, annotation.temporal_role, annotation.track_id, annotation.version INTO v_annotation;
         v_reply_data := jsonb_build_object(
             'mutation', jsonb_build_object(
                 'annotation_id', v_annotation.id,
@@ -551,7 +551,7 @@ BEGIN
             RAISE EXCEPTION 'Invalid Annotation delete fence' USING ERRCODE = '22023';
         END IF;
         v_expected_version := (p_request ->> 'expected_version')::integer;
-        SELECT annotation.* INTO v_annotation
+        SELECT annotation.class_name, annotation.geometry, annotation.id, annotation.is_active, annotation.is_locked, annotation.project_id, annotation.scene_track_id, annotation.sensor_role, annotation.task_id, annotation.temporal_role, annotation.track_id, annotation.version INTO v_annotation
         FROM public.annotations AS annotation
         WHERE annotation.id = v_annotation_id
         FOR UPDATE;
@@ -604,7 +604,7 @@ BEGIN
                 version = annotation.version + 1,
                 updated_at = transaction_timestamp()
             WHERE annotation.id = v_annotation.id
-            RETURNING annotation.* INTO v_annotation;
+            RETURNING annotation.class_name, annotation.geometry, annotation.id, annotation.is_active, annotation.is_locked, annotation.project_id, annotation.scene_track_id, annotation.sensor_role, annotation.task_id, annotation.temporal_role, annotation.track_id, annotation.version INTO v_annotation;
 
             IF v_annotation.scene_track_id IS NOT NULL THEN
                 v_scene_reply := aap_labeling_v1.scene_track_domain_command(

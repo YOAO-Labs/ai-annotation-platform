@@ -36,6 +36,14 @@ BEGIN
     END IF;
 
     v_task_id := (p_request ->> 'task_id')::uuid;
+    -- Hold the Task before counting so a concurrent submit cannot be overwritten.
+    SELECT task.batch_id, task.status, task.updated_at
+    INTO v_batch_id, v_status, v_updated_at
+    FROM public.tasks AS task
+    WHERE task.id = v_task_id
+    FOR UPDATE;
+    v_task_found := FOUND;
+
     SELECT count(*)::integer INTO v_total
     FROM public.annotations AS annotation
     WHERE annotation.task_id = v_task_id
@@ -44,11 +52,6 @@ BEGIN
       AND annotation.sensor_role IS NULL;
     v_is_labeled := v_total > 0;
 
-    SELECT task.batch_id, task.status, task.updated_at
-    INTO v_batch_id, v_status, v_updated_at
-    FROM public.tasks AS task
-    WHERE task.id = v_task_id;
-    v_task_found := FOUND;
     IF v_task_found THEN
         v_new_status := CASE
             WHEN v_total > 0 AND v_status = 'pending' THEN 'in_progress'

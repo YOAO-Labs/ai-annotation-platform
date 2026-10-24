@@ -84,6 +84,35 @@ ORM 缓存；owner 不提交／回滚，也不把未提交数据和锁转交给�
 序列、角色成员、CREATE、TEMP 和其他模块函数权限。公开用户仍只能经过原 API 授权。
 未迁移的批次与标注内容调用保留现有权限，不能据此宣称完整 Labeling 已独立。
 
+## 人工标注与关联写入
+
+人工标注创建、字段更新、软删除及创建回执使用
+`aap-labeling-annotation-writes/v1`，由
+`aap_labeling_v1.annotation_write_command(jsonb)` 承接。
+关联的轨迹身份／存在区间、类名与相机成员版本使用
+`aap-labeling-scene-track-domain/v1` 和 `scene_track_domain_command(jsonb)`；
+任务标注数量、已标注标记及 pending／in_progress 翻转使用
+`aap-labeling-annotation-statistics/v1` 和 `annotation_statistics_command(jsonb)`。
+三个函数位于同一 `aap_labeling_v1` schema，请求与响应 schema 随包分发。
+
+Annotation 业务拒绝使用 PostgreSQL `P0001`，消息为
+`aap_annotation_write_error`，`DETAIL` 为含 `status_code` 与 `detail` 的 JSON；
+调用方直接读取驱动异常字段，不解析格式化错误字符串。SceneTrack 拒绝保留原原因与消息，
+版本及目标变化继续按原公共 API 状态映射。
+
+它们继续使用调用方同一连接与事务，保留版本冲突、轨迹缺席／退役、相机及子标注级联
+规则。API 保留当前账号／Workspace 权限、来源／Mask 预检、审计、心跳及最终提交；
+Batch 自动流转也继续按原顺序组合。数据命令不是权限凭据，不能把来源快照当作授权。
+
+Mask 修订触发器及快照函数保留原调用者权限和版本／快照规则，内部引用限定为公开 schema，
+以适配 owner 的固定搜索路径。配套升级／回滚 SQL 同时进入 Labeling 工件和冻结迁移。
+应用匹配迁移后重施 owner 及 LAN／worktree 授权；独立可信调用账号使用
+`infra/docker/labeling-annotation-writes-grants.sql`，仅得到这三个函数，不得到原表／序列、
+角色成员、CREATE、TEMP 或其他模块能力。原任务控制账号仍只有其两项函数。
+
+本组不替代批量内容、切片／Mask、完整轨迹操作、导入、跨帧及视频人工候选的后续迁移。
+源码、消费者和集中验收分别记录在[唯一台账](/dev/concepts/module-deployment#剩余工作台账)。
+
 ## 视频 worker 的最终写入
 
 视频 worker 成功、协作取消或失败时，API runner 将最终 Job 状态、待审候选、

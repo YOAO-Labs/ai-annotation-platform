@@ -241,7 +241,7 @@ BEGIN
                             SET start_frame = v_next_start,
                                 end_frame = v_next_end,
                                 version = COALESCE(interval.version, 1) + 1,
-                                updated_at = clock_timestamp()
+                                updated_at = transaction_timestamp()
                             WHERE interval.id = v_keeper_id;
                         END IF;
                     END IF;
@@ -251,7 +251,7 @@ BEGIN
                     IF NOT v_created AND (v_member_change OR v_interval_changed) THEN
                         UPDATE public.scene_tracks AS track
                         SET revision = COALESCE(track.revision, 1) + 1,
-                            updated_at = clock_timestamp()
+                            updated_at = transaction_timestamp()
                         WHERE track.id = v_track.id
                         RETURNING * INTO v_track;
                         v_revision_changed := true;
@@ -312,7 +312,7 @@ BEGIN
                 ELSE
                     UPDATE public.scene_tracks AS track
                     SET revision = COALESCE(track.revision, 1) + 1,
-                        updated_at = clock_timestamp()
+                        updated_at = transaction_timestamp()
                     WHERE track.id = v_scene_track_id
                     RETURNING * INTO v_track;
                     v_data := jsonb_build_object(
@@ -395,7 +395,7 @@ BEGIN
                     UPDATE public.scene_tracks AS track
                     SET class_name = v_class_name,
                         revision = COALESCE(track.revision, 1) + 1,
-                        updated_at = clock_timestamp()
+                        updated_at = transaction_timestamp()
                     WHERE track.id = v_scene_track_id
                     RETURNING * INTO v_track;
 
@@ -403,7 +403,7 @@ BEGIN
                         UPDATE public.annotations AS member
                         SET class_name = v_class_name,
                             version = COALESCE(member.version, 1) + 1,
-                            updated_at = clock_timestamp()
+                            updated_at = transaction_timestamp()
                         WHERE member.id = ANY(v_camera_member_ids)
                         RETURNING member.id, member.class_name, member.version,
                                   member.updated_at

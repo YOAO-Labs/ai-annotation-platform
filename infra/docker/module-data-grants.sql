@@ -591,6 +591,9 @@ BEGIN
 END $$;
 
 -- Labeling owns task creation, lifecycle/evidence, edit locks and counters.
+GRANT SELECT (total_annotations, is_labeled),
+    UPDATE (total_annotations, is_labeled)
+    ON public.tasks TO :"labeling_owner";
 GRANT SELECT (id, project_id, dataset_item_id, batch_id, status), UPDATE (id), DELETE
     ON public.tasks TO :"labeling_owner";
 GRANT SELECT (
@@ -648,6 +651,51 @@ GRANT SELECT (
     sensor_dataset_item_id
 ), UPDATE (parent_annotation_id, parent_prediction_id), DELETE
     ON public.annotations TO :"labeling_owner";
+GRANT SELECT (
+    video_segment_id, user_id, source, annotation_type, tool_unit_id, class_name,
+    geometry, confidence, track_id, scene_track_id, sensor_role, sensor_visibility,
+    calibration_revision, calibration_digest, temporal_role, lead_time,
+    was_cancelled, ground_truth, is_active, attributes, attributes_meta,
+    z_order, is_locked, is_hidden, version, created_at, updated_at
+), INSERT (
+    id, task_id, project_id, video_segment_id, user_id, source, annotation_type,
+    tool_unit_id, class_name, geometry, confidence, parent_prediction_id,
+    parent_annotation_id, track_id, scene_track_id, temporal_role, lead_time,
+    was_cancelled, ground_truth, is_active, attributes, attributes_meta,
+    z_order, is_locked, is_hidden, version
+), UPDATE (
+    annotation_type, class_name, geometry, confidence, track_id, scene_track_id,
+    temporal_role, is_active, attributes, attributes_meta, z_order,
+    is_locked, is_hidden, version, updated_at
+) ON public.annotations TO :"labeling_owner";
+GRANT SELECT (
+    id, project_id, scene_id, track_id, class_name, presence_mode, attributes,
+    attributes_meta, revision, created_by, retired_at, created_at, updated_at
+), INSERT (
+    id, project_id, scene_id, track_id, class_name, created_by
+), UPDATE (class_name, revision, updated_at)
+    ON public.scene_tracks TO :"labeling_owner";
+GRANT SELECT (id, scene_track_id, start_frame, end_frame, source, version),
+    INSERT (id, scene_track_id, start_frame, end_frame, source, created_by),
+    UPDATE (start_frame, end_frame, version, updated_at), DELETE
+    ON public.scene_track_intervals TO :"labeling_owner";
+GRANT SELECT (
+    id, task_id, actor_id, kind, idempotency_key, request_digest,
+    scope_fingerprint, source_versions, result_versions, report, status,
+    response_json, created_at, completed_at
+), INSERT (
+    id, task_id, actor_id, kind, idempotency_key, request_digest,
+    scope_fingerprint, source_versions, result_versions, report, status, response_json
+) ON public.annotation_operations TO :"labeling_owner";
+GRANT SELECT (id, annotation_id, annotation_version, created_at, expires_at),
+    INSERT (
+        id, project_id, task_id, annotation_id, annotation_version, geometry,
+        geometry_digest, source_kind, expires_at
+    ), UPDATE (expires_at)
+    ON public.mask_annotation_revisions TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION public.capture_mask_annotation_revision(),
+    public.record_mask_annotation_revision(uuid,uuid,uuid,integer,jsonb,text)
+    TO :"labeling_owner";
 GRANT SELECT, INSERT ON public.annotation_input_sources TO :"labeling_owner";
 GRANT SELECT, INSERT ON public.annotation_video_input_sources TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id, annotation_id, thread_parent_id),
@@ -2462,6 +2510,12 @@ ALTER FUNCTION aap_labeling_v1.workspace_project_query_batch_task_counts(uuid)
 ALTER FUNCTION aap_labeling_v1.task_edit_lock_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.task_workflow_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.annotation_statistics_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.scene_track_domain_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.annotation_write_command(jsonb)
     OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 

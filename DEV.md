@@ -3182,6 +3182,19 @@ AAP_WORKSPACE_CAPACITY_LIVE=1 apps/api/.venv/bin/python \
 日常数据库并把它当作运行切换。批次及标注内容尚未迁移的私有访问仍保留，完整 Labeling
 资格与剩余范围见[运行协议](docs-site/api/guides/labeling-runtime.md#任务编辑锁与生命周期)。
 
+### Labeling 人工标注写入
+
+人工标注、轨迹关联及任务统计使用 `annotation_write_command(jsonb)`、
+`scene_track_domain_command(jsonb)`、`annotation_statistics_command(jsonb)` 三项
+`aap_labeling_v1` 能力。匹配的迁移同时更新 Mask 修订触发器引用，保留原快照和版本规则。
+应用匹配迁移后重施 owner 及既有 runtime 授权；专用可信调用账号由
+`infra/docker/labeling-annotation-writes-grants.sql` 配置，原任务控制账号不扩大执行权。
+
+所有写入继续借用当前业务事务，当前权限、Mask 预检、审计和提交顺序保留，不新增部署
+配置。集中验收器会创建自有数据库／角色，并把专用 DSN 交给保存的 Native 回归；
+不手工把日常库填入测试选择器。[运行协议](docs-site/api/guides/labeling-runtime.md#人工标注与关联写入)
+说明当前范围，完整 Labeling 的剩余写入及资格继续由唯一台账跟踪。
+
 ### 宿主机转发诊断
 
 在 macOS 上使用已存在的不可变 Docker Python 镜像。镜像必须提供

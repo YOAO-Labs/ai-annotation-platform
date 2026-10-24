@@ -1,7 +1,7 @@
 # Labeling
 
-This package owns task edit-lock and lifecycle/evidence contracts, the Project
-class-usage query manager, and the policy and runtime for video-worker finalization.
+This package owns task control, manual Annotation writes and SceneTrack domain
+contracts, the Project class-usage query manager, and video-worker finalization.
 The base package depends on Pydantic and the portable preannotation-results,
 assets-media and mask-content contracts. It does not depend on the platform API,
 SQLAlchemy, Celery, an object-storage SDK or ML implementations. PostgreSQL and
@@ -69,6 +69,39 @@ functions and rejects direct data access, role membership, CREATE and TEMP.
 It does not grant public end users access to the commands. Unmigrated Batch and
 Annotation operations still need their legacy permissions; this capability does
 not close the entire Labeling module.
+
+## Manual Annotation writes
+
+The contracts `aap-labeling-annotation-writes/v1`,
+`aap-labeling-scene-track-domain/v1` and
+`aap-labeling-annotation-statistics/v1` use three fixed JSONB commands in
+`aap_labeling_v1`: `annotation_write_command`, `scene_track_domain_command`
+and `annotation_statistics_command`.
+
+Manual create, field updates, soft deletion and create receipts retain the
+caller transaction. Task statistics use active, non-cancelled, non-sensor
+annotations; the existing optional Batch transition order remains in the API.
+SceneTrack identity, presence intervals, revisions and camera reclassification
+use the same owner, including explicit-presence rejection and interval exclusion
+constraints. Mutable Annotation updates retain version checks and existing
+Mask history capture.
+
+The Mask revision trigger and recorder keep their existing invoker privileges
+and behavior, with qualified public references and a fixed search path so they
+also run inside owner functions. The upgrade and rollback resources ship beside
+the other SQL files. They do not grant the caller direct revision-table access.
+
+The API retains current authorization, source and Mask preflight, audit,
+heartbeat, and commit ordering. A command payload is not a permission token.
+Its data adapter synchronizes ORM values from the owner result and does not open
+another connection or commit. Apply the matching migrations and owner/runtime
+grants together; `infra/docker/labeling-annotation-writes-grants.sql` supplies a
+dedicated trusted caller with exactly these three functions. The existing task
+control credential keeps its two-function profile.
+
+Bulk content changes, slice/Mask operations, whole-track commands, imports,
+cross-frame writes and human video candidate decisions remain separate caller
+migrations. This write group does not close the complete Labeling module.
 
 ## Video worker finalization
 
