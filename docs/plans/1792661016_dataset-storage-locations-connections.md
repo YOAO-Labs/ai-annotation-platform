@@ -964,3 +964,33 @@ registry按Authority、session、资源与完整冻结来源复用ready stage；
 逻辑工作台按账号/session/Task/内容身份退休，覆盖precise/preview/bitmap和迟到seek；同内容租约更新不重挂整个逻辑舞台，不丢当前帧、草稿或导航。原生传输源先pause/remove src/load，再释放旧租约；新源通过现有loadedmetadata/FrameClock对齐最新帧。到期前提前prepare并切换新路径以复用未退休stage；短自然期限不形成忙循环，失败提供明确重试。账号/任务切换、跨标签页不完整凭证、卸载/HMR均停止旧媒体和定时器，不把旧结果应用到新owner。准备和失效期间不允许仅凭metadata成功进入依赖画面的QC流程；真实源就绪参与门禁。
 
 隔离树分别负责后端DTO/manifest/视频seed及协议客户端与纯回归；主树负责React生命周期、原生播放器/检查器与QC接入、正式文档和实际浏览器验收。验证身份/prepare失败零签名降级、迟到prepare/双取消、StrictMode、过期/410重建、codec错误不重建、撤权、同session token刷新与新session退休、切Task/关闭、暂停草稿及播放/seek/Canvas。只在已验证的一次性test/e2e环境写入；补真实视频seed归属，不放宽生产读取。保留人工3100/8100及原业务/24对象/12文件，正常hooks提交后清理精确资源；无依赖、迁移、配置、镜像、Worker或版本改动。派生归属和其余原件消费者仍属后续切片，完整E02与用途切换未完成。
+
+## E02-B13-B2-B2 Outcome — 浏览器原视频与租约生命周期
+
+已提交协议客户端 `83e3882e6`、视频DTO/manifest/seed `fcadc8b6d`、会话生命周期 `6c7b41e0d`、旧凭证proof退休 `bbd43dcb1`、自有夹具租约清理 `b6a9ecb69` 及工作台集成 `02c94529a`。发布里程碑未指定，不改版本。本片仅交付浏览器原视频；完整E02/B13及整套epic继续执行，完整用途切换关闭。
+
+托管video的Task/Item只提供惰性原件身份路径，未知历史列取不触发物理读取；主manifest提供metadata和准确Task身份路径，整段video_url、v2 video_url与chunk fallback_video_url均为空。旧playback_path不参与原件选择，三个视频seed按实际原字节登记原件事实。数据集检查器用认证完整下载，512MiB下载上限保持。独立TaskOriginal已有prepare协议，但既有工作台metadata仍只来自直接DatasetItem；未新增独立Task视频探测，也不承诺浏览器支持所有原容器/编码。
+
+Workbench先核验身份再prepare，只把严格同源相对media_path交给原生video；Cookie受准确租约路径限制，不向native请求传Bearer。账号/session/Task/内容身份管理逻辑舞台，URL轮换仅退休传输；当前帧、两点polygon草稿、时间轴窗口及视角不因同内容续租重置。替换前停止并拆除旧源，再释放lease；提前续租复用ready stage，失效以准确Cookie HEAD判别，有界处理410，权限/内容/容量/编码错误不退回签名原件或旧转码路径。JPEG编码前后核对源代次、实际像素帧和逻辑帧，恢复seek期间不交付首帧冒充的截图；严格QC保留独立像素呈现回执，不能用普通播放对齐或metadata代替。
+
+复核明确区分两个生命周期：已挂载的同owner/task舞台遇到metadata空窗时保留已确认信息和局部草稿；登录令牌刷新仍遵循现有RequireProjectAccess重新校验并卸载工作台，旧媒体、lease与局部草稿退休，通过后重新挂载。未放宽该权限守卫，也不宣称完整应用的令牌刷新会保留未持久化草稿。组件单测覆盖挂载内空窗、Task/owner退休；实际浏览器另证权限复核期间无旧video、DELETE204及旧HEAD410，通过后取得新路径。
+
+最终216个不同API/服务/DB用例、245个不同Web用例及4个SDK OpenAPI合同用例通过。后端覆盖DTO、workbench metadata/frames、视频seed、registry及namespace清理；Web覆盖协议验证、StrictMode、迟到prepare/取消/释放、同session token更新、前台到期恢复、暂停意图、QC、原生/精确帧、Canvas及迟到JPEG。正常提交钩子的完整Web ESLint、CSS tokens、TypeScript build检查，以及OpenAPI/codegen、文档构建与diff检查通过。统计按最终同名用例去重，不叠加中间重跑或早期全Web结果。
+
+18个不同实际浏览器用例通过：真实同源Cookie及原生请求不带Bearer检查、原字节Canvas/JPEG、SPA离开释放、同内容续租保持F17及两点草稿、实际服务端退休后HEAD410恢复并保留F23、身份409零prepare/零native回退，以及原有指针时间轴和WebCodecs精确帧/稳定回退矩阵。身份409使用测试路由故障注入；410基于真实DELETE后的原生error事件注入，防止已缓冲媒体不发I/O掩盖恢复分支。另用独立agent-browser验收原生播放/暂停、F26错误后重试定位、明暗桌面及390px窄屏截图，窄屏保留既有桌面操作提示，无横向溢出或页面异常；控制台仅有既有Konva层数提示。未授予RTX硬件性能或大文件规模资格。
+
+连续套件暴露的清理缺口已修复：浏览器context关闭不会执行React卸载，旧stage会短暂耗尽两槽。现有test seed cleanup在精确namespace和已有preflight之后，只撤销匹配Task/Item上下文的lease；邻居和未知上下文保持，真实active pin继续drain后释放物理文件及额度。没有加大生产容量、缩短TTL或增加宽松生产读取。错误清理未知责任仍由完整、已验证的一次性mode销毁收尾。
+
+正式文档已更新 `docs-site/user-guide/workbench/video-playback.md`、`docs-site/api/guides/verified-content.md`、`docs-site/dev/concepts/storage-connections.md`、`README.md` 与 `CHANGELOG.md` Unreleased。没有依赖、环境配置、迁移、镜像或Worker任务改动。人工3100/8100与两Worker/Beat保留，迁移头0231；11表完整行指纹、24对象完整SHA及12源文件SHA在验收与清理后均保持。一次性test/e2e的数据库、Redis、18桶已销毁并独立检查不存在；自有浏览器关闭，两棵干净且patch等价隔离树和三分支移除，任务日志/截图/测试缓存清理。其余派生媒体、ML/Worker、金字塔、导出及训练/评估/AL原件消费者继续逐项收口。
+
+## E02-B13-B3-A Design — 样本评估当前来源原件读取
+
+基于 `02c94529a` 的只读调用链盘点，下一片限定现有样本评估“核对当前标注任务”入口：SampleEvaluationGallery → sampleEvaluationsApi.source → GET `/projects/{project}/sample-evaluations/{evaluation}/attempts/{attempt}/samples/{ordinal}/source` → sample_evaluation_sources.resolve_source。当前current_snapshot根据有无dataset_item_id猜选现行用途桶，read_current_media自行HEAD/GET并计算SHA，未使用保存的原件归属。本片不依赖外部Agent/S3迁移现场或视频派生owner。
+
+只替换此API的当前原件读取：通过original_sources.resolve_task固定TaskOriginal或DatasetAsset的关系、位置、内容UUID/SHA及大小，未知归属和非image零对象I/O，保持现有无法核对语义。经现有storage_access许可和managed_original_reader完整核验，按当前已登记SHA读取，再与冻结样本SHA比较；合法新内容应报告changed，不能把冻结SHA误当当前读取预期，也不能按file_path、现行桶或同名键回退。保留评估既有16MiB、1600万像素、单帧、格式与EXIF逻辑尺寸限制，不扩大为通用下载或B1图片解码预算。
+
+捕获准确原请求凭证，许可取得后、完整读取/解码后及标签分类返回前复核凭证、项目管理权限、Task/原件关系和Gate；保持现有datasets:read与annotations:read要求，不因复用通用Task下载增加tasks:read。撤权/过期不能被宽泛except变成普通unavailable。取消、超时和重复取消等待真实线程、Body/临时文件收尾，未知关闭保持已有许可/额度责任，不提前声明物理完成。冻结样本、label分类、source/deleted/changed等既有业务含义保持，必要错误映射按现有响应合同明确区分。
+
+共享同步read_current_media仍被active_learning_pool使用；本片不修改其AL读取协议，不把新入口静默推广到Worker。冻结image/report、训练版本构建、AL pool/预标注、模型推理、金字塔、导出、视频派生物及完整用途切换均排除，另片处理。预计改动限来源服务、现有source路由与专用回归，必要时新增窄读取适配；复用现有owner、reader和权限helper，不新增原件owner或第二套S3读取器。
+
+验证保存桶陷阱、直接DatasetItem/独立TaskOriginal、未知历史零I/O、当前合法内容变化与冻结比较、关系/Gate/权限/JWT或Key在读取与标签分类期间改变、重复取消和未知关闭；测试对象必须按(bucket,key)区分，不能用现有仅key替身证明固定位置。复用test_sample_evaluations与test_sample_evaluation_masks回归，使用已验证的新一次性test/e2e环境做真实HTTP/MinIO及既有核对弹窗验收。人工3100/8100及原业务/原件保持；正式API/用户文档与CHANGELOG随实施更新，正常hooks提交并清理精确测试资源。本设计待实施，不宣称B3或完整B13完成。
