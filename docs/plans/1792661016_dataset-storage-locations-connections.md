@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12 与 B13 各切片至 B3-I completed locally；图片预标与失败重试已完成真实链路、隔离恢复和人工环境验收。下一片接通托管图片同步交互与预测测试。完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A、B1–B12 与 B13 各切片至 B3-I completed locally；B3-J 托管图片同步交互、预测测试与原生 Mask 同源接受已定稿实施。完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -1439,3 +1439,17 @@ schema4 领域、迁移、物理传输、冻结输入与时间重放、真实计
 人工 3100／8100 已应用 0239，准确所属的本地 dev 导入桶已验证开启版本控制；两类新 Worker 各注册 73 项任务，CPU 与 maintenance 实际空派发通过，绑定 Beat 保持运行。原十二表 155 行、24 对象完整字节和十二源文件指纹完全一致，HTTP 两入口返回 200。test 数据库、Redis、九桶及 e2e 资源由 doctor 独立确认不存在；十四棵隔离树在干净、提交已合入或 patch 等价且无所属资源后移除。任务日志、下载、缓存与构建产物按归属清理，保留人工环境、共享依赖、本地虚拟环境、生成类型及工作树身份。
 
 README、CHANGELOG Unreleased、用户预标指南、预测 API／架构、存储架构和版本化部署／恢复说明已同步；OpenAPI snapshot 无漂移、codegen、docs build、Ruff／格式、正常 hooks 与 diff 检查通过。下一片先定稿托管图片的同步 interactive／predict-test 及其原生 Mask 候选最小来源绑定；secondary、mask repair、整段视频 Tracker、真实训练消费回执与生产回收继续独立推进，不归档本活动 Epic。
+
+## E02-B13-B3-J Design — 托管图片同步推理与原生候选同源接受
+
+2026-10-25 基于干净 `d6f4e158a` 核对真实调用后实施。本片覆盖 `predict-test`、`interactive-annotating` 的托管图片供图、原生 Mask 候选／logits 身份及 create／refine／重放；保留引用图片与视频现有合同。不增加 AsyncJob、表或 ML 后端协议，不重建镜像、不安装依赖、不修改共享配置。secondary、mask repair 和整段 Tracker 留待后续完整切片。
+
+新增托管同步操作适配器，由现同步上下文管理器分派；业务权限复用现管理者测试和可编辑交互规则，不暗增托管入口此前没有的 tasks:read／annotations:write scope。带原标注提示仍要求 annotations:read；完成任务的只读 predict-test 不受交互开关限制。冻结原 JWT／API Key、Task.version、批次与 canonical 原件完整事实；在短事务提交后分配 PredictionInputs v2，以同一 input UUID purpose 持有来源／目标许可，完整核验一次原图、固定真实尺寸，再上传非 null 版本的尝试独立副本。setup 后及模型派发前重新核权；最终账户→项目／成员／原 Key→编辑 advisory→Batch／fresh Task→canonical 关系／来源／Gate→提示 Annotation→input lease／Gate，沿调用者顶层事务核验。最终不能另开 session guard、提交事务或执行对象／模型 I/O；凭据复核保留现授权缓存检查。初始成员锁必须在读取原 Mask 提示前提交，不能等到适配器内才释放。
+
+候选与 logits 共同签入独立 `original_input` 小投影：schema=1、task_id、owner_kind、content_id、SHA、size_bytes、实际 width／height、location_id／location_revision／maintenance_revision 和 facts_digest。严格限定字段和类型，并与 reference_input 互斥；不包含私有 endpoint／bucket／key／完整 facts／凭据或签名 URL，不把托管来源伪装成 reference。身份不含 Task.version，避免正常标注编辑使同源候选失效；当前请求及最终边界仍核对冻结 Task.version。旧托管候选／logits／Decision 缺可信来源时不补默认值，要求重新推理。继续保留 routing／model／variants／Task／frame／prompt source 精确匹配、exemplar both 原候选下标，以及短候选过期后的合法 Decision 精确重放；来源变化时重放仍拒绝。
+
+原生接受新增独立私有 native-original receipt，绑定真实 issuer、同 session／顶层事务、actor／Task、请求摘要、单个 Mask 摘要、完整来源及实际尺寸。资格化先在无业务锁阶段重新完整读取原件并确认关闭，随后取得最终锁和复核，不能在源句柄关闭时持写入锁。接受不创建无需交给模型的临时副本。PredictionService 增独立 native-original 分支，与其他 receipt 互斥且仅准 interactive_accept，证据写 original_input。ai-mask 首验、Prediction 和 Annotation 的全部图片尺寸复验显式传递同一受信任 receipt，不能从候选 RLE、Task JSON 或普通尺寸字典获取可信大小；视频与引用既有校验保留。Decision 内部来源证据只供重放，不进入公开响应。TaskOriginal 没有尺寸字段，primary-only 也不回退直接 Item 猜测。
+
+所有取消／软限时保留实际 Future 并等待线程、Body、客户端和临时文件收尾；首次未知关闭标记粘住，不能用第二次 close 的 no-op 或 TTL 证明结束。退出先释放调用者事务，再关闭目标输入及来源；同 purpose 导致首次回收延后一轮属于正常保护。独立原件无业务级联，测试使用所属隔离 schema／namespace 清理不可变事实，不能删除账本代替真实清理。
+
+操作层、native 接受／身份层和回归夹具分别在当前 Design HEAD 的隔离树实施；主树负责 endpoint 接线、正式文档、全部数据库测试及真实验收。覆盖三类 canonical 来源、同键异桶和同 SHA 新归属、原 Key／JWT／角色／批次／编辑锁／Gate／提示变化、setup 与真实读取后的拒绝、非方形尺寸、候选与 logits 旧／缺失／双来源、create／refine／If-Match／精确重放、伪造和跨事务 receipt、提交失败无半题结果、重复取消及未知关闭。真实 HTTP／MinIO 验收需实际 GET 签名版本、校验像素并完成接受／续点和延后一轮精确清理；纯受控输出不代表真实模型或 GPU 资格。同步 API／用户／架构／CHANGELOG，保留人工3100／8100、0239／两 Worker／Beat及十二表155行／24对象／十二文件指纹，完成相关验证和按归属清理后才记 Outcome。
