@@ -209,9 +209,10 @@ async def test_preparation_discards_edited_policy_without_overwriting_new_state(
             "enabled": False,
             "next_check_at": runs.now() + timedelta(hours=1),
             "last_started_at": runs.now(),
-            "state": "waiting",
+            "state": "suspended",
             "message": "A newer policy editor owns this state",
         }
+        assert getattr(policy, changed_field) != values[changed_field]
         setattr(policy, changed_field, values[changed_field])
         await db_session.flush()
         edited = service._policy_context(policy)

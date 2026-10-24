@@ -24,6 +24,7 @@ from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import async_job as jobs, project_task_dataset, training_datasets
 from app.services import training_dataset_storage
 from app.services.annotation_evidence import freeze_review_contributor_evidence
+from app.services.dataset_assets import ensure_legacy_bindings, register_item_asset
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
@@ -159,6 +160,7 @@ async def seed_online_training(
         return project, False
 
     samples = _read_samples(fixture)
+    binding = await ensure_legacy_bindings(db)
     project = Project(
         id=PROJECT_ID,
         display_id=PROJECT_DISPLAY_ID,
@@ -197,7 +199,7 @@ async def seed_online_training(
         key = f"{SEED_MARKER}/{dataset.id}/{sample['split']}/{sample['path'].name}"
         await asyncio.to_thread(
             storage_service.client.put_object,
-            Bucket=storage_service.datasets_bucket,
+            Bucket=binding.bucket,
             Key=key,
             Body=sample["payload"],
             ContentType="image/jpeg",
@@ -215,6 +217,15 @@ async def seed_online_training(
         )
         db.add(item)
         await db.flush()
+        # Only this successful write's bytes establish a new managed identity;
+        # existing fixtures and arbitrary legacy paths are never adopted here.
+        await register_item_asset(
+            db,
+            item,
+            sha256=sample["sha256"],
+            size_bytes=len(sample["payload"]),
+            binding=binding,
+        )
         task = Task(
             id=uuid.uuid5(PROJECT_ID, sample["task_id"]),
             project_id=project.id,

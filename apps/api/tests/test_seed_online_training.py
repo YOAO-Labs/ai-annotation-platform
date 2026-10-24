@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem
+from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -29,6 +30,8 @@ from app.services.storage import storage_service
 from app.config import settings
 from app.services import async_job as jobs
 from app.services import training_dataset_storage
+from app.services import managed_original_reader as reader
+from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.training_dataset_bridge import TrainingDatasetError, assign_splits
 from app.workers import training_dataset as worker
 from scripts import seed_online_training as fixture_seed
@@ -74,6 +77,9 @@ def memory_storage(monkeypatch):
         def __init__(self):
             self.objects = {}
             self.writes = 0
+            self.condition_failures = 0
+            self.closed_clients = 0
+            self.streams = []
             self.meta = SimpleNamespace(
                 endpoint_url=storage_service.client.meta.endpoint_url
             )
@@ -90,13 +96,28 @@ def memory_storage(monkeypatch):
                 "ContentLength": len(payload),
                 "ETag": hashlib.sha256(payload).hexdigest(),
                 "Metadata": metadata,
+                "ResponseMetadata": {"HTTPStatusCode": 200},
+                "LastModified": datetime(2026, 1, 1, tzinfo=timezone.utc),
             }
 
         def get_object(self, *, Bucket, Key, IfMatch=None):
             head = self.head_object(Bucket=Bucket, Key=Key)
-            assert IfMatch is None or IfMatch == head["ETag"]
+            if IfMatch is not None and IfMatch != head["ETag"]:
+                self.condition_failures += 1
+                raise ClientError(
+                    {
+                        "Error": {"Code": "PreconditionFailed"},
+                        "ResponseMetadata": {"HTTPStatusCode": 412},
+                    },
+                    "GetObject",
+                )
             payload, _ = self.objects[Bucket, Key]
-            return {"Body": StreamingBody(io.BytesIO(payload), len(payload))}
+            body = StreamingBody(io.BytesIO(payload), len(payload))
+            self.streams.append(body)
+            return {**head, "Body": body}
+
+        def close(self):
+            self.closed_clients += 1
 
         def upload_file(self, filename, bucket, key, ExtraArgs):
             self.put_object(
@@ -105,6 +126,7 @@ def memory_storage(monkeypatch):
 
     client = Client()
     monkeypatch.setattr(storage_service, "client", client)
+    monkeypatch.setattr(reader, "create_client", lambda **kwargs: client)
     monkeypatch.setattr(storage_service, "delete_prefix", lambda *args, **kwargs: 0)
     monkeypatch.setattr(worker, "notify_job_terminal", AsyncMock())
     return client
@@ -297,7 +319,30 @@ async def test_fixture_materializes_reviewed_input_and_preserves_edits(
         db_session, fixture=coco8, **kwargs
     )
     assert created
+    assets = list(await db_session.scalars(select(DatasetAsset)))
+    replicas = list(await db_session.scalars(select(DatasetAssetLocation)))
+    assert len(assets) == len(replicas) == 8
+    by_asset = {asset.id: asset for asset in assets}
+    for replica in replicas:
+        asset = by_asset[replica.asset_id]
+        raw, _ = memory_storage.objects[replica.bucket, replica.object_key]
+        assert asset.verification_state == "verified"
+        assert asset.checksum_algorithm == "sha256"
+        assert asset.checksum_value == hashlib.sha256(raw).hexdigest()
+        assert asset.size_bytes == len(raw)
+        assert replica.location_id == LEGACY_LOCATION_ID
+        assert (
+            replica.role == "managed_original" and replica.reference_state == "present"
+        )
     version = await fixture_seed.prepare_baseline(db_session, project)
+    assert len(version.snapshot["samples"]) == 8
+    for sample in version.snapshot["samples"]:
+        receipt = sample["original"]
+        asset = by_asset[uuid.UUID(receipt["content_id"])]
+        assert receipt["owner_kind"] == "dataset_asset"
+        assert receipt["sha256"] == asset.checksum_value
+        assert receipt["size_bytes"] == asset.size_bytes
+        assert receipt["location_id"] == str(LEGACY_LOCATION_ID)
     await db_session.commit()
     await db_session.refresh(version)
     saved_owner = deepcopy(version.storage_ref)
@@ -581,6 +626,84 @@ def test_fixture_rejects_changed_partition_bytes(coco8):
         fixture_seed._read_samples(coco8)
 
 
+async def test_new_fixture_registers_the_exact_successfully_uploaded_originals(
+    monkeypatch, coco8, memory_storage
+):
+    rows = []
+
+    async def flush():
+        for row in rows:
+            if isinstance(row, DatasetItem) and row.id is None:
+                row.id = uuid.uuid4()
+
+    db = SimpleNamespace(
+        scalar=AsyncMock(side_effect=[None, None]),
+        execute=AsyncMock(),
+        add=Mock(side_effect=rows.append),
+        add_all=Mock(side_effect=rows.extend),
+        flush=AsyncMock(side_effect=flush),
+    )
+    binding = SimpleNamespace(bucket=storage_service.datasets_bucket)
+    bindings = AsyncMock(return_value=binding)
+    registration = AsyncMock()
+    monkeypatch.setattr(fixture_seed, "ensure_legacy_bindings", bindings, raising=False)
+    monkeypatch.setattr(
+        fixture_seed, "register_item_asset", registration, raising=False
+    )
+    monkeypatch.setattr(settings, "environment", "development")
+    project, created = await fixture_seed.seed_online_training(
+        db,
+        fixture=coco8,
+        owner_id=uuid.uuid4(),
+        annotator_id=uuid.uuid4(),
+        reviewer_id=uuid.uuid4(),
+    )
+    assert created and project.id == fixture_seed.PROJECT_ID
+    assert memory_storage.writes == registration.await_count == 8
+    bindings.assert_awaited_once_with(db)
+    for call in registration.call_args_list:
+        item = call.args[1]
+        raw, _ = memory_storage.objects[binding.bucket, item.file_path]
+        assert item.id is not None and call.args[0] is db
+        assert call.kwargs["binding"] is binding
+        assert (
+            call.kwargs["sha256"]
+            == item.content_hash
+            == hashlib.sha256(raw).hexdigest()
+        )
+        assert call.kwargs["size_bytes"] == item.file_size == len(raw)
+
+
+async def test_memory_transport_exercises_real_verified_original_read_and_closes(
+    memory_storage,
+):
+    raw = b"complete pinned training original"
+    bucket, key = storage_service.datasets_bucket, "training-reader/pinned-original"
+    memory_storage.put_object(Bucket=bucket, Key=key, Body=raw)
+    stage = await reader.capture(
+        reader.ObjectSpec(
+            memory_storage.meta.endpoint_url.rstrip("/"),
+            bucket,
+            key,
+            hashlib.sha256(raw).hexdigest(),
+            len(raw),
+        ),
+        max_bytes=len(raw),
+        timeout_seconds=5,
+    )
+    try:
+        assert stage.file.read() == raw
+        assert stage.sha256 == hashlib.sha256(raw).hexdigest()
+        assert memory_storage.condition_failures == 1
+        assert memory_storage.closed_clients == 1
+        assert memory_storage.streams and all(
+            stream._raw_stream.closed for stream in memory_storage.streams
+        )
+    finally:
+        stage.close()
+    assert stage.file.closed
+
+
 async def test_baseline_preparation_commits_sources_then_finalizes_under_project_lock(
     monkeypatch,
 ):
@@ -588,7 +711,13 @@ async def test_baseline_preparation_commits_sources_then_finalizes_under_project
     project = Project(id=uuid.uuid4(), owner_id=uuid.uuid4())
     prepared = SimpleNamespace(
         snapshot={"schema": 1, "classes": [], "samples": []},
-        report={"ready": True, "digest": "a" * 64, "issues": [], "summary": {}},
+        report={
+            "ready": True,
+            "digest": "a" * 64,
+            "issues": [],
+            "excluded": [],
+            "summary": {},
+        },
     )
     db = SimpleNamespace(
         scalar=AsyncMock(side_effect=[None, None]),
