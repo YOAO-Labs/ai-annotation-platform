@@ -1,0 +1,175 @@
+{
+  "$comment": "Fixed read capabilities borrow the API caller's transaction. They do not commit, lock, or authorize the WebSocket credential.",
+  "$id": "aap-notifications-delivery-read/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Native notification row; payload retains every PostgreSQL JSONB shape.",
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "payload": {
+      "title": "Payload"
+    },
+    "read_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Read At"
+    },
+    "target_id": {
+      "format": "uuid",
+      "title": "Target Id",
+      "type": "string"
+    },
+    "target_type": {
+      "title": "Target Type",
+      "type": "string"
+    },
+    "type": {
+      "title": "Type",
+      "type": "string"
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "user_id",
+    "type",
+    "target_type",
+    "target_id",
+    "payload",
+    "read_at",
+    "created_at"
+  ],
+  "title": "AAP Notifications delivery reads",
+  "type": "object",
+  "x-borrowed-transaction": {
+    "commit": false,
+    "rollback": false
+  },
+  "x-error-fallback": {
+    "after_scope_read_failure": "Allow only rows whose target is not export/async_job and whose dict payload has no project_id key; non-dict payload is {}"
+  },
+  "x-pair-input": {
+    "cardinality_cap": null,
+    "exact_keys": ["project_id", "user_id"],
+    "preserve_pairs": true,
+    "schema": {
+      "$defs": {
+        "DeliveryReadPair": {
+          "additionalProperties": false,
+          "properties": {
+            "project_id": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          "required": ["project_id", "user_id"],
+          "title": "DeliveryReadPair",
+          "type": "object"
+        }
+      },
+      "items": {
+        "$ref": "#/$defs/DeliveryReadPair"
+      },
+      "type": "array"
+    },
+    "uuid_strings": "canonical lower-case hyphenated UUIDs"
+  },
+  "x-payload": {
+    "postgresql_type": "jsonb",
+    "preserve_native_json_shapes": true
+  },
+  "x-policy": {
+    "actual_job_scope_wins_over_payload": true,
+    "fail_closed": ["missing job", "unknown global job kind", "invalid project UUID"],
+    "global_async_job_kinds": ["audit_archive", "dataset_import"],
+    "membership": "active current platform role, known project role, viewer pairing",
+    "other_target_scope": "Python dict payload only; key presence restricts even when null",
+    "owner": "active manager account owns project",
+    "project_id_parser": "uuid.UUID(str(value))",
+    "super_admin": "active super-admin account and existing project"
+  },
+  "x-policy-query-order": {
+    "allowed_pair_reads": "four distinct ordered calls only for nonempty pairs",
+    "allowed_pairs": [
+      "delivery_member_pairs",
+      "delivery_reviewer_pairs",
+      "delivery_owner_pairs",
+      "delivery_super_pairs"
+    ],
+    "resolve_scopes": "one delivery_job_scopes call only when job IDs exist"
+  },
+  "x-postgresql-functions": {
+    "aap_notifications_v1.delivery_job_scopes": {
+      "arguments": "uuid[]",
+      "returns": "TABLE(id uuid, scope_project_id uuid, kind varchar(40))"
+    },
+    "aap_notifications_v1.delivery_member_pairs": {
+      "arguments": "jsonb pair array",
+      "returns": "TABLE(project_id uuid, user_id uuid)"
+    },
+    "aap_notifications_v1.delivery_owner_pairs": {
+      "arguments": "jsonb pair array",
+      "returns": "TABLE(project_id uuid, user_id uuid)"
+    },
+    "aap_notifications_v1.delivery_reviewer_pairs": {
+      "arguments": "jsonb pair array",
+      "returns": "TABLE(project_id uuid, user_id uuid)"
+    },
+    "aap_notifications_v1.delivery_super_pairs": {
+      "arguments": "jsonb pair array",
+      "returns": "TABLE(project_id uuid, user_id uuid)"
+    },
+    "aap_notifications_v1.find_terminal_notification": {
+      "arguments": "uuid, text, uuid",
+      "returns": "uuid or null"
+    },
+    "aap_notifications_v1.read_notification": {
+      "arguments": "uuid",
+      "returns": "SETOF aap_notifications_v1.notification_facts"
+    }
+  },
+  "x-row-columns": [
+    "id",
+    "user_id",
+    "type",
+    "target_type",
+    "target_id",
+    "payload",
+    "read_at",
+    "created_at"
+  ],
+  "x-row-key": ["id"],
+  "x-security": {
+    "foreign_private_tables": false,
+    "functions": "stable security_definer",
+    "invalid_pair_sqlstate": "22023",
+    "public_execute": false,
+    "search_path": ["pg_catalog", "pg_temp"]
+  }
+}
