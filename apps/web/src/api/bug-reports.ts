@@ -90,7 +90,8 @@ export interface BugReportUpdatePayload {
 }
 
 export const bugReportsApi = {
-  create: (payload: BugReportPayload) => apiClient.post<BugReportResponse>("/bug_reports", payload),
+  create: (payload: BugReportPayload) =>
+    apiClient.silentPost<BugReportResponse>("/bug_reports", payload),
 
   list: (params?: BugReportListParams, signal?: AbortSignal) => {
     const q = new URLSearchParams();
@@ -118,7 +119,7 @@ export const bugReportsApi = {
     apiClient.post<BugCommentResponse>(`/bug_reports/${id}/comments`, { body }),
 
   downloadAttachment: (reportId: string, key: string, signal?: AbortSignal) =>
-    apiClient.getBlob(
+    apiClient.silentGetBlob(
       `/bug_reports/${reportId}/attachments/download?key=${encodeURIComponent(key)}`,
       { signal },
     ),
@@ -132,7 +133,7 @@ export function uploadBugAttachment(
   file: Blob,
   fileName = "screenshot.png",
 ): Promise<BugAttachment> {
-  return apiClient.post<BugAttachment>(
+  return apiClient.silentPost<BugAttachment>(
     `/bug_reports/screenshot/upload?file_name=${encodeURIComponent(fileName)}`,
     undefined,
     { body: file, headers: { "Content-Type": file.type || "image/png" } },

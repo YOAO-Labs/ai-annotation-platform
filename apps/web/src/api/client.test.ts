@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { apiClient, apiErrorDetailMessage } from "./client";
 import { useAuthStore } from "../stores/authStore";
 import type { MeResponse } from "./auth";
+import { useToastStore } from "@/components/ui/Toast";
 
 describe("apiErrorDetailMessage", () => {
   it("提取 FastAPI 请求体校验错误的字段路径", () => {
@@ -81,6 +82,108 @@ it("reads authenticated binary responses with abort support and preserves struct
       status: 409,
       message: "Frozen media digest mismatch",
     });
+  } finally {
+    vi.unstubAllGlobals();
+    useAuthStore.getState().logout();
+  }
+});
+
+it.each([403, 500])(
+  "keeps silent binary and raw POST %s failures in the caller",
+  async (status) => {
+    const push = vi.spyOn(useToastStore.getState(), "push").mockImplementation(() => {});
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async () => new Response(JSON.stringify({ detail: "Attachment unavailable" }), { status }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    useAuthStore.getState().setAuth("scoped-token", { id: "owner" } as MeResponse);
+    const controller = new AbortController();
+    const image = new Blob(["raw image bytes"], { type: "image/png" });
+    try {
+      await expect(
+        apiClient.silentGetBlob("/attachment", { signal: controller.signal }),
+      ).rejects.toMatchObject({
+        status,
+        message: "Attachment unavailable",
+      });
+      await expect(
+        apiClient.silentPost("/upload", undefined, {
+          signal: controller.signal,
+          body: image,
+          headers: { "Content-Type": "image/png" },
+        }),
+      ).rejects.toMatchObject({ status, message: "Attachment unavailable" });
+      expect(push).not.toHaveBeenCalled();
+      expect(fetch).toHaveBeenNthCalledWith(
+        1,
+        "/api/v1/attachment",
+        expect.objectContaining({
+          signal: controller.signal,
+          headers: expect.objectContaining({ Authorization: "Bearer scoped-token" }),
+        }),
+      );
+      expect(fetch).toHaveBeenNthCalledWith(
+        2,
+        "/api/v1/upload",
+        expect.objectContaining({
+          method: "POST",
+          body: image,
+          signal: controller.signal,
+          headers: { Authorization: "Bearer scoped-token", "Content-Type": "image/png" },
+        }),
+      );
+      await expect(apiClient.getBlob("/unscoped")).rejects.toMatchObject({ status });
+      expect(push).toHaveBeenCalledTimes(1);
+    } finally {
+      push.mockRestore();
+      vi.unstubAllGlobals();
+      useAuthStore.getState().logout();
+    }
+  },
+);
+
+it("keeps silent helpers authenticated for successful blobs, raw bodies and JSON writes", async () => {
+  const image = new Blob(["image bytes"], { type: "image/webp" });
+  const controller = new AbortController();
+  const receipt = { storageKey: "owned-key" };
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: true, status: 200, blob: async () => image })
+    .mockResolvedValueOnce({ ok: true, status: 200, json: async () => receipt })
+    .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ id: "report" }) });
+  vi.stubGlobal("fetch", fetch);
+  useAuthStore.getState().setAuth("scoped-token", { id: "owner" } as MeResponse);
+  try {
+    expect(await apiClient.silentGetBlob("/attachment", { signal: controller.signal })).toBe(image);
+    expect(
+      await apiClient.silentPost("/upload", undefined, {
+        body: image,
+        signal: controller.signal,
+        headers: { "Content-Type": "image/webp" },
+      }),
+    ).toBe(receipt);
+    expect(await apiClient.silentPost("/report", { title: "Issue" })).toEqual({ id: "report" });
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/upload",
+      expect.objectContaining({
+        method: "POST",
+        body: image,
+        signal: controller.signal,
+        headers: { Authorization: "Bearer scoped-token", "Content-Type": "image/webp" },
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/report",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ title: "Issue" }),
+        headers: { Authorization: "Bearer scoped-token", "Content-Type": "application/json" },
+      }),
+    );
   } finally {
     vi.unstubAllGlobals();
     useAuthStore.getState().logout();
