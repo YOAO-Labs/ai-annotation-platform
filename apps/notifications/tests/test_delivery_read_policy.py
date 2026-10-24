@@ -11,6 +11,7 @@ from aap_notifications.delivery_read import (
     notification_project_id,
     unrestricted_delivery_indices,
 )
+from aap_notifications.publication_contract import PublicationAuthorization
 
 
 def _row(
@@ -217,6 +218,90 @@ async def test_allowed_indices_preserve_pairs_and_query_phase_order():
         "super",
     ]
     assert all(requested == pairs for _name, requested in data.calls)
+
+
+@pytest.mark.asyncio
+async def test_authorization_facts_keep_four_ordered_reads_and_do_not_touch_unrestricted_users():
+    user = uuid.uuid4()
+    project = uuid.uuid4()
+    rows = [
+        _row(user_id=user, payload={"project_id": str(project)}),
+        _row(payload={}),
+        _row(payload={"project_id": None}),
+    ]
+    scopes = [
+        (True, project, True),
+        (False, None, False),
+        (True, None, False),
+    ]
+    data = _Data()
+    data.member_result = [(project, user)]
+    data.reviewer_result = []
+    data.owner_result = []
+    data.super_result = []
+    policy = NotificationDeliveryReadPolicy(data)
+
+    facts = await policy.authorization_facts(rows, scopes)
+
+    assert facts == [
+        PublicationAuthorization(
+            restricted=True,
+            project_id=project,
+            export_required=True,
+            member=True,
+            reviewer=False,
+            owner=False,
+            super_admin=False,
+        ),
+        PublicationAuthorization(
+            restricted=False,
+            project_id=None,
+            export_required=False,
+            member=False,
+            reviewer=False,
+            owner=False,
+            super_admin=False,
+        ),
+        PublicationAuthorization(
+            restricted=True,
+            project_id=None,
+            export_required=False,
+            member=False,
+            reviewer=False,
+            owner=False,
+            super_admin=False,
+        ),
+    ]
+    assert [name for name, _pairs in data.calls] == [
+        "members",
+        "reviewers",
+        "owners",
+        "super",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unresolved_authorization_facts_do_not_read_recipient_or_query_pairs():
+    class NoRecipient:
+        target_type = "task"
+        target_id = uuid.uuid4()
+        payload = {}
+
+        @property
+        def user_id(self):
+            raise AssertionError("unrestricted/unresolved facts must not read user_id")
+
+    rows = [NoRecipient(), NoRecipient()]
+    scopes = [(False, None, False), (True, None, False)]
+    data = _Data()
+    policy = NotificationDeliveryReadPolicy(data)
+
+    facts = await policy.authorization_facts(rows, scopes)
+
+    assert len(facts) == 2
+    assert not facts[0].restricted
+    assert facts[1].restricted and facts[1].project_id is None
+    assert data.calls == []
 
 
 @pytest.mark.asyncio

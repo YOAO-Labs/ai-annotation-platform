@@ -6,6 +6,8 @@ from collections.abc import Iterable
 from typing import Protocol
 import uuid
 
+from .publication_contract import PublicationAuthorization, publication_allowed
+
 Pair = tuple[uuid.UUID, uuid.UUID]
 DeliveryScope = tuple[bool, uuid.UUID | None, bool]
 GLOBAL_ASYNC_JOB_KINDS = frozenset({"audit_archive", "dataset_import"})
@@ -54,7 +56,7 @@ def unrestricted_delivery_indices(rows) -> set[int]:
 
 
 class NotificationDeliveryReadPolicy:
-    """Resolve delivery scope and allowed input indices using native owner facts."""
+    """Resolve delivery scope and authorization facts from native owner reads."""
 
     def __init__(self, data: NotificationDeliveryReadData):
         self.data = data
@@ -98,44 +100,57 @@ class NotificationDeliveryReadPolicy:
             scopes.append((restricted, project_id, export_required))
         return scopes
 
-    async def allowed_indices(
+    async def authorization_facts(
         self,
         rows,
         scopes: list[DeliveryScope],
-    ) -> set[int]:
+    ) -> list[PublicationAuthorization]:
         pairs = {
             (project_id, row.user_id)
             for row, (restricted, project_id, _export_required) in zip(rows, scopes)
             if restricted and project_id is not None
         }
-        if not pairs:
-            return {
-                index
-                for index, (restricted, _project_id, _export_required) in enumerate(
-                    scopes
-                )
-                if not restricted
-            }
+        member_pairs: set[Pair] = set()
+        reviewer_pairs: set[Pair] = set()
+        owner_pairs: set[Pair] = set()
+        super_pairs: set[Pair] = set()
+        if pairs:
+            # Keep these as separate owner reads in the original evaluation order.
+            member_pairs = set(await self.data.member_pairs(pairs))
+            reviewer_pairs = set(await self.data.reviewer_pairs(pairs))
+            owner_pairs = set(await self.data.owner_pairs(pairs))
+            super_pairs = set(await self.data.super_pairs(pairs))
 
-        # Keep these as separate owner reads in the original evaluation order.
-        member_pairs = set(await self.data.member_pairs(pairs))
-        reviewer_pairs = set(await self.data.reviewer_pairs(pairs))
-        owner_pairs = set(await self.data.owner_pairs(pairs))
-        super_pairs = set(await self.data.super_pairs(pairs))
-
-        base_pairs = member_pairs | owner_pairs | super_pairs
-        export_pairs = reviewer_pairs | owner_pairs | super_pairs
-        allowed: set[int] = set()
+        facts: list[PublicationAuthorization] = []
         for index, (restricted, project_id, export_required) in enumerate(scopes):
-            if not restricted:
-                allowed.add(index)
-                continue
-            if project_id is None:
-                continue
-            pair = (project_id, rows[index].user_id)
-            if export_required:
-                if pair in export_pairs:
-                    allowed.add(index)
-            elif pair in base_pairs:
-                allowed.add(index)
-        return allowed
+            member = reviewer = owner = super_admin = False
+            if restricted and project_id is not None:
+                pair = (project_id, rows[index].user_id)
+                member = pair in member_pairs
+                reviewer = pair in reviewer_pairs
+                owner = pair in owner_pairs
+                super_admin = pair in super_pairs
+            facts.append(
+                PublicationAuthorization(
+                    restricted=restricted,
+                    project_id=project_id,
+                    export_required=export_required,
+                    member=member,
+                    reviewer=reviewer,
+                    owner=owner,
+                    super_admin=super_admin,
+                )
+            )
+        return facts
+
+    async def allowed_indices(
+        self,
+        rows,
+        scopes: list[DeliveryScope],
+    ) -> set[int]:
+        facts = await self.authorization_facts(rows, scopes)
+        return {
+            index
+            for index, authorization in enumerate(facts)
+            if publication_allowed(authorization)
+        }

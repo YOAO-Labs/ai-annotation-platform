@@ -159,6 +159,7 @@ async def run_forever(
     data=None,
     redis=None,
     stop_event: asyncio.Event | None = None,
+    ready_event: asyncio.Event | None = None,
 ) -> None:
     """Poll the durable queue until cancelled or the supplied event is set."""
     owns_redis = redis is None
@@ -179,6 +180,8 @@ async def run_forever(
         )
     if stop_event is None:
         stop_event = asyncio.Event()
+    if ready_event is not None:
+        ready_event.clear()
 
     try:
         policy = await data.delivery_policy()
@@ -186,6 +189,8 @@ async def run_forever(
             raise NotificationDeliveryUnavailable()
         async with asyncio.timeout(settings.redis_timeout_seconds):
             await redis.ping()
+        if ready_event is not None:
+            ready_event.set()
         publisher = NotificationPublisher(
             data,
             redis,
@@ -201,11 +206,23 @@ async def run_forever(
                 raise
             except Exception:
                 # Do not log exception text: driver errors can contain DSNs.
-                await asyncio.sleep(settings.poll_interval_seconds)
+                try:
+                    await asyncio.wait_for(
+                        stop_event.wait(), timeout=settings.poll_interval_seconds
+                    )
+                except TimeoutError:
+                    pass
                 continue
             if result["claimed"] < settings.claim_limit:
-                await asyncio.sleep(settings.poll_interval_seconds)
+                try:
+                    await asyncio.wait_for(
+                        stop_event.wait(), timeout=settings.poll_interval_seconds
+                    )
+                except TimeoutError:
+                    pass
     finally:
+        if ready_event is not None:
+            ready_event.clear()
         if owns_redis:
             try:
                 await redis.aclose()
@@ -264,7 +281,73 @@ async def _serve(settings: NotificationPublisherSettings, *, once: bool) -> None
         result = await run_once(settings)
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
         return
-    await run_forever(settings)
+    if settings.api_token is None:
+        await run_forever(settings)
+        return
+
+    import uvicorn
+    from redis.asyncio import Redis
+
+    from .notification_delivery_postgres import NotificationDeliveryPostgresData
+    from .publication_runtime import create_app
+
+    stop_event = asyncio.Event()
+    ready_event = asyncio.Event()
+    data = NotificationDeliveryPostgresData(
+        settings.database_url.get_secret_value(),
+        connect_timeout=settings.connect_timeout_seconds,
+        command_timeout=settings.command_timeout_seconds,
+    )
+    redis = Redis.from_url(
+        settings.redis_url.get_secret_value(),
+        socket_connect_timeout=settings.redis_timeout_seconds,
+        socket_timeout=settings.redis_timeout_seconds,
+        decode_responses=False,
+    )
+    server = None
+    try:
+        server = uvicorn.Server(
+            uvicorn.Config(
+                create_app(
+                    settings,
+                    redis=redis,
+                    data=data,
+                    publisher_ready=ready_event,
+                ),
+                host=settings.host,
+                port=settings.port,
+                access_log=False,
+                log_level="warning",
+            )
+        )
+
+        async def serve_api() -> None:
+            await ready_event.wait()
+            try:
+                await server.serve()
+            finally:
+                stop_event.set()
+
+        async with asyncio.TaskGroup() as tasks:
+            tasks.create_task(
+                run_forever(
+                    settings,
+                    data=data,
+                    redis=redis,
+                    stop_event=stop_event,
+                    ready_event=ready_event,
+                )
+            )
+            tasks.create_task(serve_api())
+    finally:
+        stop_event.set()
+        if server is not None:
+            server.should_exit = True
+        try:
+            await redis.aclose()
+        except Exception:
+            if not asyncio.current_task().cancelling():
+                log.warning("notification publisher Redis close failed")
 
 
 def main() -> None:
