@@ -496,3 +496,60 @@ async def test_missing_task_is_explicit_and_keeps_transaction_usable(original_db
         await sources.resolve_task_relation(original_db, uuid.uuid4(), lock=True)
     assert error.value.code == "content_task_missing" and error.value.status == 404
     assert await original_db.scalar(select(1)) == 1
+
+
+@pytest.mark.parametrize("primary_missing", [False, True])
+async def test_camera_uses_exact_link_without_borrowing_primary_path(
+    original_db, primary_missing
+):
+    db = original_db
+    item, asset, _, task = await dataset_rows(db)
+    if primary_missing:
+        task.dataset_item_id = None
+        task.file_path = "unknown-primary.pcd"
+        task.file_type = "point_cloud"
+        await db.flush()
+    link = await add_link(db, task.id, item.id, role="camera_front")
+    result = await sources.resolve_task_link(db, task.id, link.id, lock=True)
+    assert result.item_id == item.id and result.content_id == asset.id
+    assert result.relation.item_id == (None if primary_missing else item.id)
+    assert result.relation.links[0].id == link.id
+    if primary_missing:
+        assert result.object_key != result.relation.file_path
+        with pytest.raises(ContentError, match="no_readable_original"):
+            await sources.resolve_task(db, task.id)
+
+
+@pytest.mark.parametrize("role", ["primary_lidar", "camera_"])
+async def test_camera_role_is_not_just_an_arbitrary_task_link(original_db, role):
+    db = original_db
+    item, _, _, task = await dataset_rows(db)
+    link = await add_link(db, task.id, item.id, role=role)
+    with pytest.raises(ContentError, match="original_link_invalid"):
+        await sources.resolve_task_link(db, task.id, link.id, lock=True)
+
+
+async def test_camera_link_must_belong_to_exact_task_and_name_an_image(original_db):
+    db = original_db
+    item, _, _, task = await dataset_rows(db, file_type="video")
+    link = await add_link(db, task.id, item.id, role="camera_front")
+    with pytest.raises(ContentError, match="camera_original_not_image"):
+        await sources.resolve_task_link(db, task.id, link.id)
+    _, _, _, other_task = await dataset_rows(db)
+    with pytest.raises(ContentError) as error:
+        await sources.resolve_task_link(db, other_task.id, link.id, lock=True)
+    assert error.value.code == "content_link_missing" and error.value.status == 404
+
+
+async def test_camera_keeps_primary_conflict_and_all_link_snapshot_checks(original_db):
+    db = original_db
+    item, _, _, task = await dataset_rows(db)
+    selected = await add_link(db, task.id, item.id, role="camera_front")
+    neighbor = await add_link(db, task.id, item.id, role="camera_back")
+    before = await sources.resolve_task_link(db, task.id, selected.id)
+    neighbor.sensor_name = "changed-neighbor"
+    await db.flush()
+    assert await sources.resolve_task_link(db, task.id, selected.id) != before
+    await add_link(db, task.id, uuid.uuid4())
+    with pytest.raises(ContentError, match="original_relation_conflict"):
+        await sources.resolve_task_link(db, task.id, selected.id, lock=True)

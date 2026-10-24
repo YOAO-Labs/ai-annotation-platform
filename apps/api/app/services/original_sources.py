@@ -152,7 +152,7 @@ def _statement(statement, lock):
     return statement.execution_options(populate_existing=True)
 
 
-async def _relation(db, task_id, lock):
+async def _relation(db, task_id, lock, *, allow_missing=False):
     task = await db.scalar(_statement(select(Task).where(Task.id == task_id), lock))
     if task is None:
         raise ContentError("content_task_missing", 404)
@@ -179,7 +179,7 @@ async def _relation(db, task_id, lock):
     ):
         raise ContentError("original_relation_conflict")
     item_id = task.dataset_item_id or (primary[0].item_id if primary else None)
-    if task.original_id is None and item_id is None:
+    if task.original_id is None and item_id is None and not allow_missing:
         raise ContentError("no_readable_original")
     return TaskRelation(
         task.id,
@@ -485,3 +485,23 @@ async def resolve_task(db, task_id, *, lock=False):
             None,
             location_facts,
         )
+
+
+async def resolve_task_link(db, task_id, link_id, *, lock=False):
+    """Resolve an exact camera link without borrowing the primary file's path.
+
+    A missing primary does not revoke an otherwise lawful linked camera. All
+    Task/link facts still freeze together, including independent-owner and
+    conflicting-primary checks. The primary resolver keeps its strict default.
+    """
+    async with _reads(db, lock):
+        relation = await _relation(db, task_id, lock, allow_missing=True)
+        selected = next((link for link in relation.links if link.id == link_id), None)
+        if selected is None:
+            raise ContentError("content_link_missing", 404)
+        if not selected.role.startswith("camera_") or not selected.role[7:]:
+            raise ContentError("original_link_invalid")
+        source = await _item(db, selected.item_id, lock)
+        if source.media_type != "image":
+            raise ContentError("camera_original_not_image")
+        return replace(source, relation=relation)
