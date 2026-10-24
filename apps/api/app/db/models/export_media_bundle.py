@@ -1,4 +1,4 @@
-"""Durable delivery of exact LiDAR media independently of business retention."""
+"""Durable exact media delivery independently of business retention."""
 
 from datetime import datetime
 import uuid
@@ -14,7 +14,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, column_property, mapped_column
 
 from app.db.base import Base
 
@@ -60,6 +60,27 @@ COALESCE((jsonb_typeof(input_snapshot) = 'object'
         + octet_length(inventory::text) <= 268435456), false)
 """
 
+EXPORT_MEDIA_VIDEO_CHECK = """
+CASE WHEN input_snapshot->'schema' = '4'::jsonb THEN COALESCE((
+    input_snapshot->>'schema' = '4'
+    AND input_snapshot->'probe_contract' = '1'::jsonb
+    AND input_snapshot->>'probe_contract' = '1'
+    AND input_snapshot->'references' = '{}'::jsonb
+    AND jsonb_typeof(input_snapshot->'project') = 'object'
+    AND input_snapshot->'project'->>'id' = project_id::text
+    AND input_snapshot->'project'->>'data_type' = 'video'
+    AND jsonb_typeof(input_snapshot->'tasks') = 'array'
+    AND jsonb_typeof(input_snapshot->'media') = 'array'
+    AND jsonb_array_length(CASE WHEN jsonb_typeof(input_snapshot->'tasks') = 'array'
+        THEN input_snapshot->'tasks' ELSE '[]'::jsonb END) <= 1000
+    AND jsonb_array_length(CASE WHEN jsonb_typeof(input_snapshot->'media') = 'array'
+        THEN input_snapshot->'media' ELSE '[]'::jsonb END)
+        = jsonb_array_length(CASE WHEN jsonb_typeof(input_snapshot->'tasks') = 'array'
+        THEN input_snapshot->'tasks' ELSE '[]'::jsonb END)
+    AND object_count <= 1000 AND size_bytes <= 21474836480
+), false) ELSE true END
+"""
+
 
 class ExportMediaBundle(Base):
     __tablename__ = "export_media_bundles"
@@ -69,6 +90,7 @@ class ExportMediaBundle(Base):
             "input_digest ~ '^[0-9a-f]{64}$'", name="ck_export_media_input_digest"
         ),
         CheckConstraint(EXPORT_MEDIA_DOCUMENTS_CHECK, name="ck_export_media_documents"),
+        CheckConstraint(EXPORT_MEDIA_VIDEO_CHECK, name="ck_export_media_video"),
         CheckConstraint(
             "object_count BETWEEN 0 AND 21000 AND size_bytes BETWEEN 0 AND 25769803776",
             name="ck_export_media_budget",
@@ -116,6 +138,9 @@ class ExportMediaBundle(Base):
     input_snapshot: Mapped[dict] = mapped_column(
         JSONB(none_as_null=True), nullable=False
     )
+    # Select one authoritative scalar for physical/retirement fences without
+    # loading the private frozen document during cleanup.
+    input_schema = column_property(input_snapshot["schema"].label("input_schema"))
     input_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     logical_paths: Mapped[dict] = mapped_column(
         JSONB(none_as_null=True), nullable=False

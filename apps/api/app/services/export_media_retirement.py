@@ -32,6 +32,7 @@ _FIELDS = (
     "job_id",
     "zip_output_id",
     "input_digest",
+    "input_schema",
     "object_count",
     "size_bytes",
     "storage_ref",
@@ -82,7 +83,13 @@ async def has_operations(db, owner, *, ignore=None):
 def _replacement_query():
     replacement = aliased(Bundle)
     proofs = []
-    for key, schema in (("lidar_media", 1), ("lidar_media", 2), ("image_media", 3)):
+    keys = {"lidar_media", "image_media", "video_media"}
+    for key, schema in (
+        ("lidar_media", 1),
+        ("lidar_media", 2),
+        ("image_media", 3),
+        ("video_media", 4),
+    ):
         proof = func.jsonb_build_object(
             "schema",
             schema,
@@ -95,9 +102,7 @@ def _replacement_query():
             and_(
                 replacement.input_snapshot["schema"] == literal(schema, type_=JSONB),
                 AsyncJob.payload[key] == proof,
-                ~AsyncJob.payload.has_key(
-                    "lidar_media" if key == "image_media" else "image_media"
-                ),
+                *(~AsyncJob.payload.has_key(other) for other in sorted(keys - {key})),
             )
         )
     return (
@@ -177,12 +182,12 @@ async def attempt_ended(db, owner, *, current=None):
     if job is None or job.status in _TERMINAL:
         return True
     payload = job.payload if type(job.payload) is dict else {}
-    if "image_media" in payload:
-        if "lidar_media" in payload:
-            return False
-        proof, schemas = payload["image_media"], {3}
-    else:
-        proof, schemas = payload.get("lidar_media"), {1, 2}
+    protocols = {"lidar_media": {1, 2}, "image_media": {3}, "video_media": {4}}
+    keys = set(payload).intersection(protocols)
+    if len(keys) != 1:
+        return False
+    key = keys.pop()
+    proof, schemas = payload[key], protocols[key]
     if (
         job.kind != "export"
         or job.project_id != owner.project_id
@@ -240,6 +245,7 @@ async def zip_eligible(db, owner, output, *, ignore=None):
         or output.project_id != owner.project_id
         or output.job_id != owner.job_id
         or output.expires_at != owner.expires_at
+        or output.media != ("video" if physical.input_schema(owner) == 4 else "image")
     ):
         return False
     if await has_operations(db, owner, ignore=ignore):
@@ -269,7 +275,12 @@ class Receipt:
 
 def snapshot(row):
     result = Receipt(
-        tuple(deepcopy(getattr(row, name)) for name in _VALUES),
+        tuple(
+            physical.input_schema(row)
+            if name == "input_schema"
+            else deepcopy(getattr(row, name))
+            for name in _VALUES
+        ),
         deepcopy(row.storage_ref),
         deepcopy(row.inventory),
     )

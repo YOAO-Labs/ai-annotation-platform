@@ -163,13 +163,13 @@ async def _session(db):
             raise
 
 
-def _spec(source):
+def _spec(source, *, maximum=physical.MAX_OBJECT_BYTES):
     if (
         not isinstance(source.location_id, uuid.UUID)
         or type(source.maintenance_revision) is not int
         or source.maintenance_revision < 1
         or type(source.size_bytes) is not int
-        or not 0 <= source.size_bytes <= physical.MAX_OBJECT_BYTES
+        or not 0 <= source.size_bytes <= maximum
     ):
         reject()
     return reader.ObjectSpec(
@@ -191,6 +191,7 @@ def _object_record(snapshot, relative):
         storage_ref=snapshot.storage_ref,
         created_at=snapshot.created_at,
         expires_at=snapshot.expires_at,
+        input_schema=physical.input_schema(snapshot),
     )
     owner = physical.resolve(record)
     key = owner.key(relative)
@@ -218,7 +219,7 @@ async def _fresh(
         await guard(owned)
         await bundles.check_claim(owned, snapshot)
         current = await resolve_source(owned, binding)
-        _spec(current)
+        _spec(current, maximum=physical.object_limit(snapshot))
         if expected is not None and current != expected:
             reject()
         await storage_access.check(
@@ -248,12 +249,12 @@ async def _acquire(db, snapshot, location_id, *, expected_revision=None):
     return await _async(acquire(), late=_settle)
 
 
-async def _capture(source, admission):
+async def _capture(source, admission, *, maximum=physical.MAX_OBJECT_BYTES):
     stop = threading.Event()
     pending = _submit(
         reader._capture,
-        _spec(source),
-        physical.MAX_OBJECT_BYTES,
+        _spec(source, maximum=maximum),
+        maximum,
         COPY_SECONDS,
         time.monotonic() + COPY_SECONDS,
         stop,
@@ -305,7 +306,7 @@ async def copy_source(
             _fresh(db, snapshot, binding, resolve_source, guard, expected=source)
         )
         admission = Admission()
-        stage = await _capture(source, admission)
+        stage = await _capture(source, admission, maximum=physical.object_limit(record))
         if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
             reject()
         await _async(
@@ -427,7 +428,7 @@ async def read_copy(db, snapshot, *, relative, guard, read):
             maintenance_revision=permit.revision,
         )
         admission = Admission()
-        stage = await _capture(source, admission)
+        stage = await _capture(source, admission, maximum=physical.object_limit(record))
         if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
             reject()
         await _async(_fresh_copy(db, snapshot, guard, permit.revision))

@@ -38,6 +38,22 @@ IMAGE_TARGETS = frozenset(
         "indexed-png",
     }
 )
+VIDEO_TARGETS = frozenset(
+    {
+        "video_json",
+        "aap_json",
+        "mot",
+        "kitti",
+        "yolo-frames-det",
+        "yolo-frames-seg",
+        "coco-frames-seg",
+        "davis",
+        "youtube-vos",
+        "mots",
+    }
+)
+MAX_VIDEOS = 1_000
+MAX_VIDEO_BYTES = 20 * 1024**3
 MAX_JSON_BYTES = 256 * 1024**2
 MAX_IMAGES = 20_000
 MAX_PCDS = 1_000
@@ -52,6 +68,7 @@ _SCALARS = (
     "job_id",
     "zip_output_id",
     "input_digest",
+    "input_schema",
     "object_count",
     "size_bytes",
     "created_at",
@@ -165,6 +182,12 @@ def _relative(path):
 
 
 def _sources(data, project_id):
+    if (
+        isinstance(data, dict)
+        and type(data.get("schema")) is int
+        and data["schema"] == 4
+    ):
+        return _video_sources(data, project_id)
     if (
         isinstance(data, dict)
         and type(data.get("schema")) is int
@@ -426,6 +449,93 @@ def _image_sources(data, project_id):
     return sources, {target: set(sources) for target in targets}
 
 
+def _video_sources(data, project_id):
+    """Schema four copies canonical videos; Task bindings never choose a budget."""
+    project, targets = data.get("project"), data.get("targets")
+    tasks, media = data.get("tasks"), data.get("media")
+    if (
+        data.get("project_id") != str(project_id)
+        or not isinstance(project, dict)
+        or project.get("id") != str(project_id)
+        or project.get("data_type") != "video"
+        or not isinstance(targets, list)
+        or not targets
+        or any(not isinstance(t, str) or t not in VIDEO_TARGETS for t in targets)
+        or len(set(targets)) != len(targets)
+        or not isinstance(data.get("options"), dict)
+        or type(data.get("probe_contract")) is not int
+        or data["probe_contract"] != 1
+        or data.get("references") != {}
+        or not isinstance(data.get("segments"), list)
+        or not isinstance(data.get("quality_runs"), list)
+        or not isinstance(tasks, list)
+        or not isinstance(media, list)
+    ):
+        reject("invalid", 422)
+    if len(tasks) > MAX_VIDEOS or len(media) > MAX_VIDEOS:
+        reject("budget", 422)
+    by_task = {}
+    for task in tasks:
+        if (
+            not isinstance(task, dict)
+            or task.get("project_id") != str(project_id)
+            or task.get("file_type") != "video"
+            or is_reference(task.get("file_path"))
+        ):
+            reject("invalid", 422)
+        identifier = str(_uuid(task.get("id")))
+        if identifier in by_task:
+            reject("invalid", 422)
+        by_task[identifier] = task
+    if len(media) != len(by_task):
+        reject("coverage", 422)
+    sources, bindings, total = {}, set(), 0
+    for entry in media:
+        if not isinstance(entry, dict) or set(entry) != {
+            "task_id",
+            "role",
+            "link_id",
+            "source_key",
+            "source",
+        }:
+            reject("invalid", 422)
+        identifier, source = entry["task_id"], entry["source"]
+        if (
+            not isinstance(identifier, str)
+            or identifier not in by_task
+            or identifier in bindings
+            or entry["role"] != "video"
+            or entry["link_id"] is not None
+            or not isinstance(source, dict)
+            or not isinstance(source.get("owner_kind"), str)
+            or source.get("owner_kind") not in {"dataset_asset", "task_original"}
+            or source.get("media_type") != "video"
+            or not isinstance(source.get("relation"), dict)
+            or source["relation"].get("task_id") != identifier
+            or source["relation"].get("project_id") != str(project_id)
+        ):
+            reject("invalid", 422)
+        _uuid(source.get("content_id"))
+        _sha(source.get("sha256"))
+        size = source.get("size_bytes")
+        if type(size) is not int or not 1 <= size <= physical.MAX_VIDEO_OBJECT_BYTES:
+            reject("invalid", 422)
+        key, identity = _sha(entry["source_key"]), canonical_identity(source)
+        if _json_info(identity)[0] != key or (
+            key in sources and sources[key] != identity
+        ):
+            reject("source_changed")
+        if key not in sources:
+            sources[key] = identity
+            total += size
+            if total > MAX_VIDEO_BYTES:
+                reject("budget", 422)
+        bindings.add(identifier)
+    if bindings != set(by_task):
+        reject("coverage", 422)
+    return sources, {target: set(sources) for target in targets}
+
+
 def _logical_sources(logical_sources, required):
     if not isinstance(logical_sources, dict) or set(logical_sources) != set(required):
         reject("coverage", 422)
@@ -446,6 +556,7 @@ class BundleFence:
     job_id: uuid.UUID
     zip_output_id: uuid.UUID
     input_digest: str
+    input_schema: int
     object_count: int
     size_bytes: int
     created_at: datetime
@@ -495,12 +606,23 @@ def _field(row, name):
 
 def _fence(row):
     facts = {name: _field(row, name) for name in _SCALARS}
+    facts["input_schema"] = physical.input_schema(row)
     for name in ("id", "project_id", "job_id", "zip_output_id"):
         facts[name] = _uuid(facts[name])
     _sha(facts["input_digest"])
     for name, limit in (
-        ("object_count", physical.MAX_OBJECTS),
-        ("size_bytes", physical.MAX_TOTAL_BYTES),
+        (
+            "object_count",
+            physical.MAX_VIDEO_OBJECTS
+            if facts["input_schema"] == 4
+            else physical.MAX_OBJECTS,
+        ),
+        (
+            "size_bytes",
+            physical.MAX_VIDEO_TOTAL_BYTES
+            if facts["input_schema"] == 4
+            else physical.MAX_TOTAL_BYTES,
+        ),
     ):
         if type(facts[name]) is not int or not 0 <= facts[name] <= limit:
             reject("invalid")
@@ -546,7 +668,7 @@ def snapshot(row):
     if digest != fence.input_digest:
         reject("input_changed")
     sources, required = _sources(data, fence.project_id)
-    objects = physical.validate_inventory(row)
+    objects = physical.validate_inventory(fence, inventory=inventory)
     if fence.object_count != len(objects) or fence.size_bytes != sum(
         entry["size_bytes"] for entry in objects.values()
     ):
@@ -653,6 +775,7 @@ async def allocate(
         job_id=job_id,
         zip_output_id=output_id,
         input_snapshot=deepcopy(input_snapshot),
+        input_schema=input_snapshot["schema"],
         input_digest=input_digest,
         logical_paths={
             "schema": 1,

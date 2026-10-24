@@ -17,7 +17,7 @@ from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.db.models.storage_maintenance import StorageOperation
-from app.services import export_storage, storage_access
+from app.services import export_media_storage, export_storage, storage_access
 
 log = logging.getLogger(__name__)
 _FACTS = (
@@ -161,7 +161,8 @@ def _creation_valid(
         or bundle.zip_output_id != identifier
         or bundle.created_at != started
         or bundle.expires_at != expires
-        or media != "image"
+        or media
+        != ("video" if export_media_storage.input_schema(bundle) == 4 else "image")
         or bundle.state != "building"
         or bundle.published_at is not None
         or bundle.retired_at is not None

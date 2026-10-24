@@ -27,6 +27,9 @@ from app.services.storage_access import (
 
 LEGACY_LOCATION_ID = uuid.uuid5(uuid.NAMESPACE_URL, "aap:platform-storage:legacy")
 MAX_OBJECT_BYTES = 256 * 1024**2
+MAX_VIDEO_OBJECT_BYTES = 5 * 1024**3
+MAX_VIDEO_TOTAL_BYTES = 20 * 1024**3
+MAX_VIDEO_OBJECTS = 1_000
 MAX_TOTAL_BYTES = 24 * 1024**3
 MAX_OBJECTS = 21_000
 RETENTION_SECONDS = 7 * 24 * 3600
@@ -198,8 +201,12 @@ def make_ref(identifier, *, bucket, endpoint_url=None):
     ).ref
 
 
-def _field(record, name):
-    return record.get(name) if isinstance(record, dict) else getattr(record, name, None)
+def _field(record, name, default=None):
+    return (
+        record.get(name, default)
+        if isinstance(record, dict)
+        else getattr(record, name, default)
+    )
 
 
 def _instant(value):
@@ -230,20 +237,61 @@ def _live(record, now=None):
         _reject("expired")
 
 
-def _receipt(value):
+def input_schema(record):
+    """Read a trusted scalar projection, checking any available frozen document.
+
+    Old small physical records predate the projection and retain legacy limits.
+    A source's claimed media type never chooses the physical budget.
+    """
+    missing = object()
+    scalar = _field(record, "input_schema", missing)
+    values = record if isinstance(record, dict) else getattr(record, "__dict__", {})
+    data = values.get("_input_snapshot", values.get("input_snapshot", missing))
+    if data is not missing:
+        if not isinstance(data, dict):
+            _reject("invalid_receipt")
+        schema = data.get("schema")
+        if type(schema) is not int or schema not in {1, 2, 3, 4}:
+            _reject("invalid_receipt")
+        if (
+            scalar is not missing
+            and scalar is not None
+            and (type(scalar) is not int or scalar != schema)
+        ):
+            _reject("invalid_receipt")
+        scalar = schema
+    if scalar is missing:
+        return 1
+    if type(scalar) is not int or scalar not in {1, 2, 3, 4}:
+        _reject("invalid_receipt")
+    return scalar
+
+
+def object_limit(record):
+    return MAX_VIDEO_OBJECT_BYTES if input_schema(record) == 4 else MAX_OBJECT_BYTES
+
+
+def _limits(record):
+    if input_schema(record) == 4:
+        return MAX_VIDEO_OBJECT_BYTES, MAX_VIDEO_TOTAL_BYTES, MAX_VIDEO_OBJECTS
+    return MAX_OBJECT_BYTES, MAX_TOTAL_BYTES, MAX_OBJECTS
+
+
+def _receipt(value, *, maximum=MAX_OBJECT_BYTES, minimum=0):
     if (
         not isinstance(value, dict)
         or set(value) != {"sha256", "size_bytes"}
         or not isinstance(value["sha256"], str)
         or _SHA.fullmatch(value["sha256"]) is None
         or type(value["size_bytes"]) is not int
-        or not 0 <= value["size_bytes"] <= MAX_OBJECT_BYTES
+        or not minimum <= value["size_bytes"] <= maximum
     ):
         _reject("invalid_receipt")
     return dict(value)
 
 
 def _inventory(record, inventory=None):
+    _, _, count = _limits(record)
     value = _field(record, "inventory") if inventory is None else inventory
     if (
         not isinstance(value, dict)
@@ -251,7 +299,7 @@ def _inventory(record, inventory=None):
         or type(value["schema"]) is not int
         or value["schema"] != 1
         or not isinstance(value["objects"], dict)
-        or len(value["objects"]) > MAX_OBJECTS
+        or len(value["objects"]) > count
     ):
         _reject("invalid_receipt")
     return value["objects"]
@@ -260,12 +308,14 @@ def _inventory(record, inventory=None):
 def validate_inventory(record, inventory=None):
     """One linear metadata pass; single-object operations use constant-time lookup."""
     owner = resolve(record)
+    maximum, budget, _ = _limits(record)
+    minimum = 1 if input_schema(record) == 4 else 0
     result, total = {}, 0
     for key, value in _inventory(record, inventory).items():
         owner.contains(key)
-        result[key] = _receipt(value)
+        result[key] = _receipt(value, maximum=maximum, minimum=minimum)
         total += result[key]["size_bytes"]
-        if total > MAX_TOTAL_BYTES:
+        if total > budget:
             _reject("budget")
     return result
 
@@ -275,7 +325,11 @@ def _expected(record, owner, relative):
     value = _inventory(record).get(key)
     if value is None:
         _reject("invalid_key")
-    return key, _receipt(value)
+    return key, _receipt(
+        value,
+        maximum=object_limit(record),
+        minimum=1 if input_schema(record) == 4 else 0,
+    )
 
 
 def _translate(exc):
@@ -530,7 +584,8 @@ def write_object(client, record, relative, source_fd):
         raise _translate(exc) from None
 
 
-def _objects(client, owner, expected, deadline):
+def _objects(client, owner, expected, deadline, *, limits):
+    maximum, budget, count = limits
     result, token, seen, total = {}, None, set(), 0
     while True:
         _budget(deadline)
@@ -556,11 +611,7 @@ def _objects(client, owner, expected, deadline):
                 _reject("integrity_mismatch")
             result[key] = size
             total += size
-            if (
-                size > MAX_OBJECT_BYTES
-                or total > MAX_TOTAL_BYTES
-                or len(result) > MAX_OBJECTS
-            ):
+            if size > maximum or total > budget or len(result) > count:
                 _reject("budget")
         if not response["IsTruncated"]:
             return result
@@ -576,7 +627,13 @@ def list_objects(client, record):
     _client(client, owner)
     expected = validate_inventory(record)
     try:
-        return _objects(client, owner, expected, time.monotonic() + VERIFY_SECONDS)
+        return _objects(
+            client,
+            owner,
+            expected,
+            time.monotonic() + VERIFY_SECONDS,
+            limits=_limits(record),
+        )
     except Exception as exc:
         raise _translate(exc) from None
 
@@ -589,11 +646,11 @@ def verify_inventory(client, record):
     deadline = time.monotonic() + VERIFY_SECONDS
     _live(record)
     try:
-        if _objects(client, owner, objects, deadline) != sizes:
+        if _objects(client, owner, objects, deadline, limits=_limits(record)) != sizes:
             _reject("integrity_mismatch")
         for key, expected in objects.items():
             _read(client, owner, key, expected, deadline)
-        if _objects(client, owner, objects, deadline) != sizes:
+        if _objects(client, owner, objects, deadline, limits=_limits(record)) != sizes:
             _reject("integrity_mismatch")
         _live(record)
         return {"schema": 1, "objects": objects}
@@ -620,7 +677,7 @@ def signed_url(client, record, relative, *, now=None):
         raise _translate(exc) from None
 
 
-def _versions(client, owner, expected, deadline):
+def _versions(client, owner, expected, deadline, *, maximum):
     result, markers, seen = [], {}, set()
     while True:
         _budget(deadline)
@@ -647,7 +704,7 @@ def _versions(client, owner, expected, deadline):
                     _reject("integrity_mismatch")
                 seen.add((key, version))
                 result.append({"Key": key, "VersionId": version})
-                if len(result) > MAX_OBJECTS * 2:
+                if len(result) > maximum * 2:
                     _reject("budget")
         if not response["IsTruncated"]:
             return result
@@ -680,8 +737,9 @@ def delete_inventory(client, record):
     expected = validate_inventory(record)
     deadline = time.monotonic() + VERIFY_SECONDS
     try:
-        visible = _objects(client, owner, expected, deadline)
-        versions = _versions(client, owner, expected, deadline)
+        limits = _limits(record)
+        visible = _objects(client, owner, expected, deadline, limits=limits)
+        versions = _versions(client, owner, expected, deadline, maximum=limits[2])
         version_keys = {row["Key"] for row in versions}
         if not set(visible) <= version_keys:
             _reject("integrity_mismatch")
@@ -689,8 +747,8 @@ def delete_inventory(client, record):
             _budget(deadline)
             response = client.delete_object(Bucket=owner.bucket, **row)
             _http_ok(response, statuses=(200, 204))
-        if _objects(client, owner, expected, deadline) or _versions(
-            client, owner, expected, deadline
+        if _objects(client, owner, expected, deadline, limits=limits) or _versions(
+            client, owner, expected, deadline, maximum=limits[2]
         ):
             _reject("integrity_mismatch")
         return len(versions)
