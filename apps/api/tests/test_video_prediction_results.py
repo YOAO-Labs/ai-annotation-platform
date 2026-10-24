@@ -670,3 +670,31 @@ def test_saved_geometry_is_closed_before_any_mask_load():
         target["unrecognized"] = True
         with pytest.raises(ContentError, match="geometry_unsupported"):
             subject.validate_saved_results([shape], probe())
+
+
+@pytest.mark.parametrize(
+    "outside",
+    [
+        True,
+        "false",
+        [{"from": True, "to": 3}],
+        [{"from": 3, "to": 8}],
+        [{"from": 4, "to": 3}],
+        [{"from": 4, "to": 5}, {"from": 3, "to": 3}],
+        [{"from": 3, "to": 5}, {"from": 4, "to": 6}],
+    ],
+)
+def test_aggregate_outside_ranges_keep_strict_types_frames_and_order(outside):
+    value = detector()
+    value["outside"] = outside
+    with pytest.raises(ContentError):
+        subject.validate_results(envelope([value]), TASK, probe())
+
+
+def test_frame_outside_remains_boolean_and_track_ranges_obey_request_window():
+    with pytest.raises(ContentError):
+        subject.validate_results(envelope([frame(0, outside=[])]), TASK, probe())
+    value = detector()
+    value["outside"] = [{"from": 3, "to": 4, "source": "prediction"}]
+    with pytest.raises(ContentError, match="frame_invalid"):
+        subject.validate_results(envelope([value]), TASK, probe(), window=(0, 3))

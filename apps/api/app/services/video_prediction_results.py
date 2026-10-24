@@ -236,8 +236,15 @@ def _bbox(value, *, outside=False):
         reject()
 
 
-def _flags(value):
-    for key in ("outside", "primary", "occluded"):
+def _flags(value, *, outside_ranges=False):
+    # Only an unwrapped aggregate track owns an outside range list; its full
+    # interval validation belongs to _track, never to per-frame flag handling.
+    keys = (
+        ("primary", "occluded")
+        if outside_ranges
+        else ("outside", "primary", "occluded")
+    )
+    for key in keys:
         if key in value and type(value[key]) is not bool:
             reject()
     for key in ("confidence", "score"):
@@ -530,8 +537,8 @@ def _validate_results(
         for item in rows:
             if not isinstance(item, dict):
                 reject()
-            _flags(item)
             aggregate = item.get("type") in _TRACK_KINDS
+            _flags(item, outside_ranges=aggregate and "geometry" not in item)
             if mode is not None and mode != aggregate:
                 reject("geometry_unsupported")
             mode = aggregate
