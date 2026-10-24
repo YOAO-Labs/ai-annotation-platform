@@ -198,6 +198,29 @@ def _prove_absent(client, params):
     raise AvatarStorageError("avatar_storage_probe_cleanup_unproven")
 
 
+def _conditional_put(client, params, data):
+    try:
+        return client.put_object(**params, Body=data, IfNoneMatch="*")
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in {
+            "AccessDenied",
+            "403",
+            "NoSuchBucket",
+            "404",
+            "InvalidRequest",
+            "400",
+            "PreconditionFailed",
+            "412",
+            "ConditionalRequestConflict",
+            "409",
+        }:
+            raise
+        raise storage_access.mark_unsettled(exc)
+    except BaseException as exc:
+        # A lost PUT response cannot be converted to proven deletion.
+        raise storage_access.mark_unsettled(exc)
+
+
 def probe_target(target):
     """Prove controlled creation, full readback and exact cleanup at this target."""
     from app.services.avatar_storage import AvatarStorageError
@@ -207,26 +230,7 @@ def probe_target(target):
     data = hashlib.sha256(uuid.uuid4().bytes + uuid.uuid4().bytes).digest()
     with target.client() as client:
         params = object_params(target.bucket, key)
-        try:
-            response = client.put_object(**params, Body=data, IfNoneMatch="*")
-        except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") in {
-                "AccessDenied",
-                "403",
-                "NoSuchBucket",
-                "404",
-                "InvalidRequest",
-                "400",
-                "PreconditionFailed",
-                "412",
-                "ConditionalRequestConflict",
-                "409",
-            }:
-                raise
-            raise storage_access.mark_unsettled(exc)
-        except BaseException as exc:
-            # A lost PUT response cannot be converted to proven deletion.
-            raise storage_access.mark_unsettled(exc)
+        response = _conditional_put(client, params, data)
         try:
             version = version_id(response)
         except BaseException as exc:
@@ -235,8 +239,8 @@ def probe_target(target):
         try:
             _read_probe(client, params, data)
             try:
-                unexpected = client.put_object(
-                    Bucket=target.bucket, Key=key, Body=b"conflict", IfNoneMatch="*"
+                unexpected = _conditional_put(
+                    client, object_params(target.bucket, key), b"conflict"
                 )
             except ClientError as exc:
                 if exc.response.get("Error", {}).get("Code") not in {
@@ -249,11 +253,14 @@ def probe_target(target):
             else:
                 # An ignored condition may have created another provider version;
                 # never call that a successfully qualified managed target.
-                unexpected_params = object_params(
-                    target.bucket, key, version_id(unexpected)
-                )
-                client.delete_object(**unexpected_params)
-                _prove_absent(client, unexpected_params)
+                try:
+                    unexpected_params = object_params(
+                        target.bucket, key, version_id(unexpected)
+                    )
+                    client.delete_object(**unexpected_params)
+                    _prove_absent(client, unexpected_params)
+                except BaseException as exc:
+                    raise storage_access.mark_unsettled(exc)
                 raise AvatarStorageError("avatar_storage_conditions_unsupported")
         finally:
             try:

@@ -151,6 +151,41 @@ def test_probe_rejects_ignored_create_condition_without_leaking_known_objects(ve
     assert not objects.objects
 
 
+def test_unknown_extra_write_during_condition_check_retains_responsibility():
+    objects = Objects("version")
+    objects.ignore_conditions = True
+    original = objects.put_object
+
+    def unknown_second_write(**kwargs):
+        result = original(**kwargs)
+        if objects.counter == 2:
+            raise TimeoutError("provider outcome unavailable")
+        return result
+
+    objects.put_object = unknown_second_write
+    with pytest.raises(TimeoutError) as caught:
+        targets.probe_target(target(objects))
+    assert caught.value.storage_operation_unsettled
+    assert len(objects.objects) == 1
+
+
+def test_extra_version_cleanup_refusal_retains_responsibility():
+    objects = Objects("version")
+    objects.ignore_conditions = True
+    original = objects.delete_object
+
+    def deny_extra_version(**kwargs):
+        if kwargs.get("VersionId") == "version-2":
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "DeleteObject")
+        return original(**kwargs)
+
+    objects.delete_object = deny_extra_version
+    with pytest.raises(ClientError) as caught:
+        targets.probe_target(target(objects))
+    assert caught.value.storage_operation_unsettled
+    assert len(objects.objects) == 1
+
+
 @pytest.mark.parametrize("version", [None, "null", "version"])
 def test_write_returns_real_receipt_and_all_reads_and_deletes_pin_it(version):
     objects = Objects(version)
