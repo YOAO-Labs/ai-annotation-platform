@@ -296,6 +296,11 @@ def test_empty_archive_has_one_metadata_item(storage):
         "source-digest",
         "source-size",
         "gzip-tail",
+        "bad-crc",
+        "bad-isize",
+        "blank-source",
+        "blank-after-meta",
+        "missing-final-newline",
     ],
 )
 def test_full_semantic_verification_rejects_corruption_outside_page(storage, damage):
@@ -311,6 +316,9 @@ def test_full_semantic_verification_rejects_corruption_outside_page(storage, dam
         "wrong-meta",
         "duplicate-key",
         "noncanonical",
+        "blank-source",
+        "blank-after-meta",
+        "missing-final-newline",
     }:
         source = b"".join(owners.canonical_line(item) for item in rows)
         trailer, suffix = None, b""
@@ -324,11 +332,21 @@ def test_full_semantic_verification_rejects_corruption_outside_page(storage, dam
             source = source.replace(b'"id":2,', b'"id":2,"id":2,')
         elif damage == "noncanonical":
             source = source.replace(b'"id":2,', b'"id": 2,')
+        elif damage == "blank-source":
+            source = b"\n" + source
+        elif damage == "blank-after-meta":
+            suffix = b"\n"
+        elif damage == "missing-final-newline":
+            trailer = owners.encode_meta(row)[:-1]
         row, raw = archive(rows, source=source, trailer=trailer, suffix=suffix)
     if damage == "truncated":
         raw = raw[:-5]
     elif damage == "gzip-tail":
         raw += b"invalid tail"
+    elif damage == "bad-crc":
+        raw = raw[:-8] + bytes([raw[-8] ^ 1]) + raw[-7:]
+    elif damage == "bad-isize":
+        raw = raw[:-4] + bytes([raw[-4] ^ 1]) + raw[-3:]
     elif damage == "source-digest":
         row.source_sha256 = "0" * 64
     elif damage == "source-size":
@@ -339,6 +357,111 @@ def test_full_semantic_verification_rejects_corruption_outside_page(storage, dam
     with pytest.raises(owners.AuditArchiveStorageError) as rejected:
         owners.read(row, limit=1)
     assert rejected.value.status_code == 409
+    assert all(body.closed for body in storage.client.bodies)
+
+
+@pytest.mark.parametrize(
+    "extra", ["zeros", "empty-tail", "empty-head", "split-line", "split-row"]
+)
+def test_one_gzip_member_has_no_extra_physical_bytes(storage, extra):
+    row, raw = archive([audit_row()])
+    plaintext = gzip.decompress(raw)
+    if extra == "zeros":
+        raw += b"\x00" * 100
+    elif extra == "empty-tail":
+        raw += gzip.compress(b"", mtime=0)
+    elif extra == "empty-head":
+        raw = gzip.compress(b"", mtime=0) + raw
+    else:
+        boundary = 10 if extra == "split-line" else plaintext.index(b"\n") + 1
+        raw = gzip.compress(plaintext[:boundary], mtime=0) + gzip.compress(
+            plaintext[boundary:], mtime=0
+        )
+    row.sha256, row.size_bytes = hashlib.sha256(raw).hexdigest(), len(raw)
+    storage.client.raw = raw
+    with pytest.raises(owners.AuditArchiveStorageError) as rejected:
+        owners.read(row)
+    assert rejected.value.code == "audit_archive_storage_integrity_mismatch"
+    assert all(body.closed for body in storage.client.bodies)
+    with io.BytesIO(raw) as source:
+        with pytest.raises(owners.AuditArchiveStorageError):
+            owners.write(row, source)
+        assert source.tell() == 0 and not source.closed
+    assert not any(name == "put" for name, _ in storage.client.calls)
+
+
+def test_valid_source_row_spans_multiple_bounded_decompression_outputs(storage):
+    row, storage.client.raw = archive(
+        [audit_row(detail_json={"text": "x" * (3 * owners.CHUNK_BYTES)})]
+    )
+    assert owners.read(row, limit=1, offset=1) == {
+        "items": [owners.metadata(row)],
+        "total": 2,
+    }
+    assert all(body.closed for body in storage.client.bodies)
+
+
+def test_long_gzip_header_obeys_compressed_chunk_deadline(monkeypatch):
+    row, raw = archive()
+    header = bytearray(raw[:10])
+    header[3] |= 8
+    raw = bytes(header) + b"x" * (3 * owners.CHUNK_BYTES) + b"\x00" + raw[10:]
+    row.sha256, row.size_bytes = hashlib.sha256(raw).hexdigest(), len(raw)
+
+    class ProgressFile(io.BytesIO):
+        consumed = 0
+        requests = []
+
+        def read(self, size=-1):
+            self.requests.append(size)
+            chunk = super().read(size)
+            self.consumed += len(chunk)
+            return chunk
+
+    with ProgressFile(raw) as source:
+        # Reading two compressed chunks exhausts the cooperative time window,
+        # before the optional filename terminator or any output can be reached.
+        monkeypatch.setattr(
+            owners.time,
+            "monotonic",
+            lambda: 601 if source.consumed > owners.CHUNK_BYTES else 0,
+        )
+        with pytest.raises(owners.AuditArchiveStorageError) as rejected:
+            owners._semantic(source, row, 100, 0, 600)
+        assert rejected.value.code == "audit_archive_storage_budget"
+        assert source.consumed <= 2 * owners.CHUNK_BYTES
+        assert all(0 < request <= owners.CHUNK_BYTES for request in source.requests)
+        assert source.tell() == 0 and not source.closed
+
+
+def test_decompression_expansion_is_bounded_before_missing_newline(
+    storage, monkeypatch
+):
+    row, _ = archive()
+    raw = gzip.compress(b"x" * (32 * owners.CHUNK_BYTES), mtime=0)
+    row.sha256, row.size_bytes = hashlib.sha256(raw).hexdigest(), len(raw)
+    storage.client.raw = raw
+    original = owners.zlib.decompressobj
+    calls = []
+
+    class BoundedDecoder:
+        def __init__(self, *args):
+            self.decoder = original(*args)
+
+        def __getattr__(self, name):
+            return getattr(self.decoder, name)
+
+        def decompress(self, data, maximum):
+            assert 0 < maximum <= owners.CHUNK_BYTES
+            output = self.decoder.decompress(data, maximum)
+            calls.append((len(data), len(output)))
+            return output
+
+    monkeypatch.setattr(owners.zlib, "decompressobj", BoundedDecoder)
+    with pytest.raises(owners.AuditArchiveStorageError) as rejected:
+        owners.read(row)
+    assert rejected.value.code == "audit_archive_storage_integrity_mismatch"
+    assert calls and all(size <= owners.CHUNK_BYTES for _, size in calls)
     assert all(body.closed for body in storage.client.bodies)
 
 

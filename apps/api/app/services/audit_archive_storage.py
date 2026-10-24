@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field, make_dataclass
 from datetime import date, datetime, timezone
-import gzip
 import hashlib
 import ipaddress
 import json
@@ -498,48 +497,96 @@ def _unique_pairs(pairs):
     return result
 
 
+def _gzip_lines(fileobject, row, deadline):
+    """Decode one member with bounded input, output, lines and CPU checkpoints."""
+    decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    pending = bytearray()
+    compressed, expanded = 0, 0
+    expected = row.source_size_bytes + len(encode_meta(row))
+    while True:
+        _budget(deadline)
+        chunk = fileobject.read(min(CHUNK_BYTES, row.size_bytes - compressed + 1))
+        _budget(deadline)
+        if not isinstance(chunk, bytes):
+            _reject()
+        if not chunk:
+            if not decoder.eof or compressed != row.size_bytes or pending:
+                _reject()
+            return
+        compressed += len(chunk)
+        if compressed > row.size_bytes or decoder.eof:
+            _reject()
+        data = chunk
+        while True:
+            _budget(deadline)
+            output = decoder.decompress(data, CHUNK_BYTES)
+            _budget(deadline)
+            if decoder.unused_data:
+                # Empty members and zero padding are still extra physical bytes.
+                _reject()
+            expanded += len(output)
+            if expanded > expected:
+                _reject()
+            start = 0
+            while (end := output.find(b"\n", start)) != -1:
+                _budget(deadline)
+                pending.extend(output[start : end + 1])
+                if len(pending) > MAX_ROW_BYTES:
+                    _reject()
+                yield bytes(pending)
+                pending.clear()
+                start = end + 1
+            pending.extend(output[start:])
+            if len(pending) > MAX_ROW_BYTES:
+                _reject()
+            if decoder.eof:
+                break
+            data = decoder.unconsumed_tail
+            if not data and not output:
+                break
+            # Empty input drains any bounded output still buffered by zlib.
+
+
 def _semantic(fileobject, row, limit, offset, deadline):
     """Retain one bounded page while validating every source row and the trailer."""
     fileobject.seek(0)
     digest, size, count, previous, items = hashlib.sha256(), 0, 0, None, []
+    lines = _gzip_lines(fileobject, row, deadline)
     try:
-        with gzip.GzipFile(fileobj=fileobject, mode="rb") as stream:
-            while True:
-                _budget(deadline)
-                line = stream.readline(MAX_ROW_BYTES + 1)
-                if not line or len(line) > MAX_ROW_BYTES or not line.endswith(b"\n"):
+        while True:
+            _budget(deadline)
+            line = next(lines, None)
+            if line is None:
+                _reject()
+            value = json.loads(line.decode("utf-8"), object_pairs_hook=_unique_pairs)
+            if count == row.row_count:
+                if line != encode_meta(row) or value != metadata(row):
                     _reject()
-                value = json.loads(
-                    line.decode("utf-8"), object_pairs_hook=_unique_pairs
-                )
-                if count == row.row_count:
-                    if line != encode_meta(row) or value != metadata(row):
-                        _reject()
-                    if offset <= count < offset + limit:
-                        items.append(value)
-                    if stream.read(1):
-                        _reject()
-                    break
-                if line != canonical_line(value):
-                    _reject()
-                instant = datetime.fromisoformat(value["created_at"])
-                if not row.month_start <= instant.date() < row.month_end:
-                    _reject()
-                order = (value["id"], instant)
-                if previous is not None and order <= previous:
-                    _reject()
-                previous = order
-                count += 1
-                size += len(line)
-                if (
-                    count > MAX_ROWS
-                    or size > row.source_size_bytes
-                    or size > MAX_SOURCE_BYTES
-                ):
-                    _reject()
-                digest.update(line)
-                if offset <= count - 1 < offset + limit:
+                if offset <= count < offset + limit:
                     items.append(value)
+                if next(lines, None) is not None:
+                    _reject()
+                break
+            if line != canonical_line(value):
+                _reject()
+            instant = datetime.fromisoformat(value["created_at"])
+            if not row.month_start <= instant.date() < row.month_end:
+                _reject()
+            order = (value["id"], instant)
+            if previous is not None and order <= previous:
+                _reject()
+            previous = order
+            count += 1
+            size += len(line)
+            if (
+                count > MAX_ROWS
+                or size > row.source_size_bytes
+                or size > MAX_SOURCE_BYTES
+            ):
+                _reject()
+            digest.update(line)
+            if offset <= count - 1 < offset + limit:
+                items.append(value)
         if (
             count != row.row_count
             or size != row.source_size_bytes
@@ -560,6 +607,7 @@ def _semantic(fileobject, row, limit, offset, deadline):
             raise
         _reject()
     finally:
+        lines.close()
         fileobject.seek(0)
     return {"items": items, "total": row.row_count + 1}
 
