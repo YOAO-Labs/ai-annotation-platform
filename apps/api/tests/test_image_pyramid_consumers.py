@@ -205,6 +205,27 @@ def test_vips_header_cleanup_failure_keeps_physical_uncertainty(monkeypatch):
     assert failure.value.storage_operation_unsettled is True
 
 
+def test_vips_header_decode_wrapper_preserves_physical_uncertainty(monkeypatch):
+    from app.services.image_pyramid import ImagePyramidError
+    from app.services.storage_access import mark_unsettled
+
+    uncertain = mark_unsettled(RuntimeError("native constructor interrupted"))
+    fake_vips = SimpleNamespace(
+        Image=SimpleNamespace(new_from_file=MagicMock(side_effect=uncertain)),
+        cache_set_max=MagicMock(),
+        cache_set_max_mem=MagicMock(),
+        cache_set_max_files=MagicMock(),
+    )
+    monkeypatch.setitem(sys.modules, "pyvips", fake_vips)
+    stage = SimpleNamespace(file=SimpleNamespace(fileno=lambda: 123))
+
+    with pytest.raises(ImagePyramidError) as failure:
+        media._pyramid_dimensions_from_stage(stage)
+
+    assert failure.value.code == "decode_failed"
+    assert failure.value.storage_operation_unsettled is True
+
+
 @pytest.mark.parametrize("capture_failure", [False, True])
 async def test_large_image_seed_registers_only_after_verified_read_and_close(
     monkeypatch, tmp_path, capture_failure

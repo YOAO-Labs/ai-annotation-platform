@@ -102,7 +102,10 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
     except ImagePyramidError:
         raise
     except Exception as exc:
-        raise ImagePyramidError("decode_failed") from exc
+        error = ImagePyramidError("decode_failed")
+        if getattr(exc, "storage_operation_unsettled", False):
+            mark_unsettled(error)
+        raise error from exc
     finally:
         try:
             image = None
