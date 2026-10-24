@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-jobs-queue/v1",
+  "title": "AAP Jobs private Celery queue protocol",
+  "$comment": "Broker acceptance does not prove task completion. Revoke requests use terminate=false. This first consumer supports no custom Celery options or canvases.",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-jobs-queue/v1" },
+        "operation": { "const": "dispatch" },
+        "task_name": { "minLength": 1, "type": "string" },
+        "execution_id": { "maxLength": 64, "minLength": 1, "type": "string" },
+        "args": { "items": {}, "type": "array" },
+        "kwargs": { "additionalProperties": {}, "type": "object" },
+        "options": { "maxProperties": 0, "type": "object" }
+      },
+      "required": ["schema", "operation", "task_name", "execution_id", "args", "kwargs", "options"],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-jobs-queue/v1" },
+        "operation": { "const": "revoke" },
+        "execution_id": { "maxLength": 64, "minLength": 1, "type": "string" }
+      },
+      "required": ["schema", "operation", "execution_id"],
+      "type": "object"
+    }
+  ],
+  "x-response": {
+    "additionalProperties": false,
+    "properties": {
+      "schema": { "const": "aap-jobs-queue/v1" },
+      "accepted": { "type": "boolean" },
+      "execution_id": { "maxLength": 64, "minLength": 1, "type": "string" }
+    },
+    "required": ["schema", "accepted", "execution_id"],
+    "type": "object"
+  },
+  "x-broker-config": {
+    "source": "apps/api/app/workers/celery_app.py",
+    "resource": "aap_jobs/queue_routes.json",
+    "retry": "retain the Celery task_publish_retry policy; no HTTP retry",
+    "default_options": [],
+    "qualified_consumer": {
+      "task": "app.workers.cross_frame_job.run_cross_frame_job",
+      "arguments": "one positional job UUID string",
+      "queue": "default",
+      "execution_id": "predeclared by the Jobs API"
+    },
+    "unsupported": [
+      "other task payloads",
+      "custom task options",
+      "canvas/group/chord",
+      "non-JSON serializers"
+    ]
+  },
+  "x-security": {
+    "service_authentication": "constant-time bearer token checked before request body read",
+    "credentials": ["broker URL", "service token"],
+    "forbidden_credentials": ["database", "Identity"]
+  }
+}

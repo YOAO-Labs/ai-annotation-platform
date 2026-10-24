@@ -1,0 +1,182 @@
+{
+  "accept_content": ["json"],
+  "result_serializer": "json",
+  "task_default_queue": "default",
+  "task_routes": {
+    "app.workers.active_learning.maintain_rounds": {
+      "queue": "default"
+    },
+    "app.workers.active_learning.run_round": {
+      "queue": "ml.cpu"
+    },
+    "app.workers.analytics.sync_to_duckdb": {
+      "queue": "cleanup"
+    },
+    "app.workers.async_jobs_cleanup.purge_old_async_jobs": {
+      "queue": "cleanup"
+    },
+    "app.workers.audit.persist_audit_entry": {
+      "queue": "audit"
+    },
+    "app.workers.audit_partition.archive_old_audit_partitions": {
+      "queue": "maintenance"
+    },
+    "app.workers.audit_partition.ensure_future_audit_partitions": {
+      "queue": "maintenance"
+    },
+    "app.workers.cleanup.purge_soft_deleted_attachments": {
+      "queue": "cleanup"
+    },
+    "app.workers.cleanup.purge_unreferenced_raster_masks": {
+      "queue": "cleanup"
+    },
+    "app.workers.cleanup.refresh_audit_bi_mv": {
+      "queue": "maintenance"
+    },
+    "app.workers.cleanup.refresh_user_perf_mv": {
+      "queue": "maintenance"
+    },
+    "app.workers.create_tasks.run_create_tasks": {
+      "queue": "default"
+    },
+    "app.workers.cross_frame_job.run_cross_frame_job": {
+      "queue": "default"
+    },
+    "app.workers.dataset_import_delivery.relay_dataset_import_deliveries": {
+      "queue": "maintenance"
+    },
+    "app.workers.deactivation.process_deactivation_requests": {
+      "queue": "default"
+    },
+    "app.workers.export.run_export": {
+      "queue": "export"
+    },
+    "app.workers.export_cleanup.purge_expired_export_artifacts": {
+      "queue": "cleanup"
+    },
+    "app.workers.frame_preannotate.extract_frames_task": {
+      "queue": "media"
+    },
+    "app.workers.frame_preannotate.launch_predict_phase": {
+      "queue": "default"
+    },
+    "app.workers.frame_preannotate.predict_video_segment": {
+      "queue": "ml"
+    },
+    "app.workers.identity_mail_delivery.relay_credential_mail": {
+      "queue": "default"
+    },
+    "app.workers.identity_mail_v2_delivery.relay_invitation_mail": {
+      "queue": "default"
+    },
+    "app.workers.image_pyramid.execute_image_media": {
+      "queue": "image-pyramid"
+    },
+    "app.workers.image_pyramid.generate_image_pyramid": {
+      "queue": "image-pyramid"
+    },
+    "app.workers.image_pyramid.reconcile_image_media": {
+      "queue": "cleanup"
+    },
+    "app.workers.image_pyramid.reconcile_image_pyramids": {
+      "queue": "cleanup"
+    },
+    "app.workers.learning_policy.check_policies": {
+      "queue": "default"
+    },
+    "app.workers.mask_format_import.run_mask_format_import": {
+      "queue": "media"
+    },
+    "app.workers.mask_qc.run_mask_qc": {
+      "queue": "media"
+    },
+    "app.workers.mask_repair.rollback_mask_repair": {
+      "queue": "media"
+    },
+    "app.workers.mask_repair.run_mask_repair": {
+      "queue": "media"
+    },
+    "app.workers.media.backfill_media": {
+      "queue": "media"
+    },
+    "app.workers.media.backfill_tasks": {
+      "queue": "media"
+    },
+    "app.workers.media.cleanup_video_frame_assets": {
+      "queue": "media"
+    },
+    "app.workers.media.ensure_video_chunks": {
+      "queue": "media"
+    },
+    "app.workers.media.execute_video_media": {
+      "queue": "media"
+    },
+    "app.workers.media.extract_video_frames": {
+      "queue": "media"
+    },
+    "app.workers.media.generate_task_thumbnail": {
+      "queue": "media"
+    },
+    "app.workers.media.generate_thumbnail": {
+      "queue": "media"
+    },
+    "app.workers.media.generate_video_metadata": {
+      "queue": "media"
+    },
+    "app.workers.ml_health.check_ml_backends_health": {
+      "queue": "default"
+    },
+    "app.workers.ml_health.publish_ml_backend_stats": {
+      "queue": "default"
+    },
+    "app.workers.ml_health.repair_gpu_arbiter_resources": {
+      "queue": "gpu.control"
+    },
+    "app.workers.notification_delivery.relay_identity_notifications": {
+      "queue": "default"
+    },
+    "app.workers.point_cloud_quality.run": {
+      "queue": "media"
+    },
+    "app.workers.prediction_partition.ensure_future_prediction_partitions": {
+      "queue": "maintenance"
+    },
+    "app.workers.predictions_retry.relay_prediction_retry_deliveries": {
+      "queue": "maintenance"
+    },
+    "app.workers.predictions_retry.retry_failed_prediction": {
+      "queue": "ml"
+    },
+    "app.workers.sample_evaluations.maintain_evaluations": {
+      "queue": "default"
+    },
+    "app.workers.sample_evaluations.run_sample_evaluation": {
+      "queue": "ml.cpu"
+    },
+    "app.workers.task_events.persist_task_events_batch": {
+      "queue": "audit"
+    },
+    "app.workers.tasks.batch_predict": {
+      "queue": "ml"
+    },
+    "app.workers.training_dataset.run_training_dataset": {
+      "queue": "export"
+    },
+    "app.workers.training_observability_cleanup.purge_observations": {
+      "queue": "cleanup"
+    },
+    "app.workers.training_preview_cleanup.purge_expired_previews": {
+      "queue": "cleanup"
+    },
+    "app.workers.training_study.check_studies": {
+      "queue": "default"
+    },
+    "app.workers.video_track_quality.run": {
+      "queue": "media"
+    },
+    "app.workers.video_tracker.run_video_tracker_job": {
+      "queue": "gpu"
+    }
+  },
+  "task_serializer": "json"
+}
