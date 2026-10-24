@@ -158,7 +158,7 @@ Minimap、评论画布和相邻任务预取只消费 thumbnail/overview；审核
 
 像素、单边尺寸、source/derived/temp bytes、tile 数和 wall time 保留现有硬限制；源读取另有两槽 admission。取消、超时和软时限等到真实 I/O、原生生成与注册句柄关闭，未知收尾保留 durable StorageOperation。统一 Asset→Generation→Output 锁序，metadata 锁不跨物理读取。
 
-每日 reconciliation 复验过期租约、移除非 active 旧代的引用，再将无引用且无在用操作的已知输出退役，提交后按保存前缀删除；删除失败保留责任重试。业务删除不执行当前缓存桶前缀清理，独立 output 留待 GC。不裸扫默认桶，不按时间删除其他任务临时目录，`image-pyramids/` 不使用固定期限 lifecycle。旧无归属代不自动签名、采纳或删除；原件已登记后可以显式重试新代，旧未知文件留待单独核验。该消费者迁移不开放整个 media-cache 用途切换。
+每日 reconciliation 复验过期租约、移除非 active 旧代的引用，再将无引用且无在用操作的已知输出退役。已发布输出从退役时重新计算宽限期，保护已经签发的 URL；宽限期结束后按保存前缀删除，删除失败保留责任重试。业务删除不执行当前缓存桶前缀清理，独立 output 留待 GC。不裸扫默认桶，不按时间删除其他任务临时目录，`image-pyramids/` 不使用固定期限 lifecycle。旧无归属代不自动签名、采纳或删除；原件已登记后可以显式重试新代，旧未知文件留待单独核验。该消费者迁移不开放整个 media-cache 用途切换。
 
 相关运维步骤见[图片金字塔运行手册](/ops/runbooks/image-pyramid)。
 客户端背景选择见 [ADR 0063](../adr/archive/0063-konva-viewport-image-tiles)，联合资源决策见 [ADR 0064](../adr/archive/0064-task-scoped-raster-resource-coordination)。
