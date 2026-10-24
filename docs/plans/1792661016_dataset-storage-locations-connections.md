@@ -1537,3 +1537,47 @@ Worker 修复继续使用 review.write、任务阶段／有效执行者、编辑
 人工环境经原所属监督服务刷新，两 Worker 均注册 73 项任务并保持准确队列，绑定 Beat 已恢复；3100／8100 返回 200。十二表 155 行、24 个对象完整字节和十二源文件指纹与实施前一致。test 数据库、专属 Redis 和九桶由 launcher 销毁，独立 doctor 实际核对全部不存在；三棵干净且补丁等价的任务隔离树及四个分支已清理。任务日志、JUnit、测试缓存和文档构建产物按归属清理，保留人工环境、本地虚拟环境、生成类型与共享依赖。
 
 README、CHANGELOG Unreleased、Mask 用户指南、任务／预测 API 与预测架构已同步；OpenAPI 无漂移、codegen、最终 docs build、Ruff／格式及 diff 检查通过。下一片先定稿视频 Tracker 的整视频原件、临时供图责任、当前授权和候选回写完整合同；E08 项目标签统计／准确范围跳转、E10 真实训练消费回执和生产／外部部署门禁继续独立推进，不将本片等同于整项完成。
+
+## E02-B13-B3-M Design — 整视频推理输入与 Tracker 候选闭环
+
+2026-10-25 基于 L 收尾 `93d18f6b2` 完成只读源码盘点。现有视频原件播放／Range、F 派生媒体、H2 冻结导出已经分别交付，不代表整视频 ML 输入已迁移。`video_tracking/runner.py` 和批量 `workers/tasks.py`／`predictions_retry.py` 仍调用 `storage.resolve_task_url`，按当前桶和 live Task 路径签名；SAM2／SAM3 与 YOLO 都实际下载整视频再自行解帧。原图片 authority 明确拒绝 video，不能借图片 receipt 或单纯换 URL 掩盖这一缺口。M 保留整视频 `file_path` 协议，不改 ML 镜像、模型权重或依赖。
+
+### 完整范围与实施顺序
+
+M1 完整交付共享视频原件／临时输入合同、项目批量与 workbench 已允许的视频 Tracker 预测、单条与作业级两种失败重试、普通 Prediction 的单条／批量采纳，以及同步 video predict-test 的整视频供图。M2 接入既有 direct DatasetItem／Segment 准入的交互传播、无源／多源／combo、native correction、Mask repair `rerun_tracker` 子任务和全量／实例窗口／QC-region 候选审核，同时覆盖通用 `interactive-annotating` 已能通过 `context.type=video_tracker` 到达的整视频模型路径。不能通过关闭这一已可达入口来代替完整来源接入。两片均完成后才可称整视频 Tracker 输入链收口，M1 不代替 M2。
+
+M1 和通用同步路径覆盖 TaskOriginal、直接 Item、primary-only 三种 canonical 来源；M2 的专用协作 Job 不凭本片放宽 `VideoTrackerJob.dataset_item_id` 非空、VideoContext、VideoSegment 和协作归属。引用视频仍沿现有明确拒绝合同，不按普通对象签名。浏览器上传单帧的交互入口与整视频模型路径分开盘点，不能把它或 F frame／chunk／playback 当作原件替代品；整套 E02 仍保留其余消费者及最终验收门。
+
+### M1：原件、版本化输入与失败重试
+
+复用 `original_sources.CachedResolver` 的三 canonical 定位、`managed_original_reader.BinaryStage` 的有界完整读取与确切关闭，以及 H2 `exporting/video_probe.inspect` 对同一已核验 FD 的真实尺寸／fps／解码帧数探测。F 的 direct-only／512MiB 合同保持；不直接复用导出七天 owner。视频源与临时输入采用显式 contract 3：单视频最多 5GiB、最多一个对象，沿用两小时有效期及七天恢复期限；v1／v2 图片合同、64MiB 单图、4GiB 总量与原清理行为不变。新 kind 区分 video batch／retry／predict-test，M2 再接 tracker；0241 从当前 0240 窄增合同约束，降级遇到任何 v3 责任（包含 deleted tombstone）明确拒绝，不能改写库存、首次期限或清理记录。
+
+新增视频分支须贯穿模型、数据库 CHECK、存储 ref／路径／清单验证、签名、回收与隔离恢复的封闭合同。只接受真实核验并已探测的二进制 stage，流式上传／回读，不把 5GiB 内容读入内存或伪装成图片 Snapshot；后缀／MIME 来自实际探测的受控格式，不能将任意字节标成 MP4。保留预登记 nonce、同 purpose 的来源／目标准入、条件创建、完整 PUT／GET SHA／长度证明、非 null VersionId 的签名下载及准确版本删除。对象总量、proof JSON、任务数、并发 stage、解码子进程和临时磁盘均须在开始大读取之前设限；沿用 H2 的五分钟 probe／一百万帧边界与原生进程真实排空，预算错误明确返回，不能假称未知值已核验。
+
+项目初始请求在派发前持久冻结任务范围、原 JWT／Key／scope、Batch／Task 关系、canonical 全事实和原 pipeline／模型声明，始终保留 bulk manager 与 workbench annotation-write 两套范围。非零 root、当前设备队列、执行快照、失败记录、幂等请求和取消语义继续复用；不能只给 video 关掉图片守卫后走 fallback。已允许的视频管线保持原能力合同，不在本片扩张图像 crop／属性图到任意视频帧。同步 predict-test 保持原项目管理权限、请求默认与错误语义，不额外增加图片专属 setup 或交互开关；它当前不传 model／task／context，因此只资格化原有探测的安全供图，不虚称新增可选择的 Tracker 流程。
+
+每次真正模型发送前，在实际选池回调核当前原凭据、Task／Batch、原件／Gate、准确输入版本和冻结模型声明；原视频／probe／复制与模型 I/O 均在业务写锁之外。最终沿当前授权、Task／Batch、canonical 元信息及本次准确 Job／attempt 进入调用者短事务，Prediction／Meta／贡献者／失败或完成记录按原事务统一提交，写后再核真实 JWT 时钟／注销与 Key 状态。输出绑定安全视频来源与实际 probe 摘要，不将完整 locator／凭据写进公开响应。普通 Prediction 的 normal／bulk accept 必须按当前调用者授权复核准确候选与当前原件，不能仅保护生成而让旧候选绕过来源校验；reject 不读原件。
+
+两种 retry HTTP 都重新捕获本次合法凭据、新 attempt 与当前执行 Task 版本，同时保留失败时原 canonical／模型／pipeline；已有原 Job 清理不改变不可变快照。缺来源证据的历史视频失败、旧 delivery、关系变化、同 SHA 新归属或已变模型均明确要求新请求，不从当前桶或当前模型补造旧证明。每次尝试独立输入 UUID，模型 URL 不能共用固定 key。恢复仅映射运行位置，保留来源证明与首次期限，不复活队列、生成授权或允许旧版本回执清理恢复后的对象。
+
+M1 准确生产落点：`services/prediction_inputs.py`、输入模型及新窄迁移、共享原件／视频 probe 适配器、新视频预测 authority／attempt／acceptance owner；`api/v1/projects.py`、`ml_backends.py`、两种 retry 的现有 API／service；`workers/tasks.py`、`predictions_retry.py`、普通 Prediction／Annotation 采纳及来源 guard；`worktree_recovery*` 的合同验证与映射。图片／引用路径仍由各自 owner 管理，不能放宽共享入口来迁就视频测试。生成 API／SDK 合同按实际变更同步；正式用户／API／开发文档、README、CHANGELOG 与队列同次提交。
+
+### M2：交互追踪、修复委派与候选审核
+
+创建 Tracker／correction 时固定原件、实际 probe、原凭据、Task／Segment、父 Annotation 完整事实与种子／sampling／窗口／模型声明；普通创建路由也须明确执行 annotations:write 的原有业务语义，不顺带新增 tasks:read。`VideoTrackerJobOut.prompt` 和 adapter 的 prompt 当前原样转发，私有证明必须有专属持久位置及统一安全深拷贝投影，不能泄露到 Job DTO、事件或模型 payload。普通源、无源、多源和 combo 保留原模型会话、跨窗关联与人工关键帧规则。
+
+通用 `interactive-annotating` 对 video 当前没有图片 owner，会把开放 context 直接转交 SAM 视频 Tracker；未声明 model_id／output_geometry 不构成拒绝。此路径在 M2 使用独立 video-interactive v3 输入与同一 canonical／probe／当前授权，冻结本次 context 的有效模型、窗口、种子与结果来源，在真实传输前及返回前复核，不保留 `None → resolve_task_url`。受控输出、响应预算、原生 Mask 与后续采纳按实际类型显式分派，不能借图片 identity 获得视频资格。可达的 stateful token／会话操作同样绑定本次来源、模型和调用者，清理与迟到结果不得依赖前端自行关闭；不为迁移而悄悄新增专用协作 Job／Segment 的准入要求。multipart 帧入口保留独立合同，不能从其已上传 JPEG 推断整视频授权。
+
+Worker 将准确 Celery delivery／attempt 与 queued→running claim 共同核验，不补造空消息身份；重复投递、旧信号、提交应答丢失或 child 派发未知不得生成第二次模型执行或晚到发布。Mask repair 的 `rerun_tracker` 从已提交父 plan／unit／attempt 得到显式委派，保留原 child ID／handoff 重放语义；没有 Request 不代表 system 权限。两片复用临时输入存储合同，但采用各自绑定业务 payload 的不可伪造 receipt，不让普通 batch 或图片 receipt 获得 Tracker 写资格。
+
+模型响应必须在 JSON 全量加载和 RLE 物化之前按字节、帧／实例／顶点／Mask 累计预算限制。逐窗口核对实际返回帧范围、身份唯一、有限坐标和真实尺寸，拒绝另一合法视频帧被混入当前窗口；采样与绝对帧坐标保持原语义。现有 `store_coco_rle` 和候选保留／Annotation 接管继续负责 Mask 输出，不另造重复 owner；仅在本次来源／模型／父事实及 attempt 仍有效时统一提交候选和安全摘要。
+
+全量 accept、普通 decisions、QC-region decisions 及候选／Mask 预览都复核准确持久候选、原件和当前调用者，不永久要求生成 JWT 有效；保留 source versions、手工保护、job revision、局部残余与幂等规则。原件完整读取与确切关闭先于最终业务锁，最终来源只在调用者事务中查元信息。Annotation 直接写入点也必须消费资格，不能只改 PredictionService。采纳写后复核凭据，权限或源变化整体回滚；来源离线仍可 discard／reject。
+
+stage、读取线程、provider Body／client、probe 子进程、模型请求及 stateful session close 在取消、软限时和全部 BaseException 下真实排空。保留现 heartbeat、路由租约与 session 结束规则，但不能将取消 Future、吞掉未知 close 或二次 no-op 当作物理结束；未知状态继续阻塞维护与输入清理。正常／部分取消候选也必须有已提交来源证明，不能以保留可用部分为由发布失去资格的结果。
+
+### 验证与交付判定
+
+M1 使用真实提交的三来源夹具，覆盖 annotations 已保存位置与当前桶同键陷阱、同 SHA 改 owner、非方形真实视频与伪旧 metadata；实际 API 首次执行、两种失败 retry、predict-test、normal／bulk accept、只读／写 scope、旧 proof／delivery／已清理原 Job、非零 root 与当前队列。M2 增加 direct Item／Segment、普通／无源／多源／combo、正反向／跨窗／session／correction 与父 repair handoff，覆盖全量／局部／region 审核及真实 RLE。两片都覆盖读取后和最终写入中的 Key／JWT／角色／批次／编辑锁／Gate／来源／父标注／模型竞争、并发一次提交、错窗／错尺寸／过量结果拒绝、重复取消与未知关闭。
+
+真实验收使用所属 test launcher、真实 ASGI 鉴权／DB、独立 Celery 与 MinIO；受控 HTTP 模型实际 GET 固定非 null 视频版本、核完整 SHA／长度并真实解帧，再返回受控候选。到真实 next_cleanup_at 后验证精确版本、历史版本和删除标记不存在、零未收尾责任、canonical 原件保持。M1 新 schema 须做迁移往返／v3 tombstone 降级拒绝及销毁源后的隔离恢复；M2 再验证自身新增证据。受控结果不授予真实 SAM／YOLO 权重、GPU、规模性能或生产资格。刷新所属运行环境的受影响 Worker，保持 3100／8100、两个 Worker／Beat 及原业务／原件指纹；按归属清理后分别记录 M1／M2 Outcome，不提前将整项 E02 或整套 Epic 标完。
