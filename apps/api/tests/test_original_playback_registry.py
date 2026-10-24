@@ -348,6 +348,71 @@ async def test_cancelled_actual_close_is_drained_and_its_slot_not_reused_early(w
 
 
 @pytest.mark.asyncio
+async def test_revoke_contexts_preserves_neighbor_and_closes_only_after_last_pin(world):
+    registry, clock = world
+    owned_stage, neighbor_stage = Stage(), Stage()
+    owned = await prepare(registry, clock, context="owned", stage=owned_stage)
+    owned_again = await prepare(registry, clock, context="owned")
+    neighbor = await prepare(
+        registry, clock, key="neighbor", context=object(), stage=neighbor_stage
+    )
+    pin = registry.pin(owned.id, owned.secret)
+
+    await registry.revoke_contexts(lambda context: context == "owned")
+    for lease in (owned, owned_again):
+        with pytest.raises(ContentError) as error:
+            registry.pin(lease.id, lease.secret)
+        assert_error(error, "video_playback_expired", 410)
+    registry.validate_lease(neighbor)
+    assert not owned_stage.closed and not neighbor_stage.closed
+    assert registry.diagnostics()["stages"] == 2
+    with pytest.raises(ContentError) as error:
+        await prepare(registry, clock, key="next")
+    assert_error(error, "video_playback_capacity_exceeded", 429)
+
+    await registry.release_pin(pin)
+    assert owned_stage.closed and owned_stage.close_calls == 1
+    assert not neighbor_stage.closed
+    await registry.revoke_contexts(lambda context: context == "owned")
+    await prepare(registry, clock, key="next")
+    registry.validate_lease(neighbor)
+    assert registry.diagnostics()["stages"] == 2
+
+
+@pytest.mark.asyncio
+async def test_revoke_contexts_drains_all_matching_closes_after_repeated_cancellation(
+    world,
+):
+    registry, clock = world
+    stages = [Stage(block=True), Stage(block=True)]
+    leases = [
+        await prepare(registry, clock, key=index, context="owned", stage=stage)
+        for index, stage in enumerate(stages)
+    ]
+    pending = asyncio.create_task(
+        registry.revoke_contexts(lambda context: context == "owned")
+    )
+    try:
+        await spin_until(lambda: all(stage.started.is_set() for stage in stages))
+        for lease in leases:
+            with pytest.raises(ContentError):
+                registry.validate_lease(lease)
+        pending.cancel()
+        await asyncio.sleep(0)
+        pending.cancel()
+        await asyncio.sleep(0)
+        assert not pending.done()
+        assert registry.diagnostics()["stages"] == 2
+    finally:
+        for stage in stages:
+            stage.finish.set()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+    assert all(stage.closed and stage.close_calls == 1 for stage in stages)
+    assert registry.diagnostics()["stages"] == 0
+
+
+@pytest.mark.asyncio
 async def test_unknown_close_keeps_quota_and_cannot_reopen_the_retired_stage(world):
     registry, clock = world
     stage = Stage(fail=True)

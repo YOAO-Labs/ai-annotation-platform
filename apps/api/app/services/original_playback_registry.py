@@ -420,6 +420,29 @@ class PlaybackRegistry:
             self._retire(entry)
         await self._wait_close(entry)
 
+    async def revoke_contexts(self, predicate: Callable[[object], bool]):
+        """Revoke a snapshot of matching leases, preserving active response pins."""
+        records = tuple(
+            record
+            for record in self._leases.values()
+            if predicate(record.lease.context)
+        )
+        pending = asyncio.gather(
+            *(self.revoke_lease(record.lease.id) for record in records),
+            return_exceptions=True,
+        )
+        results, failure, cancelled = await _drain(pending)
+        if cancelled:
+            error = asyncio.CancelledError()
+            if any(record.entry.unsettled for record in records):
+                mark_unsettled(error)
+            raise error
+        if failure is not None:
+            raise failure
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+
     async def reap(self):
         self._expire()
         pending = tuple(self._entries.values())

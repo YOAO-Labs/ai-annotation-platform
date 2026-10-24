@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -467,11 +467,13 @@ def _cleanup_fixture_storage(owned, annotation_ids):
 
 
 async def _cleanup_e2e_fixtures(
-    db: AsyncSession, owned: _OwnedFixtureScope | None = None
+    db: AsyncSession, owned: _OwnedFixtureScope | None = None, *, registry=None
 ) -> None:
     """Destroy only terminal fixture owners, then fence and delete the fixture."""
     from app.api.v1 import _test_seed_attachments as attachments
     from app.api.v1 import _test_seed_guide_assets as guides
+    from app.services.original_binary import AuthorizedOriginal, Resource
+    from app.services.original_playback import PlaybackContext
     from app.services.storage_access import finish
 
     async def resolve(session):
@@ -482,6 +484,23 @@ async def _cleanup_e2e_fixtures(
         scope = await resolve(db)
         await guides.preflight(db, scope)
         plan = await attachments.prepare(db, scope)
+        if registry is not None:
+
+            def fixture_context(context):
+                if not isinstance(context, PlaybackContext) or not isinstance(
+                    context.original, AuthorizedOriginal
+                ):
+                    return False
+                resource = context.original.resource
+                if not isinstance(resource, Resource):
+                    return False
+                return (
+                    resource.kind == "task" and resource.task_id in scope.task_ids
+                ) or (
+                    resource.kind == "item" and resource.dataset_id in scope.dataset_ids
+                )
+
+            await registry.revoke_contexts(fixture_context)
         await attachments.delete_objects(db, plan, resolve)
         await db.commit()
         legacy_cleanup = asyncio.create_task(
@@ -813,9 +832,13 @@ class SeedCleanup(BaseModel):
     status_code=200,
     include_in_schema=False,
 )
-async def seed_cleanup(db: AsyncSession = Depends(get_db)) -> SeedCleanup:
+async def seed_cleanup(
+    request: Request, db: AsyncSession = Depends(get_db)
+) -> SeedCleanup:
     """幂等清除固定 E2E fixture，同时保留所有非 E2E 数据。"""
-    await _cleanup_e2e_fixtures(db)
+    await _cleanup_e2e_fixtures(
+        db, registry=getattr(request.app.state, "original_playback_registry", None)
+    )
     await db.commit()
     return SeedCleanup()
 
@@ -1075,13 +1098,15 @@ async def _build_image_workbench_fixture(
     status_code=200,
     include_in_schema=False,
 )
-async def seed_reset(db: AsyncSession = Depends(get_db)) -> SeedReset:
+async def seed_reset(request: Request, db: AsyncSession = Depends(get_db)) -> SeedReset:
     """先清理旧 fixture，再重建固定 E2E 数据（幂等）。
 
     共享固定命名空间的破坏性重建：这是已记录的串行例外路径，会收敛所有
     E2E fixture（含 owned 命名空间）。每个测试私有的数据请改用 `/seed/owned`。
     """
-    await _cleanup_e2e_fixtures(db)
+    await _cleanup_e2e_fixtures(
+        db, registry=getattr(request.app.state, "original_playback_registry", None)
+    )
     return await _build_image_workbench_fixture(db, _BASE_IMAGE_WORKBENCH)
 
 
@@ -1096,7 +1121,7 @@ class SeedOwnedRequest(BaseModel):
     include_in_schema=False,
 )
 async def seed_owned(
-    payload: SeedOwnedRequest, db: AsyncSession = Depends(get_db)
+    payload: SeedOwnedRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> SeedReset:
     """Build this namespace's own image-workbench fixture without touching others.
 
@@ -1109,7 +1134,11 @@ async def seed_owned(
     scope = _parse_owned_namespace(payload.namespace)
     # Retry on the same namespace must converge: drop only this namespace's
     # leftovers, then rebuild it. Neighbouring namespaces are untouched.
-    await _cleanup_e2e_fixtures(db, owned=scope)
+    await _cleanup_e2e_fixtures(
+        db,
+        owned=scope,
+        registry=getattr(request.app.state, "original_playback_registry", None),
+    )
     return await _build_image_workbench_fixture(
         db,
         _ImageWorkbenchFixture(
@@ -1135,7 +1164,7 @@ async def seed_owned(
     include_in_schema=False,
 )
 async def seed_owned_cleanup(
-    payload: SeedOwnedRequest, db: AsyncSession = Depends(get_db)
+    payload: SeedOwnedRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> SeedCleanup:
     """Delete exactly the named namespace's fixture; idempotent and exact.
 
@@ -1145,7 +1174,11 @@ async def seed_owned_cleanup(
     request instead of being swallowed.
     """
     scope = _parse_owned_namespace(payload.namespace)
-    await _cleanup_e2e_fixtures(db, owned=scope)
+    await _cleanup_e2e_fixtures(
+        db,
+        owned=scope,
+        registry=getattr(request.app.state, "original_playback_registry", None),
+    )
     await db.commit()
     return SeedCleanup()
 
@@ -1301,7 +1334,9 @@ class ProjectRolesSeed(BaseModel):
     include_in_schema=False,
 )
 async def seed_project_roles(
-    payload: SeedOwnedRequest | None = None, db: AsyncSession = Depends(get_db)
+    request: Request,
+    payload: SeedOwnedRequest | None = None,
+    db: AsyncSession = Depends(get_db),
 ) -> ProjectRolesSeed:
     """Build the deterministic multi-project employee-role acceptance fixture.
 
@@ -1322,7 +1357,9 @@ async def seed_project_roles(
     namespace = payload.namespace if payload is not None else None
     scope = _parse_owned_namespace(namespace) if namespace is not None else None
     if scope is None:
-        await _cleanup_e2e_fixtures(db)
+        await _cleanup_e2e_fixtures(
+            db, registry=getattr(request.app.state, "original_playback_registry", None)
+        )
 
         def user_email(local: str) -> str:
             return f"{local}@e2e.test"
@@ -1346,7 +1383,11 @@ async def seed_project_roles(
             return f"e2e/project-roles/{key.lower()}/"
 
     else:
-        await _cleanup_e2e_fixtures(db, owned=scope)
+        await _cleanup_e2e_fixtures(
+            db,
+            owned=scope,
+            registry=getattr(request.app.state, "original_playback_registry", None),
+        )
 
         def user_email(local: str) -> str:
             return f"{local}-{scope.namespace}@e2e.test"
@@ -1606,7 +1647,9 @@ async def seed_project_roles(
     include_in_schema=False,
 )
 async def seed_filtering(
-    payload: SeedOwnedRequest | None = None, db: AsyncSession = Depends(get_db)
+    request: Request,
+    payload: SeedOwnedRequest | None = None,
+    db: AsyncSession = Depends(get_db),
 ) -> FilteringSeedManifest:
     """Build the deterministic filtering acceptance fixture.
 
@@ -1617,10 +1660,14 @@ async def seed_filtering(
     """
     namespace = payload.namespace if payload is not None else None
     if namespace is None:
-        await seed_reset(db)
+        await seed_reset(request, db)
         return await build_filtering_seed(db)
     scope = _parse_owned_namespace(namespace)
-    await _cleanup_e2e_fixtures(db, owned=scope)
+    await _cleanup_e2e_fixtures(
+        db,
+        owned=scope,
+        registry=getattr(request.app.state, "original_playback_registry", None),
+    )
     return await build_filtering_seed(db, namespace)
 
 

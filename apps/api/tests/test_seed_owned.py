@@ -62,7 +62,8 @@ def _restore_video_seed_objects(monkeypatch):
 
     def record_put(**kwargs):
         locator = (kwargs["Bucket"], kwargs["Key"])
-        assert locator[1].startswith("e2e/video/")
+        if not locator[1].startswith("e2e/video/"):
+            return put_object(**kwargs)
         if locator not in previous:
             try:
                 obj = client.get_object(Bucket=locator[0], Key=locator[1])
@@ -146,6 +147,108 @@ async def test_video_seeds_register_actual_original_bytes(
                 )
     finally:
         assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+
+
+@pytest.fixture
+async def fixture_playback_registry(app_module, monkeypatch):
+    from app.services.original_playback_registry import PlaybackRegistry
+
+    registry = PlaybackRegistry()
+    monkeypatch.setattr(
+        app_module.state, "original_playback_registry", registry, raising=False
+    )
+    try:
+        yield registry
+    finally:
+        await registry.shutdown()
+
+
+@pytest.mark.parametrize("kind", ["task", "item"])
+async def test_owned_cleanup_reclaims_video_lease_capacity_without_touching_neighbor(
+    httpx_client, db_session, fixture_playback_registry, kind
+):
+    from app.db.models.task import Task
+
+    async def seed_and_prepare(fixture, resource_kind):
+        video = await httpx_client.post(
+            "/api/v1/__test/seed/video-task",
+            json={"project_id": fixture["project_id"]},
+        )
+        assert video.status_code == 200, video.text
+        task_id = video.json()["task_id"]
+        task = await db_session.get(Task, uuid.UUID(task_id))
+        if resource_kind == "task":
+            base = f"/api/v1/files/tasks/{task_id}/original"
+        else:
+            from app.db.models.dataset import DatasetItem
+
+            item = await db_session.get(DatasetItem, task.dataset_item_id)
+            base = f"/api/v1/datasets/{item.dataset_id}/items/{item.id}/original"
+        login = await httpx_client.post(
+            "/api/v1/__test/seed/login", json={"email": fixture["admin_email"]}
+        )
+        assert login.status_code == 200, login.text
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        identity = await httpx_client.get(base + "-identity", headers=headers)
+        assert identity.status_code == 200, identity.text
+        payload = {
+            "content_id": identity.json()["content_id"],
+            "sha256": identity.json()["sha256"],
+            "session_id": str(uuid.uuid4()),
+        }
+        response = await httpx_client.post(
+            base + "-playback", headers=headers, json=payload
+        )
+        assert response.status_code == 200, response.text
+        return response.json(), base, headers, payload
+
+    with pytest.MonkeyPatch.context() as video_patch:
+        with _restore_video_seed_objects(video_patch):
+            try:
+                owned = await _build_owned(httpx_client, A)
+                neighbor = await _build_owned(httpx_client, B)
+                own_wire, base, headers, payload = await seed_and_prepare(owned, kind)
+                other_kind = "item" if kind == "task" else "task"
+                neighbor_wire, _, _, _ = await seed_and_prepare(neighbor, other_kind)
+                registry = fixture_playback_registry
+                assert registry.diagnostics()["stages"] == 2
+                blocked = await httpx_client.post(
+                    base + "-playback",
+                    headers=headers,
+                    json={**payload, "session_id": str(uuid.uuid4())},
+                )
+                assert blocked.status_code == 429, blocked.text
+                assert blocked.json()["detail"]["code"] == (
+                    "video_playback_capacity_exceeded"
+                )
+
+                assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+                assert (
+                    await httpx_client.head(own_wire["media_path"])
+                ).status_code == 410
+                assert (
+                    await httpx_client.head(neighbor_wire["media_path"])
+                ).status_code == 200
+                assert registry.diagnostics()["stages"] == 1
+                assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+
+                rebuilt = await _build_owned(httpx_client, A)
+                rebuilt_wire, _, _, _ = await seed_and_prepare(rebuilt, kind)
+                assert registry.diagnostics()["stages"] == 2
+                retried = await _build_owned(httpx_client, A)
+                assert (
+                    await httpx_client.head(rebuilt_wire["media_path"])
+                ).status_code == 410
+                assert (
+                    await httpx_client.head(neighbor_wire["media_path"])
+                ).status_code == 200
+                assert registry.diagnostics()["stages"] == 1
+                await seed_and_prepare(retried, kind)
+                assert registry.diagnostics()["stages"] == 2
+            finally:
+                cleanups = [await _cleanup_owned(httpx_client, ns) for ns in (A, B)]
+                assert all(response.status_code == 200 for response in cleanups)
+                assert fixture_playback_registry.diagnostics()["stages"] == 0
 
 
 @pytest.mark.parametrize(
