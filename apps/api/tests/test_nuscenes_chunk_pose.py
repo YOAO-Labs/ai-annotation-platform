@@ -28,6 +28,7 @@ from scripts.import_nuscenes_scene import import_nuscenes
 from tests.factory import create_project
 from tests.test_import_nuscenes_lite import (
     _FakeS3Client,
+    _use_distinct_sensor_files,
     _write_fake_nuscenes,
     controlled_transport as controlled_transport,
     db_session as db_session,
@@ -113,6 +114,7 @@ async def test_nuscenes_chunk_pose_query_is_pair_filtered(
     user, _token = super_admin
     root = tmp_path / "registered-source"
     _write_fake_nuscenes(root, scenes=2, samples_per=2)
+    _use_distinct_sensor_files(root)
     monkeypatch.setattr(storage_service, "client", _FakeS3Client())
     imported = await import_nuscenes(
         db_session,

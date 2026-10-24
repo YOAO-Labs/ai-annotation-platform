@@ -498,12 +498,8 @@ def _write_fake_nuscenes(
         (meta / f"{name}.json").write_text(json.dumps(rows), encoding="utf-8")
 
 
-async def test_import_nuscenes_two_scenes(
-    tmp_path, db_session, super_admin, monkeypatch
-):
-    user, _ = super_admin
-    root = tmp_path / "nuscenes-mini"
-    _write_fake_nuscenes(root, scenes=2, samples_per=3)
+def _use_distinct_sensor_files(root: Path) -> None:
+    """Give each sensor record its own archive path while retaining shared maps."""
     table = root / "v1.0-mini/sample_data.json"
     records = json.loads(table.read_text())
     for record in records:
@@ -512,6 +508,15 @@ async def test_import_nuscenes_two_scenes(
         shutil.copy2(original, unique)
         record["filename"] = unique.relative_to(root).as_posix()
     table.write_text(json.dumps(records))
+
+
+async def test_import_nuscenes_two_scenes(
+    tmp_path, db_session, super_admin, monkeypatch
+):
+    user, _ = super_admin
+    root = tmp_path / "nuscenes-mini"
+    _write_fake_nuscenes(root, scenes=2, samples_per=3)
+    _use_distinct_sensor_files(root)
 
     monkeypatch.setattr(storage_service, "client", _FakeS3Client())
 
