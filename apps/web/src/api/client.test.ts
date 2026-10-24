@@ -59,6 +59,55 @@ it("a late 401 does not clear newer credentials", async () => {
   useAuthStore.getState().logout();
 });
 
+it.each(["alice", "bob"])(
+  "a late 401 cannot log out a new %s session reusing the token",
+  async (userId) => {
+    let resolve!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((done) => {
+            resolve = done;
+          }),
+      ),
+    );
+    useAuthStore.getState().setAuth("reused-token", { id: "alice" } as MeResponse);
+    const oldSession = useAuthStore.getState().sessionId;
+    const request = apiClient.get("/auth/me").catch((error: unknown) => error);
+    useAuthStore.getState().logout();
+    useAuthStore.getState().setAuth("reused-token", { id: userId } as MeResponse);
+    const newSession = useAuthStore.getState().sessionId;
+    expect(newSession).not.toBe(oldSession);
+    try {
+      resolve(new Response(JSON.stringify({ detail: "expired" }), { status: 401 }));
+      expect(await request).toMatchObject({ status: 401 });
+      expect(useAuthStore.getState().sessionId).toBe(newSession);
+      expect(useAuthStore.getState().user?.id).toBe(userId);
+      expect(localStorage.getItem("token")).toBe("reused-token");
+    } finally {
+      vi.unstubAllGlobals();
+      useAuthStore.getState().logout();
+    }
+  },
+);
+
+it("a current session's 401 still logs out its expired credentials", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("{}", { status: 401 })),
+  );
+  useAuthStore.getState().setAuth("expired-token", { id: "alice" } as MeResponse);
+  try {
+    await expect(apiClient.get("/auth/me")).rejects.toMatchObject({ status: 401 });
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(localStorage.getItem("token")).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+    useAuthStore.getState().logout();
+  }
+});
+
 it("reads authenticated binary responses with abort support and preserves structured errors", async () => {
   const controller = new AbortController();
   const blob = new Blob(["snapshot bytes"], { type: "image/png" });

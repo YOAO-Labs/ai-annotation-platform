@@ -4,8 +4,23 @@ from __future__ import annotations
 
 import pytest
 
+from tests.test_training_dataset_references import (
+    committed_rle_bindings as committed_rle_bindings,
+)
+
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+def _require_owned_rle_bindings(request):
+    if request.node.originalname in {
+        "test_seed_raster_mask_project_opt_in_and_content_fixtures",
+        "test_seed_raster_mask_media_canvas_preserves_item_dimensions",
+    }:
+        # Independent raster allocation must see committed static bindings,
+        # before the seeded image pins its identity in the business SAVEPOINT.
+        request.getfixturevalue("committed_rle_bindings")
 
 
 async def test_e2e_seed_setting_defaults_off(monkeypatch):

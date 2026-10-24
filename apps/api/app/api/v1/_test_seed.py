@@ -16,6 +16,7 @@ E2E（Playwright）通过 `POST /api/v1/__test/seed/reset` 在每个 spec 前重
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import re
 import secrets
@@ -832,6 +833,15 @@ class SeedReset(BaseModel):
     ml_backend_id: str
 
 
+async def _register_fixture_original(db, item, payload: bytes):
+    """Pin only bytes produced by this isolated fixture, never adopt old paths."""
+    from app.services.dataset_assets import register_item_asset
+
+    return await register_item_asset(
+        db, item, sha256=hashlib.sha256(payload).hexdigest(), size_bytes=len(payload)
+    )
+
+
 @dataclass(frozen=True)
 class _ImageWorkbenchFixture:
     """Identifiers used by the standard image-workbench fixture builder."""
@@ -975,6 +985,7 @@ async def _build_image_workbench_fixture(
         )
         db.add(item)
         await db.flush()
+        await _register_fixture_original(db, item, svg)
         t = await create_task(
             db,
             project_id=project.id,
@@ -1224,6 +1235,7 @@ async def _build_project_roles_image_project(
         )
         db.add(item)
         await db.flush()
+        await _register_fixture_original(db, item, svg)
         task = Task(
             display_id=f"{task_display_prefix}{index + 1:03d}",
             project_id=project.id,
@@ -1959,6 +1971,9 @@ async def seed_lidar(
         )
         db.add_all([lidar_item, camera_item, camera_side_item])
         await db.flush()
+        await _register_fixture_original(db, lidar_item, pcd_frames[idx])
+        await _register_fixture_original(db, camera_item, camera_svg)
+        await _register_fixture_original(db, camera_side_item, camera_svg)
 
         t = Task(
             display_id=f"T-E2E-LIDAR-{suffix}-{idx}",

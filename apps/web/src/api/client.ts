@@ -85,7 +85,14 @@ async function request<T>(
       const { useAuthStore } = await import("../stores/authStore");
       // A response belongs to the credentials captured before fetch. A late
       // rejection must not clear a session established in the meantime.
-      if (localStorage.getItem("token") === token) useAuthStore.getState().logout();
+      const current = useAuthStore.getState();
+      if (
+        localStorage.getItem("token") === token &&
+        current.token === owner.token &&
+        current.user?.id === owner.user?.id &&
+        current.sessionId === owner.sessionId
+      )
+        current.logout();
     } else if (!opts?.anonymous && !opts?.silent && (res.status === 403 || res.status >= 500)) {
       const { useToastStore } = await import("../components/ui/Toast");
       if (res.status === 403) {

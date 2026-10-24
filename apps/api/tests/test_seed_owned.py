@@ -662,6 +662,22 @@ async def test_owned_lidar_fixture_is_namespaced(
         == 1
     )
 
+    from app.db.models.dataset_asset import DatasetAsset
+    from app.services import original_sources
+
+    for task_id in body["lidar_task_ids"]:
+        source = await original_sources.resolve_task(db_session, uuid.UUID(task_id))
+        assert source.media_type == "point_cloud" and source.size_bytes > 0
+        assert source.bucket is not None
+        for link in source.relation.links:
+            if link.role.startswith("camera_"):
+                camera = await original_sources.resolve_task_link(
+                    db_session, uuid.UUID(task_id), link.id
+                )
+                assert camera.media_type == "image" and camera.size_bytes > 0
+                asset = await db_session.get(DatasetAsset, camera.content_id)
+                assert asset.checksum_value == camera.sha256
+
     assert (await _cleanup_owned(httpx_client, A)).status_code == 200
     assert (
         await db_session.scalar(

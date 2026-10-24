@@ -9,6 +9,7 @@ from app.schemas.original import OriginalIdentity
 from app.services import original_binary as svc
 from app.services.dataset_content import content_http_error
 from app.services.original_binary_response import BinaryResponse, close_stage
+from app.services.original_request import connected_snapshot
 
 router = APIRouter()
 _BINARY_RESPONSES = {
@@ -47,17 +48,22 @@ async def _download(resource, request, db, actor, content_id, sha256):
     if request.headers.get("range") is not None:
         raise HTTPException(416, detail={"code": "original_range_unsupported"})
     try:
-        stage = await svc.snapshot(
-            db,
-            resource,
-            actor,
-            expected_content_id=content_id,
-            expected_sha256=sha256,
-            request=request,
-            api_key_id=getattr(request.state, "api_key_id", None),
+        stage = await connected_snapshot(
+            request,
+            svc.snapshot(
+                db,
+                resource,
+                actor,
+                expected_content_id=content_id,
+                expected_sha256=sha256,
+                request=request,
+                api_key_id=getattr(request.state, "api_key_id", None),
+            ),
         )
     except Exception as exc:
         raise content_http_error(exc) from None
+    if stage is None:
+        return Response(status_code=499)
     try:
         return BinaryResponse(stage)
     except BaseException:
