@@ -283,7 +283,12 @@ def _parse_owned_namespace(namespace: str) -> _OwnedFixtureScope:
 
 
 def _delete_seed_object_prefix(
-    storage: Any, *, bucket: str, prefix: str, label: str
+    storage: Any,
+    *,
+    bucket: str,
+    prefix: str,
+    label: str,
+    protect_canonical: bool = False,
 ) -> None:
     """Delete an already resolved fixture prefix and verify complete removal."""
     continuation_token: str | None = None
@@ -302,6 +307,12 @@ def _delete_seed_object_prefix(
         continuation_token = response.get("NextContinuationToken")
         if not continuation_token:
             raise RuntimeError(f"{label} cleanup missing MinIO continuation token")
+    if protect_canonical and any(
+        _canonical_comment_attachment_key(key) for key in keys
+    ):
+        raise HTTPException(
+            409, detail={"code": "e2e_seed_attachment_canonical_residual"}
+        )
     for offset in range(0, len(keys), 1000):
         delete_response = storage.client.delete_objects(
             Bucket=bucket,
@@ -321,6 +332,12 @@ def _delete_seed_object_prefix(
         MaxKeys=1,
     ).get("Contents", [])
     if remaining:
+        if protect_canonical and any(
+            _canonical_comment_attachment_key(item["Key"]) for item in remaining
+        ):
+            raise HTTPException(
+                409, detail={"code": "e2e_seed_attachment_canonical_residual"}
+            )
         raise RuntimeError(f"{label} cleanup left MinIO objects")
 
 
@@ -333,6 +350,16 @@ def _delete_webcodecs_seed_objects(storage: Any) -> None:
     )
 
 
+def _canonical_comment_attachment_key(key: str) -> bool:
+    parts = key.split("/")
+    if len(parts) != 3 or parts[0] != "comment-attachments":
+        return False
+    try:
+        return str(UUID(parts[1])) == parts[1] and str(UUID(parts[2])) == parts[2]
+    except (ValueError, AttributeError):
+        return False
+
+
 def _delete_comment_attachment_seed_objects(storage: Any, annotation_ids: list) -> None:
     # These IDs are resolved from fixture projects before their database rows
     # are deleted. Include unfinished uploads, not only attachments in comments.
@@ -343,6 +370,7 @@ def _delete_comment_attachment_seed_objects(storage: Any, annotation_ids: list) 
             bucket=storage.bucket,
             prefix=f"comment-attachments/{identifier}/",
             label="comment-attachment",
+            protect_canonical=True,
         )
 
 
@@ -381,8 +409,93 @@ def _is_transaction_abort(exc: BaseException) -> bool:
     return False
 
 
+async def _resolve_fixture_scope(db, owned):
+    from app.api.v1._test_seed_attachments import FixtureScope
+
+    if owned is None:
+        project_selector = "name = 'E2E Demo Project' OR display_id LIKE 'P-E2E-%'"
+        project_params = {}
+        user_selector, user_params = "email LIKE '%@e2e.test'", {}
+        dataset_selector, dataset_params = "display_id LIKE 'DS-E2E-%'", {}
+    else:
+        project_selector = "name = ANY(:names) OR display_id = ANY(:display_ids)"
+        project_params = {
+            "names": owned.all_project_names,
+            "display_ids": owned.all_project_display_ids,
+        }
+        user_selector, user_params = (
+            "email = ANY(:emails)",
+            {"emails": owned.all_user_emails},
+        )
+        dataset_selector = "display_id = ANY(:display_ids)"
+        dataset_params = {"display_ids": owned.all_dataset_display_ids}
+
+    async def ids(table, selector, parameters):
+        return tuple(
+            await db.scalars(
+                text(f"SELECT id FROM {table} WHERE {selector} ORDER BY id"), parameters
+            )
+        )
+
+    projects = await ids("projects", project_selector, project_params)
+    users = await ids("users", user_selector, user_params)
+    datasets = await ids("datasets", dataset_selector, dataset_params)
+    tasks = await ids("tasks", "project_id = ANY(:pids)", {"pids": list(projects)})
+    annotations = await ids(
+        "annotations", "project_id = ANY(:pids)", {"pids": list(projects)}
+    )
+    return FixtureScope(projects, users, annotations, tasks, datasets)
+
+
+def _cleanup_fixture_storage(owned, annotation_ids):
+    """All legacy network I/O precedes the final fixture transaction locks."""
+    from app.services.storage import storage_service
+
+    if owned is None:
+        _delete_webcodecs_seed_objects(storage_service)
+        _delete_filtering_seed_objects(storage_service)
+    else:
+        for prefix in owned.all_storage_prefixes:
+            _delete_seed_object_prefix(
+                storage_service,
+                bucket=storage_service.datasets_bucket,
+                prefix=prefix,
+                label=f"owned-{owned.namespace}-{prefix.rstrip('/').rsplit('/', 1)[-1]}",
+            )
+    _delete_comment_attachment_seed_objects(storage_service, annotation_ids)
+
+
 async def _cleanup_e2e_fixtures(
     db: AsyncSession, owned: _OwnedFixtureScope | None = None
+) -> None:
+    """Destroy only terminal fixture owners, then fence and delete the fixture."""
+    from app.api.v1 import _test_seed_attachments as attachments
+    from app.services.storage_access import finish
+
+    async def resolve(session):
+        return await _resolve_fixture_scope(session, owned)
+
+    try:
+        await _require_e2e_seed_database(db)
+        scope = await resolve(db)
+        plan = await attachments.prepare(db, scope)
+        await attachments.delete_objects(db, plan, resolve)
+        await db.commit()
+        await asyncio.to_thread(_cleanup_fixture_storage, owned, plan.annotation_ids)
+        await attachments.finalize(db, plan, resolve)
+        # The audit exemption belongs to this final transaction, not retirement.
+        await _cleanup_fixture_records(db, owned, scope)
+        await attachments.assert_empty(db, plan)
+        if await resolve(db) != attachments.FixtureScope():
+            attachments.reject("e2e_seed_cleanup_incomplete", 500)
+        await db.commit()
+    except BaseException:
+        await finish(asyncio.create_task(db.rollback()))
+        raise
+
+
+async def _cleanup_fixture_records(
+    db: AsyncSession, owned: _OwnedFixtureScope | None, scope
 ) -> None:
     """定向删除 E2E fixture，并在当前事务内确认关键残留已清零。
 
@@ -400,37 +513,16 @@ async def _cleanup_e2e_fixtures(
     #    SAVEPOINT 自动继承。
     await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
 
-    # 1) 找 fixture 项目 / 用户的 id（按 scope 选择谓词）
     if owned is None:
-        project_selector = "name = 'E2E Demo Project' OR display_id LIKE 'P-E2E-%'"
-        project_params: dict = {}
-        user_selector = "email LIKE '%@e2e.test'"
-        user_params: dict = {}
+        user_selector, user_params = "email LIKE '%@e2e.test'", {}
     else:
-        # 项目按本命名空间的精确名称或 display_id 匹配（不同 fixture kind 用不同寻址）。
-        project_selector = "name = ANY(:owned_project_names) OR display_id = ANY(:owned_project_display_ids)"
-        project_params = {
-            "owned_project_names": owned.all_project_names,
-            "owned_project_display_ids": owned.all_project_display_ids,
-        }
-        user_selector = "email = ANY(:owned_emails)"
-        user_params = {"owned_emails": owned.all_user_emails}
-
-    fixture_proj_rows = (
-        await db.execute(
-            text(f"SELECT id FROM projects WHERE {project_selector}"), project_params
+        user_selector, user_params = (
+            "email = ANY(:owned_emails)",
+            {"owned_emails": owned.all_user_emails},
         )
-    ).fetchall()
-    fixture_project_ids = [r[0] for r in fixture_proj_rows]
-    log.info("seed_cleanup · fixture project ids: %s", fixture_project_ids)
 
-    fixture_user_rows = (
-        await db.execute(
-            text(f"SELECT id FROM users WHERE {user_selector}"), user_params
-        )
-    ).fetchall()
-    fixture_user_ids = [r[0] for r in fixture_user_rows]
-    log.info("seed_cleanup · fixture user ids: %s", fixture_user_ids)
+    fixture_project_ids = list(scope.project_ids)
+    fixture_user_ids = list(scope.user_ids)
 
     # 2) 按 FK 依赖顺序定向 DELETE。
     #    用 SAVEPOINT 隔离每个 DELETE：单条失败（如表不存在 / 列名漂移）不让外层
@@ -452,33 +544,8 @@ async def _cleanup_e2e_fixtures(
 
     fixture_annotation_ids: list = []
     if fixture_project_ids:
-        # 2a) 找 fixture 项目下所有 task/annotation 的 id（在 SAVEPOINT 里）
-        fixture_task_ids: list = []
-        async with db.begin_nested() as sp:
-            try:
-                fixture_task_ids = [
-                    r[0]
-                    for r in (
-                        await db.execute(
-                            text("SELECT id FROM tasks WHERE project_id = ANY(:pids)"),
-                            {"pids": fixture_project_ids},
-                        )
-                    ).fetchall()
-                ]
-                fixture_annotation_ids = [
-                    r[0]
-                    for r in (
-                        await db.execute(
-                            text(
-                                "SELECT id FROM annotations WHERE project_id = ANY(:pids)"
-                            ),
-                            {"pids": fixture_project_ids},
-                        )
-                    ).fetchall()
-                ]
-            except Exception as exc:
-                log.warning("seed_cleanup · child id lookup failed: %s", exc)
-                await sp.rollback()
+        fixture_task_ids = list(scope.task_ids)
+        fixture_annotation_ids = list(scope.annotation_ids)
 
         # The filtering fixture owns these rows outside the ordinary task cascade.
         # Delete them before tasks/projects so their restrictive foreign keys cannot
@@ -638,8 +705,6 @@ async def _cleanup_e2e_fixtures(
             ("bug_reports", "assigned_to_id"),
             ("task_locks", "user_id"),
             ("annotation_drafts", "user_id"),
-            ("annotation_comments", "author_id"),
-            ("annotations", "user_id"),
             ("user_invitations", "invited_by"),
             ("organization_members", "user_id"),
         ]:
@@ -677,23 +742,6 @@ async def _cleanup_e2e_fixtures(
     )
 
     await db.flush()
-
-    # WebCodecs seed 的 chunk mp4 对象不随 DB 级联删除,按前缀显式清空并复查。
-    # cleanup 是测试隔离合同的一部分：对象存储失败必须让 teardown 失败，不能只记 warning。
-    from app.services.storage import storage_service
-
-    if owned is None:
-        _delete_webcodecs_seed_objects(storage_service)
-        _delete_filtering_seed_objects(storage_service)
-    else:
-        for prefix in owned.all_storage_prefixes:
-            _delete_seed_object_prefix(
-                storage_service,
-                bucket=storage_service.datasets_bucket,
-                prefix=prefix,
-                label=f"owned-{owned.namespace}-{prefix.rstrip('/').rsplit('/', 1)[-1]}",
-            )
-    _delete_comment_attachment_seed_objects(storage_service, fixture_annotation_ids)
 
     if owned is None:
         residual_query = (

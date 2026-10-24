@@ -893,6 +893,36 @@ async def test_comment_attachment_cleanup_only_removes_resolved_fixture_annotati
     }
 
 
+async def test_comment_attachment_prefix_never_deletes_canonical_keys_without_owner():
+    from types import SimpleNamespace
+    from uuid import uuid4
+    from fastapi import HTTPException
+    from app.api.v1._test_seed import _delete_comment_attachment_seed_objects
+
+    annotation = uuid4()
+    canonical = f"comment-attachments/{annotation}/{uuid4()}"
+    legacy = f"comment-attachments/{annotation}/legacy.txt"
+
+    class Client:
+        def list_objects_v2(self, **kwargs):
+            return {
+                "Contents": [{"Key": canonical}, {"Key": legacy}],
+                "IsTruncated": False,
+            }
+
+        def delete_objects(self, **kwargs):
+            raise AssertionError(
+                "An unpinned canonical key must never enter prefix deletion"
+            )
+
+    with pytest.raises(HTTPException) as failure:
+        _delete_comment_attachment_seed_objects(
+            SimpleNamespace(client=Client(), bucket="fixture"), [annotation]
+        )
+    assert failure.value.status_code == 409
+    assert failure.value.detail["code"] == "e2e_seed_attachment_canonical_residual"
+
+
 async def test_webcodecs_object_cleanup_fails_on_partial_delete():
     from types import SimpleNamespace
 
