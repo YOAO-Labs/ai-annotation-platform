@@ -350,7 +350,10 @@ async def check_metadata(db, inputs, *, lock=True):
         select(
             func.jsonb_path_exists(
                 InputRecord.inventory,
-                cast('$.objects.* ? (@.state != "verified")', JSONPATH),
+                cast(
+                    '$.objects.* ? (@.state != "verified" || @.version_id == null || @.version_id == "null")',
+                    JSONPATH,
+                ),
             )
         ).where(InputRecord.id == row.id)
     )
@@ -415,6 +418,20 @@ def _version(response):
     return value
 
 
+def _immutable_version(response):
+    version = _version(response)
+    if version is None:
+        reject("immutable_version_required")
+    return version
+
+
+def _versioned_bucket(client, bucket):
+    result = client.get_bucket_versioning(Bucket=bucket)
+    _http(result)
+    if result.get("Status") != "Enabled":
+        reject("bucket_versioning_required", 503)
+
+
 def _deadline(deadline):
     if time.monotonic() > deadline:
         reject("storage_timeout", 504)
@@ -432,25 +449,31 @@ def _owned(response, lease_id, entry):
 
 def _read(client, bucket, key, entry, deadline, *, lease_id, written=None):
     _deadline(deadline)
-    head = client.head_object(Bucket=bucket, Key=key)
+    expected = written or (entry if entry["state"] == "verified" else None)
+    pinned = None
+    if expected is not None:
+        pinned = _immutable_version(
+            {"VersionId": expected["version_id"]}
+            if "version_id" in expected
+            else expected
+        )
+    head = client.head_object(
+        Bucket=bucket, Key=key, **({"VersionId": pinned} if pinned else {})
+    )
     _http(head)
     _owned(head, lease_id, entry)
-    etag, version = head.get("ETag"), _version(head)
+    etag, version = head.get("ETag"), _immutable_version(head)
     if (
         not _header(etag)
         or type(head.get("ContentLength")) is not int
         or head["ContentLength"] != entry["size_bytes"]
     ):
         reject("integrity_mismatch")
-    expected = written or (entry if entry["state"] == "verified" else None)
     if expected is not None and (
-        expected.get("etag", expected.get("ETag")) != etag
-        or expected.get("version_id", _version(expected)) != version
+        expected.get("etag", expected.get("ETag")) != etag or pinned != version
     ):
         reject("integrity_mismatch")
-    params = {"Bucket": bucket, "Key": key, "IfMatch": etag}
-    if version is not None:
-        params["VersionId"] = version
+    params = {"Bucket": bucket, "Key": key, "IfMatch": etag, "VersionId": version}
     response = client.get_object(**params)
     body = response.get("Body") if isinstance(response, dict) else None
     if body is None:
@@ -482,7 +505,7 @@ def _read(client, bucket, key, entry, deadline, *, lease_id, written=None):
         if size != entry["size_bytes"] or digest.hexdigest() != entry["sha256"]:
             reject("integrity_mismatch")
     _deadline(deadline)
-    after = client.head_object(Bucket=bucket, Key=key)
+    after = client.head_object(Bucket=bucket, Key=key, VersionId=version)
     _http(after)
     _owned(after, lease_id, entry)
     if (
@@ -623,7 +646,10 @@ class PredictionInputs:
                     select(
                         func.jsonb_path_exists(
                             InputRecord.inventory,
-                            cast('$.objects.* ? (@.state != "verified")', JSONPATH),
+                            cast(
+                                '$.objects.* ? (@.state != "verified" || @.version_id == null || @.version_id == "null")',
+                                JSONPATH,
+                            ),
                         )
                     ).where(InputRecord.id == self.record.id)
                 )
@@ -720,7 +746,7 @@ class PredictionInputs:
 
         await _async(check())
 
-    def _url(self, storage, relative):
+    def _url(self, storage, relative, verified):
         seconds = min(
             URL_SECONDS, int((self.record.expires_at - now()).total_seconds())
         )
@@ -731,6 +757,7 @@ class PredictionInputs:
             expires_in=seconds,
             bucket=self.record.bucket,
             align=False,
+            version_id=_immutable_version({"VersionId": verified["version_id"]}),
         )
         return storage.rewrite_host_for_ml_backend(url)
 
@@ -786,6 +813,7 @@ class PredictionInputs:
             try:
                 deadline = time.monotonic() + IO_SECONDS
                 if expected["state"] == "planned":
+                    _versioned_bucket(storage.client, self.record.bucket)
                     body.seek(0)
                     digest, count = hashlib.sha256(), 0
                     while True:
@@ -837,7 +865,7 @@ class PredictionInputs:
                     lease_id=self.record.id,
                     written=written,
                 )
-                return verified, self._url(storage, relative)
+                return verified, self._url(storage, relative, verified)
             finally:
                 if type(content) is bytes:
                     storage_access.close_registered(body)
@@ -1085,11 +1113,8 @@ def _listed(client, record, expected, deadline, *, versions=False):
             ):
                 reject("unknown_object")
             if versions:
-                if not _header(item.get("VersionId")):
-                    reject("unknown_object")
-                if entry["state"] == "verified" and item["VersionId"] != (
-                    entry["version_id"] or "null"
-                ):
+                version = _immutable_version(item)
+                if entry["state"] == "verified" and version != entry["version_id"]:
                     reject("unknown_object")
             rows[relative] = item
             if len(rows) > MAX_OBJECTS:
@@ -1140,6 +1165,7 @@ def _delete_known(storage, record, inventory):
             inventory[relative],
             deadline,
             lease_id=record.id,
+            written=item if inventory[relative]["state"] == "planned" else None,
         )
         if (
             observed["version_id"] in {None, "null"}

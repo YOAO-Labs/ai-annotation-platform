@@ -42,14 +42,47 @@ class MemoryStorage:
         self.closed = False
         world.storages.append(self)
 
-    def _head(self, bucket, key):
-        if (bucket, key) not in self.world.objects:
-            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "HeadObject")
-        raw = self.world.objects[bucket, key]
+    def get_bucket_versioning(self, *, Bucket):
+        assert not self.closed
+        self.world.versioning_reads.append(Bucket)
+        return {
+            "Status": self.world.versioning,
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+        }
+
+    @staticmethod
+    def seed(world, bucket, key, raw, metadata, *, version=None):
+        version = version or str(uuid.uuid4())
+        world.versions.setdefault((bucket, key), {})[version] = (
+            raw,
+            deepcopy(metadata),
+        )
+        world.current_versions[bucket, key] = version
+        world.objects[bucket, key] = raw
+        world.metadata[bucket, key] = deepcopy(metadata)
+        return version
+
+    def _value(self, bucket, key, version=None):
+        current = self.world.current_versions.get((bucket, key), "null")
+        version = current if version is None else version
+        if version == current and (bucket, key) in self.world.objects:
+            return (
+                self.world.objects[bucket, key],
+                self.world.metadata.get((bucket, key), {}),
+                version,
+            )
+        if version in self.world.versions.get((bucket, key), {}):
+            raw, metadata = self.world.versions[bucket, key][version]
+            return raw, metadata, version
+        raise ClientError({"Error": {"Code": "NoSuchVersion"}}, "HeadObject")
+
+    def _head(self, bucket, key, version=None):
+        raw, metadata, version = self._value(bucket, key, version)
         return {
             "ContentLength": len(raw),
             "ETag": '"' + hashlib.sha256(raw).hexdigest() + '"',
-            "Metadata": deepcopy(self.world.metadata.get((bucket, key), {})),
+            "VersionId": version,
+            "Metadata": deepcopy(metadata),
             "ResponseMetadata": {"HTTPStatusCode": 200},
         }
 
@@ -72,25 +105,28 @@ class MemoryStorage:
             raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
         raw = Body.read()
         assert len(raw) == ContentLength
-        self.world.objects[Bucket, Key] = raw
-        self.world.metadata[Bucket, Key] = deepcopy(Metadata)
+        self.seed(self.world, Bucket, Key, raw, Metadata)
         if self.world.fail_put:
             raise OSError("synthetic failed signed request, must stay private")
         return self._head(Bucket, Key)
 
-    def head_object(self, *, Bucket, Key):
+    def head_object(self, *, Bucket, Key, VersionId=None):
         assert not self.closed
         self.world.heads.append((Bucket, Key))
-        return self._head(Bucket, Key)
+        self.world.head_versions.append(VersionId)
+        return self._head(Bucket, Key, VersionId)
 
     def get_object(self, *, Bucket, Key, IfMatch, **kwargs):
         assert not self.closed
-        facts = self._head(Bucket, Key)
+        version = kwargs["VersionId"]
+        assert version not in {None, "null"}
+        facts = self._head(Bucket, Key, version)
         assert IfMatch == facts["ETag"]
-        assert kwargs.get("VersionId") in {None, "null"}
-        body = io.BytesIO(self.world.objects[Bucket, Key])
+        raw, _, _ = self._value(Bucket, Key, version)
+        body = io.BytesIO(raw)
         self.world.bodies.append(body)
         self.world.reads.append((Bucket, Key))
+        self.world.read_versions.append(version)
         return {**facts, "Body": body}
 
     def list_objects_v2(self, *, Bucket, Prefix, **kwargs):
@@ -106,32 +142,56 @@ class MemoryStorage:
         }
 
     def list_object_versions(self, *, Bucket, Prefix, **kwargs):
+        rows = []
+        for (bucket, key), raw in self.world.objects.items():
+            if bucket != Bucket or not key.startswith(Prefix):
+                continue
+            for version in self.world.versions.get((bucket, key), {"null": (raw, {})}):
+                facts = self._head(bucket, key, version)
+                rows.append(
+                    {
+                        "Key": key,
+                        "Size": facts["ContentLength"],
+                        "ETag": facts["ETag"],
+                        "VersionId": version,
+                    }
+                )
         return {
             "ResponseMetadata": {"HTTPStatusCode": 200},
             "IsTruncated": False,
-            "Versions": [
-                {**row, "VersionId": "null"}
-                for row in self.list_objects_v2(Bucket=Bucket, Prefix=Prefix)[
-                    "Contents"
-                ]
-            ],
+            "Versions": rows,
             "DeleteMarkers": [],
         }
 
     def delete_object(self, *, Bucket, Key, VersionId, IfMatch):
         assert not self.closed
-        assert VersionId == "null" and IfMatch == self._head(Bucket, Key)["ETag"]
+        # Current MinIO ignores IfMatch on DELETE; the exact version must fence it.
+        self._value(Bucket, Key, VersionId)
         if self.world.fail_delete:
             raise OSError("synthetic private storage failure")
         self.world.deletions.append((Bucket, Key))
-        del self.world.objects[Bucket, Key]
-        del self.world.metadata[Bucket, Key]
+        self.world.deleted_versions.append(VersionId)
+        versions = self.world.versions.get((Bucket, Key), {})
+        versions.pop(VersionId, None)
+        if versions:
+            current = next(reversed(versions))
+            raw, metadata = versions[current]
+            self.world.current_versions[Bucket, Key] = current
+            self.world.objects[Bucket, Key] = raw
+            self.world.metadata[Bucket, Key] = deepcopy(metadata)
+        else:
+            self.world.versions.pop((Bucket, Key), None)
+            self.world.current_versions.pop((Bucket, Key), None)
+            self.world.objects.pop((Bucket, Key), None)
+            self.world.metadata.pop((Bucket, Key), None)
         return {"ResponseMetadata": {"HTTPStatusCode": 204}}
 
-    def generate_download_url(self, key, *, expires_in, bucket, align):
+    def generate_download_url(self, key, *, expires_in, bucket, align, version_id):
         assert not self.closed and align is False
+        assert version_id not in {None, "null"}
         self.world.expirations.append(expires_in)
-        return f"http://ml-objects.test/{bucket}/{key}?signature=synthetic"
+        self.world.signed_versions.append(version_id)
+        return f"http://ml-objects.test/{bucket}/{key}?signature=synthetic&versionId={version_id}"
 
     def rewrite_host_for_ml_backend(self, url):
         return url
@@ -170,6 +230,14 @@ async def input_world(test_engine, monkeypatch):
         task_id=uuid.uuid4(),
         objects={},
         metadata={},
+        versions={},
+        current_versions={},
+        versioning="Enabled",
+        versioning_reads=[],
+        read_versions=[],
+        head_versions=[],
+        deleted_versions=[],
+        signed_versions=[],
         endpoint=service._endpoint(),
         bucket=settings.minio_import_bucket,
         storages=[],
@@ -189,6 +257,7 @@ async def input_world(test_engine, monkeypatch):
             for revision in (
                 "0212_prediction_input_leases",
                 "0238_prediction_input_ownership",
+                "0239_prediction_input_versions",
             ):
                 await connection.run_sync(
                     lambda sync, name=revision: _migration(sync, name).upgrade()
@@ -207,6 +276,8 @@ async def input_world(test_engine, monkeypatch):
             storage.close()
         world.objects.clear()
         world.metadata.clear()
+        world.versions.clear()
+        world.current_versions.clear()
         await engine.dispose()
         async with test_engine.begin() as connection:
             await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
@@ -349,18 +420,23 @@ async def test_uncertain_or_crashed_put_retains_recovery_for_late_objects(
     monkeypatch.setattr(service, "now", lambda: checked)
     assert (await service.maintain(world.factory))["retained"] == 1
     assert not world.objects
-    world.objects[identity] = raw
-    world.metadata[identity] = ownership
+    # A later PUT creates a distinct immutable version, even for the same bytes.
+    # Only an unpublished planned intent may prove that later candidate by nonce;
+    # a verified receipt can never be rewritten to adopt the new generation.
+    MemoryStorage.seed(world, *identity, raw, ownership)
     record = await get_record(world, inputs.record.id)
     checked = record.next_cleanup_at + timedelta(seconds=1)
-    assert (await service.maintain(world.factory))["retained"] == 1
-    assert not world.objects
+    result = await service.maintain(world.factory)
+    assert result["deferred" if lost else "retained"] == 1
+    assert bool(world.objects) is lost
     with pytest.raises(ContentError, match="prediction_input_expired"):
         await inputs.upload_crop(task, 1, b"forbidden")
     checked = record.retain_until + timedelta(seconds=1)
-    assert (await service.maintain(world.factory))["removed"] == 1
+    result = await service.maintain(world.factory)
+    assert result["deferred" if lost else "removed"] == 1
     tombstone = await get_record(world, inputs.record.id)
-    assert tombstone.state == "deleted" and tombstone.inventory == record.inventory
+    assert tombstone.state == ("cleanup_pending" if lost else "deleted")
+    assert tombstone.inventory == record.inventory
     await inputs.close()
 
 

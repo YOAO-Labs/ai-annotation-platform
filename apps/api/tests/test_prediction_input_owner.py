@@ -38,6 +38,25 @@ class Storage:
         self.closed = False
         world.clients.append(self)
 
+    def get_bucket_versioning(self, *, Bucket):
+        self.world.versioning_reads.append(Bucket)
+        return {
+            "Status": self.world.versioning,
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+        }
+
+    @staticmethod
+    def seed(world, bucket, key, raw, metadata, *, version=None):
+        version = version or str(uuid.uuid4())
+        world.versions.setdefault((bucket, key), {})[version] = (
+            raw,
+            deepcopy(metadata),
+        )
+        world.current_versions[bucket, key] = version
+        world.objects[bucket, key] = raw
+        world.metadata[bucket, key] = deepcopy(metadata)
+        return version
+
     def put_object(
         self, *, Bucket, Key, Body, ContentLength, IfNoneMatch, Metadata, **kwargs
     ):
@@ -49,30 +68,56 @@ class Storage:
             raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
         raw = Body.read()
         assert len(raw) == ContentLength
-        self.world.objects[Bucket, Key] = raw
-        self.world.metadata[Bucket, Key] = dict(Metadata)
+        self.seed(
+            self.world,
+            Bucket,
+            Key,
+            raw,
+            Metadata,
+            version=self.world.headers.get("VersionId")
+            or ("null" if "VersionId" in self.world.headers else None),
+        )
         self.world.puts.append((Bucket, Key))
         if self.world.after_put:
             self.world.after_put()
         return {**self._head(Bucket, Key), "ResponseMetadata": {"HTTPStatusCode": 200}}
 
-    def _head(self, bucket, key):
-        raw = self.world.objects[bucket, key]
+    def _value(self, bucket, key, version=None):
+        current = self.world.current_versions.get((bucket, key), "null")
+        version = current if version is None else version
+        if version == current and (bucket, key) in self.world.objects:
+            return (
+                self.world.objects[bucket, key],
+                self.world.metadata.get((bucket, key), {}),
+                version,
+            )
+        if version in self.world.versions.get((bucket, key), {}):
+            raw, metadata = self.world.versions[bucket, key][version]
+            return raw, metadata, version
+        raise ClientError({"Error": {"Code": "NoSuchVersion"}}, "HeadObject")
+
+    def _head(self, bucket, key, version=None):
+        raw, metadata, version = self._value(bucket, key, version)
         return {
             "ContentLength": len(raw),
             "ETag": '"' + hashlib.sha256(raw).hexdigest() + '"',
-            "Metadata": dict(self.world.metadata.get((bucket, key), {})),
+            "VersionId": version,
+            "Metadata": dict(metadata),
             "ResponseMetadata": {"HTTPStatusCode": 200},
             **self.world.headers,
         }
 
-    def head_object(self, *, Bucket, Key):
-        return self._head(Bucket, Key)
+    def head_object(self, *, Bucket, Key, VersionId=None):
+        self.world.heads.append((Bucket, Key, VersionId))
+        return self._head(Bucket, Key, VersionId)
 
     def get_object(self, *, Bucket, Key, IfMatch, **kwargs):
-        facts = self._head(Bucket, Key)
+        version = kwargs["VersionId"]
+        assert version not in {None, "null"}
+        self.world.reads.append((Bucket, Key, version))
+        facts = self._head(Bucket, Key, version)
         assert IfMatch == facts["ETag"]
-        raw = self.world.objects[Bucket, Key]
+        raw, _, _ = self._value(Bucket, Key, version)
         if self.world.corrupt_read:
             raw = bytes([raw[0] ^ 1]) + raw[1:]
         body = io.BytesIO(raw)
@@ -91,35 +136,58 @@ class Storage:
         }
 
     def list_object_versions(self, *, Bucket, Prefix, **kwargs):
-        rows = self.list_objects_v2(Bucket=Bucket, Prefix=Prefix)["Contents"]
-        rows = [
-            {
-                **row,
-                "VersionId": self._head(Bucket, row["Key"]).get("VersionId", "null"),
-            }
-            for row in rows
-        ]
+        rows = []
+        for (bucket, key), raw in self.world.objects.items():
+            if bucket != Bucket or not key.startswith(Prefix):
+                continue
+            versions = self.world.versions.get((bucket, key), {"null": (raw, {})})
+            for version in versions:
+                facts = self._head(bucket, key, version)
+                rows.append(
+                    {
+                        "Key": key,
+                        "Size": facts["ContentLength"],
+                        "ETag": facts["ETag"],
+                        "VersionId": version,
+                    }
+                )
         if self.world.extra_version and rows:
             rows.append({**rows[0], "VersionId": "unknown-version"})
         return {
             "ResponseMetadata": {"HTTPStatusCode": 200},
             "IsTruncated": False,
             "Versions": rows,
-            "DeleteMarkers": [],
+            "DeleteMarkers": self.world.delete_markers,
         }
 
     def delete_object(self, *, Bucket, Key, VersionId, IfMatch):
-        head = self._head(Bucket, Key)
-        assert VersionId == head.get("VersionId", "null") and IfMatch == head["ETag"]
+        # Model the observed MinIO behavior: IfMatch is deliberately ignored.
+        # Exact immutable VersionId, rather than this header, fences deletion.
+        self._value(Bucket, Key, VersionId)
         self.world.deleted.append((Bucket, Key))
-        del self.world.objects[Bucket, Key]
-        self.world.metadata.pop((Bucket, Key), None)
+        versions = self.world.versions.get((Bucket, Key), {})
+        versions.pop(VersionId, None)
+        if versions:
+            current = next(reversed(versions))
+            raw, metadata = versions[current]
+            self.world.current_versions[Bucket, Key] = current
+            self.world.objects[Bucket, Key] = raw
+            self.world.metadata[Bucket, Key] = deepcopy(metadata)
+        else:
+            self.world.versions.pop((Bucket, Key), None)
+            self.world.current_versions.pop((Bucket, Key), None)
+            self.world.objects.pop((Bucket, Key), None)
+            self.world.metadata.pop((Bucket, Key), None)
         return {"ResponseMetadata": {"HTTPStatusCode": 204}}
 
-    def generate_download_url(self, key, *, expires_in, bucket, align):
+    def generate_download_url(self, key, *, expires_in, bucket, align, version_id):
         assert not align and 0 < expires_in <= owner.URL_SECONDS
+        assert version_id not in {None, "null"}
         self.world.expirations.append(expires_in)
-        return f"https://saved.test/{bucket}/{key}?private=receipt"
+        self.world.signed_versions.append(version_id)
+        return (
+            f"https://saved.test/{bucket}/{key}?private=receipt&versionId={version_id}"
+        )
 
     def rewrite_host_for_ml_backend(self, url):
         return url
@@ -155,6 +223,7 @@ async def world(test_engine, monkeypatch):
             for revision in (
                 "0212_prediction_input_leases",
                 "0238_prediction_input_ownership",
+                "0239_prediction_input_versions",
             ):
                 await connection.run_sync(
                     lambda sync, name=revision: _migration(sync, name).upgrade()
@@ -167,6 +236,14 @@ async def world(test_engine, monkeypatch):
             factory=factory,
             objects={},
             metadata={},
+            versions={},
+            current_versions={},
+            versioning="Enabled",
+            versioning_reads=[],
+            reads=[],
+            heads=[],
+            signed_versions=[],
+            delete_markers=[],
             clients=[],
             puts=[],
             bodies=[],
@@ -235,6 +312,13 @@ async def test_planned_intent_precedes_put_and_verified_receipt_survives_cleanup
         assert entry["state"] == "planned" and entry["etag"] is None
         assert row.object_count == 1 and row.size_bytes == image.size
         assert not world.objects and not image.file.closed
+        assert world.versioning_reads == [current.record.bucket]
+        async with world.factory() as db:
+            assert await db.scalar(
+                select(StorageOperation.id).where(
+                    StorageOperation.purpose == owner.purpose(current.record)
+                )
+            )
     finally:
         world.release.set()
     url = await pending
@@ -246,7 +330,11 @@ async def test_planned_intent_precedes_put_and_verified_receipt_survives_cleanup
         await db.rollback()
     row = await lease(world, current.record.id)
     saved = deepcopy(row.inventory)
-    assert next(iter(saved["objects"].values()))["state"] == "verified"
+    entry = next(iter(saved["objects"].values()))
+    assert entry["state"] == "verified" and entry["version_id"] not in {None, "null"}
+    assert world.signed_versions == [entry["version_id"]]
+    assert all(version == entry["version_id"] for _, _, version in world.heads)
+    assert all(version == entry["version_id"] for _, _, version in world.reads)
     await current.close()
     row = await lease(world, current.record.id)
     assert row.state == "deleted" and row.deleted_at is not None
@@ -369,7 +457,7 @@ async def test_any_location_same_purpose_blocks_cleanup(world, monkeypatch):
     assert world.objects and not world.deleted
 
 
-@pytest.mark.parametrize("unexpected", ["key", "version"])
+@pytest.mark.parametrize("unexpected", ["key", "version", "delete_marker"])
 async def test_cleanup_never_deletes_unknown_key_or_version(world, unexpected):
     current = await inputs(world)
     await current.upload_crop(SimpleNamespace(id=current.record.task_id), 0, b"crop")
@@ -377,8 +465,12 @@ async def test_cleanup_never_deletes_unknown_key_or_version(world, unexpected):
         world.objects[current.record.bucket, current.prefix + "unregistered.bin"] = (
             b"unknown"
         )
-    else:
+    elif unexpected == "version":
         world.extra_version = True
+    else:
+        world.delete_markers = [
+            {"Key": next(iter(world.objects))[1], "VersionId": "foreign-delete-marker"}
+        ]
     before = dict(world.objects)
     await current.close()
     assert world.objects == before and not world.deleted
@@ -623,7 +715,6 @@ async def test_412_requires_prior_durable_lease_and_nonce_not_just_same_sha(
         ),
     )
     key = current.record.bucket, current.prefix + relative
-    world.objects[key] = content
     metadata = {
         "aap-prediction-lease": str(current.record.id),
         "aap-prediction-write": entry["write_nonce"],
@@ -634,7 +725,7 @@ async def test_412_requires_prior_durable_lease_and_nonce_not_just_same_sha(
         metadata["aap-prediction-write"] = str(uuid.uuid4())
     elif proof == "other_lease":
         metadata["aap-prediction-lease"] = str(uuid.uuid4())
-    world.metadata[key] = metadata
+    Storage.seed(world, *key, content, metadata)
     if proof == "matching":
         await current.upload_crop(
             SimpleNamespace(id=current.record.task_id), 0, content
@@ -696,7 +787,7 @@ async def test_database_refuses_out_of_contract_header_receipt(world, field, hea
         row = await db.get(Lease, current.record.id)
         inventory = deepcopy(row.inventory)
         entry = inventory["objects"][relative]
-        entry.update(state="verified", etag='"valid-etag"', version_id=None)
+        entry.update(state="verified", etag='"valid-etag"', version_id="valid-version")
         entry[field] = header
         with pytest.raises(DBAPIError):
             await db.execute(
@@ -704,3 +795,257 @@ async def test_database_refuses_out_of_contract_header_receipt(world, field, hea
             )
         await db.rollback()
     await current.close()
+
+
+@pytest.mark.parametrize("status", [None, "Suspended"])
+async def test_new_put_requires_enabled_saved_bucket_before_any_write(world, status):
+    current = await inputs(world)
+    world.versioning = status
+    with pytest.raises(ContentError, match="bucket_versioning_required"):
+        await current.upload_crop(
+            SimpleNamespace(id=current.record.task_id), 0, b"crop"
+        )
+    row = await lease(world, current.record.id)
+    assert next(iter(row.inventory["objects"].values()))["state"] == "planned"
+    assert world.versioning_reads == [current.record.bucket]
+    assert not world.puts and not world.objects and not world.signed_versions
+    assert all(client.closed for client in world.clients)
+    await current.close()
+
+
+@pytest.mark.parametrize("version", [None, "null"])
+async def test_null_put_version_never_publishes_or_deletes_after_bucket_check(
+    world, monkeypatch, version
+):
+    current = await inputs(world)
+    world.headers["VersionId"] = version
+    with pytest.raises(ContentError, match="immutable_version_required"):
+        await current.upload_crop(
+            SimpleNamespace(id=current.record.task_id), 0, b"crop"
+        )
+    row = await lease(world, current.record.id)
+    saved = deepcopy(row.inventory)
+    assert next(iter(saved["objects"].values()))["state"] == "planned"
+    assert world.versioning_reads == [current.record.bucket]
+    assert world.objects and not world.signed_versions
+    await current.close()
+    monkeypatch.setattr(
+        owner, "now", lambda: current.record.retain_until + timedelta(days=1)
+    )
+    assert (await owner.maintain(world.factory))["deferred"] == 1
+    assert world.objects and not world.deleted
+    row = await lease(world, current.record.id)
+    assert row.state == "cleanup_pending" and row.inventory == saved
+
+
+@pytest.mark.parametrize("stage", ["head", "get", "final_head"])
+async def test_every_readback_step_must_return_the_pinned_put_version(
+    world, monkeypatch, stage
+):
+    current = await inputs(world)
+    head, get = Storage.head_object, Storage.get_object
+    calls = 0
+
+    def changed_head(client, **kwargs):
+        nonlocal calls
+        calls += 1
+        value = head(client, **kwargs)
+        if (stage == "head" and calls == 1) or (stage == "final_head" and calls == 2):
+            value["VersionId"] = "different-version"
+        return value
+
+    def changed_get(client, **kwargs):
+        value = get(client, **kwargs)
+        if stage == "get":
+            value["VersionId"] = "different-version"
+        return value
+
+    monkeypatch.setattr(Storage, "head_object", changed_head)
+    monkeypatch.setattr(Storage, "get_object", changed_get)
+    with pytest.raises(ContentError, match="integrity_mismatch"):
+        await current.upload_crop(
+            SimpleNamespace(id=current.record.task_id), 0, b"crop"
+        )
+    row = await lease(world, current.record.id)
+    assert next(iter(row.inventory["objects"].values()))["state"] == "planned"
+    assert not world.signed_versions
+    assert all(body.closed for body in world.bodies)
+    await current.close()
+
+
+async def test_verified_delivery_stays_on_saved_version_and_extra_version_blocks_cleanup(
+    world,
+):
+    current = await inputs(world)
+    task, content = SimpleNamespace(id=current.record.task_id), b"crop"
+    first = await current.upload_crop(task, 0, content)
+    row = await lease(world, current.record.id)
+    relative, entry = next(iter(row.inventory["objects"].items()))
+    key = current.record.bucket, current.prefix + relative
+    new_version = Storage.seed(world, *key, b"new-current-foreign-object", {})
+    assert new_version != entry["version_id"]
+    second = await current.upload_crop(task, 0, content)
+    assert first == second
+    assert world.signed_versions == [entry["version_id"], entry["version_id"]]
+    assert all(version == entry["version_id"] for _, _, version in world.reads)
+    assert world.objects[key] == b"new-current-foreign-object"
+    await current.close()
+    assert not world.deleted and len(world.versions[key]) == 2
+    assert (await lease(world, current.record.id)).inventory == row.inventory
+
+
+@pytest.mark.parametrize("version", [None, "null"])
+async def test_database_refuses_new_null_version_receipt(world, version):
+    current = await inputs(world)
+    digest = hashlib.sha256(b"crop").hexdigest()
+    relative = f"crops/0-{digest}.jpg"
+    await current._reserve(
+        relative,
+        dict(
+            sha256=digest,
+            size_bytes=4,
+            media_type="image/jpeg",
+            state="planned",
+            etag=None,
+            version_id=None,
+            write_nonce=str(uuid.uuid4()),
+        ),
+    )
+    async with world.factory() as db:
+        row = await db.get(Lease, current.record.id)
+        value = deepcopy(row.inventory)
+        value["objects"][relative].update(
+            state="verified", etag='"etag"', version_id=version
+        )
+        with pytest.raises(DBAPIError, match="require immutable object versions"):
+            await db.execute(
+                update(Lease).where(Lease.id == row.id).values(inventory=value)
+            )
+        await db.rollback()
+    await current.close()
+
+
+@pytest.mark.parametrize("version", [None, "null"])
+async def test_historical_null_receipt_retires_and_remaps_without_any_delete(
+    world, version
+):
+    current = await inputs(world)
+    digest = hashlib.sha256(b"crop").hexdigest()
+    relative = f"crops/0-{digest}.jpg"
+    entry = await current._reserve(
+        relative,
+        dict(
+            sha256=digest,
+            size_bytes=4,
+            media_type="image/jpeg",
+            state="planned",
+            etag=None,
+            version_id=None,
+            write_nonce=str(uuid.uuid4()),
+        ),
+    )
+    metadata = {
+        "aap-prediction-lease": str(current.record.id),
+        "aap-prediction-write": entry["write_nonce"],
+    }
+    Storage.seed(
+        world,
+        current.record.bucket,
+        current.prefix + relative,
+        b"crop",
+        metadata,
+        version="null",
+    )
+    # A real prior migration state, never trigger disabling or receipt adoption.
+    async with world.factory() as db:
+        connection = await db.connection()
+        await connection.run_sync(
+            lambda sync: _migration(sync, "0239_prediction_input_versions").downgrade()
+        )
+        row = await db.get(Lease, current.record.id)
+        value = deepcopy(row.inventory)
+        value["objects"][relative].update(
+            state="verified", etag='"' + digest + '"', version_id=version
+        )
+        await db.execute(
+            update(Lease).where(Lease.id == row.id).values(inventory=value)
+        )
+        await connection.run_sync(
+            lambda sync: _migration(sync, "0239_prediction_input_versions").upgrade()
+        )
+        await db.commit()
+    with pytest.raises(ContentError, match="object_not_verified"):
+        await current.check_live()
+    await current.close()
+    row = await lease(world, current.record.id)
+    assert row.state == "cleanup_pending" and row.inventory == value
+    assert row.error_code == "prediction_input_immutable_version_required"
+    # The fake provider ignores IfMatch; reaching DELETE would destroy the null
+    # object. Neither retirement nor bucket remapping may grant that operation.
+    assert world.objects and not world.deleted
+    async with world.factory() as db:
+        row = await db.get(Lease, current.record.id)
+        bucket = row.bucket + "-restored"
+        ref = {
+            **row.storage_ref,
+            "bucket": bucket,
+            "storage_identity": owner._identity(owner._endpoint(), bucket),
+        }
+        await db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+        await db.execute(
+            update(Lease)
+            .where(Lease.id == row.id)
+            .values(
+                bucket=bucket, storage_identity=ref["storage_identity"], storage_ref=ref
+            )
+        )
+        await db.commit()
+    assert (await lease(world, current.record.id)).inventory == value
+    assert not world.deleted
+
+
+async def test_delete_targets_saved_version_when_current_changes_and_ifmatch_is_ignored(
+    world, monkeypatch
+):
+    current = await inputs(world)
+    await current.upload_crop(SimpleNamespace(id=current.record.task_id), 0, b"crop")
+    row = await lease(world, current.record.id)
+    relative, entry = next(iter(row.inventory["objects"].items()))
+    key = current.record.bucket, current.prefix + relative
+    delete = Storage.delete_object
+    replacement = []
+
+    def concurrent_replace(client, **kwargs):
+        assert kwargs["VersionId"] == entry["version_id"]
+        replacement.append(Storage.seed(world, *key, b"concurrent-current", {}))
+        # Model the real server's ignored conditional header explicitly.
+        return delete(client, **{**kwargs, "IfMatch": '"wrong-etag"'})
+
+    monkeypatch.setattr(Storage, "delete_object", concurrent_replace)
+    await current.close()
+    assert world.objects[key] == b"concurrent-current"
+    assert set(world.versions[key]) == set(replacement)
+    assert entry["version_id"] not in world.versions[key]
+    after = await lease(world, current.record.id)
+    assert after.state == "cleanup_pending" and after.inventory == row.inventory
+
+
+def test_download_url_version_is_optional_and_exact(monkeypatch):
+    from app.services.storage import StorageService
+
+    storage = object.__new__(StorageService)
+    storage.bucket = "saved-bucket"
+    sign = Mock(return_value="https://saved.test/signed")
+    storage.client = SimpleNamespace(generate_presigned_url=sign)
+    monkeypatch.setattr(storage, "_public_url", lambda value: value)
+    storage.generate_download_url("object", align=False)
+    assert sign.call_args.kwargs["Params"] == {
+        "Bucket": "saved-bucket",
+        "Key": "object",
+    }
+    storage.generate_download_url("object", align=False, version_id="exact-version")
+    assert sign.call_args.kwargs["Params"] == {
+        "Bucket": "saved-bucket",
+        "Key": "object",
+        "VersionId": "exact-version",
+    }

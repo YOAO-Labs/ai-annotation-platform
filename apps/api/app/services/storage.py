@@ -325,10 +325,13 @@ class StorageService:
         bucket: str | None = None,
         download_name: str | None = None,
         align: bool = True,
+        version_id: str | None = None,
     ) -> str:
         # v0.10.43 · download_name 经 ResponseContentDisposition 给浏览器一个友好文件名。
         reject_reference(key)
         params: dict = {"Bucket": bucket or self.bucket, "Key": key}
+        if version_id is not None:
+            params["VersionId"] = version_id
         if download_name:
             params["ResponseContentDisposition"] = (
                 f'attachment; filename="{download_name}"'
