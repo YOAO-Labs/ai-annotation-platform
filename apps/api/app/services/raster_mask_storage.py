@@ -899,6 +899,12 @@ def load_coco_rle_sync(
             MAX_COMPRESSED_BYTES if key.endswith(".json.gz") else MAX_RLE_OBJECT_BYTES
         ),
     )
+    return decode_rle_bytes(reference, raw)
+
+
+def decode_rle_bytes(reference: dict[str, Any], raw: bytes) -> dict[str, Any]:
+    """Validate portable canonical content independently of its physical locator."""
+    key = str(reference["object_key"])
     storage_encoding = reference.get("storage_encoding")
     gzip_key = key.endswith(".json.gz")
     if storage_encoding not in (None, RLE_STORAGE_IDENTITY, RLE_STORAGE_GZIP):
