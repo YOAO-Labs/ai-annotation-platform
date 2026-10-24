@@ -122,6 +122,12 @@ class DatasetItem(Base):
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     thumbnail_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    video_output_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("video_derivative_outputs.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     blurhash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
     # v0.14.0 · 跨 task 帧序基地;FK 到 scenes,SET NULL 容忍历史数据 / scene 删除
@@ -245,6 +251,12 @@ class VideoChunk(Base):
     start_pts_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     end_pts_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    output_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("video_derivative_outputs.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     byte_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     generation_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     diagnostics: Mapped[dict] = mapped_column(JSONB, default=dict)
@@ -291,6 +303,12 @@ class VideoFrameCache(Base):
     width: Mapped[int] = mapped_column(Integer, nullable=False)
     format: Mapped[str] = mapped_column(String(10), nullable=False)
     storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    output_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("video_derivative_outputs.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     byte_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

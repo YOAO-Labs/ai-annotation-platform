@@ -33,6 +33,7 @@ from app.db.models.image_pyramid import (
     ImagePyramidGeneration,
     ImagePyramidOutput,
 )
+from app.db.models.video_derivative import VideoDerivativeOutput
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock, AnnotationDraft
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -201,6 +202,7 @@ __all__ = [
     "ImagePyramidAsset",
     "ImagePyramidGeneration",
     "ImagePyramidOutput",
+    "VideoDerivativeOutput",
     "TaskBatch",
     "TaskLock",
     "AnnotationDraft",
