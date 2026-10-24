@@ -177,3 +177,51 @@ async def test_cancel_after_zip_write_retains_pending_owner_and_cancelled_status
     assert (await state(db, ExportMediaBundle, receipt.id)).published_at is None
     assert len(harness.objects) == 1
     assert all(not path.exists() for path in harness.built_paths)
+
+
+@pytest.mark.parametrize("committed", [False, True])
+async def test_unknown_final_commit_keeps_paired_image_responsibility(
+    worker_db, monkeypatch, committed
+):
+    from app.db.models.export_artifact import ExportArtifact
+
+    db = worker_db
+    project, *_ = await setup(db)
+    harness = ImageHarness(db, monkeypatch)
+    job_id, receipt, args = await request(db, project)
+    original_commit = db.commit
+    fired = False
+
+    async def unknown_commit():
+        nonlocal fired
+        status = await db.scalar(select(AsyncJob.status).where(AsyncJob.id == job_id))
+        if not fired and status == "completed":
+            fired = True
+            if committed:
+                await original_commit()
+            raise OSError("commit acknowledgement unknown")
+        await original_commit()
+
+    monkeypatch.setattr(db, "commit", unknown_commit)
+    with pytest.raises(OSError, match="acknowledgement unknown"):
+        await worker.run_owned(db, **args)
+    monkeypatch.setattr(db, "commit", original_commit)
+    assert fired and len(harness.objects) == 1
+    job_status = (await state(db, AsyncJob, job_id)).status
+    output_state = (await state(db, ExportOutput, receipt.zip_output_id)).state
+    bundle = await state(db, ExportMediaBundle, receipt.id)
+    assert job_status == ("completed" if committed else "failed")
+    assert output_state == ("ready" if committed else "pending")
+    assert bundle.state == ("ready" if committed else "building")
+    assert (bundle.published_at is not None) is committed
+    assert (
+        bool(
+            await db.scalar(
+                select(ExportArtifact.id).where(
+                    ExportArtifact.output_id == receipt.zip_output_id
+                )
+            )
+        )
+        is committed
+    )
+    assert all(not path.exists() for path in harness.built_paths)

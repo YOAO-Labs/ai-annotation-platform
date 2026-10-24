@@ -745,6 +745,9 @@ async def test_worker_unknown_final_commit_never_deletes_candidate(
     from app.workers import export as worker
 
     actor, project = annotator[0], export_project
+    # This regression remains on the legacy video branch; image attempts are
+    # covered by test_image_export_worker with their Bundle publication fence.
+    project.data_type = "video"
     job = AsyncJob(
         id=uuid.uuid4(),
         kind="export",
@@ -795,7 +798,7 @@ async def test_worker_unknown_final_commit_never_deletes_candidate(
     monkeypatch.setattr(worker, "_assert_export_task_scope", AsyncMock())
     monkeypatch.setattr(worker, "_scope_fingerprint", AsyncMock(return_value=(None, 0)))
     monkeypatch.setattr(
-        worker, "_scope_naming", AsyncMock(return_value=("image", None, "P-1"))
+        worker, "_scope_naming", AsyncMock(return_value=("video", None, "P-1"))
     )
     monkeypatch.setattr(
         worker, "_emit_export_notification", AsyncMock(return_value=None)
@@ -824,7 +827,7 @@ async def test_worker_unknown_final_commit_never_deletes_candidate(
         await worker._run_export(
             project_id=str(project_id),
             batch_id=None,
-            targets=["coco"],
+            targets=["aap_json"],
             opts={},
             async_job_id=str(job_id),
             celery_task_id="unknown-commit-test",

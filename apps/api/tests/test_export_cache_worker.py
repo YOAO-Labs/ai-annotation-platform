@@ -1,4 +1,4 @@
-"""Export cache and worker wiring regression tests."""
+"""Legacy video cache wiring; image publication uses its owned-worker suite."""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ def test_cache_key_is_target_order_independent_and_contract_sensitive() -> None:
 
 @pytest.mark.asyncio
 async def test_cache_lookup_delegates_saved_output_verification(monkeypatch):
-    artifact = SimpleNamespace(object_key="image/project/job.zip")
+    artifact = SimpleNamespace(object_key="video/project/job.zip")
     db = _CacheDB(artifact)
     verify = AsyncMock(return_value=None)
     monkeypatch.setattr(cache.export_outputs, "verify_cache", verify)
@@ -132,7 +132,7 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
     job_id = uuid.UUID("22222222-2222-2222-2222-222222222222")
     task_id = uuid.UUID("33333333-3333-3333-3333-333333333333")
     actor_id = uuid.UUID("44444444-4444-4444-4444-444444444444")
-    project = SimpleNamespace(id=project_id, owner_id=uuid.uuid4())
+    project = SimpleNamespace(id=project_id, owner_id=uuid.uuid4(), data_type="video")
     job = SimpleNamespace(
         id=job_id,
         status="pending",
@@ -146,6 +146,7 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
         get=AsyncMock(
             return_value=SimpleNamespace(
                 project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                data_type="video",
             )
         ),
         commit=AsyncMock(),
@@ -231,6 +232,7 @@ async def test_export_worker_cache_hit_skips_packaging(
         get=AsyncMock(
             return_value=SimpleNamespace(
                 project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                data_type="video",
             )
         ),
         commit=AsyncMock(),
@@ -286,7 +288,7 @@ async def test_export_worker_cache_hit_skips_packaging(
     monkeypatch.setattr(
         export_worker,
         "_scope_naming",
-        AsyncMock(return_value=("image", "dataset", "P-1")),
+        AsyncMock(return_value=("video", "dataset", "P-1")),
     )
     monkeypatch.setattr(export_worker, "_emit_export_notification", AsyncMock())
     compute_cache_key = Mock(return_value="cache-key")
@@ -296,7 +298,7 @@ async def test_export_worker_cache_hit_skips_packaging(
         compute_cache_key,
     )
     artifact = SimpleNamespace(
-        object_key="image/project/cached.zip",
+        object_key="video/project/cached.zip",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         file_count=4,
         size_bytes=128,
@@ -383,6 +385,7 @@ async def test_export_worker_final_reauth_blocks_url_after_cache_hit(
         get=AsyncMock(
             return_value=SimpleNamespace(
                 project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                data_type="video",
             )
         ),
         commit=AsyncMock(),
@@ -422,14 +425,14 @@ async def test_export_worker_final_reauth_blocks_url_after_cache_hit(
     monkeypatch.setattr(
         export_worker,
         "_scope_naming",
-        AsyncMock(return_value=("image", "dataset", "P-1")),
+        AsyncMock(return_value=("video", "dataset", "P-1")),
     )
     monkeypatch.setattr(export_worker, "_emit_export_notification", AsyncMock())
     monkeypatch.setattr(
         export_worker.export_cache, "compute_cache_key", Mock(return_value="cache-key")
     )
     artifact = SimpleNamespace(
-        object_key="image/project/cached.zip",
+        object_key="video/project/cached.zip",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         file_count=4,
         size_bytes=128,
@@ -468,6 +471,7 @@ async def test_export_worker_cache_miss_contender_retries_without_packaging(
         get=AsyncMock(
             return_value=SimpleNamespace(
                 project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                data_type="video",
             )
         ),
         commit=AsyncMock(),
@@ -503,7 +507,7 @@ async def test_export_worker_cache_miss_contender_retries_without_packaging(
     monkeypatch.setattr(
         export_worker,
         "_scope_naming",
-        AsyncMock(return_value=("image", "dataset", "P-1")),
+        AsyncMock(return_value=("video", "dataset", "P-1")),
     )
     monkeypatch.setattr(
         export_worker.export_cache,
@@ -529,7 +533,7 @@ async def test_export_worker_cache_miss_contender_retries_without_packaging(
         await export_worker._run_export(
             project_id="11111111-1111-1111-1111-111111111111",
             batch_id=None,
-            targets=["coco"],
+            targets=["coco-frames-seg"],
             opts={},
             async_job_id="22222222-2222-2222-2222-222222222222",
             celery_task_id="celery-2",
@@ -553,6 +557,7 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
         get=AsyncMock(
             return_value=SimpleNamespace(
                 project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                data_type="video",
             )
         ),
         commit=AsyncMock(),
@@ -590,7 +595,7 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
     monkeypatch.setattr(
         export_worker,
         "_scope_naming",
-        AsyncMock(return_value=("image", "dataset", "P-1")),
+        AsyncMock(return_value=("video", "dataset", "P-1")),
     )
     monkeypatch.setattr(export_worker, "_emit_export_notification", AsyncMock())
     monkeypatch.setattr(
@@ -599,7 +604,7 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
         lambda *a, **kw: "cache-key",
     )
     artifact = SimpleNamespace(
-        object_key="image/project/cached.zip",
+        object_key="video/project/cached.zip",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         file_count=4,
         size_bytes=128,
@@ -627,7 +632,7 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
     await export_worker._run_export(
         project_id="11111111-1111-1111-1111-111111111111",
         batch_id=None,
-        targets=["coco"],
+        targets=["coco-frames-seg"],
         opts={},
         async_job_id="22222222-2222-2222-2222-222222222222",
         celery_task_id="celery-3",
@@ -652,6 +657,7 @@ async def test_export_worker_keeps_candidate_when_cache_record_fails(
         get=AsyncMock(
             return_value=SimpleNamespace(
                 project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+                data_type="video",
             )
         ),
         commit=AsyncMock(),
@@ -691,7 +697,7 @@ async def test_export_worker_keeps_candidate_when_cache_record_fails(
     monkeypatch.setattr(
         export_worker,
         "_scope_naming",
-        AsyncMock(return_value=("image", "dataset", "P-1")),
+        AsyncMock(return_value=("video", "dataset", "P-1")),
     )
     monkeypatch.setattr(
         export_worker.export_cache,
@@ -742,7 +748,7 @@ async def test_export_worker_keeps_candidate_when_cache_record_fails(
         await export_worker._run_export(
             project_id="11111111-1111-1111-1111-111111111111",
             batch_id=None,
-            targets=["coco"],
+            targets=["coco-frames-seg"],
             opts={},
             async_job_id="22222222-2222-2222-2222-222222222222",
             celery_task_id="celery-4",

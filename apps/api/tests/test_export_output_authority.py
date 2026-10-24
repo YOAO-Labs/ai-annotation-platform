@@ -12,6 +12,8 @@ from starlette.requests import Request
 
 from app.core.security import hash_password
 from app.services.exporting import output_authority as authority
+from tests.test_dataset_content import content_world as content_world
+from tests.test_dataset_references import reference_world as reference_world
 
 
 @pytest.fixture
@@ -159,18 +161,23 @@ def test_public_job_payload_hides_output_key_proof_without_mutating_it():
 @pytest.mark.parametrize("scope", ["project", "batch", "selected"])
 @pytest.mark.parametrize("credential", ["jwt", "key"])
 async def test_all_new_http_export_entries_preserve_and_hide_original_authority(
-    httpx_client, db_session, super_admin, monkeypatch, scope, credential
+    httpx_client,
+    db_session,
+    super_admin,
+    monkeypatch,
+    scope,
+    credential,
+    reference_world,
 ):
     from app.db.models.api_key import ApiKey
     from app.db.models.async_job import AsyncJob
     from app.workers.export import run_export
-    from tests.factory import create_batch, create_project, create_task
+    from tests.factory import create_batch
     from unittest.mock import Mock
 
     actor, token = super_admin
-    project = await create_project(db_session, owner_id=actor.id)
+    _, project, task, _ = reference_world
     batch = await create_batch(db_session, project_id=project.id, status="active")
-    task = await create_task(db_session, project_id=project.id)
     task.batch_id = batch.id
     key = None
     if credential == "key":
@@ -201,6 +208,8 @@ async def test_all_new_http_export_entries_preserve_and_hide_original_authority(
     assert response.status_code == 202, response.text
     job = await db_session.get(AsyncJob, uuid.UUID(response.json()["job_id"]))
     proof = deepcopy(job.payload["output_authority"])
+    media_proof = deepcopy(job.payload["image_media"])
+    assert media_proof["schema"] == 3
     assert proof["actor_id"] == str(actor.id) and proof["project_id"] == str(project.id)
     assert proof["api_key_id"] == (str(key.id) if key else None)
     assert proof["key_proof"] == (
@@ -210,6 +219,8 @@ async def test_all_new_http_export_entries_preserve_and_hide_original_authority(
     public = await httpx_client.get(f"/api/v1/async-jobs/{job.id}", headers=headers)
     assert public.status_code == 200, public.text
     assert "output_authority" not in public.json()["payload"]
+    assert "image_media" not in public.json()["payload"]
+    assert "export_authority" not in public.json()["payload"]
     assert "key_proof" not in public.text
     if scope == "selected" and key:
         # A request authenticated with a replacement token can republish the
@@ -223,5 +234,6 @@ async def test_all_new_http_export_entries_preserve_and_hide_original_authority(
         assert retried.json()["job_id"] == str(job.id)
         await db_session.refresh(job)
         assert job.payload["output_authority"] == proof
+        assert job.payload["image_media"] == media_proof
         with pytest.raises(authority.ExportOutputAuthorityError):
             await authority.validate(db_session, job)
