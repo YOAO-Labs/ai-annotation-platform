@@ -490,14 +490,52 @@ async def _has_index(db, identifier):
     )
 
 
-async def _cleanup_one(db, identifier, counters):
+async def _cleanup_locked(db, identifier):
+    # Linked candidates share Bundle -> Output lock order with publication.
+    from app.services import export_media_retirement
+
+    bundle_id = await db.scalar(
+        select(ExportOutput.media_bundle_id).where(ExportOutput.id == identifier)
+    )
+    bundle = None
+    if bundle_id is not None:
+        bundle = await export_media_retirement.lock_owner(db, bundle_id)
+        if bundle is None:
+            return None, None
     row = await db.scalar(
         select(ExportOutput)
         .where(ExportOutput.id == identifier)
         .with_for_update(skip_locked=True)
         .execution_options(populate_existing=True)
     )
-    if row is None or row.state == "pending" or row.expires_at > now():
+    return row, bundle
+
+
+async def _cleanup_one(db, identifier, counters):
+    from app.services import export_media_retirement
+
+    row, bundle = await _cleanup_locked(db, identifier)
+    if row is None:
+        await db.commit()
+        return False
+    linked_ended = bundle is not None and await export_media_retirement.zip_eligible(
+        db, bundle, row
+    )
+    if (
+        (bundle is not None and not linked_ended)
+        or (
+            row.state == "pending"
+            and (not linked_ended or bundle.published_at is not None)
+        )
+        or (
+            row.expires_at > now()
+            and not (
+                linked_ended
+                and bundle.published_at is None
+                and row.state in {"pending", "retired"}
+            )
+        )
+    ):
         await db.commit()
         return False
     receipt = snapshot(row)
@@ -506,7 +544,12 @@ async def _cleanup_one(db, identifier, counters):
         await db.commit()
         return False
     removed = 0
-    if row.state == "ready":
+    if row.state == "pending":
+        if await _has_index(db, identifier):
+            await db.commit()
+            return False
+        row.state, row.retired_at = "retired", now()
+    elif row.state == "ready":
         result = await db.execute(
             delete(ExportArtifact)
             .where(ExportArtifact.output_id == identifier)
@@ -521,19 +564,31 @@ async def _cleanup_one(db, identifier, counters):
     await db.commit()
     counters["removed"] += removed
     owner = export_storage.resolve(receipt)
-    await storage_access.run(
-        db,
-        uuid.UUID(owner.ref["location_id"]),
-        "export_delete_" + receipt.id.hex,
-        export_storage.delete,
-        receipt,
+    if bundle is not None:
+        await export_media_retirement.delete_zip(db, bundle, receipt)
+    else:
+        await storage_access.run(
+            db,
+            uuid.UUID(owner.ref["location_id"]),
+            "export_delete_" + receipt.id.hex,
+            export_storage.delete,
+            receipt,
+        )
+    current, current_bundle = await _cleanup_locked(db, identifier)
+    linked_ended = (
+        current_bundle is not None
+        and current is not None
+        and (await export_media_retirement.zip_eligible(db, current_bundle, current))
     )
-    current = await _locked(db, identifier)
     if (
         current is not None
         and current.state == "retired"
         and same(current, receipt)
-        and current.expires_at <= now()
+        and (
+            current.expires_at <= now()
+            or (linked_ended and current_bundle.published_at is None)
+        )
+        and (current_bundle is None or linked_ended)
         and not await _has_index(db, identifier)
         and not await _has_read(db, receipt)
     ):
@@ -547,6 +602,8 @@ async def _cleanup_one(db, identifier, counters):
 async def cleanup(db, *, limit=100):
     """Retire expired known outputs; legacy expiry drops database indices only."""
     current = now()
+    from app.services import export_media_retirement
+
     limit = max(1, min(limit, 100))
     legacy_ids = (
         select(ExportArtifact.id)
@@ -581,7 +638,10 @@ async def cleanup(db, *, limit=100):
                     (ExportOutput.state == "ready")
                     & (ExportOutput.expires_at <= current),
                     ExportOutput.state == "retired",
-                )
+                    (ExportOutput.state == "pending")
+                    & export_media_retirement.pending_zip_predicate(current),
+                ),
+                ~export_media_retirement.zip_operations_predicate(),
             )
             .order_by(
                 ExportOutput.last_attempted_at.asc().nulls_first(),

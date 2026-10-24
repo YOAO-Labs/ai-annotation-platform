@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.services import export_outputs
+from app.services import export_media_retirement, export_outputs
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
 
@@ -20,5 +20,6 @@ def purge_expired_export_artifacts() -> dict:
 async def _purge_async() -> dict:
     async with task_session() as db:
         result = await export_outputs.cleanup(db)
+        result["media_bundles"] = await export_media_retirement.cleanup(db)
     log.info("purge_expired_export_artifacts: %s", result)
     return result
