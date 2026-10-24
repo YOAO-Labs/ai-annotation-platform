@@ -12,7 +12,7 @@ from alembic.operations import Operations
 import pytest
 from sqlalchemy import inspect, text, update
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import DataError, IntegrityError
+from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -278,9 +278,16 @@ async def test_insert_rejects_json_null_or_missing_envelope(owned_db, bad):
 async def test_insert_requires_receipt_retention_and_consistent_lifecycle(
     owned_db, changes
 ):
-    with pytest.raises((IntegrityError, DataError)):
+    expected = (
+        DBAPIError
+        if changes.get("file_name") == "x" * 256
+        else (IntegrityError, DataError)
+    )
+    with pytest.raises(expected) as rejected:
         async with owned_db.begin_nested():
             await create(owned_db, **changes)
+    if changes.get("file_name") == "x" * 256:
+        assert rejected.value.orig.sqlstate == "22001"
 
 
 @pytest.mark.parametrize("first_ready", [False, True])

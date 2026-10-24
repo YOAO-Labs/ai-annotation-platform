@@ -66,8 +66,10 @@ async def remap_storage(
     from app.db.models.active_learning import ActiveLearningRound
     from app.db.models.avatar_upload import AvatarUpload
     from app.db.models.export_output import ExportOutput
+    from app.db.models.bug_attachment_upload import BugAttachmentUpload
     from app.services import avatar_storage
     from app.services import export_storage
+    from app.services import bug_attachment_storage
     from app.services import (
         training_dataset_storage,
         training_run_storage,
@@ -244,6 +246,28 @@ async def remap_storage(
                 "storage_identity": identity(endpoint_url, bucket),
             },
             ExportOutput.__tablename__,
+            str(row.id),
+        )
+    for row in await db.scalars(select(BugAttachmentUpload)):
+        try:
+            owner = bug_attachment_storage.resolve(row)
+        except ValueError:
+            raise WorktreeError("报告附件含未知归属或内容回执") from None
+        if (
+            owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or owner.bucket != source["MINIO_BUG_REPORTS_BUCKET"]
+        ):
+            raise WorktreeError("报告附件归属与备份源不一致")
+        bucket = target["MINIO_BUG_REPORTS_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **owner.ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            BugAttachmentUpload.__tablename__,
             str(row.id),
         )
     for row in await db.scalars(select(ManagedOriginalRetirement)):
