@@ -4,6 +4,9 @@ The verified case uploads an original and a crop. The planned case performs a
 real original upload, then raises a known synthetic exception before its crop's
 conditional PUT. A real same-purpose permit defers close-time deletion; every
 Snapshot, client and permit closes before the backup fingerprint is captured.
+Video cases borrow the genuine canonical ffmpeg originals already seeded by
+the video-export fixture. Their synthetic interruption occurs after conditional
+PUT/full readback but before the receipt is published.
 This is inline component qualification, not HTTP, Celery or live-crash evidence.
 Current-object backup preserves content and ownership metadata, not historical
 S3 version IDs. Recovery verifies those bytes separately and rejects the old
@@ -22,6 +25,10 @@ import uuid
 CASES = ("verified", "planned")
 QUALIFICATION = (
     "offline-inline-components; synthetic crop interruption; no queue resume"
+)
+VIDEO_QUALIFICATION = (
+    "offline-inline-video-components; synthetic pre-publication interruption; "
+    "no HTTP, Celery, production or versioned-recovery qualification"
 )
 
 
@@ -121,18 +128,23 @@ def _crop_content(inputs, task):
         return stream.getvalue()
 
 
-def _guard(binding):
+def _guard(binding, *, video=False):
     async def guard(db):
         from app.db.models.task import Task
         from app.services import prediction_originals as originals, reference_bindings
         from app.services.content_snapshot import ContentError
 
+        resolver = originals
+        if video:
+            from app.services import video_prediction_originals
+
+            resolver = video_prediction_originals
         task = await db.get(Task, uuid.UUID(binding["task_id"]), populate_existing=True)
         if (
             task is None
             or reference_bindings.task_binding(task)
             != {key: value for key, value in binding.items() if key != "original"}
-            or await originals.managed_binding(db, task) != binding["original"]
+            or await resolver.managed_binding(db, task) != binding["original"]
         ):
             raise ContentError("content_binding_changed")
 
@@ -248,7 +260,14 @@ def _frozen_owner(row):
     from app.services import prediction_inputs
 
     fields = (*prediction_inputs._FACTS, "state", "uncertain_write", "inventory")
-    fields += ("object_count", "size_bytes", "deleted_at")
+    fields += (
+        "object_count",
+        "size_bytes",
+        "deleted_at",
+        "next_cleanup_at",
+        "last_cleanup_at",
+        "error_code",
+    )
     return SimpleNamespace(**{name: deepcopy(getattr(row, name)) for name in fields})
 
 
@@ -572,12 +591,17 @@ def verify_video_input_copy(storage, record):
                 _read_restored_content(storage.client, record, key, entry, deadline)
                 present += 1
             except ClientError as exc:
-                if str(exc.response.get("Error", {}).get("Code")) not in {
-                    "404",
-                    "NoSuchKey",
-                    "NotFound",
-                    "NoSuchVersion",
-                }:
+                if (
+                    str(exc.response.get("Error", {}).get("Code"))
+                    not in {
+                        "404",
+                        "NoSuchKey",
+                        "NotFound",
+                        "NoSuchVersion",
+                    }
+                    or exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                    != 404
+                ):
                     raise
             planned += 1
     rejected, cleanup = (
@@ -589,8 +613,227 @@ def verify_video_input_copy(storage, record):
     return {
         "verified_video_input_objects": verified,
         "planned_video_input_objects": planned,
+        "restored_video_input_objects": present,
         "historical_video_input_receipts_rejected": rejected,
         "historical_video_input_cleanup_rejected": cleanup,
         "video_input_receipts_rewritten": False,
         "video_input_queue_resumed": False,
+    }
+
+
+def video_owner_identifier(case):
+    assert case in CASES
+    return uuid.uuid5(uuid.NAMESPACE_URL, "aap:recovery-video-prediction-input:" + case)
+
+
+class _VideoReceiptInterruption(OSError):
+    """Known fixture boundary after a real, fully read-back versioned PUT."""
+
+
+class _BeforeVideoPublish:
+    def __init__(self, probe):
+        self.probe = deepcopy(probe)
+        self.observed = None
+
+    async def __call__(self, relative, expected, verified):
+        assert relative.startswith("video/")
+        assert expected["state"] == "planned"
+        assert expected["etag"] is expected["version_id"] is None
+        assert verified["state"] == "verified"
+        assert verified["version_id"] not in (None, "null")
+        assert expected["write_nonce"] == verified["write_nonce"]
+        assert expected["probe"] == verified["probe"] == self.probe
+        assert {
+            key: expected[key] for key in ("sha256", "size_bytes", "container")
+        } == {key: verified[key] for key in ("sha256", "size_bytes", "container")}
+        self.observed = deepcopy(verified)
+        raise _VideoReceiptInterruption(
+            "synthetic video receipt publication interruption"
+        )
+
+
+async def _seed_video_case(db, factory, task, case):
+    from app.services import prediction_inputs, prediction_originals as common
+    from app.services import reference_bindings, storage_access
+    from app.services import video_prediction_originals as originals
+    from app.services.content_snapshot import ContentError
+
+    task_id = task.id
+    binding = {
+        **reference_bindings.task_binding(task),
+        "original": await originals.managed_binding(db, task),
+    }
+    # Source rows and proof are committed before independent owner/read sessions.
+    await db.commit()
+    guard = _guard(binding, video=True)
+    inputs = await prediction_inputs.PredictionInputs.create(
+        factory,
+        owner_id=video_owner_identifier(case),
+        owner_kind="video_predict_test",
+        task_id=task_id,
+        source_ref=binding,
+        guard=guard,
+    )
+    source = permit = failure = None
+    try:
+
+        async def acquire():
+            async with factory() as owned:
+                return await storage_access.acquire(
+                    owned,
+                    uuid.UUID(inputs.record.storage_ref["location_id"]),
+                    prediction_inputs.purpose(inputs.record),
+                    expected_revision=inputs.record.maintenance_revision,
+                )
+
+        permit = await common.settled(acquire(), late=common.close_permit)
+        source = await originals.open_snapshot(
+            db,
+            task_id,
+            binding["original"],
+            guard=guard,
+            purpose=prediction_inputs.purpose(inputs.record),
+            node_id="recovery-video-prediction-input",
+        )
+        assert source.stage.sha256 == binding["original"]["sha256"]
+        assert source.stage.size == binding["original"]["size_bytes"]
+        interruption = None
+        if case == "planned":
+            interruption = _BeforeVideoPublish(source.probe)
+            inputs._publish = interruption
+        try:
+            # Real probe belongs to this same full-hash-verified source FD.
+            await inputs.upload_video(source.stage, probe=source.probe)
+        except ContentError as exc:
+            assert case == "planned" and exc.code == "prediction_input_upload_failed"
+            assert interruption is not None and interruption.observed is not None
+        else:
+            assert case == "verified"
+            assert inputs.video_receipt["probe"] == source.probe
+            assert inputs.video_receipt["version_id"] not in (None, "null")
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        await _close_case(inputs, source, permit, None, failure)
+    assert source.closed and source.settled and not source.unsettled
+    assert source.stage._closed and source.stage.file.closed
+    assert permit._settled and source.permit._settled
+
+
+async def seed_video_prediction_inputs(db, *, factory, task_ids):
+    """Borrow only explicitly selected, committed canonical videos; never fake probe."""
+    from app.db.models.task import Task
+
+    assert set(task_ids) == set(CASES)
+    assert len(set(task_ids.values())) == len(CASES)
+    for case in CASES:
+        task = await db.get(Task, task_ids[case], populate_existing=True)
+        assert task is not None and task.file_type == "video"
+        await _seed_video_case(db, factory, task, case)
+
+
+async def verify_video_prediction_inputs(db):
+    """Traverse genuine v3 fixture owners after destructive offline relocation."""
+    from sqlalchemy import select
+    from app.db.models.prediction_input import PredictionInputLease
+    from app.db.models.task import Task
+    from app.services import prediction_inputs, prediction_originals as common
+    from app.services import storage_access, video_prediction_originals as originals
+    from app.services.content_snapshot import ContentError
+
+    rows = list(
+        await db.scalars(
+            select(PredictionInputLease).where(
+                PredictionInputLease.owner_id.in_(
+                    [video_owner_identifier(case) for case in CASES]
+                )
+            )
+        )
+    )
+    assert len(rows) == len(CASES)
+    by_owner = {row.owner_id: row for row in rows}
+    counts = {
+        "verified_video_input_objects": 0,
+        "planned_video_input_objects": 0,
+        "restored_video_input_objects": 0,
+        "historical_video_input_receipts_rejected": 0,
+        "historical_video_input_cleanup_rejected": 0,
+    }
+    source_rejected = 0
+    for case in CASES:
+        record = _frozen_owner(by_owner[video_owner_identifier(case)])
+        assert (
+            record.contract_version == 3 and record.owner_kind == "video_predict_test"
+        )
+        assert record.state == "cleanup_pending" and record.deleted_at is None
+        assert record.uncertain_write is (case == "planned")
+        ref = prediction_inputs._resolve(record)
+        objects = prediction_inputs._inventory(record, record.inventory)
+        assert len(objects) == 1
+        entry = next(iter(objects.values()))
+        assert (
+            entry["state"] == case and entry["media_type"] == "application/octet-stream"
+        )
+        proof = originals.normalize_binding(record.source_ref["original"])
+        assert {key: entry[key] for key in ("sha256", "size_bytes")} == {
+            key: proof[key] for key in ("sha256", "size_bytes")
+        }
+        assert record.source_ref["task_id"] == str(record.task_id)
+        task = await db.get(Task, record.task_id, populate_existing=True)
+        assert task is not None and task.file_type == "video"
+        current = await originals.managed_binding(db, task)
+        assert current["bucket"] != proof["bucket"]
+        assert current["facts_digest"] != proof["facts_digest"]
+        assert {key: current[key] for key in ("sha256", "size_bytes")} == {
+            key: proof[key] for key in ("sha256", "size_bytes")
+        }
+        try:
+            await _guard(record.source_ref, video=True)(db)
+        except ContentError as exc:
+            assert exc.code == "content_binding_changed"
+            source_rejected += 1
+        else:
+            raise AssertionError("Relocation cannot renew historical video authority")
+        permit = await common.settled(
+            storage_access.acquire(
+                db,
+                uuid.UUID(ref["location_id"]),
+                prediction_inputs.purpose(record),
+                expected_revision=record.maintenance_revision,
+            ),
+            late=common.close_permit,
+        )
+        failure = None
+        try:
+            result = await common.physical(
+                prediction_inputs._using_storage,
+                record,
+                lambda storage: verify_video_input_copy(storage, record),
+            )
+            for name in counts:
+                counts[name] += result[name]
+        except BaseException as exc:
+            failure = exc
+            raise
+        finally:
+            await common.close_permit(permit, failure)
+        assert permit._settled
+    assert source_rejected == len(CASES)
+    assert counts == {
+        "verified_video_input_objects": 1,
+        "planned_video_input_objects": 1,
+        "restored_video_input_objects": 2,
+        "historical_video_input_receipts_rejected": 1,
+        "historical_video_input_cleanup_rejected": 2,
+    }
+    return {
+        "video_prediction_input_qualification": VIDEO_QUALIFICATION,
+        "pinned_video_prediction_inputs": len(rows),
+        **counts,
+        "relocated_video_source_proofs_rejected": source_rejected,
+        "video_input_current_content_verified": True,
+        "video_input_receipts_rewritten": False,
+        "video_input_queue_resumed": False,
+        "video_input_versioned_recovery_qualified": False,
     }

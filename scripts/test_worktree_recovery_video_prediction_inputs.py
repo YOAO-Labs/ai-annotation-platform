@@ -6,11 +6,12 @@ import hashlib
 import io
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 import uuid
 
 from botocore.exceptions import ClientError
 
+import worktree_recovery_prediction_inputs as subject
 from worktree_recovery_prediction_inputs import verify_video_input_copy
 
 
@@ -42,6 +43,8 @@ def fixture(*, state="verified", absent=False, corrupt=False):
     from app.services import prediction_inputs as owner
 
     identifier, nonce = uuid.uuid4(), str(uuid.uuid4())
+    # Transport-only unit bytes; actual fixture qualification borrows canonical
+    # ffmpeg video plus the source owner's same-FD probe, never this sentinel.
     raw = b"RIFF\0\0\0\0AVI restored content with durable receipt"
     sha = hashlib.sha256(raw).hexdigest()
     relative = "video/" + sha + ".avi"
@@ -152,6 +155,7 @@ class VideoInputRecoveryContracts(unittest.TestCase):
         before = deepcopy(vars(row))
         result = verify_video_input_copy(storage, row)
         self.assertEqual(result["verified_video_input_objects"], 1)
+        self.assertEqual(result["restored_video_input_objects"], 1)
         self.assertEqual(result["historical_video_input_receipts_rejected"], 1)
         self.assertEqual(result["historical_video_input_cleanup_rejected"], 1)
         self.assertFalse(result["video_input_receipts_rewritten"])
@@ -167,6 +171,7 @@ class VideoInputRecoveryContracts(unittest.TestCase):
             result = verify_video_input_copy(storage, row)
             self.assertEqual(result["planned_video_input_objects"], 1)
             self.assertEqual(result["verified_video_input_objects"], 0)
+            self.assertEqual(result["restored_video_input_objects"], int(not absent))
             self.assertEqual(
                 result["historical_video_input_cleanup_rejected"], int(not absent)
             )
@@ -185,6 +190,21 @@ class VideoInputRecoveryContracts(unittest.TestCase):
         self.assertTrue(all(body.closed for body in bodies))
         storage.client.delete_object.assert_not_called()
 
+    def test_same_content_with_another_ownership_nonce_refuses_without_adoption(self):
+        from app.services.content_snapshot import ContentError
+
+        for state in ("verified", "planned"):
+            row, storage, _bodies = fixture(state=state)
+            next(iter(row.inventory["objects"].values()))["write_nonce"] = str(
+                uuid.uuid4()
+            )
+            before = deepcopy(vars(row))
+            with self.assertRaises(ContentError):
+                verify_video_input_copy(storage, row)
+            self.assertEqual(vars(row), before)
+            storage.client.get_object.assert_not_called()
+            storage.client.delete_object.assert_not_called()
+
     def test_video_contract_format_and_probe_refuse_before_object_io(self):
         from app.services.content_snapshot import ContentError
 
@@ -196,6 +216,7 @@ class VideoInputRecoveryContracts(unittest.TestCase):
             "size",
             "deadline",
             "unknown_field",
+            "nonce",
         ):
             row, storage, _ = fixture()
             value = next(iter(row.inventory["objects"].values()))
@@ -211,6 +232,8 @@ class VideoInputRecoveryContracts(unittest.TestCase):
                 row.size_bytes = value["size_bytes"] = 5 * 1024**3 + 1
             elif change == "deadline":
                 row.expires_at += timedelta(seconds=1)
+            elif change == "nonce":
+                value["write_nonce"] = "not-a-durable-uuid"
             else:
                 value["guessed_dimensions"] = [32, 24]
             before = deepcopy(vars(row))
@@ -219,6 +242,95 @@ class VideoInputRecoveryContracts(unittest.TestCase):
             self.assertEqual(vars(row), before)
             storage.client.head_object.assert_not_called()
             storage.client.delete_object.assert_not_called()
+
+
+class VideoInputSeedingContracts(unittest.IsolatedAsyncioTestCase):
+    async def test_video_seed_uses_explicit_committed_tasks_without_regenerating_sources(
+        self,
+    ):
+        tasks = {case: uuid.uuid4() for case in subject.CASES}
+        rows = {
+            identifier: SimpleNamespace(id=identifier, file_type="video")
+            for identifier in tasks.values()
+        }
+        db = SimpleNamespace(
+            get=AsyncMock(side_effect=lambda _model, key, **_kwargs: rows[key])
+        )
+        seed = AsyncMock()
+        factory = object()
+        with patch.object(subject, "_seed_video_case", seed):
+            await subject.seed_video_prediction_inputs(
+                db, factory=factory, task_ids=tasks
+            )
+        self.assertEqual(
+            seed.await_args_list[0].args,
+            (db, factory, rows[tasks["verified"]], "verified"),
+        )
+        self.assertEqual(
+            seed.await_args_list[1].args,
+            (db, factory, rows[tasks["planned"]], "planned"),
+        )
+        self.assertNotEqual(
+            subject.video_owner_identifier("verified"),
+            subject.owner_identifier("verified"),
+        )
+
+    async def test_video_seed_rejects_nonvideo_or_ambiguous_task_selection(self):
+        tasks = {case: uuid.uuid4() for case in subject.CASES}
+        db = SimpleNamespace(
+            get=AsyncMock(return_value=SimpleNamespace(file_type="image"))
+        )
+        with patch.object(subject, "_seed_video_case", AsyncMock()) as seed:
+            for values in (
+                tasks,
+                {"verified": tasks["verified"], "planned": tasks["verified"]},
+            ):
+                with self.assertRaises(AssertionError):
+                    await subject.seed_video_prediction_inputs(
+                        db, factory=object(), task_ids=values
+                    )
+            seed.assert_not_awaited()
+
+    async def test_synthetic_video_interruption_retains_exact_completed_observation_without_publish(
+        self,
+    ):
+        row, _storage, _bodies = fixture(state="planned")
+        relative, expected = next(iter(row.inventory["objects"].items()))
+        verified = {
+            **deepcopy(expected),
+            "state": "verified",
+            "etag": '"actual-version-etag"',
+            "version_id": "actual-version",
+        }
+        before = deepcopy(expected)
+        boundary = subject._BeforeVideoPublish(probe())
+        with self.assertRaises(subject._VideoReceiptInterruption):
+            await boundary(relative, expected, verified)
+        self.assertEqual(expected, before)
+        self.assertEqual(boundary.observed, verified)
+        verified["probe"]["video"]["width"] += 1
+        self.assertEqual(boundary.observed["probe"], probe())
+
+    async def test_source_and_samepurpose_permit_close_only_after_inputs_sealed(self):
+        order = []
+
+        async def close_inputs():
+            order.append("inputs-sealed")
+
+        async def close_source(failure):
+            self.assertIsNone(failure)
+            order.append("source-physically-closed")
+
+        async def settle(*_args):
+            order.append("permit-settled")
+
+        inputs = SimpleNamespace(close=close_inputs)
+        source = SimpleNamespace(close=close_source)
+        permit = SimpleNamespace(__aexit__=settle)
+        await subject._close_case(inputs, source, permit, None, None)
+        self.assertEqual(
+            order, ["inputs-sealed", "source-physically-closed", "permit-settled"]
+        )
 
 
 if __name__ == "__main__":

@@ -1304,6 +1304,17 @@ async def seed(db, external: Path):
         from worktree_recovery_video_export import seed_video_exports
 
         await seed_video_exports(db, actor=actor, storage=storage)
+        from worktree_recovery_prediction_inputs import seed_video_prediction_inputs
+        from worktree_recovery_video_export import identifier as video_identifier
+
+        await seed_video_prediction_inputs(
+            db,
+            factory=async_session,
+            task_ids={
+                "verified": video_identifier("task:dataset"),
+                "planned": video_identifier("task:standalone"),
+            },
+        )
         # Keep both positive and negative immutable observations, plus an
         # undispatched pending attempt. Restoring bytes must not rewrite these
         # source facts or automatically resume an old queue.
@@ -1416,9 +1427,13 @@ async def verify_application(db, external: Path):
     assert actor is not None
     task_originals = await verify_task_originals(db, storage=storage, actor=actor)
     auxiliary_originals = await verify_auxiliary_originals(db, storage=storage)
-    from worktree_recovery_prediction_inputs import verify_prediction_inputs
+    from worktree_recovery_prediction_inputs import (
+        verify_prediction_inputs,
+        verify_video_prediction_inputs,
+    )
 
     prediction_inputs = await verify_prediction_inputs(db)
+    video_prediction_inputs = await verify_video_prediction_inputs(db)
     managed_task = await db.scalar(
         select(Task)
         .join(DatasetItem, Task.dataset_item_id == DatasetItem.id)
@@ -1729,6 +1744,7 @@ async def verify_application(db, external: Path):
         **task_originals,
         **auxiliary_originals,
         **prediction_inputs,
+        **video_prediction_inputs,
         **audit_archives,
         "pinned_training_versions": ready_count + partial_count,
         "pinned_training_deletions": deletion_count,

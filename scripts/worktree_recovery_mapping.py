@@ -49,7 +49,7 @@ def prediction_input_changes(row, *, source_bucket, target_bucket, endpoint_url)
     ):
         raise WorktreeError("预测输入存储身份与备份import用途不一致")
     version = getattr(row, "contract_version", 1)
-    if type(version) is not int or version not in {1, 2}:
+    if type(version) is not int or version not in {1, 2, 3}:
         raise WorktreeError("预测输入存在未知合同")
     values = {
         "bucket": target_bucket,
