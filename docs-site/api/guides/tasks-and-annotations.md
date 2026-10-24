@@ -100,7 +100,15 @@ GET /api/v1/feedbacks/:root_id/thread?limit=50
 
 `discussion/annotation-counts` 返回 `{ "counts": { "annotation-uuid": 3 } }`，一次统计当前任务可用标注的全部有效原评论，包含已解决评论。按标注 ID 分组，只返回正数，不受分页影响，不计反馈镜像；已删除评论或不可用标注不计入。接口沿用任务讨论可见性检查，数量不代表每用户未读数。
 
-标注附件下载接口 `GET /annotations/:annotation_id/comment-attachments/download?key=...` 默认仍返回短期签名地址的 302 跳转。浏览器使用 Bearer 登录时，应先带认证头请求 `as_json=true`，取得 `{ download_url }` 后不携带 Bearer 头下载对象；直接打开 API 链接不会自动携带登录凭据。两种返回方式都重新校验原标注的任务权限和附件键前缀，签名有效期为五分钟。
+标注评论附件使用认证文件传输，保留通用文件和空文件，单文件最多 20 MiB，不限制为图片。调用 `POST /annotations/:annotation_id/comment-attachments/upload?file_name=...`，携带 Bearer 头，将原文件字节直接作为请求体，`Content-Type` 为文件 MIME（缺省 `application/octet-stream`）。文件名不得包含路径或控制字符，MIME 会转为小写并去除参数。成功返回已有四字段回执：`storageKey`、`fileName`、`mimeType`、`size`。
+
+创建原标注评论时提交完整回执。服务端只接受本人在同一实际标注、任务和项目中上传、已核验且尚未绑定的附件；键不可重复，回执字段须与服务器保存的事实一致，一个上传只能首次绑定一个原评论。上传和绑定要求标注活动，已有评论的附件仍按真实任务权限读取，标注本身软删或取消不会删除评论附件。
+
+调用 `GET /annotations/:annotation_id/comment-attachments/download?key=...`，携带 Bearer 头，成功直接返回完整核验的原文件字节，使用 `attachment`、`private, no-store` 和 `nosniff`。`as_json` 参数仅保留请求兼容，两种取值都返回文件，不再返回下载 URL 或 302。浏览器使用认证 fetch 获取 Blob 并下载，完成后释放临时 object URL。旧 `upload-init` 已停用：合法请求返回 `409 comment_attachment_upload_init_retired` 和新上传路径，模型校验错误仍为 `422`。
+
+附件从上传时固定保留 90 天；原评论删除后停止下载，物理清理保留 7 天宽限，两者取较早期限。账号、项目或原评论硬删后，已知文件的清理责任仍保留；读取未收尾或删除失败时延后并重试。超期已知回执返回 `410`，已知对象缺失返回 `404`，未知旧归属或绑定变化返回 `409`，存储或关闭收尾无法确认返回 `503`。历史未知附件保留元数据供核对，不从当前桶猜测读取或删除。
+
+Feedback 镜像和原生反馈中的附件字典仅是元数据，不生成新附件归属、延长保存期或独立授权下载，也不会阻止原评论附件清理。读取及写入都会在存储操作后复查原账号、原凭据、实际讨论权限、绑定与维护状态；中途撤权或变化会阻止发布回执或返回文件。
 
 反馈列表的 `root_only` 和 `include_counts` 默认为 `false`，旧调用方式不变。开启 `include_counts` 后，`total` 为当前筛选的准确数量，`status_counts` 返回 `open`、`resolved`、`wont_fix` 各自数量，只忽略 `status` 筛选。未解决数量应读取 `status_counts.open`，不能用当前已加载卡片数替代。
 
