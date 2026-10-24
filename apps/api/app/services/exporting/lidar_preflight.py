@@ -311,6 +311,7 @@ _REGISTERED_ISSUES = {
     "lidar_export_input_budget_exceeded": "导出范围超过媒体、标注或冻结数据预算，请缩小范围",
     "lidar_export_input_invalid": "导出范围包含无效的登记数据",
     "lidar_export_pointmask_invalid": "点掩码的索引列表或类别无效",
+    "lidar_export_archive_path_conflict": "导出文件路径冲突，请检查帧名称和相机通道名称",
     "lidar_export_original_unsupported": "原件缺少可信的存储登记、媒体类型或大小",
     "lidar_export_link_conflict": "任务的主源或传感器关联存在冲突",
     "lidar_export_contract_missing": "导出范围缺少完整的登记数据",
