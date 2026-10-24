@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B/B13-A completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B/B13-A/B13-B1 completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -819,3 +819,25 @@ API继续既有content与content-identity URI，支持独立Task图片和primary
 本片超过八文件及三个组件，建立三棵当前HEAD隔离树：关系/位置解析与reference关系测试；纯二进制reader、图片适配及严格provider/取消测试；新内容入口回归与恢复夹具。主树负责原请求/当前权限短锁、dataset_content与files接入、质检及旧合同回归、正式文档/生成类型/真实HTTP和Worker验收。流程为 `Task/Item关系+权限 -> 冻结源 -> 释放业务锁 -> durable许可/重核 -> 完整二进制暂存 -> 图片适配 -> 当前关系/凭证/Gate短锁重核 -> Response关闭`，没有新环境变量、外部凭据、服务、迁移或镜像重建。
 
 验证明确覆盖无Creation的已核验历史、旧未核验零I/O、同键异桶陷阱、managed多位置/缓存角色、TaskOriginal及direct/primary同一/冲突/link-only、reference普通标注员、读取期间关联/权限/Batch/Key/Gate改变、条件忽略/206/错metadata、截断/超长/损坏/末端替换/真实关闭、重复取消与未知收尾/槽释放。真实TCP/MinIO核对固定桶内容及拒读，源销毁后的离线恢复通过实际Task/Item内容读取证明目标当前观察有效且历史不变。只用已验证一次性test DB，人工3100/8100、两Worker/Beat、24对象/12文件和11业务指纹保持；正常hooks、相关检查、docs build与diff通过后提交Outcome并按归属清理。回退代码不改既有归属/历史，不能恢复当前桶猜读后门；完整用途切换仍关闭。
+
+## E02-B13-B1 Outcome — 原件解析与认证图片读取
+
+主集成 `15df36577`，关系解析 `79727fe0e`，物理reader与图片适配 `90841c746`，入口/恢复验收 `798fe4cae`，引用许可回归 `ecf10cd8a`；旧RLE夹具修正 `f6f81ed33`、`862dbada6`。没有新增迁移、依赖、环境变量或镜像重建，迁移头保持0231。
+
+original_sources返回冻结关系、核验身份和保存位置，统一独立TaskOriginal、直接DatasetItem及primary_lidar。同一Item可兼容两种关联，不同Item明确冲突；未知原件、多present托管位置、未核验内容和不明位置不进入物理读取。历史verified Dataset原件无需伪造Creation；缓存和预览不作为managed原件候选。reference复用同一关系判断，保留原授权回调、路径核对及context字典合同。
+
+managed_original_reader从目标当前HEAD获取本次条件，核对错误If-Match确实失败、HTTP200、精确大小、完整SHA与EOF、Body真实关闭、最终当前HEAD及独立client关闭。源写回执的VersionId不选择恢复目标版本。四个二进制槽、临时文件移交、重复取消和迟到结果关闭经过验证；未知关闭保留未收尾许可。图片适配接管同一文件，不二次下载或复制，也不释放未申请的旧图片槽。超过64MiB的非图片纯读取用例通过，现有图片入口仍保留64MiB/32M像素和Range416；不宣称视频/点云已接入。
+
+files的content/identity支持独立Task图片并显式返回owner_kind及互斥的asset_id/task_original_id；identity零对象I/O，availability仍为unchecked。托管图片及质量检查按保存桶/键读取，原JWT/Key、当前账号、Project/Member/Batch/Task、完整源与Gate在初始、取得许可后和交付前复核，业务锁不跨物理I/O。集成审查补齐reference来源和缓存命中的许可后原凭证复核、完整context比较及末端Gate代次锁；撤权时零物理读取，缓存不被误记损坏或回退读源，lease/permit正常退出。
+
+最终426个不同本地用例通过：主树230个API/服务/DB及相关回归，隔离树135个二进制/图片纯测和61个恢复纯测。两条纯fetch-script另以无conftest运行，确认窄RLE前置夹具不引入数据库依赖，未重复计数。首轮全组四项失败中，两项来自TCP探针业务数据与全库计数断言混用，销毁并重建一次性namespace后通过；另外两项旧RLE夹具改用生产异步owner/publication合同，并在业务事务之前独立提交静态绑定，保留原包断言及既有配置，只重跑失败用例。没有放宽生产owner或读取校验。
+
+真实TCP/MinIO八组检查通过：初始化/HTTP PUT/封存/读回、Dataset与TaskOriginal保存桶陷阱、符合既有批次规则的观察者读取、无关账号拒绝、图片Range拒绝、primary-only关联及同大小损坏拒绝。探针最初的无批次观察者访问按既有规则被拒绝，补齐可见未分派批次后沿用同一已封存原件完成检查，未修改可见性规则。另用当前checkout实际Celery Worker完成一轮托管图片质量检测，processed=1/1、bytes_verified=true、96×64、无质量问题。
+
+离线演练先销毁随机源，再向空目标恢复162表160行、九桶64对象/10331字节，头0231。目标实际调用TaskOriginal和Dataset任务图片读取，临时把当前两个原件用途桶设为import陷阱后仍读回保存位置；源Creation、SHA/大小、源ETag/VersionId及未绑定/未完成责任保持，历史Creation不能自动接管目标。本结果只证明本机合成恢复，不声明生产RPO/RTO或全部原件消费者合格。
+
+正式文档同步到README、CHANGELOG Unreleased、`docs-site/api/guides/verified-content.md`、`tasks-and-annotations.md`、`docs-site/dev/concepts/storage-connections.md`、`docs-site/user-guide/datasets/import-images.md`、`datasets/index.md`及`docs-site/ops/deploy/storage-recovery.md`。OpenAPI快照、本地生成类型、Web类型检查、docs build、Ruff/format、正常hooks及最终diff检查通过。无UI样式变更，不重复视觉矩阵；大媒体的真实浏览器播放/seek另行验收。
+
+人工3100/8100、两类Worker和独立监督Beat恢复就绪；每Worker仍注册72项任务、队列正确，实际Guide清理与RLE dry-run通过，Beat来源/专用broker/九桶归属及UTC调度复核。原24对象、12源文件和11业务指纹不变。三个一次性namespace的数据库、Redis及27桶均已独立查验不存在；五棵干净且补丁等价的隔离树及分支移除，任务探针、构建和测试中间产物按归属清理，人工环境及本地生成类型保留。
+
+完整E02/B13-B继续active，不归档，完整用途切换保持关闭。下一片为浏览器原件交付：先抽通用二进制编排并接Task/Item DTO、file-url、点云和精确camera link；再解决原生视频的受限URL凭证、完整stage复用及Range/HEAD/If-Range。不能直接给无Bearer的fetch或video src塞现有认证URI，也不能每次seek重新下载整个大文件。派生媒体、ML/Worker、导出和训练/评估/AL源继续分别接入；不将本片图片闭环视为全部原件读取完成。
