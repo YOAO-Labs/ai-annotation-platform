@@ -7304,6 +7304,7 @@ SELECT pg_catalog.jsonb_build_object(
         if selected_test_paths & {
             "tests/test_video_consumers_containers.py",
             "tests/test_identity_module_assembly_live.py",
+            "tests/test_notifications_socket_runtime_live.py",
             "tests/test_workspace_module_assembly_live.py",
             "tests/test_workspace_capacity_live.py",
             "tests/test_identity_e2e_live.py",
