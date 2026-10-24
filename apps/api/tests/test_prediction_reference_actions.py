@@ -254,7 +254,10 @@ async def test_retry_new_authority_original_snapshot_and_atomic_candidates(
         assert not failure.extra.get("retry_pending") and not failure.extra.get(
             "retry_job_id"
         )
-    assert not input_world.objects and len(input_world.deletions) == 1
+    assert not input_world.objects
+    assert set(input_world.deletions) == {(input_world.bucket, key) for key in calls}
+    assert all(body.closed for body in input_world.bodies)
+    assert all(storage.closed for storage in input_world.storages)
     count = len(calls)
     await retry._do_retry_with_factory(
         factory,
@@ -337,18 +340,26 @@ async def test_retry_signal_and_response_loss_keep_attempt_ownership(
 
 
 @pytest.mark.parametrize("entry", ["single", "job"])
-async def test_legacy_cpu_retry_uses_same_device_queue_for_both_entries(
-    db_session, httpx_client, reference_world, super_admin, monkeypatch, entry
+@pytest.mark.parametrize("qualified", [False, True])
+async def test_cpu_retry_keeps_queue_and_rejects_unqualified_image_history(
+    db_session,
+    httpx_client,
+    reference_world,
+    super_admin,
+    monkeypatch,
+    entry,
+    qualified,
 ):
     from app.config import settings
 
     world = await candidate_world(
         db_session, httpx_client, reference_world, super_admin, monkeypatch
     )
-    world.failure.execution_snapshot_id = None
-    world.failure.extra = {}
-    managed = await create_task(db_session, project_id=world.project.id)
-    world.failure.task_id = managed.id
+    if not qualified:
+        world.failure.execution_snapshot_id = None
+        world.failure.extra = {}
+        managed = await create_task(db_session, project_id=world.project.id)
+        world.failure.task_id = managed.id
     world.backend.health_meta = {
         "capabilities": {"resource_profile": {"device": "cpu"}}
     }
@@ -361,8 +372,17 @@ async def test_legacy_cpu_retry_uses_same_device_queue_for_both_entries(
         else f"/api/v1/async-jobs/{world.original.id}/retry-failed"
     )
     response = await httpx_client.post(path, headers=headers(super_admin))
-    assert response.status_code == 202, response.text
-    assert dispatch.call_args.kwargs["queue"] == settings.preannotate_cpu_queue
+    if qualified:
+        assert response.status_code == 202, response.text
+        assert dispatch.call_args.kwargs["queue"] == settings.preannotate_cpu_queue
+    else:
+        assert response.status_code == 409, response.text
+        assert (
+            response.json()["detail"]["code"]
+            == "prediction_original_requires_new_request"
+        )
+        dispatch.assert_not_called()
+        assert await db_session.get(FailedPrediction, world.failure.id) is not None
 
 
 @pytest.mark.parametrize("single", [False, True])

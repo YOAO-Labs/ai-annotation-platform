@@ -3,62 +3,138 @@
 import asyncio
 from contextlib import contextmanager
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from datetime import timedelta
+import hashlib
 import io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
 from types import SimpleNamespace
+from unittest.mock import Mock
 import uuid
 
+from botocore.exceptions import ClientError
 from PIL import Image
 import pytest
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.config import settings
 from app.db.models.prediction_input import PredictionInputLease
 from app.services import prediction_inputs as service
 from app.services.content_snapshot import ContentError, capture
 from app.services.ml_client import PredictionResult
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.workers import tasks
+from tests.test_export_media_bundle_models import _migration
 
 
 class MemoryStorage:
+    """One real-shaped SDK unit; every new unit gets its own closable client."""
+
     def __init__(self, world):
         self.world = world
         self.client = self
-        self.meta = SimpleNamespace(endpoint_url=world.endpoint)
+        self.meta = SimpleNamespace(
+            endpoint_url=world.endpoint, events=SimpleNamespace(register=Mock())
+        )
         self.import_bucket = world.bucket
         self.closed = False
         world.storages.append(self)
 
-    def put_object(self, *, Bucket, Key, Body, **kwargs):
+    def _head(self, bucket, key):
+        if (bucket, key) not in self.world.objects:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "HeadObject")
+        raw = self.world.objects[bucket, key]
+        return {
+            "ContentLength": len(raw),
+            "ETag": '"' + hashlib.sha256(raw).hexdigest() + '"',
+            "Metadata": deepcopy(self.world.metadata.get((bucket, key), {})),
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+        }
+
+    def put_object(
+        self, *, Bucket, Key, Body, ContentLength, IfNoneMatch, Metadata, **kwargs
+    ):
+        assert not self.closed and IfNoneMatch == "*"
+        assert set(Metadata) == {"aap-prediction-lease", "aap-prediction-write"}
+        assert (
+            str(uuid.UUID(Metadata["aap-prediction-write"]))
+            == Metadata["aap-prediction-write"]
+        )
+        assert Metadata["aap-prediction-lease"] == Key.split("/")[1]
+        self.world.puts.append(Key)
         if self.world.put_started:
             self.world.put_started.set()
             if not self.world.put_release.wait(5):
                 raise TimeoutError("test gate expired")
-        self.world.objects[Bucket, Key] = Body.read() if hasattr(Body, "read") else Body
-        self.world.puts.append(Key)
+        if (Bucket, Key) in self.world.objects:
+            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
+        raw = Body.read()
+        assert len(raw) == ContentLength
+        self.world.objects[Bucket, Key] = raw
+        self.world.metadata[Bucket, Key] = deepcopy(Metadata)
         if self.world.fail_put:
             raise OSError("synthetic failed signed request, must stay private")
+        return self._head(Bucket, Key)
 
-    def put_bytes(self, key, content, *, content_type, bucket):
-        self.put_object(Bucket=bucket, Key=key, Body=content)
+    def head_object(self, *, Bucket, Key):
+        assert not self.closed
+        self.world.heads.append((Bucket, Key))
+        return self._head(Bucket, Key)
+
+    def get_object(self, *, Bucket, Key, IfMatch, **kwargs):
+        assert not self.closed
+        facts = self._head(Bucket, Key)
+        assert IfMatch == facts["ETag"]
+        assert kwargs.get("VersionId") in {None, "null"}
+        body = io.BytesIO(self.world.objects[Bucket, Key])
+        self.world.bodies.append(body)
+        self.world.reads.append((Bucket, Key))
+        return {**facts, "Body": body}
+
+    def list_objects_v2(self, *, Bucket, Prefix, **kwargs):
+        assert not self.closed
+        return {
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+            "IsTruncated": False,
+            "Contents": [
+                {"Key": key, "Size": len(raw), "ETag": self._head(bucket, key)["ETag"]}
+                for (bucket, key), raw in self.world.objects.items()
+                if bucket == Bucket and key.startswith(Prefix)
+            ],
+        }
+
+    def list_object_versions(self, *, Bucket, Prefix, **kwargs):
+        return {
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+            "IsTruncated": False,
+            "Versions": [
+                {**row, "VersionId": "null"}
+                for row in self.list_objects_v2(Bucket=Bucket, Prefix=Prefix)[
+                    "Contents"
+                ]
+            ],
+            "DeleteMarkers": [],
+        }
+
+    def delete_object(self, *, Bucket, Key, VersionId, IfMatch):
+        assert not self.closed
+        assert VersionId == "null" and IfMatch == self._head(Bucket, Key)["ETag"]
+        if self.world.fail_delete:
+            raise OSError("synthetic private storage failure")
+        self.world.deletions.append((Bucket, Key))
+        del self.world.objects[Bucket, Key]
+        del self.world.metadata[Bucket, Key]
+        return {"ResponseMetadata": {"HTTPStatusCode": 204}}
 
     def generate_download_url(self, key, *, expires_in, bucket, align):
-        assert align is False
+        assert not self.closed and align is False
         self.world.expirations.append(expires_in)
         return f"http://ml-objects.test/{bucket}/{key}?signature=synthetic"
 
     def rewrite_host_for_ml_backend(self, url):
         return url
-
-    def delete_prefix(self, prefix, *, bucket):
-        self.world.deletions.append((bucket, prefix))
-        if self.world.fail_delete:
-            raise OSError("synthetic private storage failure")
-        for identity in list(self.world.objects):
-            if identity[0] == bucket and identity[1].startswith(prefix):
-                del self.world.objects[identity]
 
     def close(self):
         self.closed = True
@@ -66,15 +142,41 @@ class MemoryStorage:
 
 @pytest.fixture
 async def input_world(test_engine, monkeypatch):
+    # Keep independent committed ownership out of the business SAVEPOINT, and
+    # remove its random schema without bypassing immutable tombstone triggers.
+    schema = "prediction_inputs_" + uuid.uuid4().hex
+    async with test_engine.begin() as connection:
+        source = await connection.scalar(text("SELECT current_schema()"))
+        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+        for table in (
+            "storage_locations",
+            "storage_bindings",
+            "storage_maintenance_gates",
+            "storage_operations",
+        ):
+            await connection.execute(
+                text(
+                    f'CREATE TABLE "{schema}"."{table}" '
+                    f'(LIKE "{source}"."{table}" INCLUDING ALL)'
+                )
+            )
+    engine = create_async_engine(
+        test_engine.url,
+        connect_args={"server_settings": {"search_path": schema + ",public"}},
+    )
     world = SimpleNamespace(
-        factory=async_sessionmaker(test_engine, expire_on_commit=False),
+        factory=async_sessionmaker(engine, expire_on_commit=False),
         owner_id=uuid.uuid4(),
         task_id=uuid.uuid4(),
         objects={},
-        endpoint="http://owned.test:9000",
-        bucket="owned-import",
+        metadata={},
+        endpoint=service._endpoint(),
+        bucket=settings.minio_import_bucket,
         storages=[],
+        bodies=[],
         puts=[],
+        heads=[],
+        reads=[],
         expirations=[],
         deletions=[],
         fail_put=False,
@@ -82,19 +184,32 @@ async def input_world(test_engine, monkeypatch):
         put_started=None,
         put_release=None,
     )
-    monkeypatch.setattr(service, "make_storage", lambda: MemoryStorage(world))
     try:
+        async with engine.begin() as connection:
+            for revision in (
+                "0212_prediction_input_leases",
+                "0238_prediction_input_ownership",
+            ):
+                await connection.run_sync(
+                    lambda sync, name=revision: _migration(sync, name).upgrade()
+                )
+        async with world.factory() as db:
+            await ensure_legacy_bindings(db)
+            await db.commit()
+        monkeypatch.setattr(service, "make_storage", lambda: MemoryStorage(world))
         yield world
     finally:
         if world.put_release:
             world.put_release.set()
-        async with world.factory() as db:
-            await db.execute(
-                delete(PredictionInputLease).where(
-                    PredictionInputLease.owner_id == world.owner_id
-                )
-            )
-            await db.commit()
+        for body in world.bodies:
+            body.close()
+        for storage in world.storages:
+            storage.close()
+        world.objects.clear()
+        world.metadata.clear()
+        await engine.dispose()
+        async with test_engine.begin() as connection:
+            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
 
 
 async def open_inputs(world, **kwargs):
@@ -144,6 +259,10 @@ async def test_original_put_has_independently_committed_intent_and_closes_snapsh
         # A different committed connection sees recovery before PUT can finish.
         record = await get_record(world, inputs.record.id)
         assert record.state == "active" and record.task_id == world.task_id
+        entry = next(iter(record.inventory["objects"].values()))
+        assert entry["state"] == "planned" and entry["etag"] is None
+        assert uuid.UUID(entry["write_nonce"]).version == 4
+        assert record.object_count == 1 and record.size_bytes == snapshot.size
         assert not world.objects
         world.put_release.set()
         url = await pending
@@ -155,7 +274,9 @@ async def test_original_put_has_independently_committed_intent_and_closes_snapsh
         await inputs.close()
     assert snapshot.file.closed
     assert not world.objects
-    assert await get_record(world, inputs.record.id) is None
+    assert (await get_record(world, inputs.record.id)).state == "deleted"
+    assert world.reads and all(body.closed for body in world.bodies)
+    assert all(storage.closed for storage in world.storages)
 
 
 async def test_same_owner_attempts_and_neighbor_prefixes_are_isolated(input_world):
@@ -165,7 +286,7 @@ async def test_same_owner_attempts_and_neighbor_prefixes_are_isolated(input_worl
     world.objects[neighbor] = b"untouched"
     task = SimpleNamespace(id=world.task_id)
     try:
-        assert first.upload_crop(task, 0, b"first") != second.upload_crop(
+        assert await first.upload_crop(task, 0, b"first") != await second.upload_crop(
             task, 0, b"second"
         )
         await first.close()
@@ -182,12 +303,12 @@ async def test_delete_failure_is_retained_and_retried_without_private_error(
 ):
     world = input_world
     inputs = await open_inputs(world)
-    inputs.upload_crop(SimpleNamespace(id=world.task_id), 0, b"crop")
+    await inputs.upload_crop(SimpleNamespace(id=world.task_id), 0, b"crop")
     world.fail_delete = True
     await inputs.close()
     record = await get_record(world, inputs.record.id)
     assert record.state == "cleanup_pending"
-    assert record.error_code == "storage_cleanup_failed"
+    assert record.error_code == "prediction_input_storage_cleanup_failed"
     assert world.objects and "synthetic private" not in caplog.text
     world.fail_delete = False
     monkeypatch.setattr(
@@ -196,7 +317,7 @@ async def test_delete_failure_is_retained_and_retried_without_private_error(
     result = await service.maintain(world.factory)
     assert result["removed"] == 1
     assert not world.objects
-    assert await get_record(world, record.id) is None
+    assert (await get_record(world, record.id)).state == "deleted"
 
 
 @pytest.mark.parametrize("lost", [False, True])
@@ -207,57 +328,94 @@ async def test_uncertain_or_crashed_put_retains_recovery_for_late_objects(
     inputs = await open_inputs(world)
     task = SimpleNamespace(id=world.task_id)
     if lost:
-        inputs.upload_crop(task, 0, b"crop")
+        await inputs.upload_crop(task, 0, b"crop")
         active = await service.maintain(world.factory)
         assert sum(active.values()) == 0 and world.objects
         checked = inputs.record.expires_at + timedelta(seconds=1)
     else:
         world.fail_put = True
         with pytest.raises(ContentError, match="prediction_input_upload_failed"):
-            inputs.upload_crop(task, 0, b"crop")
-        await inputs.close()
+            await inputs.upload_crop(task, 0, b"crop")
         world.fail_put = False
+    # A late completion has to be the exact admitted object and write nonce.
+    # An arbitrary new key is foreign and must never be swept by prefix.
+    identity, raw = next(iter(world.objects.items()))
+    ownership = deepcopy(world.metadata[identity])
+    if not lost:
+        await inputs.close()
         record = await get_record(world, inputs.record.id)
         assert record.uncertain_write
         checked = record.next_cleanup_at + timedelta(seconds=1)
     monkeypatch.setattr(service, "now", lambda: checked)
     assert (await service.maintain(world.factory))["retained"] == 1
     assert not world.objects
-    # A request admitted before the crash may complete after the first sweep.
-    world.objects[world.bucket, inputs.prefix + "crops/late.jpg"] = b"late"
+    world.objects[identity] = raw
+    world.metadata[identity] = ownership
     record = await get_record(world, inputs.record.id)
     checked = record.next_cleanup_at + timedelta(seconds=1)
     assert (await service.maintain(world.factory))["retained"] == 1
     assert not world.objects
     with pytest.raises(ContentError, match="prediction_input_expired"):
-        inputs.upload_crop(task, 1, b"forbidden")
+        await inputs.upload_crop(task, 1, b"forbidden")
     checked = record.retain_until + timedelta(seconds=1)
     assert (await service.maintain(world.factory))["removed"] == 1
-    assert await get_record(world, inputs.record.id) is None
+    tombstone = await get_record(world, inputs.record.id)
+    assert tombstone.state == "deleted" and tombstone.inventory == record.inventory
     await inputs.close()
 
 
 @pytest.mark.parametrize("changed", ["endpoint", "bucket"])
-async def test_recovery_never_follows_a_changed_storage_server(
+async def test_recovery_uses_saved_bucket_and_refuses_a_changed_storage_server(
     input_world, monkeypatch, changed
 ):
     world = input_world
     inputs = await open_inputs(world)
-    inputs.upload_crop(SimpleNamespace(id=world.task_id), 0, b"crop")
+    await inputs.upload_crop(SimpleNamespace(id=world.task_id), 0, b"crop")
+    saved_bucket = inputs.record.bucket
     original = getattr(world, changed)
     setattr(world, changed, original + "-other")
     checked = inputs.record.expires_at + timedelta(seconds=1)
     monkeypatch.setattr(service, "now", lambda: checked)
+    trap = None
+    if changed == "bucket":
+        key = next(iter(world.objects))[1]
+        trap = (world.bucket, key)
+        world.objects[trap] = b"wrong-current-bucket"
     result = await service.maintain(world.factory)
-    assert result["deferred"] == 1
     record = await get_record(world, inputs.record.id)
-    assert record.error_code == "storage_identity_changed"
-    assert not world.deletions and world.objects
-    setattr(world, changed, original)
-    checked = record.next_cleanup_at + timedelta(seconds=1)
-    assert (await service.maintain(world.factory))["retained"] == 1
-    assert not world.objects
+    if changed == "endpoint":
+        assert result["deferred"] == 1
+        assert record.error_code == "prediction_input_storage_identity_changed"
+        assert not world.deletions and world.objects
+        setattr(world, changed, original)
+        checked = record.next_cleanup_at + timedelta(seconds=1)
+        assert (await service.maintain(world.factory))["retained"] == 1
+        assert not world.objects
+    else:
+        assert result["retained"] == 1
+        assert set(world.objects) == {trap}
+        assert world.objects[trap] == b"wrong-current-bucket"
+        assert all(bucket == saved_bucket for bucket, _ in world.deletions)
+        setattr(world, changed, original)
     await inputs.close()
+
+
+async def test_foreign_late_key_is_preserved_with_its_cleanup_responsibility(
+    input_world, monkeypatch
+):
+    world = input_world
+    inputs = await open_inputs(world)
+    await inputs.upload_crop(SimpleNamespace(id=world.task_id), 0, b"owned")
+    foreign = (world.bucket, inputs.prefix + "crops/foreign.jpg")
+    world.objects[foreign] = b"foreign late bytes"
+    checked = inputs.record.expires_at + timedelta(seconds=1)
+    monkeypatch.setattr(service, "now", lambda: checked)
+    assert (await service.maintain(world.factory))["deferred"] == 1
+    assert world.objects[foreign] == b"foreign late bytes"
+    assert not world.deletions
+    row = await get_record(world, inputs.record.id)
+    assert row.state == "cleanup_pending" and row.deleted_at is None
+    assert row.error_code == "prediction_input_unknown_object"
 
 
 async def test_scope_and_budgets_fail_before_put_and_duplicate_crop_is_reused(
@@ -269,14 +427,14 @@ async def test_scope_and_budgets_fail_before_put_and_duplicate_crop_is_reused(
     monkeypatch.setattr(service, "MAX_OBJECTS", 2)
     monkeypatch.setattr(service, "MAX_TOTAL_BYTES", 6)
     try:
-        url = inputs.upload_crop(task, 0, b"one")
-        assert inputs.upload_crop(task, 0, b"one") == url
+        url = await inputs.upload_crop(task, 0, b"one")
+        assert await inputs.upload_crop(task, 0, b"one") == url
         assert len(world.puts) == 1
         with pytest.raises(ContentError, match="scope_invalid"):
-            inputs.upload_crop(SimpleNamespace(id=uuid.uuid4()), 1, b"two")
-        inputs.upload_crop(task, 1, b"two")
+            await inputs.upload_crop(SimpleNamespace(id=uuid.uuid4()), 1, b"two")
+        await inputs.upload_crop(task, 1, b"two")
         with pytest.raises(ContentError, match="budget_exceeded"):
-            inputs.upload_crop(task, 2, b"x")
+            await inputs.upload_crop(task, 2, b"x")
         assert len(world.puts) == 2
     finally:
         await inputs.close()
@@ -289,28 +447,29 @@ async def test_failed_put_is_not_cached_as_a_successful_crop(input_world):
     try:
         world.fail_put = True
         with pytest.raises(ContentError, match="prediction_input_upload_failed"):
-            inputs.upload_crop(task, 0, b"crop")
+            await inputs.upload_crop(task, 0, b"crop")
         world.fail_put = False
-        assert "prediction-inputs/" in inputs.upload_crop(task, 0, b"crop")
+        assert "prediction-inputs/" in await inputs.upload_crop(task, 0, b"crop")
         assert len(world.puts) == 2 and len(inputs._objects) == 1
     finally:
         await inputs.close()
     assert (await get_record(world, inputs.record.id)).uncertain_write
 
 
-async def test_journal_commit_failure_prevents_upload_and_closes_client(input_world):
+async def test_journal_commit_failure_prevents_upload_and_client_construction(
+    input_world, monkeypatch
+):
     world = input_world
 
     @asynccontextmanager
     async def unavailable():
-        class Database:
-            def add(self, record):
-                pass
+        async with world.factory() as db:
 
-            async def commit(self):
+            async def fail_commit():
                 raise RuntimeError("synthetic commit failure")
 
-        yield Database()
+            monkeypatch.setattr(db, "commit", fail_commit)
+            yield db
 
     with pytest.raises(RuntimeError, match="commit failure"):
         await service.PredictionInputs.create(
@@ -319,7 +478,15 @@ async def test_journal_commit_failure_prevents_upload_and_closes_client(input_wo
             task_id=world.task_id,
             owner_kind="batch_predict",
         )
-    assert not world.puts and all(storage.closed for storage in world.storages)
+    assert not world.puts and not world.storages
+    async with world.factory() as db:
+        assert not (
+            await db.scalars(
+                select(PredictionInputLease.id).where(
+                    PredictionInputLease.owner_id == world.owner_id
+                )
+            )
+        ).all()
 
 
 @pytest.mark.parametrize("remaining", [1, 17, 30])
@@ -332,7 +499,7 @@ async def test_signature_does_not_align_past_lease_expiration(
         service, "now", lambda: inputs.record.expires_at - timedelta(seconds=remaining)
     )
     try:
-        inputs.upload_crop(SimpleNamespace(id=world.task_id), 0, b"crop")
+        await inputs.upload_crop(SimpleNamespace(id=world.task_id), 0, b"crop")
         assert world.expirations == [remaining]
     finally:
         await inputs.close()
@@ -463,7 +630,7 @@ async def test_cancellation_settles_put_before_snapshot_is_closed(input_world):
         pending.cancel()
         await asyncio.sleep(0)
         assert not pending.done() and not snapshot.file.closed
-        assert not inputs.storage.closed
+        assert world.storages and any(not storage.closed for storage in world.storages)
         world.put_release.set()
         with pytest.raises(asyncio.CancelledError):
             await pending
@@ -558,13 +725,15 @@ async def test_real_pipeline_cleans_owned_crop_after_each_outcome(
             assert bool(extra["pipeline"].get("partial")) == (outcome == "partial")
         assert not world.objects
         async with world.factory() as db:
-            assert not (
+            records = list(
                 await db.scalars(
-                    select(PredictionInputLease.id).where(
+                    select(PredictionInputLease).where(
                         PredictionInputLease.owner_id == world.owner_id
                     )
                 )
-            ).all()
+            )
+            assert len(records) == 1 and records[0].state == "deleted"
+            assert records[0].deleted_at is not None
         if outcome != "root-failure":
             with pytest.raises(ValueError):
                 image.getpixel((0, 0))

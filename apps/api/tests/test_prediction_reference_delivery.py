@@ -14,6 +14,7 @@ from PIL import Image
 import pytest
 from sqlalchemy import func, select
 
+from app.core.security import create_access_token, hash_password
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
@@ -102,6 +103,7 @@ async def enqueue(
     stages=False,
     extra=None,
     key=None,
+    auth=None,
 ):
     _, project, task, _ = world
     if scope == "bulk":
@@ -120,7 +122,7 @@ async def enqueue(
     if stages:
         body["pipeline_stages"] = pipeline(backend)
     body.update(extra or {})
-    request_headers = headers(admin)
+    request_headers = dict(auth) if auth is not None else headers(admin)
     if key:
         request_headers["Idempotency-Key"] = key
     response = await client.post(
@@ -267,7 +269,10 @@ async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
                 select(Prediction.id).where(Prediction.task_id == task_id)
             )
         ).all() == [old_id]
-        assert len(input_world.deletions) == 1 and not input_world.objects
+        assert not input_world.objects
+        assert set(input_world.deletions) == {
+            (input_world.bucket, key) for key, _ in seen
+        }
         return
     assert job.status == "completed", failures
     prediction = await db_session.scalar(
@@ -284,7 +289,10 @@ async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
     assert evidence["execution_snapshot_id"] == str(job.execution_snapshot_id)
     assert evidence["node_id"] == "worker:content@test"
     assert "key_proof" not in str(meta.extra) and "signature" not in str(meta.extra)
-    assert len(input_world.deletions) == 1 and not input_world.objects
+    assert not input_world.objects
+    assert set(input_world.deletions) == {(input_world.bucket, key) for key, _ in seen}
+    assert all(body.closed for body in input_world.bodies)
+    assert all(storage.closed for storage in input_world.storages)
     assert len({key.split("/")[1] for key, _ in seen}) == 1
     assert len(seen) == (3 if stages else 1)
     if stages:
@@ -294,14 +302,15 @@ async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
             if row["executed"]
         ] == [7, 9, 11]
     async with input_world.factory() as independent:
-        assert (
-            await independent.scalar(
-                select(func.count())
-                .select_from(PredictionInputLease)
-                .where(PredictionInputLease.owner_id == job_id)
+        records = list(
+            await independent.scalars(
+                select(PredictionInputLease).where(
+                    PredictionInputLease.owner_id == job_id
+                )
             )
-            == 0
         )
+        assert len(records) == 1 and records[0].state == "deleted"
+        assert records[0].deleted_at is not None
     public = await httpx_client.get(
         f"/api/v1/async-jobs/{job_id}", headers=headers(super_admin)
     )
@@ -351,12 +360,24 @@ async def test_implicit_selection_and_pending_republish_preserve_original_tasks_
 
 
 @pytest.mark.parametrize("managed", [False, True])
-async def test_skipped_reference_needs_no_read_scope_or_model_freeze_and_never_expands_empty_scope(
+async def test_skipped_reference_freezes_only_remaining_scope_without_read_scope(
     db_session, httpx_client, reference_world, super_admin, monkeypatch, managed
 ):
-    _, project, task, _ = reference_world
+    from tests.test_managed_prediction_requests import managed_task
+
+    _, project, task, content = reference_world
     task.total_predictions = 1
-    other = await create_task(db_session, project_id=project.id) if managed else None
+    other = (
+        (await managed_task(db_session, project, content[2])).task if managed else None
+    )
+    key_response = await httpx_client.post(
+        "/api/v1/me/api-keys",
+        headers=headers(super_admin),
+        json={"name": "Skipped reference", "scopes": []},
+    )
+    assert key_response.status_code == 201, key_response.text
+    issued = key_response.json()
+    auth = {"Authorization": "Bearer " + issued["plaintext"]}
     key = uuid.uuid4().hex
     job, _, body, dispatch = await enqueue(
         db_session,
@@ -366,24 +387,32 @@ async def test_skipped_reference_needs_no_read_scope_or_model_freeze_and_never_e
         monkeypatch,
         extra={"task_ids": None, "predict_mode": "skip_predicted"},
         key=key,
+        auth=auth,
     )
     expected = [str(other.id)] if managed else []
     assert dispatch.call_args.kwargs["args"][2] == expected
-    assert "prediction_authority" not in job.payload
-    assert job.execution_snapshot_id is None
+    proof = deepcopy(job.payload["prediction_authority"])
+    assert proof["schema"] == 2 and proof["api_key_id"] == issued["id"]
+    assert [row["task_id"] for row in proof["tasks"]] == expected
+    assert all("original" in row and "reference" not in row for row in proof["tasks"])
+    assert proof["key_proof"] is None
+    assert job.execution_snapshot_id is not None
     await create_task(db_session, project_id=project.id)
     task.total_predictions = 0
     await db_session.commit()
     repeated = await httpx_client.post(
         f"/api/v1/projects/{project.id}/preannotate",
         json=body,
-        headers={**headers(super_admin), "Idempotency-Key": key},
+        headers={**auth, "Idempotency-Key": key},
     )
-    assert repeated.status_code == 200
+    assert repeated.status_code == 200, repeated.text
     assert dispatch.call_args.kwargs["args"][2] == expected
+    assert job.payload["prediction_authority"] == proof
 
 
-async def prepared(db, world, key_id=None, node="worker:content@test"):
+async def prepared(
+    db, world, key_id=None, node="worker:content@test", *, key_token=None
+):
     _, project, task, content = world
     task.status, task.assignee_id = "pending", None
     backend = await backend_for(db, project)
@@ -402,11 +431,24 @@ async def prepared(db, world, key_id=None, node="worker:content@test"):
             "text_threshold": 0.25,
         },
     )
+    if key_id is None:
+        token = create_access_token(subject=str(content[2].id), role=content[2].role)
+        scopes = None
+    else:
+        assert key_token is not None, (
+            "a Key proof requires its real presented credential"
+        )
+        token = key_token
+        scopes = list((await db.get(ApiKey, key_id)).scopes)
+    request = SimpleNamespace(
+        state=SimpleNamespace(api_key_id=key_id, api_key_scopes=scopes),
+        headers={"authorization": "Bearer " + token},
+    )
     proof = await refs.capture_authority(
         db,
         project,
         content[2],
-        SimpleNamespace(state=SimpleNamespace(api_key_id=key_id)),
+        request,
         [task],
         snapshot,
         scope="bulk",
@@ -456,11 +498,12 @@ async def test_authority_and_binding_changes_block_delivery(
     db_session, reference_world, input_world, mutation
 ):
     actor = reference_world[3][2]
+    token = "ak_fixture_" + uuid.uuid4().hex
     key = ApiKey(
         user_id=actor.id,
         name="prediction",
         key_prefix="ak_reference",
-        key_hash="original",
+        key_hash=hash_password(token),
         scopes=["tasks:read"],
     )
     db_session.add(key)
@@ -470,6 +513,7 @@ async def test_authority_and_binding_changes_block_delivery(
         reference_world,
         key.id,
         node="worker:unknown" if mutation == "worker" else "worker:content@test",
+        key_token=token,
     )
     if mutation == "key_rotate":
         key.key_hash = "replacement"
