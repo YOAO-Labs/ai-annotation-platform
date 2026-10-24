@@ -842,3 +842,78 @@ async def test_key_expiry_during_mask_storage_rolls_back_every_business_write(
         == 0
     )
     await clean(world, monkeypatch)
+
+
+async def test_jwt_logout_during_mask_storage_rolls_back_every_business_write(
+    httpx_client,
+    db_session,
+    managed_world,
+    super_admin,
+    accept_storage_mocks,
+    monkeypatch,
+):
+    import os
+
+    from app.core import token_blacklist
+    from app.core.security import decode_access_token
+    from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
+    from app.db.models.audit_log import AuditLog
+
+    # This regression deliberately exercises the launcher's own Redis, not an
+    # authentication substitute or a developer service selected by a default.
+    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
+    world = managed_world
+    world.mask = True
+    claims = decode_access_token(super_admin[1])
+    jti = claims["jti"]
+    assert isinstance(jti, str) and jti
+    assert not await token_blacklist.is_blacklisted(jti)
+    candidate = await call(httpx_client, world, auth(super_admin))
+    assert candidate.status_code == 200, candidate.text
+    body = accept_body(candidate.json())
+    writes = []
+
+    async def store(*args, **kwargs):
+        writes.append(True)
+        remaining = int(claims["exp"] - datetime.now(timezone.utc).timestamp())
+        assert remaining > 0
+        await token_blacklist.blacklist_token(jti, remaining)
+        assert await token_blacklist.is_blacklisted(jti)
+
+    accept_storage_mocks[0].side_effect = store
+    try:
+        result = await httpx_client.post(
+            f"/api/v1/tasks/{world.task_id}/ai-mask-candidates/accept",
+            json=body,
+            headers=auth(super_admin),
+        )
+        assert writes and result.status_code == 403, result.text
+        await db_session.rollback()
+        for model in (Prediction, Annotation, AiMaskAcceptDecision):
+            assert (
+                await db_session.scalar(
+                    select(func.count())
+                    .select_from(model)
+                    .where(model.task_id == world.task_id)
+                )
+                == 0
+            )
+        assert (
+            await db_session.scalar(select(func.count()).select_from(PredictionMeta))
+            == 0
+        )
+        assert (
+            await db_session.scalar(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(AuditLog.action == "mask_ai.candidate_accept")
+            )
+            == 0
+        )
+        await clean(world, monkeypatch)
+    finally:
+        redis = token_blacklist._get_redis()
+        try:
+            await redis.delete(token_blacklist._KEY_PREFIX + jti)
+        finally:
+            await redis.aclose()
