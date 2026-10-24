@@ -57,6 +57,7 @@ from app.services.audit import AuditAction, AuditService
 from app.services.prediction import (
     claim_failed_prediction_retry,
 )
+from app.services.raster_mask_storage import RasterMaskContractError
 
 
 router = APIRouter()
@@ -431,6 +432,8 @@ async def import_predictions(
                         dry_run=dry_run,
                         purged_tasks=purged_tasks,
                     )
+            except RasterMaskContractError:
+                raise
             except ValueError as exc:
                 if len(raw_files) == 1:
                     raise
@@ -455,6 +458,17 @@ async def import_predictions(
                 )
             else:
                 result.errors.extend(part.errors)
+    except RasterMaskContractError as exc:
+        # A retryable storage failure must not commit any partial import.
+        await db.rollback()
+        if aj_id is not None:
+            try:
+                await async_job_svc.mark_failed(db, aj_id, error=str(exc))
+                await notify_job_terminal(db, job_id=aj_id)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     except ValueError as exc:
         if aj_id is not None:
             try:

@@ -565,6 +565,17 @@ async def import_annotations(
             overwrite=overwrite,
             dry_run=dry_run,
         )
+    except RasterMaskContractError as exc:
+        # Roll back business writes before committing only the failure receipt.
+        await db.rollback()
+        if aj_id is not None:
+            try:
+                await async_job_svc.mark_failed(db, aj_id, error=str(exc))
+                await notify_job_terminal(db, job_id=aj_id)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     except ValueError as exc:
         if aj_id is not None:
             try:
