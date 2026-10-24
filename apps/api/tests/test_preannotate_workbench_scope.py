@@ -22,7 +22,9 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
+from app.db.models.user import User
 from tests.conftest import create_registry_with_pool
+from tests.test_managed_prediction_requests import managed_task
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -83,6 +85,9 @@ async def _seed(
         status=task_status,
     )
     db.add(task)
+    owner = await db.get(User, owner_id)
+    assert owner is not None
+    await managed_task(db, proj, owner, task=task)
     await db.commit()
     return proj, backend, batch, task
 

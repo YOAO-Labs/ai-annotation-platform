@@ -1,9 +1,8 @@
-"""v0.18.1 · 多阶段预标注 endpoint 层 (路径 B M1).
+"""Request-only staged preannotation with registered canonical image sources.
 
-- pipeline_stages 透传给 batch_predict.delay (含下游阶段 backend 校验)。
-- 缺省 (无 pipeline_stages) 仍走单阶段, 透传 None (向后兼容)。
-- 校验: >2 阶段 / 重复 stage / 下游 backend 不存在 → 拒绝。
-- 多阶段时顶层 ml_backend_id 从源阶段自动派生, 避免第二真值。
+Explicit pipelines retain server validation and source-stage precedence. A plain
+image request freezes a single root alongside its durable source proof. Broker
+dispatch stays mocked; this module does not qualify physical image delivery.
 """
 
 from __future__ import annotations
@@ -14,11 +13,15 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import BatchStatus
+from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
+from app.db.models.user import User
+from app.services.prediction_execution import load_snapshot
 from tests.conftest import create_registry_with_pool
+from tests.test_managed_prediction_requests import managed_task
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -83,6 +86,9 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
         status="pending",
     )
     db.add(t)
+    owner = await db.get(User, owner_id)
+    assert owner is not None
+    await managed_task(db, proj, owner, task=t)
     await db.commit()
     return proj, detect, classify, batch
 
@@ -247,7 +253,7 @@ def test_controlled_stage_capabilities_do_not_invent_detection(
 
 
 @pytest.mark.asyncio
-async def test_no_pipeline_stages_forwards_none(
+async def test_single_stage_request_freezes_execution_without_explicit_pipeline(
     httpx_client, super_admin, db_session, _mock_celery
 ):
     owner, token = super_admin
@@ -258,7 +264,19 @@ async def test_no_pipeline_stages_forwards_none(
         json={"ml_backend_id": str(detect.id), "batch_id": str(batch.id)},
     )
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["kwargs"]["pipeline_stages"] is None
+    stages = _mock_celery["kwargs"]["pipeline_stages"]
+    assert len(stages) == 1
+    assert stages[0]["stage"] == 0 and stages[0]["parent_stage"] is None
+    assert stages[0]["ml_backend_id"] == str(detect.id)
+    assert stages[0]["input"] == {"mode": "full_image"}
+    job = await db_session.get(AsyncJob, uuid.UUID(resp.json()["job_id"]))
+    assert job is not None and job.execution_snapshot_id is not None
+    frozen, digest = await load_snapshot(db_session, job.execution_snapshot_id, proj.id)
+    assert frozen["stages"] == stages
+    proof = job.payload["prediction_authority"]
+    assert proof["schema"] == 2 and proof["snapshot_digest"] == digest
+    assert len(proof["tasks"]) == 1
+    assert proof["tasks"][0]["original"]["owner_kind"] == "dataset_asset"
 
 
 @pytest.mark.asyncio
