@@ -162,7 +162,7 @@ async def test_all_video_formats_use_one_trusted_grid_receipt_and_separate_bases
 
     async def mask(reference):
         assert reference["sha256"] == "a" * 64
-        return {"size": [3, 4], "counts": [0, 1, 11]}
+        return {"encoding": "coco_rle", "size": [3, 4], "counts": [0, 1, 11]}
 
     monkeypatch.setattr(packaging, "load_coco_rle", mask)
     monkeypatch.setattr("app.services.exporting.service.load_coco_rle", mask)
