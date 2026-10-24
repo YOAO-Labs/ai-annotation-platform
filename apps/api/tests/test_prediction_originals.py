@@ -295,7 +295,7 @@ async def test_managed_receipt_requires_same_transaction_and_current_source(
     receipt = originals.issue_receipt(db, task.id, binding, {**binding, "schema": 1})
     assert (await originals.validate_receipt(db, task.id, task.project_id, receipt))[
         "original"
-    ] == binding["original"]
+    ] == originals.public_provenance(binding)["original"]
     originals.managed_binding.return_value = originals.source_receipt(
         replace(value, bucket="other")
     )
@@ -309,32 +309,69 @@ async def test_managed_receipt_requires_same_transaction_and_current_source(
 
 
 async def test_prediction_original_metadata_cannot_be_supplied_by_backend(monkeypatch):
-    task = SimpleNamespace(total_predictions=0)
+    value = source()
+    task = task_for(value)
+    task.total_predictions = 0
+    binding = {**task_binding(task), "original": originals.source_receipt(value)}
     added = []
     db = SimpleNamespace(
+        sync_session=SyncSession(),
         scalar=AsyncMock(return_value=task),
         get=AsyncMock(return_value=task),
         flush=AsyncMock(),
         execute=AsyncMock(),
         add=added.append,
     )
-    trusted = {"original": {"sha256": "a" * 64}}
-    monkeypatch.setattr(originals, "validate_receipt", AsyncMock(return_value=trusted))
+    monkeypatch.setattr(
+        originals, "managed_binding", AsyncMock(return_value=binding["original"])
+    )
+    private_evidence = {
+        **binding,
+        "schema": 1,
+        "credentials": {"jwt": "private-request"},
+        "endpoint_url": "http://private.invalid",
+        "bucket": "private-bucket",
+    }
+    receipt = originals.issue_receipt(db, task.id, binding, private_evidence)
+    trusted = originals.public_provenance(private_evidence)
+    assert originals.encoded(binding) == receipt.binding
     from app.services import prediction as predictions
 
     monkeypatch.setattr(predictions, "prepare_mask_payload_for_write", AsyncMock())
     token_meta = {"mask_objects": {"native": "still-owned-by-existing-mask-service"}}
     await PredictionService(db).create_from_ml_result(
-        uuid.uuid4(),
-        uuid.uuid4(),
+        task.id,
+        task.project_id,
         None,
         [],
-        original_receipt=object(),
+        original_receipt=receipt,
         token_meta=token_meta,
         pipeline_extra={"original_input": {"forged": True}},
     )
     meta = next(row for row in added if isinstance(row, PredictionMeta))
     assert meta.extra["original_input"] == trusted
+
+    def keys(value):
+        if isinstance(value, dict):
+            return set(value).union(*(keys(item) for item in value.values()))
+        if isinstance(value, list):
+            return set().union(*(keys(item) for item in value))
+        return set()
+
+    assert not keys(meta.extra["original_input"]) & {
+        "endpoint_url",
+        "endpoint",
+        "bucket",
+        "object_key",
+        "key",
+        "facts",
+        "credentials",
+        "jwt",
+        "file_path",
+        "file_name",
+        "storage_identity",
+    }
+    assert trusted["original"]["facts_digest"] == binding["original"]["facts_digest"]
     assert (
         predictions.prepare_mask_payload_for_write.call_args.kwargs[
             "portable_mask_meta"
@@ -382,6 +419,54 @@ async def test_failed_source_close_keeps_permit_even_if_snapshot_marked_closed()
         await owned.close()
     assert caught.value.storage_operation_unsettled
     permit.__aexit__.assert_not_awaited()
+
+
+@pytest.mark.parametrize("unknown", [False, True])
+async def test_interrupted_close_settles_only_after_known_native_close(unknown):
+    started, release = threading.Event(), threading.Event()
+    closed = []
+
+    def close():
+        started.set()
+        assert release.wait(3)
+        if unknown:
+            raise OSError("native close unconfirmed")
+        closed.append(True)
+
+    permit = SimpleNamespace(__aexit__=AsyncMock())
+    owned = originals.SourceInput(SimpleNamespace(close=close), permit)
+    job = asyncio.create_task(owned.close())
+    try:
+        for _ in range(100):
+            if started.is_set():
+                break
+            await asyncio.sleep(0.001)
+        assert started.is_set()
+        job.cancel()
+        await asyncio.sleep(0)
+        job.cancel()
+        await asyncio.sleep(0)
+        assert not job.done()
+        permit.__aexit__.assert_not_awaited()
+        release.set()
+        with pytest.raises(asyncio.CancelledError) as caught:
+            await job
+        assert (
+            bool(getattr(caught.value, "storage_operation_unsettled", False)) is unknown
+        )
+        if unknown:
+            permit.__aexit__.assert_not_awaited()
+            assert not closed
+        else:
+            permit.__aexit__.assert_awaited_once()
+            assert closed == [True]
+    finally:
+        release.set()
+        if not job.done():
+            try:
+                await originals.drain(job)
+            except BaseException:
+                pass
 
 
 async def test_full_stage_adoption_keeps_source_permit_through_actual_snapshot_close(

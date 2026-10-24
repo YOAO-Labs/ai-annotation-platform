@@ -313,6 +313,24 @@ async def physical(call, *args, **kwargs):
         raise
 
 
+async def physical_close(call):
+    """Only an actually failed close is uncertain; an interrupted wait is not."""
+    try:
+        pending = asyncio.get_running_loop().run_in_executor(
+            None, copy_context().run, call
+        )
+    except BaseException as exc:
+        raise storage_access.mark_unsettled(exc)
+    try:
+        await asyncio.shield(pending)
+    except BaseException as interrupted:
+        try:
+            await drain(pending)
+        except BaseException:
+            storage_access.mark_unsettled(interrupted)
+        raise
+
+
 async def settled(call, *, late=None):
     pending = asyncio.create_task(call)
     try:
@@ -345,13 +363,14 @@ class SourceInput:
     async def close(self, failure=None):
         if getattr(failure, "storage_operation_unsettled", False):
             return
+        closing = None
         try:
-            await physical(self.snapshot.close)
+            await physical_close(self.snapshot.close)
         except BaseException as exc:
-            # A failing close is never evidence that the source file is gone.
-            storage_access.mark_unsettled(exc)
+            closing = exc
             raise
-        await close_permit(self.permit)
+        finally:
+            await close_permit(self.permit, closing)
 
 
 async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
@@ -424,7 +443,7 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
                 _uncertain(interrupted, later)
             else:
                 try:
-                    await physical(late_stage.close)
+                    await physical_close(late_stage.close)
                 except BaseException as later:
                     _uncertain(interrupted, later)
             raise
@@ -433,7 +452,7 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
         # adopt_stage owns the file from invocation, including interrupted waits.
         consumed, stage = stage, None
         snapshot = await settled(
-            images.adopt_stage(consumed), late=lambda value: physical(value.close)
+            images.adopt_stage(consumed), late=lambda value: physical_close(value.close)
         )
         await settled(fresh())
         return SourceInput(snapshot, permit)
@@ -444,11 +463,11 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
         if failure is not None:
             try:
                 if snapshot is not None:
-                    await physical(snapshot.close)
+                    await physical_close(snapshot.close)
                 elif stage is not None:
-                    await physical(stage.close)
+                    await physical_close(stage.close)
             except BaseException as closing:
-                storage_access.mark_unsettled(failure)
+                _uncertain(failure, closing)
                 _uncertain(closing, failure)
                 raise
             finally:
@@ -466,6 +485,44 @@ class _Receipt:
     evidence: str
 
 
+def public_provenance(evidence):
+    """Project a private source receipt onto explicitly public identity facts."""
+    original = evidence["original"]
+    return {
+        **{
+            key: evidence[key]
+            for key in (
+                "schema",
+                "task_id",
+                "batch_id",
+                "item_id",
+                "version",
+                "job_id",
+                "actor_id",
+                "node_id",
+                "execution_snapshot_id",
+                "execution_digest",
+            )
+            if key in evidence
+        },
+        "original": {
+            key: original[key]
+            for key in (
+                "schema",
+                "owner_kind",
+                "content_id",
+                "sha256",
+                "size_bytes",
+                "location_id",
+                "location_revision",
+                "maintenance_revision",
+                "facts_digest",
+            )
+            if key in original
+        },
+    }
+
+
 def issue_receipt(db, task_id, binding, evidence):
     if db.sync_session.in_nested_transaction():
         raise ContentError("prediction_original_receipt_invalid")
@@ -475,7 +532,7 @@ def issue_receipt(db, task_id, binding, evidence):
         db.sync_session.get_transaction(),
         task_id,
         encoded(binding),
-        encoded(evidence),
+        encoded(public_provenance(evidence)),
     )
 
 
@@ -499,4 +556,4 @@ async def validate_receipt(db, task_id, project_id, receipt):
     }
     if binding != json.loads(receipt.binding):
         raise ContentError("content_binding_changed")
-    return json.loads(receipt.evidence)
+    return public_provenance(json.loads(receipt.evidence))
