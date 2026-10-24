@@ -8,13 +8,9 @@ from sqlalchemy import select
 
 from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import (
-    DatasetAsset,
-    DatasetAssetLocation,
-    StorageLocation,
     StorageLocationProbe,
 )
 from app.db.models.dataset_source import DatasetScanEntry
-from app.db.models.task import Task
 from app.db.models.api_key import ApiKey
 from app.services import content_snapshot as snapshots
 from app.services import dataset_scans as scans
@@ -22,7 +18,6 @@ from app.services import filesystem_storage as fs
 from app.services import storage_location as locations
 from app.services import reference_storage
 from app.services import storage_access
-from app.services.dataset_assets import LEGACY_LOCATION_ID, validate_legacy_bindings
 from app.services.storage import storage_service
 
 
@@ -229,65 +224,77 @@ async def scan_snapshot(
         raise
 
 
-async def task_identity(db, task_id, actor, expected_sha256):
-    from app.api.v1.tasks._shared import _assert_task_visible
+async def _reference_task_authorizer(db, task, actor):
+    from app.services import original_content_access as access
 
-    task = await db.get(Task, task_id, populate_existing=True)
-    if task is None:
-        raise HTTPException(404, "Task not found")
-    await _assert_task_visible(db, task, actor)
-    asset = await db.scalar(
-        select(DatasetAsset)
-        .where(DatasetAsset.dataset_item_id == task.dataset_item_id)
-        .execution_options(populate_existing=True)
-    )
-    if (
-        asset is None
-        or asset.verification_state != "verified"
-        or (expected_sha256 is not None and asset.checksum_value != expected_sha256)
-    ):
+    await access.visible_task(db, task.id, actor)
+
+
+async def task_source(db, task_id, actor, expected_sha256=None, *, lock=False):
+    from app.services import original_sources
+    from app.services import original_content_access as access
+
+    await access.visible_task(db, task_id, actor, lock=lock)
+    source = await original_sources.resolve_task(db, task_id, lock=lock)
+    if expected_sha256 is not None and source.sha256 != expected_sha256:
         raise snapshots.ContentError("content_unverified")
-    if asset.media_type != "image" or asset.checksum_algorithm != "sha256":
+    if source.media_type != "image" or source.relation.file_type != "image":
         raise snapshots.ContentError("image_format_unsupported", 415)
-    from app.services.reference_keys import is_reference
-
-    if is_reference(task.file_path):
+    if source.bucket is None:
         from app.services.dataset_references import reference_context
 
         context = await reference_context(
-            db, task.dataset_item_id, actor, task_id=task.id
+            db,
+            source.item_id,
+            actor,
+            task_id=task_id,
+            task_authorizer=_reference_task_authorizer,
         )
-        return (asset.id, context["sha256"], context["size"], None, task.file_path)
-    replica = await db.scalar(
-        select(DatasetAssetLocation)
-        .where(
-            DatasetAssetLocation.asset_id == asset.id,
-            DatasetAssetLocation.location_id == LEGACY_LOCATION_ID,
-            DatasetAssetLocation.bucket == storage_service.datasets_bucket,
-            DatasetAssetLocation.role == "managed_original",
-            DatasetAssetLocation.reference_state == "present",
-        )
-        .execution_options(populate_existing=True)
-    )
-    item = await db.get(DatasetItem, task.dataset_item_id, populate_existing=True)
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
-    if (
-        replica is None
-        or item is None
-        or location is None
-        or not location.enabled
-        or await validate_legacy_bindings(db)
-    ):
-        raise snapshots.ContentError("no_readable_original")
-    if replica.object_key != item.file_path or task.file_path != item.file_path:
-        raise snapshots.ContentError("content_binding_changed")
+        if (context["asset_id"], context["sha256"], context["size"]) != (
+            source.content_id,
+            source.sha256,
+            source.size_bytes,
+        ):
+            raise snapshots.ContentError("content_binding_changed")
+    return source
+
+
+async def task_identity(db, task_id, actor, expected_sha256):
+    """Compatibility tuple; its first member is an opaque content-owner ID."""
+    source = await task_source(db, task_id, actor, expected_sha256)
     return (
-        asset.id,
-        asset.checksum_value,
-        asset.size_bytes,
-        replica.bucket,
-        replica.object_key,
+        source.content_id,
+        source.sha256,
+        source.size_bytes,
+        source.bucket,
+        source.object_key,
     )
+
+
+async def public_task_identity(db, task_id, actor, *, request=None, api_key_id=None):
+    from app.services import original_content_access as access
+
+    proof = await access.capture_credentials(db, actor, request)
+    actor, key = await access.actor_and_key(
+        db, actor.id, api_key_id, "tasks:read", proof
+    )
+    source = await task_source(db, task_id, actor, lock=True)
+    await db.commit()
+    access.check_clock(proof, key)
+    return {
+        "owner_kind": source.owner_kind,
+        "asset_id": str(source.content_id)
+        if source.owner_kind == "dataset_asset"
+        else None,
+        "task_original_id": str(source.content_id)
+        if source.owner_kind == "task_original"
+        else None,
+        "sha256": source.sha256,
+        "size_bytes": source.size_bytes,
+        "verification_state": "verified",
+        "original_availability": "unchecked",
+        "preview_availability": "unknown",
+    }
 
 
 @contextmanager
@@ -302,137 +309,232 @@ def stored_content(bucket, key, size):
         body.close()
 
 
-async def task_snapshot(db, task_id, actor, expected_sha256, *, api_key_id=None):
-    identity = await task_identity(db, task_id, actor, expected_sha256)
-    if identity[3] is None:
-        from app.services.dataset_references import reference_snapshot
-        from app.services.reference_keys import parse_reference
+async def _managed_snapshot(
+    db, source, validate, check_clock, *, quality=False, node_id=None
+):
+    from app.services import managed_original_reader as reader
 
-        item_id, _ = parse_reference(identity[4])
-        return await reference_snapshot(
-            db,
-            item_id,
-            actor,
-            expected_sha256=expected_sha256,
-            task_id=task_id,
-            api_key_id=api_key_id,
-        )
-    key_proof = await key_authority(db, actor, api_key_id, "tasks:read")
-    await db.commit()
-    _, sha, size, bucket, key = identity
-    snapshot = await snapshots.capture(lambda: stored_content(bucket, key, size), sha)
+    stage = None
     try:
-        if await key_authority(db, actor, api_key_id, "tasks:read") != key_proof:
+        purpose = (
+            "task_original_read_"
+            if source.owner_kind == "task_original"
+            else "dataset_original_read_"
+        ) + source.content_id.hex
+        async with await storage_access.acquire(
+            db,
+            source.location_id,
+            purpose,
+            expected_revision=source.maintenance_revision,
+            node_id=node_id,
+        ):
+            await validate()
+            await db.commit()
+            check_clock()
+            stage = await reader.capture(
+                reader.ObjectSpec(
+                    source.endpoint_url,
+                    source.bucket,
+                    source.object_key,
+                    source.sha256,
+                    source.size_bytes,
+                ),
+                max_bytes=snapshots.MAX_BYTES,
+                timeout_seconds=snapshots.COPY_SECONDS,
+            )
+        result = await snapshots.adopt_stage(stage, inspect_quality=quality)
+        stage = None  # The image snapshot now owns the exact staged file and slot.
+        return result
+    finally:
+        if stage is not None:
+            stage.close()
+
+
+async def task_snapshot(
+    db, task_id, actor, expected_sha256, *, api_key_id=None, request=None
+):
+    from app.services import original_content_access as access
+
+    proof = await access.capture_credentials(db, actor, request)
+    actor_id = actor.id
+    actor, key = await access.actor_and_key(
+        db, actor_id, api_key_id, "tasks:read", proof
+    )
+    source = await task_source(db, task_id, actor, expected_sha256, lock=True)
+    reference = None
+    if source.bucket is None:
+        from app.services.dataset_references import reference_context
+
+        reference = await reference_context(
+            db,
+            source.item_id,
+            actor,
+            task_id=task_id,
+            task_authorizer=_reference_task_authorizer,
+        )
+        await storage_access.check(
+            db,
+            reference["location_id"],
+            expected_revision=reference["maintenance_revision"],
+            lock=True,
+        )
+    await db.commit()
+    access.check_clock(proof, key)
+
+    async def validate():
+        current_actor, current_key = await access.actor_and_key(
+            db, actor_id, api_key_id, "tasks:read", proof
+        )
+        if current_key != key:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-        if await task_identity(db, task_id, actor, expected_sha256) != identity:
+        if (
+            await task_source(db, task_id, current_actor, expected_sha256, lock=True)
+            != source
+        ):
             raise snapshots.ContentError("content_binding_changed")
+        if reference is not None:
+            if (
+                await reference_context(
+                    db,
+                    source.item_id,
+                    current_actor,
+                    task_id=task_id,
+                    task_authorizer=_reference_task_authorizer,
+                )
+                != reference
+            ):
+                raise snapshots.ContentError("content_binding_changed")
+            await storage_access.check(
+                db,
+                reference["location_id"],
+                expected_revision=reference["maintenance_revision"],
+                lock=True,
+            )
+
+    async def admitted():
+        await validate()
         await db.commit()
+        access.check_clock(proof, key)
+
+    snapshot = None
+    try:
+        if source.bucket is None:
+            from app.services.dataset_references import reference_snapshot
+
+            snapshot = await reference_snapshot(
+                db,
+                source.item_id,
+                actor,
+                expected_sha256=expected_sha256,
+                task_id=task_id,
+                api_key_id=api_key_id,
+                task_authorizer=_reference_task_authorizer,
+                on_acquired=admitted,
+            )
+        else:
+            snapshot = await _managed_snapshot(
+                db, source, validate, lambda: access.check_clock(proof, key)
+            )
+        await validate()
+        await db.commit()
+        access.check_clock(proof, key)
         return snapshot
     except BaseException:
-        snapshot.close()
+        if snapshot is not None:
+            snapshot.close()
         raise
 
 
-async def quality_identity(db, item_id, actor, *, node_id=None):
+async def quality_identity(db, item_id, actor, *, node_id=None, lock=False):
     """Resolve a dataset-managed original without borrowing Task authority."""
-    from app.services.dataset_source_access import assert_dataset_manage
-    from app.services.reference_keys import is_reference
+    from app.services import original_sources
+    from app.services import original_content_access as access
     from app.services.dataset_references import reference_source_context
 
+    dataset_id = await access.managed_dataset(db, item_id, actor, lock=lock)
+    source = await original_sources.resolve_item(db, item_id, lock=lock)
     item = await db.get(DatasetItem, item_id, populate_existing=True)
-    if item is None:
-        raise snapshots.ContentError("item_removed")
-    await assert_dataset_manage(db, item.dataset_id, actor)
-    asset = await db.scalar(
-        select(DatasetAsset)
-        .where(DatasetAsset.dataset_item_id == item_id)
-        .execution_options(populate_existing=True)
-    )
-    if asset is None or asset.verification_state != "verified":
-        raise snapshots.ContentError("content_unverified")
-    if item.file_type != "image" or asset.media_type != "image":
-        raise snapshots.ContentError("media_not_supported")
-    if is_reference(item.file_path):
-        context = await reference_source_context(db, item_id, actor, node_id=node_id)
-        return (asset.id, asset.checksum_value, asset.size_bytes, context)
-    replica = await db.scalar(
-        select(DatasetAssetLocation)
-        .where(
-            DatasetAssetLocation.asset_id == asset.id,
-            DatasetAssetLocation.location_id == LEGACY_LOCATION_ID,
-            DatasetAssetLocation.bucket == storage_service.datasets_bucket,
-            DatasetAssetLocation.role == "managed_original",
-            DatasetAssetLocation.reference_state == "present",
-        )
-        .execution_options(populate_existing=True)
-    )
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
-    if (
-        replica is None
-        or location is None
-        or not location.enabled
-        or await validate_legacy_bindings(db)
-    ):
-        raise snapshots.ContentError("no_readable_original")
-    if replica.object_key != item.file_path:
+    if item is None or item.dataset_id != dataset_id:
         raise snapshots.ContentError("content_binding_changed")
-    return (
-        asset.id,
-        asset.checksum_value,
-        asset.size_bytes,
-        (replica.bucket, replica.object_key),
-    )
+    if item.file_type != "image" or source.media_type != "image":
+        raise snapshots.ContentError("media_not_supported")
+    locator = source
+    if source.bucket is None:
+        locator = await reference_source_context(db, item_id, actor, node_id=node_id)
+    return (source.content_id, source.sha256, source.size_bytes, locator)
 
 
 async def quality_snapshot(
     db, item_id, actor, identity, *, api_key_id=None, node_id=None
 ):
-    """Preserve strict locator/authority checks around a bounded quality read."""
-    from app.services import reference_storage
+    """Keep original byte ownership separate from the quality result lease."""
+    from app.services import original_content_access as access
 
-    current = await quality_identity(db, item_id, actor, node_id=node_id)
-    if current != identity:
+    actor_id = actor.id
+    actor, key = await access.actor_and_key(db, actor_id, api_key_id, "datasets:write")
+    if (
+        await quality_identity(db, item_id, actor, node_id=node_id, lock=True)
+        != identity
+    ):
         raise snapshots.ContentError("content_binding_changed")
-    proof = await key_authority(db, actor, api_key_id, "datasets:write")
-    locator = identity[3]
-    if isinstance(locator, dict):
+    await db.commit()
+    access.check_clock(None, key)
 
-        def factory():
-            return reference_storage.content_file(
-                locator["config"],
-                locator["base"],
-                locator["path"],
-                expected_anchor=locator["anchor"],
-                expected=locator["expected"],
-                expected_source_identity=locator["source_identity"],
-            )
-    else:
-
-        def factory():
-            return stored_content(locator[0], locator[1], identity[2])
-
-    # The caller releases its lease lock before entering this function.
-    if isinstance(locator, dict):
-        snapshot = await snapshots.capture_from_location(
-            db,
-            locator["location_id"],
-            factory,
-            identity[1],
-            expected_revision=locator["maintenance_revision"],
-            node_id=node_id,
-            purpose="quality_read",
-            inspect_quality=True,
+    async def validate():
+        current_actor, current_key = await access.actor_and_key(
+            db, actor_id, api_key_id, "datasets:write"
         )
-    else:
-        snapshot = await snapshots.capture_for_quality(factory, identity[1])
-    try:
-        if await quality_identity(db, item_id, actor, node_id=node_id) != identity:
-            raise snapshots.ContentError("content_binding_changed")
-        if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
+        if current_key != key:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        if (
+            await quality_identity(
+                db, item_id, current_actor, node_id=node_id, lock=True
+            )
+            != identity
+        ):
+            raise snapshots.ContentError("content_binding_changed")
+
+    locator = identity[3]
+    snapshot = None
+    try:
+        if isinstance(locator, dict):
+            async with await storage_access.acquire(
+                db,
+                locator["location_id"],
+                "quality_read",
+                expected_revision=locator["maintenance_revision"],
+                node_id=node_id,
+            ):
+                await validate()
+                await db.commit()
+                access.check_clock(None, key)
+                snapshot = await snapshots.capture_for_quality(
+                    lambda: reference_storage.content_file(
+                        locator["config"],
+                        locator["base"],
+                        locator["path"],
+                        expected_anchor=locator["anchor"],
+                        expected=locator["expected"],
+                        expected_source_identity=locator["source_identity"],
+                    ),
+                    identity[1],
+                )
+        else:
+            snapshot = await _managed_snapshot(
+                db,
+                locator,
+                validate,
+                lambda: access.check_clock(None, key),
+                quality=True,
+                node_id=node_id,
+            )
+        await validate()
         if snapshot.size != identity[2]:
             raise snapshots.ContentError("content_mismatch")
+        await db.commit()
+        access.check_clock(None, key)
         return snapshot
     except BaseException:
-        snapshot.close()
+        if snapshot is not None:
+            snapshot.close()
         raise

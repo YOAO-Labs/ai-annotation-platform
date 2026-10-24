@@ -125,6 +125,8 @@ pending不按年龄清理，未知旧附件不猜当前桶、不清空JSON；读
 
 受控离线恢复只映射TaskOriginal当前位置bucket/storage_identity；UUID键、Task/Project身份、SHA、大小、源写入ETag/VersionId、创建时间、Task关联及Creation全部历史事实保持。跨桶复制可能改变目标ETag/VersionId，源回执不能作为目标版本选择器。未知桶或非annotations用途拒绝映射；未绑定/未完成创建责任照原状态恢复，不重放作业。该恢复不声明原件全部消费者切换已交付。
 
+恢复后的严格图片读取沿用TaskOriginal或DatasetAssetLocation的目标桶，重新观察目标当前对象并完整核对SHA和大小；不按源Creation中的VersionId读取。隔离恢复演练实际调用独立Task与托管Dataset任务的内容读取，并临时设置误导性的当前用途桶，确认读取仍来自恢复后保存位置。此验证不开放其余原件消费者或整个用途切换。
+
 ## 项目指南图片归属的部署顺序
 
 增量迁移0228增加独立 `guide_asset_uploads`、权威引用表 `project_guide_assets` 和项目 `guide_assets_revision`，不接管旧图片。暂停指南图片上传、清单写入、复制和清理，等待旧直传实际收尾；应用迁移，同步更新 Web 与 API，刷新消费cleanup队列的Worker及Beat，确认 `app.workers.cleanup.purge_guide_assets` 与五分钟调度已注册，再恢复入口。挂载源码不要求重建镜像；旧 init/complete/sign-url 的合法请求返回409及新认证传输路径。升级前已签发链接仍可能在原有效期内可用，须独立核对旧写入是否结束。

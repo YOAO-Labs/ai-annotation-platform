@@ -35,6 +35,10 @@ ManagedOriginalCreation显式区分dataset/task作用域。Task分配保存proje
 
 离线恢复只映射TaskOriginal当前bucket/storage_identity，保留源Creation和原ETag/VersionId事实。源写回执不是恢复目标的版本选择器；后续读取必须观察目标当前对象、条件读取并完整核对SHA。未固定的历史Task不自动认领。原件全调用者接入和回收仍有独立门禁，上传封存完成不开放完整用途切换。
 
+严格图片内容入口与数据集质量检查使用 `original_sources` 冻结当前关系及保存位置。Task直接Item与primary_lidar必须一致；Dataset选择唯一present托管原件，不把缓存纳入候选，也不要求历史核验记录已有Creation。物理读取前、取得耐久读取许可后及响应前，分别重核当前权限、原凭证、关系、位置和维护修订；业务行锁不跨物理读取。原地引用的来源读取与完整缓存命中同样在许可取得后复核原凭证，响应前比较完整引用context并锁定同一Gate代次；撤权不把合格缓存误记损坏，也不会回退读源。
+
+`managed_original_reader` 只接受端点、保存桶/键、完整SHA和大小，以及调用者显式预算。它建立独立客户端，从目标当前HEAD取得条件，验证错误If-Match确实失败，完整读取并核对摘要、EOF及最终HEAD，再真实关闭Body和客户端。历史写入VersionId不参与目标GET。返回的BinaryStage拥有临时文件和4槽准入名额，取消和超时等待实际I/O退出；关闭无法确认时保留未收尾许可。图片适配器在同一文件上解码并移交给响应，不重新下载或复制。视频、点云、签名URL、模型及导出等其余调用者仍需各自接入和验收。
+
 ### 存储连接器
 
 `storage_connections` 表的核心字段：

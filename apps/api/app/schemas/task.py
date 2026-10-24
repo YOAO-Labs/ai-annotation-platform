@@ -10,7 +10,9 @@ from app.schemas.image_pyramid import ImagePyramidSummary
 
 
 class TaskContentIdentity(BaseModel):
-    asset_id: UUID
+    owner_kind: Literal["dataset_asset", "task_original"]
+    asset_id: UUID | None
+    task_original_id: UUID | None
     sha256: str
     size_bytes: int
     verification_state: Literal["verified"]

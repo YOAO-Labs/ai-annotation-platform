@@ -771,6 +771,7 @@ async def reference_snapshot(
     scope="tasks:read",
     node_id=None,
     task_authorizer=None,
+    on_acquired=None,
 ):
     from app.services.dataset_content import key_authority
     from app.services import original_cache
@@ -792,14 +793,30 @@ async def reference_snapshot(
         else None
     )
     snapshot = None
+    admission_failed = False
+
+    async def admitted():
+        nonlocal admission_failed
+        if on_acquired is not None:
+            try:
+                await on_acquired()
+            except BaseException:
+                admission_failed = True
+                raise
+
     if cache_factory:
         from sqlalchemy.exc import SQLAlchemyError
 
         try:
             snapshot = await original_cache.read(
-                cache_factory, context["source_id"], context["asset_id"]
+                cache_factory,
+                context["source_id"],
+                context["asset_id"],
+                on_acquired=admitted,
             )
         except SQLAlchemyError:
+            if admission_failed:
+                raise
             log.warning("Original cache lookup deferred asset=%s", context["asset_id"])
     from_source = snapshot is None
     source_context = None
@@ -828,6 +845,7 @@ async def reference_snapshot(
             context["sha256"],
             expected_revision=context["maintenance_revision"],
             node_id=node_id,
+            on_acquired=admitted,
         )
     try:
 

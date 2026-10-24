@@ -46353,13 +46353,28 @@
       "TaskContentIdentity": {
         "properties": {
           "asset_id": {
-            "format": "uuid",
-            "title": "Asset Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Id"
           },
           "original_availability": {
             "const": "unchecked",
             "title": "Original Availability",
+            "type": "string"
+          },
+          "owner_kind": {
+            "enum": [
+              "dataset_asset",
+              "task_original"
+            ],
+            "title": "Owner Kind",
             "type": "string"
           },
           "preview_availability": {
@@ -46375,6 +46390,18 @@
             "title": "Size Bytes",
             "type": "integer"
           },
+          "task_original_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Original Id"
+          },
           "verification_state": {
             "const": "verified",
             "title": "Verification State",
@@ -46382,7 +46409,9 @@
           }
         },
         "required": [
+          "owner_kind",
           "asset_id",
+          "task_original_id",
           "sha256",
           "size_bytes",
           "verification_state",

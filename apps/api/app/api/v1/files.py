@@ -121,6 +121,7 @@ async def get_verified_task_content(
             current_user,
             sha256,
             api_key_id=getattr(request.state, "api_key_id", None),
+            request=request,
         )
     except Exception as exc:
         raise content_http_error(exc) from None
@@ -134,25 +135,22 @@ async def get_verified_task_content(
 )
 async def get_task_content_identity(
     task_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from app.services.dataset_content import task_identity, content_http_error
+    from app.services.dataset_content import public_task_identity, content_http_error
 
     try:
-        asset_id, sha256, size, _, _ = await task_identity(
-            db, task_id, current_user, None
+        return await public_task_identity(
+            db,
+            task_id,
+            current_user,
+            request=request,
+            api_key_id=getattr(request.state, "api_key_id", None),
         )
     except Exception as exc:
         raise content_http_error(exc) from None
-    return {
-        "asset_id": str(asset_id),
-        "sha256": sha256,
-        "size_bytes": size,
-        "verification_state": "verified",
-        "original_availability": "unchecked",
-        "preview_availability": "unknown",
-    }
 
 
 @router.post("/projects/{project_id}/backfill-thumbnails")

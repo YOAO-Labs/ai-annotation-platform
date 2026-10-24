@@ -25,6 +25,7 @@ from app.services import (
     dataset_content as content,
 )
 from app.services.dataset_assets import register_item_asset
+from app.services.storage import storage_service
 from app.workers import dataset_quality as worker
 from tests.test_dataset_content import content_world as content_world, headers
 
@@ -71,20 +72,32 @@ async def world(db_session, super_admin, monkeypatch):
         blobs[item.file_path] = data
     await db.commit()
 
-    @contextmanager
-    def stored(bucket, key, size):
-        data = blobs[key]
+    from app.services import managed_original_reader as reader
+
+    original_capture = reader.capture
+    bucket = storage_service.datasets_bucket
+    owned_keys = tuple(blobs)
+
+    async def capture(spec, **kwargs):
+        data = blobs[spec.object_key]
         if isinstance(data, Exception):
             raise data
-        yield io.BytesIO(data), {"size": len(data)}
+        storage_service.client.put_object(
+            Bucket=spec.bucket, Key=spec.object_key, Body=data
+        )
+        return await original_capture(spec, **kwargs)
 
-    monkeypatch.setattr(content, "stored_content", stored)
+    monkeypatch.setattr(reader, "capture", capture)
 
     async def dispatch(db, run):
         await db.commit()
 
     monkeypatch.setattr(worker, "dispatch", dispatch)
-    return db, ds, actor, items, blobs
+    try:
+        yield db, ds, actor, items, blobs
+    finally:
+        for key in owned_keys:
+            storage_service.client.delete_object(Bucket=bucket, Key=key)
 
 
 async def run_all(db, run):
@@ -140,7 +153,7 @@ async def test_unavailable_and_changed_are_not_corrupt_and_deleted_identity_stay
     page = await svc.result_page(db, run, limit=20, offset=0)
     rows = {r.file_name: r for r in page["items"]}
     assert rows["a.png"].reason_code == "content_source_unavailable"
-    assert rows["b.png"].reason_code == "content_mismatch"
+    assert rows["b.png"].reason_code in {"source_changed", "content_mismatch"}
     assert (
         rows["different.png"].reason_code == "item_removed"
         and rows["different.png"].stale

@@ -28,14 +28,18 @@ last_reviewed: 2026-10-24
 
 ## 图片任务
 
-| 方法 | 路径                                        | 行为                                                                                          |
-| ---- | ------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| GET  | `/files/tasks/{task_id}/content-identity`   | 返回当前 verified Asset 的摘要、大小和 Asset ID；原图可用性仍为 `unchecked`，预览为 `unknown` |
-| GET  | `/files/tasks/{task_id}/content?sha256=...` | 按固定托管位置或不可变目录引用和摘要读取完整图片快照                                          |
+| 方法 | 路径                                        | 行为                                                                           |
+| ---- | ------------------------------------------- | ------------------------------------------------------------------------------ |
+| GET  | `/files/tasks/{task_id}/content-identity`   | 返回已核验原件的归属、摘要和大小；原图可用性仍为 `unchecked`，预览为 `unknown` |
+| GET  | `/files/tasks/{task_id}/content?sha256=...` | 按固定托管位置或不可变目录引用和摘要读取完整图片快照                           |
 
-两个入口均要求 `tasks:read`，并复用当前项目权限、批次状态和任务分派规则。知道 Task/Asset ID 不代表有权限；任务之外的数据集或目录不会因此开放。读取后、响应前再次检查权限和绑定；API Key 的吊销、轮换、过期或 scope 收回同样使在途读取失败。未核验历史 Asset 返回 `content_unverified`，不把旧 hash hint 或 ETag 当 SHA-256。
+两个入口均要求 `tasks:read`，并复用当前项目权限、批次状态和任务分派规则，包括获准读取的项目观察者。知道 Task/原件 ID 不代表有权限；任务之外的数据集或目录不会因此开放。读取后、响应前再次检查权限和绑定；原请求JWT过期、退出登录、会话代次变化，以及API Key的吊销、轮换、过期或scope收回，都会使在途读取失败。未核验历史Asset返回 `content_unverified`，不把旧hash hint或ETag当SHA-256。
 
-托管任务支持固定平台 datasets 桶的 `managed_original / present` 副本，拒绝禁用或配置偏离的存储位置。不会用缩略图、其他桶或当前全局配置猜测原图。可覆盖 S3 key 也必须完整核对摘要，不能只因键名含 UUID 就直接相信其内容。
+身份响应含 `owner_kind=dataset_asset|task_original`。前者返回非空 `asset_id`、`task_original_id=null`；后者相反。身份查询只检查保存的关系、核验事实和位置配置，不读取物理对象，因此 `unchecked` 不表示原图当前在线。
+
+Dataset原件通过Task的直接DatasetItem关联或唯一 `primary_lidar` 关联解析；两者都有时必须指向同一Item，冲突返回409 `original_relation_conflict`。独立Task则使用其TaskOriginal，不与Dataset关联混用。Dataset原件要求完整SHA、大小及唯一 `managed_original / present` 位置；已有完整核验事实的历史记录不强制补建Creation。多个候选位置返回 `original_location_ambiguous`，缓存或预览不作为托管原件候选。未知历史Task不按路径自动认领。
+
+托管原件使用该记录保存的平台位置、桶和键，拒绝禁用或配置偏离的位置，不读取当前用途桶来猜测原件。每次先观察目标当前对象，确认条件读取有效，再完整核对大小、SHA及读取前后观测。历史写入ETag/VersionId只保留来源证据，不作为离线恢复目标的版本选择器。可覆盖S3 key也必须完成这些核验。
 
 既有 `/files/tasks/{task_id}/file-url` 保留签名响应格式，并执行相同任务可见性检查。数据集关联任务与点云任务从 datasets 用途桶签名，独立图片任务从默认用途桶签名。该旧地址仍有签名有效期窗口，不具备新快照接口的严格保证。托管任务继续使用已有工作台链路；原地引用任务的旧 file-url 返回409 `reference_requires_verified_content`，工作台必须使用严格内容接口。训练冻结、后台图片导出、后台图片预标及同步交互/预测测试及批量图片 Mask 修复通过各自严格快照合同消费引用，不使用旧签名地址。
 
@@ -43,17 +47,19 @@ last_reviewed: 2026-10-24
 
 成功返回完整 `image/png`、`image/jpeg` 或 `image/webp`，含精确 Content-Length、`X-Content-SHA256`、基于摘要的 ETag、`Cache-Control: no-store` 和 `X-Content-Type-Options: nosniff`。仅支持单帧图片。请求必须带64位小写 SHA-256；不提供任意 locator 输入，Range 返回416。
 
-固定上限：每张64MiB、3200万像素、读取循环10秒、请求等待15秒、响应30秒。每个 API 进程最多4个快照，名额持续到响应结束，临时文件字节上限合计256MiB；图片解码另有内存占用，多进程上限需相应累加。满额返回429。请求快照预算与持久副本额度独立；持久缓存策略提供无持久缓存、仅预览和按需原图，由来源请求与位置上限共同约束。
+图片上限为每张64MiB、3200万像素，响应30秒。托管原件的完整字节读取使用独立暂存层，物理读取预算10秒；图片解码在同一文件上执行，单独检查10秒预算并等待最多15秒。引用和目录快照沿用读取循环10秒、等待15秒的预算。阻塞I/O的实际收尾可能超过等待预算。
+
+每个API进程的托管原件暂存与既有引用/目录图片快照各有4个名额，均持续到对应快照关闭；当前图片入口最多同时持有8份、合计512MiB临时字节。图片解码另有内存占用，多进程上限需相应累加。满额返回429。通用原件暂存层要求调用者显式提供大小和时间预算；此图片接口的限制不作为后续视频或点云读取的默认限制。请求快照预算与持久副本额度独立；持久缓存策略提供无持久缓存、仅预览和按需原图，由来源请求与位置上限共同约束。
 
 超时或取消会设置停止标记；阻塞的内核 I/O 不能由线程强制终止，后台读取仍占名额，直到实际退出并清理。成功、失败、取消、发送异常和客户端断开都会关闭请求拥有的临时文件；清理不触碰源目录或托管原件。
 
-| 状态      | 典型 code                                                                                                                                               |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 409       | `scan_incomplete`、`content_unverified`、`api_read_not_verified`、`source_changed`、`content_mismatch`、`configuration_changed`、`no_readable_original` |
-| 413       | `content_too_large`、`image_pixel_budget_exceeded`                                                                                                      |
-| 415       | `image_format_unsupported`、`invalid_image`                                                                                                             |
-| 429       | `snapshot_capacity_exceeded`                                                                                                                            |
-| 503 / 504 | `content_source_unavailable` / `content_read_timeout`                                                                                                   |
+| 状态      | 典型 code                                                                                                                                                                                                                                     |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 409       | `scan_incomplete`、`content_unverified`、`api_read_not_verified`、`source_changed`、`content_mismatch`、`configuration_changed`、`no_readable_original`、`original_relation_conflict`、`original_location_ambiguous`、`storage_original_busy` |
+| 413       | `content_too_large`、`image_pixel_budget_exceeded`                                                                                                                                                                                            |
+| 415       | `image_format_unsupported`、`invalid_image`                                                                                                                                                                                                   |
+| 429       | `snapshot_capacity_exceeded`                                                                                                                                                                                                                  |
+| 503 / 504 | `content_source_unavailable` / `content_read_timeout`                                                                                                                                                                                         |
 
 认证使用 Bearer。浏览器应通过带认证头的请求取得 Blob，再管理 object URL 的取消与释放；不能直接把这些 API 路径赋给普通图片 src。原地引用数据集的管理预览与工作台已接入这条链路；object URL 按登录会话、任务和请求代次退休并回收。
 

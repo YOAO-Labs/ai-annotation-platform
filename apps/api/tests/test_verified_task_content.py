@@ -189,7 +189,7 @@ async def test_membership_revocation_after_copy_closes_snapshot(
     db_session, annotator, stored_world, monkeypatch
 ):
     task, asset, member, _, _ = stored_world
-    original = svc.snapshots.capture
+    original = svc.snapshots.adopt_stage
     snapshots = []
 
     async def capture(*args, **kwargs):
@@ -199,12 +199,85 @@ async def test_membership_revocation_after_copy_closes_snapshot(
         await db_session.flush()
         return result
 
-    monkeypatch.setattr(svc.snapshots, "capture", capture)
+    monkeypatch.setattr(svc.snapshots, "adopt_stage", capture)
     from fastapi import HTTPException
 
     with pytest.raises(HTTPException):
         await svc.task_snapshot(db_session, task.id, annotator[0], asset.checksum_value)
     assert snapshots[0].file.closed
+
+
+@pytest.mark.parametrize("revocation", ["expiry", "blacklist", "generation"])
+async def test_original_jwt_is_rechecked_after_physical_copy(
+    httpx_client, project_admin, stored_world, monkeypatch, revocation
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.services import comment_attachment_authority as authority
+
+    task, asset, _, _, _ = stored_world
+    original = svc.snapshots.adopt_stage
+    copied = []
+
+    async def capture(*args, **kwargs):
+        snapshot = await original(*args, **kwargs)
+        copied.append(snapshot)
+        if revocation == "expiry":
+            future = datetime.now(timezone.utc) + timedelta(days=365)
+            monkeypatch.setattr(authority, "now", lambda: future)
+        elif revocation == "blacklist":
+
+            async def blacklisted(jti):
+                return True
+
+            monkeypatch.setattr(
+                authority.token_blacklist, "is_blacklisted", blacklisted
+            )
+        else:
+
+            async def generation(user_id):
+                return 2**31
+
+            monkeypatch.setattr(
+                authority.token_blacklist, "get_user_generation", generation
+            )
+        return snapshot
+
+    monkeypatch.setattr(svc.snapshots, "adopt_stage", capture)
+    response = await httpx_client.get(
+        f"/api/v1/files/tasks/{task.id}/content",
+        params={"sha256": asset.checksum_value},
+        headers=headers(project_admin),
+    )
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"]["code"] == "content_authority_revoked"
+    assert len(copied) == 1 and copied[0].file.closed
+
+
+async def test_quality_reads_saved_original_despite_current_bucket_trap(
+    db_session, project_admin, stored_world, monkeypatch
+):
+    task, _, _, raw, key = stored_world
+    original_bucket = storage_service.datasets_bucket
+    trap = storage_service.import_bucket
+    storage_service.client.put_object(Bucket=trap, Key=key, Body=picture("blue"))
+    image = None
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(storage_service, "datasets_bucket", trap)
+            patch.setattr(storage_service, "bucket", trap)
+            identity = await svc.quality_identity(
+                db_session, task.dataset_item_id, project_admin[0]
+            )
+            assert identity[3].bucket == original_bucket
+            image = await svc.quality_snapshot(
+                db_session, task.dataset_item_id, project_admin[0], identity
+            )
+            assert image.file.read() == raw and image.inspection_error is None
+    finally:
+        if image is not None:
+            image.close()
+        storage_service.client.delete_object(Bucket=trap, Key=key)
 
 
 async def test_limited_api_key_cannot_read_task_content(

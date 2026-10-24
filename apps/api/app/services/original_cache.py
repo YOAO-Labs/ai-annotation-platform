@@ -554,11 +554,25 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
         storage.client.close()
 
 
-async def read(factory, source_id, asset_id):
+async def read(factory, source_id, asset_id, *, on_acquired=None):
     """Return only a newly verified complete snapshot; callers still authorize it."""
     lease_id, identity, snapshot = uuid.uuid4(), None, None
     settled = threading.Event()
     damaged = False
+    admission_failed = False
+
+    async def admitted():
+        nonlocal admission_failed
+        if on_acquired is not None:
+            try:
+                await on_acquired()
+            except BaseException:
+                admission_failed = True
+                # No physical stream was started; its temporary read lease can
+                # be removed without waiting for an SDK handle to settle.
+                settled.set()
+                raise
+
     try:
         async with factory() as db:
             configured = await scope(db, source_id, asset_id)
@@ -611,14 +625,21 @@ async def read(factory, source_id, asset_id):
                     record.sha256,
                     expected_revision=configured.maintenance_revision,
                     purpose="original_cache_read",
+                    on_acquired=admitted,
                 )
         except snapshots.ContentError as exc:
-            if exc.status in {429, 504} or exc.code.startswith("storage_"):
+            if (
+                admission_failed
+                or exc.status in {429, 504}
+                or exc.code.startswith("storage_")
+            ):
                 # Admission/deadline pressure does not prove a corrupt object.
                 raise
             damaged = True
             return None
         except Exception:
+            if admission_failed:
+                raise
             damaged = True
             return None
         async with factory() as db:

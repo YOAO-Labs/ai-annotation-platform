@@ -227,6 +227,7 @@ async def capture_from_location(
     node_id=None,
     purpose="reference_read",
     inspect_quality=False,
+    on_acquired=None,
 ):
     """Account for physical reads, including cancellation and late cleanup."""
     from app.services import storage_access
@@ -240,6 +241,8 @@ async def capture_from_location(
             expected_revision=expected_revision,
             node_id=node_id,
         ):
+            if on_acquired is not None:
+                await on_acquired()
             snapshot = await (
                 capture_for_quality(factory, expected_sha256)
                 if inspect_quality
