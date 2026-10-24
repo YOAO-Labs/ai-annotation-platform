@@ -788,7 +788,10 @@ async def test_managed_image_without_qualified_operation_fails_closed():
     from app.services.content_snapshot import ContentError
 
     task = types.SimpleNamespace(
-        id=uuid.uuid4(), project_id=uuid.uuid4(), file_type="image"
+        id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        file_type="image",
+        file_path="managed/original.png",
     )
     annotation = types.SimpleNamespace(
         id=uuid.uuid4(),

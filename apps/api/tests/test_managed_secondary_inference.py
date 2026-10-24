@@ -414,7 +414,9 @@ async def test_final_drift_rejects_without_overwriting_current_parent(
 
     world.during = alter
     response = await submit(httpx_client, world, key_headers)
-    assert response.status_code in {403, 409}, response.text
+    # Losing project visibility preserves the access resolver's existing 404.
+    expected_statuses = {403, 404, 409} if change == "role" else {403, 409}
+    assert response.status_code in expected_statuses, response.text
     await assert_no_results(
         world,
         expected_attributes={"color": "red", "brand": "Human edit"}
@@ -755,3 +757,37 @@ async def test_post_write_jwt_logout_rolls_back_attributes_and_audit(
             await redis.delete(token_blacklist._KEY_PREFIX + jti)
         finally:
             await redis.aclose()
+
+
+async def test_secondary_tombstone_prevents_downgrade_without_rewriting_history(
+    httpx_client, db_session, secondary_world, super_admin, monkeypatch
+):
+    from sqlalchemy.exc import DBAPIError
+
+    world = secondary_world
+    response = await submit(httpx_client, world, auth(super_admin))
+    assert response.status_code == 201, response.text
+    await clean(world, monkeypatch)
+    async with world.factory() as db:
+        row = await db.scalar(
+            select(PredictionInputLease).where(
+                PredictionInputLease.task_id == world.task_id
+            )
+        )
+        assert row.owner_kind == "secondary_inference" and row.state == "deleted"
+        identifier, inventory, deleted_at = (
+            row.id,
+            deepcopy(row.inventory),
+            row.deleted_at,
+        )
+    with pytest.raises(DBAPIError, match="prevents downgrade"):
+        async with storage_access.engine(db_session).begin() as connection:
+            await connection.run_sync(
+                lambda sync: _migration(
+                    sync, "0240_secondary_prediction_input_owner"
+                ).downgrade()
+            )
+    async with world.factory() as db:
+        row = await db.get(PredictionInputLease, identifier)
+        assert row.owner_kind == "secondary_inference" and row.state == "deleted"
+        assert row.inventory == inventory and row.deleted_at == deleted_at
