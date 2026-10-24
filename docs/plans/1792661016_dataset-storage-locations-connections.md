@@ -1487,3 +1487,23 @@ README、CHANGELOG Unreleased、SAM 用户指南、ML／任务 API 和预测架�
 实际选池后的 before_dispatch 再核权并提交短事务，随后才能模型 I/O。最终沿账户→项目／成员／原 Key→Task 编辑 advisory→Batch／fresh Task→canonical 来源／Gate→父 Annotation 写锁→输入元信息顺序复核。父标注任一冻结事实变化均拒绝并提示重试，不能静默以旧属性覆盖人工编辑。最终当前 Task／Annotation 用于全部属性或子框写入、actor 证据、Audit，写入后再核原凭据时钟／JWT 注销缓存，沿同一顶层事务整体 commit；不在对象读取／模型调用／源关闭时持业务写锁。退出仍先 rollback 释放调用者事务，再真实关闭输入和来源；未知关闭保护不可由 TTL 或二次 no-op 解除。
 
 操作与窄迁移、服务／路由、回归夹具分别在当前本地 HEAD 的独立工作树实施，根树独占可销毁数据库及实际验收。覆盖三类来源、同键异桶陷阱、非方形真实 ROI 像素／固定版本、同标注并发输入、人工属性保护／AI 更新／未知类别回退／一层父子、无检出和错误映射，以及来源／Key／JWT／角色／批次／编辑锁／父标注在读取、真实派发与写入边界变化时零半套结果。验证取消真实收尾及 unknown-close 责任，执行旧 secondary／权限、共享原件／输入／引用与 Pipeline 回归及真实 HTTP／MinIO。同步用户／API／架构／CHANGELOG；迁移和运行刷新只作用于本工作树所属环境，保持 3100／8100、两 Worker／Beat 和原业务／字节指纹，精确清理后才记录 K Outcome。完整 E02／B13、用途切换与整套 Epic 仍未完成。
+
+## E02-B13-B3-L Design — 托管图片 Mask 修复的完整原件资格链
+
+2026-10-25 基于 K 集成 `563f7fcbf` 对计划、Worker、变更、候选预览／采纳和回滚完成只读审计。本片完整覆盖托管图片 Mask repair 的 dry-run→execute／resume→确定性修复或 SAM 候选→内容预览／采纳→严格 rollback；保留引用图片与视频现合同，视频 Tracker 独立推进。现 managed 路径既缺原件／模型冻结，也沿当前桶 URL 和直接 Item 尺寸供图，候选采纳不经过引用专有资格链。不得仅替换 URL 后宣称完整交付。
+
+计划为托管图片保存有版本的完整 canonical 原件／关系事实、计划时 Task binding、源 Annotation 的几何／版本／类别／工具／活动事实，SAM 另冻结池／模型声明摘要和准确配置；继续将完整私有计划纳入不可变 digest。模型身份只承诺已声明配置，不虚构权重摘要。execute／resume／rollback 记录本次真实请求的原 JWT／Key、准确 Job／Celery／batch／plan／actor 和当前任务执行版本；续做仅更换授权与 attempt，不重选原件或改写模型、计划来源与既有结果。合法的 Task 版本演进、已提交 shard 的自有版本递进及 COMMIT 应答丢失按现 checkpoint 规则处理，不能用永久计划旧 Task.version 拒绝正常续做，也不能将父标注变化无条件当作合法演进。
+
+私有证明放现有 JSONB，不新增表或 owner migration；PredictionInputs 已允许 mask_repair。使用既有会从 Job DTO 隐藏的 repair_authority 键，若混合 reference／managed 需要新 envelope，显式分派并保留旧引用合同，不能默认整批都是一种来源。batch_out 现原样公开 plan_json，须先增加深拷贝的安全公开投影，隐藏完整 locator／facts／凭据／私有模型事实，保留公开计划、状态、digest 和必要的安全来源摘要；所有 dry-run／batch／Job／候选响应测试不得泄露 endpoint、bucket、key 或凭据。不得为脱敏改写已保存计划或其 digest。
+
+新增专属 ManagedRepairUnit，复用 prediction_originals 的三 canonical 解析、原凭据复核、完整 Snapshot、真实尺寸及 physical／settled 收尾。SAM 用每 attempt／unit 独立的 mask_repair 输入责任、同 purpose 的源／目标许可、条件创建、完整回读和非 null VersionId URL；实际选池后核冻结模型声明与配置，再核当前授权／来源／父标注／输入，提交短事务后派发。确定性修复、回滚、预览和采纳不创建无用途模型副本。原件图片物理读取、解码与确切关闭在最终业务写锁之前完成；未确认关闭不得签发可提交资格，重复 close 或 TTL 不能解除未收尾责任。保留现 Snapshot、输入、RLE、action／shard 和 rollback 预算。
+
+repair_original_receipt 为独立私有类型，绑定真实 issuer、同 session／顶层事务、actor／Task、来源／实际尺寸、准确 batch／plan／unit／attempt、操作种类和 payload／result digest。分别限定预测生成、确定性变更、回滚、候选读取及采纳资格，不能从普通尺寸字典、后端 JSON、ml_backend receipt 或 J interactive_accept receipt 获得权限。显式贯穿 PredictionService、MaskMutationService、AnnotationService 与 raster 尺寸校验，使 TaskOriginal 和 primary-only 真正覆盖生成、mask-content GET、采纳和回滚。收据在幂等返回之前仍核当前权限与原件，合法重放按已提交 operation/checkpoint 的前后版本核验，不能错误地要求已经由本操作修改的标注仍等于最初几何。
+
+Worker 保留准确 attempt／取消围栏及 Job→batch 的锁骨架，再沿账户／项目／成员／原 Key→Task advisory→Batch／fresh Task→canonical／Gate→模型／RLE 内容→Annotation 顺序复核；最终来源检查只用调用者 session 的元信息，不另开 guard session。全部候选、Meta、candidate_records 的 result／metadata 摘要、operation、lineage、unit checkpoint 和进度在现有事务中统一提交；写入后核凭据期限及 JWT 注销缓存。原件图片／模型 I/O 不跨最终锁；现有已归属 RLE 的读取、写入及像素代数验证按既有变更事务保留，不以删除校验来假称整个 final 没有物理 I/O。
+
+Worker 修复继续使用 review.write、任务阶段／有效执行者、编辑锁和 native gate；仅 SAM 检查交互 AI 开关，确定性修复在关闭 AI 时仍可执行。managed 请求保留 annotations:write Key scope，引用保持现有三 scope；候选内容读取沿既有读权限，采纳沿当前调用者的 annotation-write／phase／edit 权限，不额外要求 reviewer 或新的读取 scope。采纳复核准确计划项／模型、已提交 unit、候选 ID／index、result／metadata 摘要、源 Annotation 和当前 canonical 原图；并发接受只能建立一条标注。驳回不读取原图，来源离线仍可驳回，已驳回候选不得再接受。
+
+历史 managed 计划、旧 delivery 或候选缺可信来源时明确拒绝执行／续做／回滚／采纳并提示重新预览建计划；不按当前桶或后端返回补造历史证明。历史查看、已提交结果和候选驳回继续可用。离线恢复只重映运行位置，完整计划／候选／输入来源和首次期限保持；旧证明无法核验时明确过期，不恢复执行队列或续授权。
+
+按当前本地 HEAD 的独立树分工原件 owner／计划授权／公开投影、Worker／Mutation、候选预览／采纳及专属 receipt；根树集成、文档并独占测试与真实运行。三来源夹具须真实登记非方形原图与同尺寸 RLE，包含 current-bucket 陷阱，覆盖实际 dry-run／execute／独立 media 队列 Worker／SAM native／候选内容 GET／普通 accept、确定性精确像素／lineage／checkpoint／严格 rollback、失败续做与旧 delivery、来源／Key／JWT／角色／阶段／锁／模型／父事实竞争、跨 session／嵌套事务／伪造 receipt、取消／软限时／未知 close 和公开脱敏。引用 live 回归保留；真实 HTTP／MinIO 固定版本和准确清理不得用纯模拟结果替代，受控 CPU 输出不授予真实模型／GPU／生产资格。同步正式用户／API／架构／CHANGELOG，刷新实际受影响 Worker，保留人工 3100／8100、两 Worker／Beat 与原业务／字节指纹；验收和所属资源清理后才记 L Outcome，完整 E02／B13、用途切换及整套 Epic 继续活动。
