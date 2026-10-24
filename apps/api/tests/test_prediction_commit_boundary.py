@@ -11,8 +11,7 @@ import uuid
 
 from fastapi import HTTPException
 import pytest
-from sqlalchemy import delete, func, select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy import func, select, text
 from starlette.requests import Request
 
 from app.api.v1.async_jobs import cancel_async_job
@@ -21,7 +20,6 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.notification import Notification
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
-from app.db.models.prediction_execution import PredictionExecutionSnapshot
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
@@ -31,13 +29,19 @@ from app.services.ml_client import PredictionResult
 from app.services.prediction import PredictionService
 from app.workers import tasks as worker
 from tests.factory import create_batch, create_project, create_task, create_user
+from tests.managed_prediction_worker_fixtures import (
+    freeze_job,
+    input_world as input_world,
+    managed_worker_world as managed_worker_world,
+    worker_engine,
+)
 
 pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
-async def commit_world(test_engine, test_db_url, monkeypatch):
-    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+async def commit_world(managed_worker_world, monkeypatch):
+    factory = managed_worker_world.factory
     async with factory() as db:
         user = await create_user(
             db, "super_admin", f"commit-{uuid.uuid4()}@example.test", "Commit"
@@ -82,6 +86,7 @@ async def commit_world(test_engine, test_db_url, monkeypatch):
         await db.commit()
         world = SimpleNamespace(
             factory=factory,
+            worker_world=managed_worker_world,
             user=user.id,
             project=project.id,
             batch=batch.id,
@@ -90,61 +95,48 @@ async def commit_world(test_engine, test_db_url, monkeypatch):
             old=old.id,
             job=job.id,
         )
-    monkeypatch.setattr(worker.settings, "database_url", test_db_url)
     monkeypatch.setattr(worker, "_publish_progress", lambda *a, **kw: None)
     monkeypatch.setattr(
         "app.workers.celery_app.celery_app.control.revoke", lambda *a, **kw: None
     )
-    try:
-        yield world
-    finally:
-        async with factory() as db:
-            predictions = select(Prediction.id).where(
-                Prediction.project_id == world.project
-            )
-            failures = select(FailedPrediction.id).where(
-                FailedPrediction.project_id == world.project
-            )
-            await db.execute(
-                delete(PredictionMeta).where(
-                    PredictionMeta.prediction_id.in_(predictions)
-                    | PredictionMeta.failed_prediction_id.in_(failures)
-                )
-            )
-            for model in (Annotation, Prediction, FailedPrediction, AsyncJob):
-                await db.execute(delete(model).where(model.project_id == world.project))
-            await db.execute(
-                delete(PredictionExecutionSnapshot).where(
-                    PredictionExecutionSnapshot.project_id == world.project
-                )
-            )
-            await db.execute(delete(Task).where(Task.project_id == world.project))
-            await db.execute(
-                delete(TaskBatch).where(TaskBatch.project_id == world.project)
-            )
-            await db.execute(
-                delete(Notification).where(Notification.user_id == world.user)
-            )
-            await db.execute(delete(Project).where(Project.id == world.project))
-            await db.execute(
-                delete(MLBackendRegistry).where(MLBackendRegistry.id == world.backend)
-            )
-            await db.execute(delete(User).where(User.id == world.user))
-            await db.commit()
+    yield world
+
+
+async def prepare(world, *, task_ids=None, mode="overwrite"):
+    async with world.factory() as db:
+        await freeze_job(
+            db,
+            project=await db.get(Project, world.project),
+            actor=await db.get(User, world.user),
+            backend=await db.get(MLBackendRegistry, world.backend),
+            tasks=[
+                await db.get(Task, uuid.UUID(value))
+                for value in (task_ids or [str(world.task)])
+            ],
+            job=await db.get(AsyncJob, world.job),
+            batch_id=world.batch,
+            predict_mode=mode,
+        )
 
 
 async def run(world, **kwargs):
-    await worker._run_batch(
-        str(world.project),
-        str(world.backend),
-        kwargs.pop("task_ids", [str(world.task)]),
-        batch_id=str(world.batch),
-        user_id=str(world.user),
-        async_job_id=str(world.job),
-        celery_task_id=str(world.job),
-        predict_mode=kwargs.pop("predict_mode", "overwrite"),
-        **kwargs,
-    )
+    task_ids = kwargs.pop("task_ids", [str(world.task)])
+    mode = kwargs.pop("predict_mode", "overwrite")
+    if kwargs.pop("freeze", True) and kwargs.get("execution_unit") != "frame":
+        await prepare(world, task_ids=task_ids, mode=mode)
+    async with worker_engine(world.worker_world):
+        await worker._run_batch(
+            str(world.project),
+            str(world.backend),
+            task_ids,
+            batch_id=str(world.batch),
+            user_id=str(world.user),
+            async_job_id=str(world.job),
+            celery_task_id=str(world.job),
+            worker_node_id="worker:commit-regression@test",
+            predict_mode=mode,
+            **kwargs,
+        )
 
 
 def prediction_results(task_id):
@@ -199,6 +191,7 @@ async def test_result_transaction_keeps_or_replaces_the_whole_task(
             pass
 
         async def predict(self, tasks, context=None):
+            assert tasks[0]["file_path"].startswith("http://ml-objects.test/")
             # Old candidates and accepted AI annotations must survive the long
             # inference period, even in overwrite mode.
             async with world.factory() as db:
@@ -231,6 +224,7 @@ async def test_result_transaction_keeps_or_replaces_the_whole_task(
     monkeypatch.setattr("app.services.ml_client.MLBackendClient", Client)
     monkeypatch.setattr(PredictionService, "create_from_ml_result", write)
     await run(world, predict_mode=mode)
+    assert len(world.worker_world.captured) == 1
     async with world.factory() as db:
         job = await db.get(AsyncJob, world.job)
         task = await db.get(Task, world.task)
@@ -403,6 +397,8 @@ async def test_cancel_between_claim_and_metadata_merge_is_not_lost(
     from app.services.task_lock import TaskLockService
 
     world = commit_world
+    # Capture request authority before injecting the worker admission race.
+    await prepare(world)
     original = TaskLockService.active_locks
     cancelled = False
 
@@ -422,7 +418,7 @@ async def test_cancel_between_claim_and_metadata_merge_is_not_lost(
 
     monkeypatch.setattr(TaskLockService, "active_locks", locks)
     monkeypatch.setattr(worker, "_run_task_pipeline", unexpected)
-    await run(world)
+    await run(world, freeze=False)
     async with world.factory() as db:
         job = await db.get(AsyncJob, world.job)
         assert job.status == "cancelled"
@@ -439,7 +435,8 @@ async def test_late_failure_hook_honors_a_committed_cancellation(commit_world):
         await jobs.mark_running(db, world.job)
         await jobs.request_cancel(db, world.job)
         await db.commit()
-    await worker._mark_job_failed(str(world.job), "late worker failure")
+    async with worker_engine(world.worker_world):
+        await worker._mark_job_failed(str(world.job), "late worker failure")
     async with world.factory() as db:
         job = await db.get(AsyncJob, world.job)
         assert job.status == "cancelled"
@@ -479,6 +476,7 @@ async def test_explicit_partial_pipeline_commits_candidates_and_retry_context(
                 "execution_unit": None,
                 "box_threshold": 0.3,
                 "text_threshold": 0.25,
+                "predict_mode": "overwrite",
             },
         )
         snapshot_id = snapshot.id
@@ -556,6 +554,15 @@ async def test_frame_fanout_preserves_its_existing_reset_contract(
     commit_world, monkeypatch, mode
 ):
     world = commit_world
+    # Frame fan-out is a video contract, separate from owned image execution.
+    async with world.factory() as db:
+        project = await db.get(Project, world.project)
+        project.type_key, project.type_label = "video-track", "视频目标跟踪"
+        project.data_type = "video"
+        task = await db.get(Task, world.task)
+        task.file_type, task.file_name = "video", "frames.mp4"
+        task.file_path = "videos/frames.mp4"
+        await db.commit()
     calls = []
 
     async def dispatch(db, **kwargs):
