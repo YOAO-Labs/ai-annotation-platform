@@ -181,7 +181,9 @@ async def _persist_issue(
     seen_keys: set[str],
 ) -> None:
     source_versions = _source_versions(primary, *related)
-    region_ref = await store_coco_rle(region_rle) if region_rle is not None else None
+    region_ref = (
+        await store_coco_rle(region_rle, db=db) if region_rle is not None else None
+    )
     region_digest = str(region_ref["sha256"]) if region_ref else None
     related_ids = sorted(
         {primary.annotation_id, *(item.annotation_id for item in related)}, key=str
@@ -249,6 +251,10 @@ async def _persist_issue(
         },
     )
     await db.execute(statement)
+    if region_ref is not None:
+        from app.services.raster_mask_objects import bind_publications
+
+        await bind_publications(db, region_ref)
 
 
 async def _scan_single_frame(

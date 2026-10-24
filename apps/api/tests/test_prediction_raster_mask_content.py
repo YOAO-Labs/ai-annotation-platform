@@ -91,7 +91,11 @@ async def test_candidate_uses_original_index_and_reads_independently_of_write_ga
         )
         assert cached.status_code == 304
         assert cached.headers["etag"] == etag
-    load.assert_awaited_once_with(prediction.result[1]["geometry"]["mask"])
+    assert load.await_count == 5
+    assert all(
+        call.args == (prediction.result[1]["geometry"]["mask"],)
+        for call in load.await_args_list
+    )
 
     # Editing an accepted annotation never changes the original candidate's pixels.
     from app.services.raster_mask_storage import build_rle_reference

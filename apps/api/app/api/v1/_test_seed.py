@@ -3218,6 +3218,7 @@ async def seed_inject_raster_mask(
         build_rle_reference,
         rle_object_key,
         store_coco_rle,
+        lock_raster_mask_references,
     )
     from app.utils.raster_mask_rle import encode_coco_rle
 
@@ -3267,7 +3268,7 @@ async def seed_inject_raster_mask(
             "object_key": rle_object_key(missing_digest),
         }
     else:
-        reference = await store_coco_rle(rle)
+        reference = await store_coco_rle(rle, db=db)
 
     annotation = Annotation(
         task_id=task.id,
@@ -3285,6 +3286,8 @@ async def seed_inject_raster_mask(
     task.total_annotations = int(task.total_annotations or 0) + 1
     await db.flush()
     annotation_id = str(annotation.id)
+    if payload.variant != "corrupt":
+        await lock_raster_mask_references(db, reference)
     await db.commit()
     return InjectRasterMaskResponse(
         annotation_id=annotation_id,
@@ -3307,14 +3310,17 @@ async def seed_inject_raster_prediction(
 
     from app.db.models.prediction import Prediction
     from app.db.models.task import Task
-    from app.services.raster_mask_storage import store_coco_rle
+    from app.services.raster_mask_storage import (
+        store_coco_rle,
+        lock_raster_mask_references,
+    )
     from app.utils.raster_mask_rle import encode_coco_rle
 
     task = await db.get(Task, UUID(payload.task_id))
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     rle = encode_coco_rle(_make_test_raster_mask("single"), 64, 48)
-    reference = await store_coco_rle(rle)
+    reference = await store_coco_rle(rle, db=db)
     prediction = Prediction(
         task_id=task.id,
         project_id=task.project_id,
@@ -3334,6 +3340,7 @@ async def seed_inject_raster_prediction(
     db.add(prediction)
     await db.flush()
     prediction_id = str(prediction.id)
+    await lock_raster_mask_references(db, reference)
     await db.commit()
     return InjectRasterPredictionResponse(
         prediction_id=prediction_id,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import func, select, text
@@ -209,11 +209,14 @@ async def test_mask_qc_worker_dedupes_findings_and_advances_last_seen(
         assert value["sha256"] == reference["sha256"]
         return rle
 
-    async def fake_store(value):
+    async def fake_store(value, *, db):
         return build_rle_reference(value)
+
+    from app.services import raster_mask_objects
 
     monkeypatch.setattr("app.workers.mask_qc.load_coco_rle", fake_load)
     monkeypatch.setattr("app.workers.mask_qc.store_coco_rle", fake_store)
+    monkeypatch.setattr(raster_mask_objects, "bind_publications", AsyncMock())
 
     first, first_job, _created = await create_mask_qc_run(
         db_session,

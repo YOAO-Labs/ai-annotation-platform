@@ -36,20 +36,33 @@ async def mask_content_response(
     request: Request,
     loader: Callable[[dict], Awaitable[dict]],
 ) -> Response:
-    """Callers recheck visibility, state, read policy and dimensions before 304."""
+    """Callers authorize context; owned content is verified even for a 304."""
     etag = f'"{mask_ref.get("sha256")}"'
     headers = {"Cache-Control": "private, no-cache", "ETag": etag}
-    if mask_etag_matches(request, etag):
-        return Response(status_code=304, headers=headers)
     try:
         payload = await loader(mask_ref)
     except (KeyError, ValueError) as exc:
+        code = getattr(exc, "code", None)
+        owned_error = isinstance(code, str) and code.startswith(
+            "raster_object_storage_"
+        )
+        status_code = (
+            503 if owned_error and getattr(exc, "status_code", None) == 503 else 409
+        )
         raise HTTPException(
-            status_code=409,
+            status_code=status_code,
             detail={
-                "reason": classify_raster_mask_content_error(exc),
+                "reason": code
+                if owned_error
+                else classify_raster_mask_content_error(exc),
                 "retryable": True,
-                "message": f"mask object is invalid: {exc}",
+                "message": (
+                    "Mask object storage is unavailable"
+                    if status_code == 503
+                    else "Mask object ownership or content is unavailable"
+                    if owned_error
+                    else f"mask object is invalid: {exc}"
+                ),
             },
         ) from exc
     except Exception as exc:
@@ -62,4 +75,6 @@ async def mask_content_response(
                 "message": "Mask object storage is unavailable",
             },
         ) from exc
+    if mask_etag_matches(request, etag):
+        return Response(status_code=304, headers=headers)
     return JSONResponse(payload, headers=headers)

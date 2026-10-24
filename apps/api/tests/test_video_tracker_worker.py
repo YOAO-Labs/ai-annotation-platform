@@ -1130,20 +1130,24 @@ async def test_materialize_tracker_mask_result_stores_rle_and_adds_aabb(monkeypa
         "bytes": 58,
     }
 
-    async def _fake_store(rle):
+    caller_db = object()
+
+    async def _fake_store(rle, *, db):
+        assert db is caller_db
         return reference
 
     monkeypatch.setattr(
         "app.services.video_tracking.runner.store_coco_rle", _fake_store
     )
     result = await _materialize_tracker_mask_result(
+        caller_db,
         TrackerFrameResult(
             frame_index=3,
             geometry={
                 "type": "mask",
                 "rle": {"encoding": "coco_rle", "size": [2, 3], "counts": [2, 2, 2]},
             },
-        )
+        ),
     )
     assert result.geometry["mask"] == reference
     assert result.geometry["bbox"] == {"x": 1 / 3, "y": 0, "w": 1 / 3, "h": 1}

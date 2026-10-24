@@ -423,7 +423,9 @@ class AnnotationConversionService:
         for reference in references:
             object_key = str(reference["object_key"])
             try:
-                stored = await store_coco_rle(self._generated_rles[object_key])
+                stored = await store_coco_rle(
+                    self._generated_rles[object_key], db=self.db
+                )
             except Exception as exc:
                 raise AnnotationConversionError(
                     status_code=503,

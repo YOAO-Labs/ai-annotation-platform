@@ -371,9 +371,9 @@ async def upload_task_mask_content(
             ) from None
         try:
             reference = (
-                await store_coco_rle_gzip(body)
+                await store_coco_rle_gzip(body, db=db)
                 if requested_storage == RLE_STORAGE_GZIP
-                else await store_coco_rle(body)
+                else await store_coco_rle(body, db=db)
             )
         except Exception:
             # Reservation and quota consumption are transactional. A storage
@@ -382,6 +382,8 @@ async def upload_task_mask_content(
             raise
         if reference["object_key"] != expected["object_key"]:
             raise RuntimeError("mask storage selection changed after reservation")
+        # Settle publication with the anonymous reservation, without linking it.
+        await lock_raster_mask_references(db, reference, verify=True)
         await db.commit()
         return reference
     except HTTPException:
