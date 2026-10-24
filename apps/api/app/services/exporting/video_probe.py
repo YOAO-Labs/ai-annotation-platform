@@ -70,7 +70,7 @@ def _capture(command, descriptors):
             if remaining <= 0:
                 reject("timeout")
             process.wait(timeout=remaining)
-        if process.returncode != 0:
+        if process.returncode != 0 or captured["stderr"]:
             # Native stderr can contain sensitive container metadata or paths.
             reject("failed")
         result = bytes(captured["stdout"])
@@ -96,6 +96,8 @@ def parse(payload):
         if not isinstance(streams, list) or len(streams) != 1:
             reject()
         stream = dict(streams[0])
+        if any(type(stream.get(name)) is not int for name in ("width", "height")):
+            reject()
         raw_count = stream.get("nb_read_frames")
         if (
             not isinstance(raw_count, str)

@@ -241,6 +241,7 @@ async def test_single_layout_and_same_named_task_sequences_do_not_collide(
         ("MAX_EVALUATIONS", ["video_json"]),
         ("MAX_RESOLVE_WORK", ["mot"]),
         ("MAX_ZIP_ENTRIES", ["yolo-frames-det"]),
+        ("MAX_EXPANDED_BYTES", ["video_json"]),
     ],
 )
 async def test_budget_rejects_before_any_grid_or_zip_allocation(
@@ -267,6 +268,53 @@ def test_scope_and_out_of_source_keyframes_are_rejected_without_extending_length
     frozen.metadata_by_task[frozen.tasks[0].id]["frame_count"] = 9
     with pytest.raises(ContentError):
         video_budget.check(frozen)
+
+
+@pytest.mark.parametrize(
+    "maximum",
+    [
+        "MAX_RASTER_PIXELS",
+        "MAX_PORTABLE_RUNS",
+        "MAX_PORTABLE_JSON",
+        "MAX_STRUCTURAL_ROWS",
+        "MAX_VERTICES",
+    ],
+)
+def test_raster_portable_and_structure_budgets_are_metadata_only(monkeypatch, maximum):
+    frozen = context(targets=["davis", "aap_json"], mask=True)
+    monkeypatch.setattr(video_budget, maximum, 1)
+    monkeypatch.setattr(packaging, "load_coco_rle", forbidden)
+    with pytest.raises(ContentError, match="budget"):
+        video_budget.check(frozen)
+
+
+def test_keyframes_json_does_not_consume_all_frames_or_raster_budget(monkeypatch):
+    frozen = context(targets=["video_json"])
+    frozen.format_options["video_frame_mode"] = "keyframes"
+    monkeypatch.setattr(video_budget, "MAX_EVALUATIONS", 0)
+    monkeypatch.setattr(video_budget, "MAX_RASTER_PIXELS", 0)
+    assert video_budget.check(frozen)["evaluations"] == 0
+
+
+def test_youtube_raster_budget_uses_exact_mask_frames():
+    frozen = context(targets=["youtube-vos"], mask=True)
+    totals = video_budget.check(frozen)
+    assert totals["raster_pixels"] == 2 * 4 * 3 * 2
+    assert totals["evaluations"] == 2
+
+
+async def test_empty_video_project_keeps_valid_metadata_archive(monkeypatch, tmp_path):
+    data = facts(original=True)
+    data["tasks"], data["annotations"], data["media"] = [], [], []
+    frozen = Context(data)
+    frozen.format_options["video_frame_mode"] = "keyframes"
+    path, _, _ = await archive(frozen, monkeypatch, tmp_path)
+    try:
+        with zipfile.ZipFile(path) as output:
+            assert json.loads(output.read("manifest.json"))["videos"] == []
+            assert json.loads(output.read("aap_json/annotations.json"))["tasks"] == []
+    finally:
+        Path(path).unlink()
 
 
 async def test_cancelled_format_thread_exits_before_caller_can_remove_zip():

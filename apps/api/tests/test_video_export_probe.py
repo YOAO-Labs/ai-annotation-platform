@@ -55,7 +55,13 @@ def test_missing_or_unbounded_real_count_cannot_be_replaced_by_metadata(value):
 
 @pytest.mark.parametrize(
     "change",
-    [{"width": 0}, {"height": -1}, {"avg_frame_rate": "0/0"}, {"codec_name": ""}],
+    [
+        {"width": 0},
+        {"width": True},
+        {"height": -1},
+        {"avg_frame_rate": "0/0"},
+        {"codec_name": ""},
+    ],
 )
 def test_invalid_dimensions_codec_or_fps_are_not_defaulted(change):
     with pytest.raises(ContentError):
@@ -176,3 +182,22 @@ def test_unknown_native_constructor_is_preserved_through_inspect():
         assert caught.value is failure
         assert caught.value.storage_operation_unsettled
         assert not file.closed
+
+
+def test_decode_errors_cannot_publish_a_partial_count_despite_zero_exit_status():
+    processes, spawn, policy = native_capture(
+        "import sys;sys.stdout.write('{}');sys.stderr.write('decode error')"
+    )
+    with spawn, policy, pytest.raises(ContentError, match="failed"):
+        probe._capture([], ())
+    assert processes[0].poll() == 0
+    assert processes[0].stdout.closed and processes[0].stderr.closed
+
+
+def test_native_timeout_reaps_process_and_pipes(monkeypatch):
+    processes, spawn, policy = native_capture("import time;time.sleep(60)")
+    monkeypatch.setattr(probe, "PROBE_SECONDS", 0.01)
+    with spawn, policy, pytest.raises(ContentError, match="timeout"):
+        probe._capture([], ())
+    assert processes[0].poll() is not None
+    assert processes[0].stdout.closed and processes[0].stderr.closed
