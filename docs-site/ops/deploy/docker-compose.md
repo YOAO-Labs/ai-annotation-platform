@@ -86,7 +86,7 @@ last_reviewed: 2026-08-14
 | `MASK_FORMAT_MAX_ARCHIVE_FILES`     | `200000`         | 单个 Mask 格式包允许的最大文件数。                                                                                                                                                              |
 | `MASK_FORMAT_MAX_COMPRESSION_RATIO` | `100`            | 单 entry 允许的最大展开 / 压缩字节比；超限按可疑压缩炸弹拒绝。                                                                                                                                  |
 
-Mask 格式 staged object 使用 import bucket，导出产物使用 export bucket，两者均由 API 初始化为 7 天 lifecycle。
+Mask 格式 staged object 和预标临时输入使用 import bucket，导出产物使用 export bucket。应用移除自身创建的 import 整桶七天过期规则，已登记预标输入由耐久责任账本清理，未知旧对象保留待盘点；export 保留现有七天 lifecycle。运维自设规则需独立核对。
 调小配额时应同时观察 `media` / `export` 队列的失败率；只需修改 `.env` 并重建容器，不需要重建镜像。
 
 ### 2.4 认证 / 安全
@@ -316,7 +316,7 @@ worker/beat 容器已在 `docker-compose.yml` 定义、由 §4.1 一并拉起，
 
 **Celery beat（`celery-beat`，必须单实例）**：定时任务调度（审计 partition 月度归档、PerfHud 推送、ml health 巡检等）。worker 可水平扩多副本（`docker compose up -d --scale celery-worker=N`），但 **beat 多实例会重复触发，绝不能扩副本**。漏了 beat 不报错，但所有定时任务静默不跑。
 
-多阶段 ROI 临时输入需要应用 0212，并刷新平台 worker 和 beat。`app.workers.prediction_input_cleanup.recover_prediction_inputs` 每分钟派发到 `cleanup`；正常处理结束直接回收，删除失败及过期尝试由该任务重扫。`prediction_input_leases.error_code` 的 `storage_cleanup_failed` 表示等待存储恢复，`storage_identity_changed` 表示当前 endpoint/bucket 与登记时不符，须核查原部署映射，不能直接改账本使其匹配新后端。回收记录独立于业务记录；有记录时降级迁移会拒绝，不能通过删账本绕过。预算和七天重扫窗口见[预测流水线](/dev/concepts/prediction-pipeline#crop-投递通用化)。挂载源码只需刷新对应进程，无需因此重建后端或 ML 镜像。
+多阶段 ROI 临时输入需要应用 0238，并刷新平台 API、worker 和 beat。启动后独立确认 import 桶不再有 `import-artifacts-7d`，运维自设规则不能覆盖仍受保护的预测输入。`app.workers.prediction_input_cleanup.recover_prediction_inputs` 每分钟派发到 `cleanup`；正常处理结束尝试回收，源许可尚未结算、删除失败及过期尝试由该任务后续重扫。清理按保存位置、精确清单、完整内容及写入标记执行，成功保留 `deleted` 墓碑；`legacy_unpinned` 表示历史记录缺少固定位置，不能按当前配置删除，`storage_operation_unsettled` 表示仍有未收尾物理责任。回收记录独立于业务记录；有记录时降级迁移会拒绝，不能通过删账本绕过。预算和恢复观察期见[预测流水线](/dev/concepts/prediction-pipeline#crop-投递通用化)。挂载源码只需刷新对应进程，无需因此重建后端或 ML 镜像。
 
 ### 4.3 首个 super_admin（bootstrap_admin）
 

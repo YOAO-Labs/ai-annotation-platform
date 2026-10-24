@@ -45,7 +45,7 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
 
 `ReferencePredictionJob` 同时编排引用与托管成员。服务端来源证明绑定原请求凭据、准确 Task 集合、执行快照与 canonical 原件事实；托管成员统一解析 TaskOriginal、直接 Item 或 primary 关联，按保存位置条件读取并完整核验，不调用当前桶 URL fallback。每题的整图和所有 ROI 共用同一 Snapshot，裁剪在纯计算后由异步执行层逐项上传，保留父阶段、原 box index 和多层几何谱系。
 
-现有 `PredictionInputLease` 独立于业务删除，保存固定 import 位置和精确对象清单。对象责任在 PUT 前独立提交，条件创建及完整回读后才可交给模型；每次尝试的 UUID／SHA 路径避免后端按去 query 的 URL 缓存旧内容。原件和输入副本的许可覆盖真实读取／上传／关闭，任意中断都排空物理工作；未知关闭保留操作账本，不能靠 TTL 解除。
+现有 `PredictionInputLease` 独立于业务删除，保存固定 import 位置和精确对象清单。对象责任和随机写入标记在 PUT 前独立提交，条件创建后完整核对内容、对象身份及存储元信息中的 lease／写入标记，才可交给模型；相同 SHA 不足以证明对象属于本次写入。每次尝试的 UUID／SHA 路径避免后端按去 query 的 URL 缓存旧内容。原件和输入副本的许可覆盖真实读取／上传／关闭，任意中断都排空物理工作；未知关闭保留操作账本，不能靠 TTL 解除。
 
 最终托管来源 receipt 绑定当前会话及事务，先于 overwrite 删除取得；`PredictionService` 只从该凭证写入受保护的 `original_input`，引用的普通与原生资格保持独立。失败保存原来源，重试刷新请求授权和 Task 版本但不重采来源；历史缺证明的图片消息明确拒绝。旧无固定位置或清单的临时租约保留为 `legacy_unpinned`，维护任务不猜测位置或盲删整个前缀。离线恢复只重映射操作位置，冻结来源、对象事实和首次期限保持。
 
@@ -238,13 +238,15 @@ crop 模式默认走 **presigned URL**：现有 HTTP 后端直接读取 import �
 
 临时对象最多 10,000 个、总计 4 GiB，单个不超过 64 MiB；attempt 最长活动两小时，到期拒绝新上传。签名最长一小时且不超过剩余活动期，使用 `align=False`，继续复用现有 `rewrite_host_for_ml_backend` 的部署网络合同。专用 S3 客户端连接/读超时为 3/15 秒，只尝试一次，避免 PUT 的自动重试掩盖仍可能迟到的旧请求。临时输入上传与签名错误只记录稳定代码，不将签名地址或 SDK 私有信息写入失败记录。
 
-清理记录无业务级联外键，固定实际 bucket 与 endpoint 身份摘要；job、Task 或项目删除不能抹去回收意图。存储身份变化时保留 `storage_identity_changed`，不跟随新配置删除其他后端。正常完成并确认删除后移除记录；删除失败继续保留。过期失联或 PUT 结果不确定时，在活动期限后继续保留七天并重复清前缀，覆盖第一次清理之后才完成的旧 PUT。`recover_prediction_inputs` 由 beat 每分钟派到 `cleanup`，每轮最多处理 50 条，具体恢复延迟还取决于积压与存储可用性；导入桶七天生命周期是最后兜底。旧 `roi-crops/` 仍按原桶生命周期过期，不从无归属前缀反推可删除范围。
+清理记录无业务级联外键，固定实际位置、精确对象清单和 endpoint 身份摘要；job、Task 或项目删除不能抹去回收意图。存储身份变化时拒绝清理，不跟随新配置删除其他后端。清理逐对象完整核对内容、写入标记、ETag／版本，并执行条件删除；额外对象、未知版本或任意位置上同 purpose 的未收尾操作均阻止删除。正常清理后保留 `deleted` 墓碑，失败继续保留责任。过期或结果不确定的尝试保留七天恢复观察期，未收尾操作不因观察期结束解除；旧无固定位置的记录返回 `legacy_unpinned`。
+
+`recover_prediction_inputs` 由 beat 每分钟派到 `cleanup`，每轮最多处理 50 条。托管原件许可在输入 owner 关闭之后结算，首次清理因此可能延后一轮；恢复延迟还取决于积压与存储可用性。应用启动移除自身创建的导入桶整桶七天过期规则，避免存储过期绕过责任账本；运维自设规则须独立核对。旧 `roi-crops/` 或其他未知导入对象不凭前缀猜测删除，需另行盘点。
 
 原图快照由输入 owner 接管，通过同份快照产生 ROI，取消会等待已启动 SDK I/O 结束再关文件。该组件只负责资源所有权，引用消费的授权与最终写入由 `prediction_references.ReferencePredictionJob` 负责。
 
 ### 引用图片的执行资格
 
-后台 `bulk` 和工作台单题图片预标在 API 冻结实际 Task 范围、Task.version、原发起 Key proof、Item/Asset/SHA/大小/尺寸及来源修订，模型阶段写入不可变执行快照。skip 后不含引用的范围只固定 UUID，无需额外读图 scope 或模型快照；pending 幂等重发始终复用首次范围。没有服务器证明的旧队列仍不能消费引用。
+后台 `bulk` 和工作台单题图片预标在 API 冻结实际 Task 范围、Task.version、原请求凭据和来源事实，模型阶段写入不可变执行快照。引用成员另保存 Item/Asset/SHA/大小/尺寸及来源修订，并要求既有读取 scope；托管成员保留原入口权限要求。`skip_predicted` 先过滤，空集合不会重新扩展；pending 幂等重发始终复用首次范围、配置和来源。没有可信来源证明的旧图片队列明确拒绝并要求重新发起。
 
 worker 通过统一引用 reader 捕获 strict snapshot，实际读源使用 `worker:<Celery hostname>` 的已核验锚点；按需完整缓存按同 Asset/SHA 和当前授权选择，并受位置额度/TTL约束，随后经 `PredictionInputs` 投递独占 `original/` 对象，geometry 复用同一 URL，ROI 从该快照解码，避免各阶段读到不同原件。逐阶段资格失败整题中止，不适用模型的 keep_parent/drop_box 软失败策略；引用在 frame 旧清理分支前拒绝。
 
@@ -252,7 +254,7 @@ worker 通过统一引用 reader 捕获 strict snapshot，实际读源使用 `wo
 
 ### 引用失败重试与采纳
 
-两个 retry API 通过 `prediction_retries` 共用设备路由和准备：引用失败需有原模型快照及逻辑内容绑定，新提交固定当前 actor/Key、Task.version 和来源状态，保留原 Item/Asset/SHA/大小/尺寸。新建持久 `prediction_retry`，FailedPrediction claim 绑定该 job UUID；原作业过期不改变快照身份，旧引用失败缺少证明时拒绝猜测恢复。managed 历史请求保持原单阶段兼容，CPU/GPU 路由在两个入口一致。
+两个 retry API 通过 `prediction_retries` 共用设备路由和准备：图片失败需有原模型快照及可信来源绑定，新提交固定当前 actor／凭据、Task.version 和来源状态，保留原图片内容与来源。新建持久 `prediction_retry`，FailedPrediction claim 绑定该 job UUID；原作业过期不改变快照身份，旧引用或托管图片失败缺少证明时均拒绝猜测恢复。CPU/GPU 路由在两个入口一致。
 
 引用 worker 复用 `ReferencePredictionJob` 和同快照输入，不持 FailedPrediction 行锁等待原图或模型 I/O。最终按 job→账号/项目/成员→失败项→Key→批次/Task→内容生命周期锁复验本 attempt，再一起提交候选、同快照 partial 替代、失败删除和作业完成。异常先回滚业务，再用 job→失败项锁独立记录本次失败与计数；Celery failure/revoked 使用相同边界，重复或迟到回调只处理匹配的 attempt，不清除后续 claim。发布响应丢失时不撤销已运行的 attempt。
 

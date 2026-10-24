@@ -1,7 +1,6 @@
-"""Recovery records cannot silently disappear during schema rollback."""
+"""Historical recovery records cannot disappear during schema rollback."""
 
 import importlib.util
-from contextlib import asynccontextmanager
 from pathlib import Path
 import uuid
 
@@ -10,15 +9,21 @@ from alembic.operations import Operations
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-
-from app.services.prediction_inputs import PredictionInputs
-from tests.test_prediction_inputs import input_world as input_world, open_inputs
+from sqlalchemy.ext.asyncio import create_async_engine
 
 
 async def test_recovery_migration_refuses_nonempty_downgrade_and_is_reversible(
-    input_world, test_engine
+    test_engine,
 ):
-    inputs = await open_inputs(input_world)
+    # Exercise the historical migration at its actual schema shape. New v2
+    # owners (including deleted tombstones) have their own downgrade coverage.
+    schema = "prediction_input_migration_" + uuid.uuid4().hex
+    async with test_engine.begin() as connection:
+        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_async_engine(
+        test_engine.url,
+        connect_args={"server_settings": {"search_path": schema + ",public"}},
+    )
     path = (
         Path(__file__).parents[1] / "alembic/versions/0212_prediction_input_leases.py"
     )
@@ -32,8 +37,28 @@ async def test_recovery_migration_refuses_nonempty_downgrade_and_is_reversible(
         with Operations.context(MigrationContext.configure(connection)):
             operation()
 
+    insert = text(
+        "INSERT INTO prediction_input_leases "
+        "(id, owner_id, owner_kind, task_id, bucket, storage_identity, state, "
+        "uncertain_write, expires_at, retain_until, next_cleanup_at) VALUES "
+        "(:id, :owner, 'batch_predict', :task, 'historical-inputs', :identity, "
+        "'active', false, now() + interval '2 hours', "
+        "now() + interval '7 days 2 hours', now())"
+    )
+
+    def values():
+        return {
+            "id": uuid.uuid4(),
+            "owner": uuid.uuid4(),
+            "task": uuid.uuid4(),
+            "identity": "a" * 64,
+        }
+
     try:
-        async with test_engine.begin() as connection:
+        async with engine.begin() as connection:
+            await connection.run_sync(lambda conn: migrate(conn, migration.upgrade))
+            await connection.execute(insert, values())
+        async with engine.begin() as connection:
             with pytest.raises(RuntimeError, match="outstanding prediction input"):
                 await connection.run_sync(
                     lambda conn: migrate(conn, migration.downgrade)
@@ -45,37 +70,32 @@ async def test_recovery_migration_refuses_nonempty_downgrade_and_is_reversible(
                 == 1
             )
 
-            @asynccontextmanager
-            async def waiting_factory():
-                async with input_world.factory() as db:
-                    await db.execute(text("SET LOCAL lock_timeout='100ms'"))
-                    yield db
-
-            # The downgrade lock also prevents a new intent from slipping past
-            # its empty-table check and being dropped before its first PUT.
+            # The downgrade retains its exclusive lock until transaction end,
+            # so a concurrent intent cannot pass the empty check and be lost.
             with pytest.raises(DBAPIError) as blocked:
-                await PredictionInputs.create(
-                    waiting_factory,
-                    owner_id=input_world.owner_id,
-                    owner_kind="batch_predict",
-                    task_id=input_world.task_id,
-                )
+                async with engine.begin() as concurrent:
+                    await concurrent.execute(text("SET LOCAL lock_timeout='100ms'"))
+                    await concurrent.execute(insert, values())
             assert getattr(blocked.value.orig, "sqlstate", None) == "55P03"
-            assert not input_world.puts
+        async with engine.begin() as connection:
+            await connection.execute(text("DELETE FROM prediction_input_leases"))
+            await connection.run_sync(lambda conn: migrate(conn, migration.downgrade))
+            assert (
+                await connection.scalar(
+                    text("SELECT to_regclass(:qualified)"),
+                    {"qualified": schema + ".prediction_input_leases"},
+                )
+                is None
+            )
+            await connection.run_sync(lambda conn: migrate(conn, migration.upgrade))
+            assert (
+                await connection.scalar(
+                    text("SELECT to_regclass(:qualified)"),
+                    {"qualified": schema + ".prediction_input_leases"},
+                )
+                is not None
+            )
     finally:
-        await inputs.close()
-    async with test_engine.begin() as connection:
-        await connection.run_sync(lambda conn: migrate(conn, migration.downgrade))
-        assert (
-            await connection.scalar(
-                text("SELECT to_regclass('prediction_input_leases')")
-            )
-            is None
-        )
-        await connection.run_sync(lambda conn: migrate(conn, migration.upgrade))
-        assert (
-            await connection.scalar(
-                text("SELECT to_regclass('prediction_input_leases')")
-            )
-            is not None
-        )
+        await engine.dispose()
+        async with test_engine.begin() as connection:
+            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))

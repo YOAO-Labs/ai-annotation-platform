@@ -361,7 +361,9 @@ async def test_cpu_retry_keeps_queue_and_rejects_unqualified_image_history(
         managed = await create_task(db_session, project_id=world.project.id)
         world.failure.task_id = managed.id
     world.backend.health_meta = {
-        "capabilities": {"resource_profile": {"device": "cpu"}}
+        "capabilities": {
+            "models": [{"id": "detect", "resource_profile": {"device": "cpu"}}]
+        }
     }
     await db_session.commit()
     dispatch = Mock()
