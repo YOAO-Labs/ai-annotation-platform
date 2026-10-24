@@ -4,12 +4,13 @@ import hashlib
 import io
 import json
 import shutil
+import uuid
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 import zipfile
 
 from botocore.exceptions import ClientError
@@ -578,3 +579,118 @@ def test_fixture_rejects_changed_partition_bytes(coco8):
     (coco8 / "images" / "train" / "000000000000.jpg").unlink()
     with pytest.raises(SeedAssetError, match="four train images"):
         fixture_seed._read_samples(coco8)
+
+
+async def test_baseline_preparation_commits_sources_then_finalizes_under_project_lock(
+    monkeypatch,
+):
+    events = []
+    project = Project(id=uuid.uuid4(), owner_id=uuid.uuid4())
+    prepared = SimpleNamespace(
+        snapshot={"schema": 1, "classes": [], "samples": []},
+        report={"ready": True, "digest": "a" * 64, "issues": [], "summary": {}},
+    )
+    db = SimpleNamespace(
+        scalar=AsyncMock(side_effect=[None, None]),
+        flush=AsyncMock(side_effect=lambda: events.append("flush")),
+        commit=AsyncMock(side_effect=lambda: events.append("commit")),
+        execute=AsyncMock(side_effect=lambda statement: events.append("project_lock")),
+        add=Mock(),
+    )
+
+    async def prepare(*args, **kwargs):
+        assert events == ["flush", "commit"]
+        assert kwargs == {"actor_id": project.owner_id, "trusted_actor": True}
+        events.append("prepare")
+        return prepared
+
+    async def finalize(database, candidate):
+        assert candidate is prepared and events[-1] == "project_lock"
+        events.append("finalize")
+        return prepared.snapshot, prepared.report
+
+    monkeypatch.setattr(
+        fixture_seed.training_datasets, "prepare_selection", prepare, raising=False
+    )
+    monkeypatch.setattr(
+        fixture_seed.training_datasets, "finalize_selection", finalize, raising=False
+    )
+    monkeypatch.setattr(
+        fixture_seed.training_dataset_storage,
+        "allocate",
+        AsyncMock(side_effect=lambda *args: events.append("allocate")),
+    )
+    membership = AsyncMock(side_effect=lambda *args, **kw: events.append("membership"))
+    monkeypatch.setattr(
+        fixture_seed.project_task_dataset, "ensure_membership", membership
+    )
+    monkeypatch.setattr(
+        fixture_seed.training_datasets,
+        "enqueue_dataset",
+        AsyncMock(side_effect=lambda *args: events.append("enqueue")),
+    )
+    monkeypatch.setattr(
+        fixture_seed.training_datasets,
+        "check_prepared_clock",
+        lambda candidate: events.append("clock"),
+        raising=False,
+    )
+    version = await fixture_seed.prepare_baseline(db, project)
+    assert (
+        version.snapshot is prepared.snapshot and version.creator_id == project.owner_id
+    )
+    assert events == [
+        "flush",
+        "commit",
+        "prepare",
+        "project_lock",
+        "finalize",
+        "flush",
+        "allocate",
+        "membership",
+        "enqueue",
+        "clock",
+    ]
+    assert membership.call_args.kwargs == {"project_locked": True}
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "status", ["pending", "ready", "failed", "cancelled", "running"]
+)
+async def test_concurrent_baseline_publication_reuses_the_new_existing_attempt(
+    monkeypatch, status
+):
+    project = Project(id=uuid.uuid4(), owner_id=uuid.uuid4())
+    existing = SimpleNamespace(
+        id=uuid.uuid4(), async_job_id=uuid.uuid4(), status=status
+    )
+    db = SimpleNamespace(
+        scalar=AsyncMock(side_effect=[None, existing]),
+        flush=AsyncMock(),
+        commit=AsyncMock(),
+        execute=AsyncMock(),
+        refresh=AsyncMock(),
+    )
+    prepare, finalize = AsyncMock(), AsyncMock()
+    execution, enqueue, mark_failed = AsyncMock(), AsyncMock(), AsyncMock()
+    monkeypatch.setattr(
+        fixture_seed.training_datasets, "prepare_selection", prepare, raising=False
+    )
+    monkeypatch.setattr(
+        fixture_seed.training_datasets, "finalize_selection", finalize, raising=False
+    )
+    monkeypatch.setattr(
+        fixture_seed.training_datasets, "lock_dataset_execution", execution
+    )
+    monkeypatch.setattr(fixture_seed.training_datasets, "enqueue_dataset", enqueue)
+    monkeypatch.setattr(fixture_seed.jobs, "mark_failed", mark_failed)
+    assert await fixture_seed.prepare_baseline(db, project) is existing
+    prepare.assert_awaited_once()
+    finalize.assert_not_awaited()
+    assert (
+        execution.await_count
+        == enqueue.await_count
+        == int(status in {"failed", "cancelled", "running"})
+    )
+    assert mark_failed.await_count == int(status == "running")
