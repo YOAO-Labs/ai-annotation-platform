@@ -1182,3 +1182,31 @@ test／e2e 的 StorageOperation 均为零后，两个数据库、两个 Redis �
 只读复核确认 KITTI、pointmask 和 COCO-multicamera 的 ZIP 已有独立 ExportOutput，但包内媒体地址仍来自当前 datasets 桶；部分读取只按 Item 大小、对象 metadata 或本次现算 SHA 判断来源，主点云 direct／primary 定位也不一致。下一片先冻结 canonical 主点云与精确相机链接、坐标／标定／标注内容，并将实际媒体副本归属与 ZIP 发布串起完整责任链，不能仅替换 GET 或直签当前桶。
 
 拟采用独立 ExportMediaBundle 在任何副本 PUT 前登记责任，保留现有 ZIP、manifest／路径及下载脚本格式，媒体链接指向固定输出位置的原字节副本。以 bundle 创建时固定七天截止，签名不对齐延长，ZIP 与缓存不得续期；读取、复制、完整回读和真实关闭后，在同一最终事务重核授权／来源／scope 并发布。同步预检与项目／批次权限、预算、旧缓存兼容及失败回收须在 Design 中定稿后实施。nuScenes raw lidar.bin／map 缺少独立辅助原件归属，另片处理，不能当作 PCD 的副本；其余 ML／导出消费者和完整用途切换继续独立推进。此后续目前为已复核范围，尚未实现。
+
+## E02-B13-B3-G1 Design — LiDAR 导出原件与独立交付副本
+
+本片覆盖 KITTI、pointmask、COCO-multicamera 的项目／批次预检、Job 冻结、Worker、打包、缓存、发布和回收。保留现有 ZIP 路径、坐标转换、类别映射、持久人工多相机框及负样本；已有 stale 校准关系的人工框仍可导出，不新增“成员必须使用最新校准”的条件。KITTI 读取主 PCD 与选定相机，pointmask 读取主 PCD 及现有图片清单的所有相机，COCO 只读取全部相机，不强迫取得缺失的主 PCD。主件统一 `resolve_task`，相机使用准确 `resolve_task_link`，拒绝 direct／primary 冲突和未知原件，目录／引用不在本片增加支持。
+
+权限沿用项目预检的 export.annotations、批次预检的项目可见性，以及两类实际导出的 export.annotations；不增加 tasks:read／annotations:read，也不对 whole-project／batch 额外逐题过滤。selected-task 的场景格式拒绝保持。新 Job 固定原 output_authority 的准确凭据证明，重发不能续换原 Key 或从缺请求推定系统授权。本片三类目标的同步预检只核对登记事实、格式配置和预算，不读取原件字节；实际存在性、SHA 和 PCD 完整校验在 Worker 执行。
+
+HTTP 在同次短事务冻结 project／batch、明确有序 Task 集合、规范化 targets／options、命名、类别／属性、Task／link、标注／多相机成员／轨迹、Dataset 坐标约定、所用校准及 canonical 原件事实。先计量数量和 JSON 体积，再分块冻结，不能先加载无限输入再检查预算。冻结内容保存在私有 bundle，不把凭据或完整内部来源写进公开 Job DTO；Job 仅保存新合同、bundle ID 与摘要。Worker 必须将实际消息参数与原冻结范围逐项比较，不能按 Celery 参数重新扩大或改写 batch。每个物理对象前后复核本对象、当前发起者／项目／原 Key、Job／attempt 和 Gate；整套输入在 Worker 开始、缓存命中与最终发布时复核，避免每对象重新扫描全量范围。
+
+迁移 0234 新增独立 ExportMediaBundle：保存 project／job 快照、预分配 zip_output_id、私有输入及摘要、逻辑路径映射、预期对象 UUID／SHA／大小清单、固定 export 位置／端点与专属前缀、预算、状态、一次 lease 和时间事实，不随业务对象级联。精确副本的 SHA／大小在 PUT 前已知，预期清单自创建起不可变；claim 只允许一次，不续约或接管旧租约。Worker claim 后租约固定 3600 秒，未完成的物理工作仍须排空，过期不能发布。重复投递不获新写权限；显式新尝试使用新 bundle／前缀，保留原输入和授权，旧任务不能改变新 Job 指针或终态。
+
+ExportOutput 保持现有真实 ZIP SHA／大小及 image 前缀，新增唯一 nullable bundle 关联，按预分配 UUID 创建；同事务延迟约束核对 project／job、精确 ZIP ID、共同截止时间与首次 ready 的配对状态。旧输出保持 NULL，不猜测回填。本片涉及三类媒体的旧缓存必须 miss；新缓存键包括新合同与完整输入摘要，读取完整核对 ZIP 和所有副本，截止时间不续期。媒体 bundle 的 published_at 一次锁存，不能因 ZIP／cache／Job／项目删除而丢失。
+
+bundle 登记时固定 created_at＋168 小时，所有副本在登记后写入；签名使用剩余秒数、align=False，ZIP 和 Job 交付期限继承同一截止，避免先写副本被 export 桶既有七天 lifecycle 提前回收。KITTI／pointmask 清单保留原字段并补充真实 SHA／大小，下载脚本核对精确副本；COCO 延续其已有哈希校验。复制逐字节保留原图和 PCD，不转换、重排或采样；物理 key 只由登记的 UUID 组成，用户逻辑路径只存在清单。
+
+源捕获使用已登记保存位置、条件读取及完整 SHA／大小，独立两槽覆盖真实 stage 使用至关闭。输出 client、PUT、全量回读、Body、文件和实际 close 均在 bundle 的耐久许可内；所有 BaseException 等待物理线程真正结束，未知构造／关闭保留许可、owner 和必要临时文件。预期清单每项只验证一次写回，最终线性核对前缀集合，不在每次 PUT 前遍历全部已写对象。来源、输出、ZIP 的物理工作全部在事务锁外执行。
+
+最终保持取消／授权的既有锁顺序，范围沿 Batch→排序 Task，使用 Task 写锁阻止新增标注／链接，继续核对 Annotation／成员／Track；校准沿 Dataset 生命周期→Item 父行锁后重算事实，不能只锁已有历史行。跨序竞争使用 NOWAIT，冲突拒绝本次发布，不靠长时间等待带着其他锁执行。自然期限与 Gate 在签名／ready 前再检查，bundle、ZIP、cache、Job 与通知一起提交；来源、权限、标注、坐标、校准、消息范围或代次变化都不能发布半轮结果。
+
+预算按实际所需源去重：相机保留 20000 图、100000 人工成员、256MiB／图及20GiB 合计；PCD 上限1000帧、256MiB／件、4GiB 合计、4000000点／帧及100000000点／次；两类媒体累计不得超过24GiB。私有冻结 JSON 最多256MiB、点索引总数最多32000000，原有8GiB临时文件／512MiB单 ZIP entry／200000 entries限制继续执行。逐项捕获、校验和复制，不同时下载全部媒体；未结 building 副本仍计入预算。数值限制是资源合同，不冒充实测 RSS 或吞吐资格。
+
+pointmask 以原 PCD 记录空间生成恰好 N 个 little-endian uint32：不删除 NaN／Inf、不乘抽样 stride、不根据注解声明扩容。支持 ASCII、binary 与 binary_compressed；增加有界 header／逐行格式检查、精确体长及流式 LZF 校验，不安装依赖或构建 XYZ 全矩阵。实际记录数须匹配 POINTS 与 WIDTH×HEIGHT，压缩数据须完整消费、回溯合法并达到精确解压长度。索引严格为非 bool 整数且落在 [0,N)，已有 source_point_count 必须等于 N，未知类别拒绝。保持现行 created_at／id 顺序的后写覆盖，冻结该顺序；标签使用有界 uint32 缓冲，避免 Python 指针数组和参数展开。
+
+回收独立于业务与缓存：published_at 非空的媒体在固定截止前不删除；未发布候选只在 attempt 已结束／失效且没有在途或未知操作后退役，pending ZIP 同样受限结算，双方删除失败分别保留责任。只处理保存端点、桶和准确 UUID 前缀，不扫当前桶、未知对象或其他临时目录。墓碑默认保留。恢复映射仅通过现有 owner／restore guard 修改 bucket 和 storage_identity，其他输入、清单、deadline、lease 和历史事实不重写，并加入恢复一致性与真实副本核验。不可变 ZIP 内旧签名 URL 不会随桶映射更新：恢复责任不冒充旧链接迁移；旧 cache 失效，新桶交付须新责任生成 ZIP／URL。
+
+格式组合不因本片被禁止；与 nuScenes 组合时，本合同覆盖上述三类媒体及其 canonical 共同来源，raw lidar.bin／map 仍属于未迁移的独立辅助原件链，不宣称组合 ZIP 已实现全媒体闭环。nuScenes 单独输入、其他 ML／视频导出及完整用途切换仍另片推进。
+
+实施使用基于本地 Design HEAD 的隔离树、新 test／e2e 和真实 PCD／图片／MinIO／HTTP／Celery。验证原件／副本篡改、当前桶陷阱、primary／camera 定位、三种 PCD 与点序、缓存／消息／标注／校准／Key 变化、租约并发、真实取消收尾、回收、恢复映射及三格式实际 ZIP 下载；浏览器检查预检与下载。保留3100／8100、两 Worker／绑定 Beat和12表／24对象／12文件指纹，完成后清理本片产物；不安装依赖、重建镜像、发布版本或宣称整套 epic 已完成。
