@@ -938,3 +938,17 @@ registry按Authority、session、资源与完整冻结来源复用ready stage；
 脆弱假设是当前API部署单Uvicorn进程。进程内stage只资格化单实例；重启、reload或请求落到没有该lease的实例返回410，GET绝不隐式重拉整个远端原件。后续客户端收到410须Bearer重新prepare；多副本共享暂存/协调仍需独立设计，不能用进程内10GiB声称集群总预算。当前/tmp可用约94GiB，工具与本机MinIO已验证；预算为本片明确常量，不新增环境变量、服务、外部凭据、依赖、迁移或镜像。撤销新增API即可回退，不修改原件归属或已有派生数据。
 
 预计超过八文件和三个协作组件：隔离树分别实现stage/租约生命周期与纯测试、单范围响应与真实取消测试；主树拥有授权快照、路由/schema/lifespan、真实DB/API/MinIO和原生浏览器验收、正式API/架构/运维文档、README/CHANGELOG与生成合同。验证保存桶陷阱、未知/非video零I/O、并发prepare容量、重复seek零额外S3复制、独立偏移并发、HEAD/If-Range/空/末端/畸形与超长Range、Cookie跨lease/资源拒绝、过期/撤权/删链/Gate改变、重复取消/关闭未知/TTL/shutdown。仅用验证过一次性namespace，真实TCP和浏览器loadedmetadata/seeked/Canvas读回；生产UI未改，不重复UI视觉矩阵。人工3100/8100、两Worker/Beat和既有业务/24对象/12源文件保持，提交正常hooks及diff检查后清理精确测试资源。完整E02、B13-B与用途切换继续未完成。
+
+## E02-B13-B2-B1 Outcome — 视频原件准备与可复用范围读取
+
+已完成协议基础，主集成 `e7a085b41`；范围/租约组件分别为 `1df0bf575`、`a67301eb0`，边界修正为 `5f995e94b`、`fd34bb61d`。Task/Item 的 Bearer prepare、准确路径 HttpOnly Cookie、当前授权复核的 GET/HEAD、本人资源/session DELETE、进程内有界完整stage及reaper/lifespan收尾已接通。原完整下载复用授权快照并保持原行为；视频DTO、工作台与转码/精确帧消费者尚未迁移。API/OpenAPI/Web类型、SDK内部接口分类、README/CHANGELOG、架构与运维文档及ADR0107同步。
+
+主树242个不同API/服务/纯测试及4个SDK合同用例通过；主体241项、Cookie补充2项去重计242，不重复计入组件验证。覆盖真实保存桶、错身份/非video零读取、内容损坏、JWT/API Key自然期限及撤权、关系/Gate变更、await之后租约过期/退休、同键复用/容量、独立偏移、Range/If-Range/HEAD/空内容、重复取消、发送失败、未知关闭占额及shutdown。集成发现的await后能力失效、空内容正后缀范围及If-Range求值顺序已修正；HTTPS浏览器经现有Host改写代理时仍设置Secure Cookie。首次原下载回归因测试启动目录错误未能准备数据库，改用 `apps/api` 下的隔离runner后23项通过，未放宽生产合同。Ruff/format、正常提交hooks、Web类型/codegen、最终文档构建和diff检查通过。
+
+实际18100/13100使用归属命名空间上传并封存192191字节WebM，身份SHA与原字节相同。HEAD、两个并发独立范围、后缀、If-Range及416检查通过；暂存准备后临时移除准确源对象，范围仍正确，随后按原字节恢复，证明ready读取不再从S3复制。命名Chrome150原生video读取6秒/320×240元数据，seek至3秒后继续播放；Canvas读回 `[65,7,0,255]`，未污染，Cookie不出现在document.cookie。退出登录后旧租约由200变403；只重启一次性API后旧地址410，重新准备恢复元数据/seek/播放和相同像素。没有未捕获浏览器错误；403/410为主动验收情形。本片未资格化实际长时间TTL或多副本部署，TTL由可控时钟测试覆盖。
+
+真实TCP在POST响应前断开，确认准确API进程/工作目录/模式及storage operation；匿名临时FD从1经对照准备的2回到1，操作账本归零，后续prepare/HEAD/DELETE成功。该探针不声称物理复制必已开始，中途阻塞线程/重复取消由纯测试独立覆盖。此次实际浏览器为协议探针，不代表工作台已接入或GPU性能验收。
+
+人工3100/8100、两Worker及独立Beat健康，实际API已服务新增合同，迁移头0231；11张业务表指纹、24对象完整SHA与12源文件保持。本片无Worker代码、迁移、依赖、配置、镜像或版本变化。test/e2e停止并销毁，两个数据库、两个专用Redis与18桶独立查验不存在；命名浏览器关闭，两棵干净且补丁等价的隔离树/分支移除，任务探针/日志/截图/测试构建缓存按归属清理。人工环境、本地虚拟环境、生成类型和工作树身份保留。
+
+完整E02、B13-B与整套epic继续执行，完整用途切换关闭。下一片B13-B2-B2接原生视频客户端的prepare/释放/失效恢复、Task与Item惰性身份及session/task切换；派生poster/proxy/frame/chunk必须有独立事实，不借原件SHA获得归属。其他原件消费者继续逐项实施。
