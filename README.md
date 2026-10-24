@@ -46,7 +46,7 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 删除托管数据集或样本时，平台在同一事务保留已登记原件的位置证据。超级管理员可在“平台对象占用”展开[托管原件保留与回收预演](./docs-site/user-guide/datasets/storage-connections.md#托管原件保留与回收预演)，查看保留记录和当前引用，并在居中详情中预览确认期限设置、备份/迁移保留要求及显式解除。未指定期限按无限期保护，相关记录共同保护；详情还可显式启动[原件完整核验](./docs-site/user-guide/datasets/storage-connections.md#核验原件完整内容)，保存与历史摘要比较的观测，不提供物理删除许可。
 
-存储位置详情的[来源诊断](./docs-site/user-guide/datasets/storage-connections.md#位置内的来源诊断)将原地引用样本的原件观测、预览生成记录、扫描及预检进展分开显示，可定位到对应来源、轮次和后台任务；刷新只读已有记录，不进行实时存储探测。
+存储位置详情的[来源诊断](./docs-site/user-guide/datasets/storage-connections.md#位置内的来源诊断)将当前已采纳的源索引规模与平台对象字节分开，同一文件跨数据集和重叠来源去重，缺证据时保留未知。原地引用样本的原件观测、预览生成记录、扫描及预检进展独立展示，可定位到对应来源、轮次和后台任务；刷新只读已有记录，不进行实时存储探测。
 
 存储连接编辑使用修订号防止旧表单覆盖新配置；参数或凭据变更先验证认证与目录列举，失败保留原配置，详见[连接管理](./docs-site/user-guide/datasets/storage-connections.md)。
 

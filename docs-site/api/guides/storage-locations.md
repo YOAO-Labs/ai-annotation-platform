@@ -2,7 +2,7 @@
 audience: [dev, project_admin, super_admin]
 type: reference
 status: stable
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-25
 ---
 
 # 受控存储位置
@@ -167,7 +167,23 @@ SFTP 连接 base_path 须为 `/`，整个账号命名空间为位置授权范围
 
 ## 来源与任务摘要
 
-`GET /{location_id}/source-summary` 返回 `location_id / items / total / dataset_count / jobs:{items,total}`。来源行包含 source_id/source_name、可空的 dataset_id/dataset_name、enabled/unregistered_at 和下列 `diagnostics`；任务行只有 id/kind/status/created_at/completed_at。不返回凭据、执行证明或内部配置，不探测或遍历外部存储。
+`GET /{location_id}/source-summary` 返回 `location_id / items / total / dataset_count / usage / jobs:{items,total}`。来源行包含 source_id/source_name、可空的 dataset_id/dataset_name、enabled/unregistered_at 和下列 `diagnostics`；任务行只有 id/kind/status/created_at/completed_at。不返回凭据、执行证明或内部配置，不探测或遍历外部存储。
+
+`usage` 独立于来源分页，基于本位置全部当前可见的采纳头，包含 reference 与 managed_copy。它仅描述来源文件逻辑规模，不与平台对象字节相加。固定字段如下：
+
+| 字段                                                       | 含义                                                                           |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `scope / source / unit`                                    | 固定为 `visible_current_accepted_source_heads / accepted_source_index / bytes` |
+| `coverage / is_estimate`                                   | `complete / partial / none`；未完整覆盖时为估算范围，总量未知                  |
+| `reference_count / file_count / duplicate_reference_count` | 当前采纳记录、已确认去重文件、已合并重复引用数                                 |
+| `known_size_bytes / total_size_bytes`                      | 已确认部分字节；只有完整覆盖时提供总量，未知为 null                            |
+| `unknown_reference_count`                                  | 未计入已确认部分的记录数，包含同址冲突与不可比较域                             |
+| `conflict_file_count / incomparable_file_count`            | 同址内容冲突组、节点或挂载不可比较组数                                         |
+| `inactive_reference_count`                                 | 位置／来源已停用或来源已注销范围内仍保留的采纳记录                             |
+| `observed_from / observed_through / measured_at`           | 对应完整扫描的保存观测时间范围与本次数据库计算时间；无观测不补造时间           |
+| `deduplication_basis / includes_versions`                  | `location_frozen_address_and_object_version`；S3 包含已采纳的对象版本          |
+
+没有可见采纳头的受支持位置返回完整零值；未支持的位置类型返回 `none` 与 null 总量。定位／收据缺失或不一致时保留未知记录，同址 SHA／大小冲突排除整组；不同文件不按 SHA 合并。来源或位置名称、授权和缓存修订变化不抹去保存规模，也不证明源文件当前可用。历史修订、未采纳扫描与缓存不计入。具体去重域见[来源规模计量](/dev/concepts/storage-connections#当前已采纳源索引规模)。
 
 `diagnostics` 仅聚合**当前来源页**的已授权来源，固定范围为保留的原地引用业务样本（`DatasetReference`），包含历史修订；不是路径头数量、已扫描文件数或容量，不含托管复制和未登记路径：
 

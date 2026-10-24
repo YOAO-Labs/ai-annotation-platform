@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-25
 ---
 
 # 存储连接器（Storage Connections）
@@ -365,6 +365,18 @@ Worker 以 run generation、task/job ID、租约共同 fencing，逐成员事务
 计数单位是保留的业务样本，含旧内容身份，非当前路径头；原件仍使用已有持久观测六态。预览通过当前 SourceItem 的业务 Item/Asset/SHA 联结，允许显式移动后的同一身份，拒绝旧样本继承新内容预览；当前策略禁用或来源停用优先阻断。它是生成记录摘要，不执行对象存在性检查。当前内容的合法缓存复用沿用现有读取合同，不增加仅诊断端生效的策略修订条件。
 
 扫描和预检分别按来源批量查询，活动轮次优先，并独立保留最近完整成功记录。配置匹配由当前修订判断，不外露 snapshot。AsyncJob 保留期不删除领域证据。整个 GET 无源 I/O、写入或后台派发，不需要迁移或刷新 Worker。
+
+## 当前已采纳源索引规模
+
+`storage_source_usage` 在现有 source-summary 授权后，以 `source_scope_clause` 裁剪整个位置的当前 `DatasetSourceItem`。Head 与 current revision、该修订 Run／Entry、Item／verified Asset 的关系及 SHA／完整大小在数据库校验。LEFT JOIN 保留缺失关系；不要求当前头等于最初 DatasetReference 的 run，也不按当前配置修订重新解释冻结地址。reference 和 managed_copy 均属于来源规模，复制形成的平台对象仍独立计量。暂停／注销保留的头仍计量，已删除的头不从修订历史补造。
+
+候选、去重和所有计数在同一 SQL statement 快照内聚合，应用只接收固定大小结果，不加载全部路径，也无文件或 provider I/O。来源页诊断仍仅处理当前页，usage 不受分页影响。观测范围取保存扫描的完成时间，计算时间使用 `statement_timestamp()`；这不是实时文件盘点。
+
+- filesystem：单位置内以冻结 host／root／base 锚点和完整相对路径归组。host 是扫描时的 boot-id 摘要，不能用 node_id 代替；来源根 identity 不参与键，父子来源因而可合并。位置内存在多个无法比较的主机／挂载域时，整个范围进入未知；不同相对路径也不足以证明可以相加，不推断共享磁盘。
+- S3：冻结 endpoint／bucket、准确完整 key 和明确记录的 VersionId；JSON null 与字符串 `null` 同为未版本化，缺字段或错误类型保持未知。保留重复分隔符、点段和编码字符，不调用文件系统规范化或二次解码。不同已采纳版本分别计量。
+- SFTP：冻结 root_handle／qualification 和完整受控根内路径；校验收据 `protocol=sftp` 与准确远端路径。
+
+同址任一关系或收据不可信即不报告完整；SHA／大小冲突排除整组，不选择最新或最大值。已确认小计与未知总量独立提供，只有完整空范围才返回总量零。去重限当前逻辑位置的已保存地址，不证明硬链接、跨位置别名或文件系统实际分配量。响应不外露内部路径、锚点、端点、桶、键或逐文件列表；Web 在已有摘要权限门禁内展示并复用刷新失败保留／撤权隐藏规则。
 
 ## 数据集归档与恢复
 

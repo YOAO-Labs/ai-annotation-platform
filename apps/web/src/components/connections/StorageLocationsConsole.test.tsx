@@ -120,7 +120,7 @@ it("loads exact URL detail, separates disabled state from expired node health an
   expect(screen.getByText("读取：支持")).toBeInTheDocument();
   expect(screen.getByText("写入：不支持")).toBeInTheDocument();
   expect(screen.getAllByText("未提供")).toHaveLength(2);
-  expect(screen.getAllByText("待统计")).toHaveLength(1);
+  expect(screen.queryByText("待统计")).not.toBeInTheDocument();
   expect(screen.getByTestId("filesystem")).toHaveTextContent(ID);
   expect(screen.getByTestId("summary")).toHaveTextContent(ID);
   expect(storage.bindings).not.toHaveBeenCalled();

@@ -8,11 +8,13 @@ from app.db.models.dataset_source import DatasetSource
 from app.services import dataset_source_access as access
 from app.services import storage_location
 from app.services.storage_source_diagnostics import diagnostics
+from app.services.storage_source_usage import read_usage
 
 
 async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_offset):
     actor = await access.require_manager(db, actor.id)
-    await storage_location.get_visible(db, location_id, actor)
+    location = await storage_location.get_visible(db, location_id, actor)
+    usage = await read_usage(db, location, actor)
     scope = (
         DatasetSource.location_id == location_id,
         access.source_scope_clause(actor),
@@ -44,6 +46,7 @@ async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_off
     )
     return {
         "location_id": location_id,
+        "usage": usage,
         "items": [
             {
                 "source_id": source.id,

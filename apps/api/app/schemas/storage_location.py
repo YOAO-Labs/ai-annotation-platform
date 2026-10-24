@@ -197,11 +197,34 @@ class StorageSourceJobs(BaseModel):
     total: int
 
 
+class StorageSourceUsage(BaseModel):
+    scope: Literal["visible_current_accepted_source_heads"]
+    source: Literal["accepted_source_index"]
+    unit: Literal["bytes"]
+    coverage: Literal["complete", "partial", "none"]
+    is_estimate: bool
+    deduplication_basis: Literal["location_frozen_address_and_object_version"]
+    includes_versions: bool
+    reference_count: int
+    file_count: int
+    duplicate_reference_count: int
+    known_size_bytes: int
+    total_size_bytes: int | None
+    unknown_reference_count: int
+    conflict_file_count: int
+    incomparable_file_count: int
+    inactive_reference_count: int
+    observed_from: datetime | None
+    observed_through: datetime | None
+    measured_at: datetime
+
+
 class StorageSourceSummary(BaseModel):
     location_id: uuid.UUID
     items: list[StorageSourceSummaryItem]
     total: int
     dataset_count: int = 0
+    usage: StorageSourceUsage
     jobs: StorageSourceJobs
 
 

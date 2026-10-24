@@ -45906,12 +45906,16 @@
           "total": {
             "title": "Total",
             "type": "integer"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/StorageSourceUsage"
           }
         },
         "required": [
           "location_id",
           "items",
           "total",
+          "usage",
           "jobs"
         ],
         "title": "StorageSourceSummary",
@@ -45981,6 +45985,142 @@
           "diagnostics"
         ],
         "title": "StorageSourceSummaryItem",
+        "type": "object"
+      },
+      "StorageSourceUsage": {
+        "properties": {
+          "conflict_file_count": {
+            "title": "Conflict File Count",
+            "type": "integer"
+          },
+          "coverage": {
+            "enum": [
+              "complete",
+              "partial",
+              "none"
+            ],
+            "title": "Coverage",
+            "type": "string"
+          },
+          "deduplication_basis": {
+            "const": "location_frozen_address_and_object_version",
+            "title": "Deduplication Basis",
+            "type": "string"
+          },
+          "duplicate_reference_count": {
+            "title": "Duplicate Reference Count",
+            "type": "integer"
+          },
+          "file_count": {
+            "title": "File Count",
+            "type": "integer"
+          },
+          "inactive_reference_count": {
+            "title": "Inactive Reference Count",
+            "type": "integer"
+          },
+          "includes_versions": {
+            "title": "Includes Versions",
+            "type": "boolean"
+          },
+          "incomparable_file_count": {
+            "title": "Incomparable File Count",
+            "type": "integer"
+          },
+          "is_estimate": {
+            "title": "Is Estimate",
+            "type": "boolean"
+          },
+          "known_size_bytes": {
+            "title": "Known Size Bytes",
+            "type": "integer"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "observed_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed From"
+          },
+          "observed_through": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Through"
+          },
+          "reference_count": {
+            "title": "Reference Count",
+            "type": "integer"
+          },
+          "scope": {
+            "const": "visible_current_accepted_source_heads",
+            "title": "Scope",
+            "type": "string"
+          },
+          "source": {
+            "const": "accepted_source_index",
+            "title": "Source",
+            "type": "string"
+          },
+          "total_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Size Bytes"
+          },
+          "unit": {
+            "const": "bytes",
+            "title": "Unit",
+            "type": "string"
+          },
+          "unknown_reference_count": {
+            "title": "Unknown Reference Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scope",
+          "source",
+          "unit",
+          "coverage",
+          "is_estimate",
+          "deduplication_basis",
+          "includes_versions",
+          "reference_count",
+          "file_count",
+          "duplicate_reference_count",
+          "known_size_bytes",
+          "total_size_bytes",
+          "unknown_reference_count",
+          "conflict_file_count",
+          "incomparable_file_count",
+          "inactive_reference_count",
+          "observed_from",
+          "observed_through",
+          "measured_at"
+        ],
+        "title": "StorageSourceUsage",
         "type": "object"
       },
       "StudyBudgets": {

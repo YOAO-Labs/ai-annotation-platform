@@ -431,7 +431,6 @@ function ConsoleOwner() {
                         </div>
                         <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
                           {[
-                            ["已索引源数据量", "待统计"],
                             ["物理容量", "未提供"],
                             ["存储配额", "未提供"],
                           ].map(([label, value]) => (
@@ -442,7 +441,7 @@ function ConsoleOwner() {
                           ))}
                         </dl>
                         <p className="mt-3 text-xs text-muted-foreground">
-                          本位置的源索引量、物理容量与配额尚未采样。
+                          物理容量与配额尚未提供。源索引规模见下方来源诊断。
                           {role === "super_admin" &&
                             "平台托管桶的对象字节见本页“平台对象占用”，不代表磁盘容量。"}
                         </p>

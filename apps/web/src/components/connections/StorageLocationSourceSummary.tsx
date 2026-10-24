@@ -11,6 +11,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { SourceDiagnostics, evidenceDate, sourceHref } from "./StorageSourceDiagnostics";
 import { JOB_STATUS_LABEL } from "@/components/jobs/asyncJobPresentation";
 import { verifiedContentError } from "@/hooks/useVerifiedImage";
+import { StorageSourceUsage } from "./StorageSourceUsage";
 
 function Pagination({
   label,
@@ -188,6 +189,7 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
           )}
           {sourceData && (
             <>
+              <StorageSourceUsage value={sourceData.usage} />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold">关联来源 · {sourceData.total}</h3>
                 <Link

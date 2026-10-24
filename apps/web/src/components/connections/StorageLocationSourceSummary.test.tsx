@@ -57,6 +57,27 @@ const diagnostics = {
   },
   preflight: { recent: null, last_complete: null },
 };
+const usage = {
+  scope: "visible_current_accepted_source_heads",
+  source: "accepted_source_index",
+  unit: "bytes",
+  coverage: "complete",
+  is_estimate: false,
+  deduplication_basis: "location_frozen_address_and_object_version",
+  includes_versions: false,
+  reference_count: 2,
+  file_count: 1,
+  duplicate_reference_count: 1,
+  known_size_bytes: 1536,
+  total_size_bytes: 1536,
+  unknown_reference_count: 0,
+  conflict_file_count: 0,
+  incomparable_file_count: 0,
+  inactive_reference_count: 0,
+  observed_from: null,
+  observed_through: null,
+  measured_at: "2026-10-25T03:00:00Z",
+};
 const clients: ReturnType<typeof createTestQueryClient>[] = [];
 afterEach(() => clients.splice(0).forEach((client) => client.clear()));
 function mount() {
@@ -85,6 +106,7 @@ beforeEach(() => {
     total: 21,
   });
   api.sourceSummary.mockResolvedValue({
+    usage,
     dataset_count: 2,
     total: 25,
     items: [
@@ -164,6 +186,7 @@ it("clears retained private source names and task detail after location access i
     target: { value: "location" },
   });
   await screen.findByRole("link", { name: "Vehicles / Fleet" });
+  expect(await screen.findByText("1.5 KiB")).toBeInTheDocument();
   fireEvent.click(await screen.findByRole("button", { name: "扫描任务详情" }));
   expect(screen.getByTestId("job")).toBeInTheDocument();
   api.sourceSummary.mockRejectedValue(Object.assign(new Error("Access revoked"), { status: 403 }));
@@ -172,6 +195,7 @@ it("clears retained private source names and task detail after location access i
   });
   await screen.findByRole("alert");
   expect(screen.queryByRole("link", { name: "Vehicles / Fleet" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "当前已采纳源索引规模" })).not.toBeInTheDocument();
   expect(screen.queryByTestId("job")).not.toBeInTheDocument();
 });
 
@@ -206,6 +230,7 @@ it("marks retained results when a refresh fails and offers a read-only retry", a
   fireEvent.click(screen.getByRole("button", { name: "刷新诊断" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("诊断刷新失败");
   expect(screen.getByRole("link", { name: "Vehicles / Fleet" })).toBeInTheDocument();
+  expect(screen.getByText("1.5 KiB")).toBeInTheDocument();
 });
 
 it("keeps the empty reference scope distinct from healthy originals or missing previews", async () => {
