@@ -73,6 +73,19 @@ async def _purge_async() -> dict:
         return await comment_attachment_uploads.cleanup(db, limit=500)
 
 
+@celery_app.task(name="app.workers.cleanup.purge_guide_assets")
+def purge_guide_assets() -> dict:
+    """Retire or retry saved guide-image owners without scanning legacy JSON."""
+    return asyncio.run(_purge_guide_assets_async())
+
+
+async def _purge_guide_assets_async() -> dict:
+    from app.services import guide_asset_uploads
+
+    async with task_session() as db:
+        return await guide_asset_uploads.cleanup(db, limit=500)
+
+
 _MASK_REFERENCE_QUERIES = (
     """
     SELECT DISTINCT value #>> '{}' AS object_key

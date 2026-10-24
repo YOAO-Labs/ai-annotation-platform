@@ -217,7 +217,7 @@ async def delete_objects(db, plan, resolve_scope):
         translate(exc)
 
 
-async def finalize(db, plan, resolve_scope):
+async def finalize(db, plan, resolve_scope, *, before_gate=None):
     """Fence the complete scope before the caller's final database-only deletes."""
     try:
         with db.no_autoflush:
@@ -242,6 +242,8 @@ async def finalize(db, plan, resolve_scope):
                 if not same(row, receipt, plan):
                     reject()
                 await operations(db, receipt)
+            if before_gate is not None:
+                await before_gate()
             for location, revision in sorted(plan.revisions.items()):
                 await storage_access.check(
                     db, location, expected_revision=revision, lock=True

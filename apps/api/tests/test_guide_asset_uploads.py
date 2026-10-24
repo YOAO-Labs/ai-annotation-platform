@@ -231,15 +231,21 @@ async def test_natural_expiry_after_last_wait_never_returns_content(
         monkeypatch.setattr(storage_access, "check", checked)
     elif stage == "commit":
         original = db_session.commit
-        commits = 0
+        original_run = storage_access.run
+        physical_finished = False
+
+        async def completed(*args, **kwargs):
+            nonlocal physical_finished
+            result = await original_run(*args, **kwargs)
+            physical_finished = True
+            return result
 
         async def commit():
-            nonlocal commits
             await original()
-            commits += 1
-            if commits == 3:
+            if physical_finished:
                 expire()
 
+        monkeypatch.setattr(storage_access, "run", completed)
         monkeypatch.setattr(db_session, "commit", commit)
     else:
         original = storage_access.run

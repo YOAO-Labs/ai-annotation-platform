@@ -5,7 +5,7 @@ import logging
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import exists, or_, select
+from sqlalchemy import exists, or_, select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.db.enums import PlatformRole
@@ -70,18 +70,24 @@ async def capture_authority(db, actor, request):
     return proof
 
 
-async def lock_projects(db, actor, ids, *, write_ids=()):
+async def lock_projects(db, actor, ids, *, write_ids=(), wait=False):
     """Lock all Projects, then memberships, before any owner or reference lock."""
     identifiers = sorted({uuid.UUID(str(value)) for value in ids})
     writes = {uuid.UUID(str(value)) for value in write_ids}
+    if wait and len(identifiers) != 1:
+        raise ValueError("Bounded waiting requires exactly one project")
     result = {}
     try:
         with db.no_autoflush:
+            if wait:
+                # Ordinary uploads, previews and autosaves briefly share this row.
+                # Bound the wait; multi-project mutations retain NOWAIT ordering.
+                await db.execute(text("SET LOCAL lock_timeout = '1s'"))
             for identifier in identifiers:
                 project = await db.scalar(
                     select(Project)
                     .where(Project.id == identifier)
-                    .with_for_update(read=identifier not in writes, nowait=True)
+                    .with_for_update(read=identifier not in writes, nowait=not wait)
                     .execution_options(populate_existing=True)
                 )
                 if project is None:
@@ -129,7 +135,7 @@ async def locked_owner(db, identifier, *, read=False, skip_locked=False):
 
 async def capture_upload(db, actor, request, project_id):
     actor, proof = await lock_authority(db, actor, request)
-    await lock_projects(db, actor, [project_id], write_ids=[project_id])
+    await lock_projects(db, actor, [project_id], write_ids=[project_id], wait=True)
     await reauthorize(db, proof)
     await db.commit()
     check_clock(proof)
@@ -150,7 +156,7 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
         mime_type = storage.normalize_mime_type(mime_type)
         file_name = storage.safe_file_name(file_name)
         actor = await reauthorize(db, proof)
-        await lock_projects(db, actor, [project_id], write_ids=[project_id])
+        await lock_projects(db, actor, [project_id], write_ids=[project_id], wait=True)
         row = Upload(
             id=uuid.uuid4(),
             owner_id=proof.actor_id,
@@ -174,7 +180,9 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
         async def acquired(permit):
             nonlocal revision
             actor = await reauthorize(db, proof)
-            await lock_projects(db, actor, [project_id], write_ids=[project_id])
+            await lock_projects(
+                db, actor, [project_id], write_ids=[project_id], wait=True
+            )
             current = await locked_owner(db, receipt.id)
             if (
                 current is None
@@ -199,7 +207,9 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
             on_acquired=acquired,
         )
         actor = await reauthorize(db, proof)
-        projects = await lock_projects(db, actor, [project_id], write_ids=[project_id])
+        projects = await lock_projects(
+            db, actor, [project_id], write_ids=[project_id], wait=True
+        )
         current = await locked_owner(db, receipt.id)
         if (
             current is None
@@ -248,7 +258,7 @@ def _identifier(key):
 
 
 async def _read_binding(db, actor, project_id, key, *, receipt=None):
-    projects = await lock_projects(db, actor, [project_id])
+    projects = await lock_projects(db, actor, [project_id], wait=True)
     registered = any(
         isinstance(value, dict) and value.get("key") == key
         for value in projects[project_id].guide_assets or []
@@ -348,7 +358,9 @@ async def read(db, actor, request, project_id, key):
 async def unlink(db, actor, request, project_id, key):
     try:
         actor, proof = await lock_authority(db, actor, request)
-        projects = await lock_projects(db, actor, [project_id], write_ids=[project_id])
+        projects = await lock_projects(
+            db, actor, [project_id], write_ids=[project_id], wait=True
+        )
         project = projects[project_id]
         await references.remove_asset(db, project, key)
         await reauthorize(db, proof)

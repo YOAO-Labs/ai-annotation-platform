@@ -35861,6 +35861,11 @@
             "title": "Guide Assets",
             "type": "array"
           },
+          "guide_assets_revision": {
+            "default": 1,
+            "title": "Guide Assets Revision",
+            "type": "integer"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -37994,6 +37999,18 @@
               }
             ],
             "title": "Guide Assets"
+          },
+          "guide_assets_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guide Assets Revision"
           },
           "iou_dedup_threshold": {
             "anyOf": [

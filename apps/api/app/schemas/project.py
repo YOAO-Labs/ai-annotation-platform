@@ -173,11 +173,33 @@ class ProjectUpdate(BaseModel):
 
     # v0.10.10 · I17.3 · 项目级渲染配置覆盖；空 dict / 字段缺省 = 沿用用户级偏好
     rendering_config: ProjectRenderingConfig | None = None
-    # v0.10.13 · E1 · 标注指引 Markdown 原文; 显式 None 仅在 owner 主动清空时出现.
-    # 单独 PATCH guide_assets 用 guide_assets 端点; 这里允许 owner 在异常情况下手动
-    # 重置 list (例如批量删 orphan 后端 sync), 一般 UI 不直接写.
+    # Body autosave is independent of the explicitly revisioned image list.
     annotation_guide: str | None = None
     guide_assets: list[dict] | None = None
+    guide_assets_revision: Annotated[int, Field(strict=True, ge=1)] | None = None
+
+    @field_validator("guide_assets", "guide_assets_revision")
+    @classmethod
+    def _guide_fields_cannot_be_null(cls, value):
+        if value is None:
+            raise ValueError("指南图片清单和修订号不可为 null")
+        return value
+
+    @model_validator(mode="after")
+    def _guide_asset_revision_scope(self) -> "ProjectUpdate":
+        if (
+            "guide_assets_revision" in self.model_fields_set
+            and "guide_assets" not in self.model_fields_set
+        ):
+            raise ValueError("指南图片修订号须与清单一同提交")
+        if self.guide_assets is not None:
+            keys = [entry.get("key") for entry in self.guide_assets]
+            if any(not isinstance(key, str) or not key for key in keys):
+                raise ValueError("指南图片缺少资源标识")
+            if len(set(keys)) != len(keys):
+                raise ValueError("指南图片清单不可包含重复资源")
+        return self
+
     # v0.10.29 · 视频帧逻辑采样配置; PATCH 用整体替换语义 (与 rendering_config 一致).
     video_sampling: VideoSamplingConfig | None = None
     video_collaboration: VideoCollaborationConfig | None = None
@@ -306,6 +328,7 @@ class ProjectOut(BaseModel):
     annotation_guide: str | None = None
     # v0.10.13 · E1 · 已上传的指引图片资源元数据列表.
     guide_assets: list[dict] = []
+    guide_assets_revision: int = 1
     model_version: str | None = None
     task_lock_ttl_seconds: int = 300
     total_tasks: int

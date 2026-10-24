@@ -287,12 +287,12 @@ class MLBackendService:
         return await self.db.get(MLBackendServicePool, pool_id)
 
     async def _get_pool_for_update(
-        self, pool_id: uuid.UUID
+        self, pool_id: uuid.UUID, *, nowait: bool = False
     ) -> MLBackendServicePool | None:
         return await self.db.scalar(
             select(MLBackendServicePool)
             .where(MLBackendServicePool.id == pool_id)
-            .with_for_update()
+            .with_for_update(nowait=nowait)
         )
 
     async def list_pools(self) -> list[MLBackendServicePool]:
@@ -1200,6 +1200,8 @@ class MLBackendService:
         project_id: uuid.UUID,
         registry_id: uuid.UUID,
         enabled: bool,
+        *,
+        nowait: bool = False,
         **overrides,
     ) -> ProjectMLBackendPool:
         """切换项目启用 + 写项目级变体覆盖 (default_variants, pool 级)。
@@ -1212,7 +1214,7 @@ class MLBackendService:
                 f"registry {registry_id} has no service pool; "
                 "singleton backfill (alembic 0132) must run first"
             )
-        pool = await self._get_pool_for_update(pool.id)
+        pool = await self._get_pool_for_update(pool.id, nowait=nowait)
         assert pool is not None
         result = await self.db.execute(
             select(ProjectMLBackendPool).where(

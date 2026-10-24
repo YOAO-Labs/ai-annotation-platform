@@ -631,12 +631,19 @@ async def get_stats(
 @router.post("", response_model=ProjectOut)
 async def create_project(
     data: ProjectCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
     # v0.10.11 · exclude_unset 让"未显式给出"与"显式给出默认值"可区分; 兜底字段
     # 优先用 source_project_id 项目的值, 其次走 Project 模型列默认值.
     payload = data.model_dump(exclude_unset=True)
+    guide_proof = None
+    guide_snapshot = None
+    if data.copy_annotation_guide:
+        from app.services import guide_asset_uploads as guide_flow
+
+        guide_proof = await guide_flow.capture_authority(db, current_user, request)
 
     # v0.10.28 · B 路线: 新建以 data_type 为主. type_key 缺省时由 data_type 派生兼容值;
     # data_type 缺省时由 type_key 反推, 二者互填后均落库 (Project.type_key NOT NULL).
@@ -715,9 +722,7 @@ async def create_project(
     # 若源项目带 ml_backend_id 且 caller 未单独指定 ml_backend_source_id,
     # 自动把源项目的 backend 作为 backend 克隆源.
     source_project_id = payload.pop("source_project_id", None)
-    # v0.10.13 · E1 · annotation_guide / guide_assets 不在默认克隆白名单 (避免信息错位);
-    # 通过独立 flag 触发, 仅当 source_project_id 给定时有效. 图片资源 storage key
-    # 复用 (不重新上传) — 源项目删除资源会影响新项目, UI 已在 wizard 标注.
+    # Guide images share immutable owners through independent project references.
     copy_guide = payload.pop("copy_annotation_guide", False)
     if source_project_id is not None:
         source_project = await assert_project_visible(
@@ -727,12 +732,21 @@ async def create_project(
         if copy_guide:
             import copy as _copy
 
-            if source_project.annotation_guide is not None:
-                payload.setdefault("annotation_guide", source_project.annotation_guide)
-            if source_project.guide_assets:
-                payload.setdefault(
-                    "guide_assets", _copy.deepcopy(source_project.guide_assets)
-                )
+            from app.db.models.project_guide_asset import ProjectGuideAsset
+
+            guide_snapshot = (
+                source_project.owner_id,
+                source_project.annotation_guide,
+                _copy.deepcopy(source_project.guide_assets),
+                source_project.guide_assets_revision,
+                tuple(
+                    await db.scalars(
+                        select(ProjectGuideAsset.upload_id)
+                        .where(ProjectGuideAsset.project_id == source_project_id)
+                        .order_by(ProjectGuideAsset.upload_id)
+                    )
+                ),
+            )
         if source_backend is None and source_project.ml_backend_pool_id is not None:
             from app.db.models.ml_backend_pool import MLBackendServicePool
 
@@ -772,6 +786,12 @@ async def create_project(
             db, requested_main_backend_id, payload["data_type"]
         )
 
+    # Complete remote capability checks before creating or locking business rows.
+    if source_backend is not None:
+        await _validate_backend_modality(db, source_backend.id, payload["data_type"])
+    if guide_proof is not None:
+        current_user = await guide_flow.reauthorize(db, guide_proof)
+
     new_project_id = uuid.uuid4()
     # v0.19.0 ADR-0044 · 直接指定主 backend (非克隆路径) 时, 同步在新项目建启用关联;
     # 不然 project_ml_backend_pool 缺行, trigger_preannotation 的 is_enabled 校验 404 +
@@ -793,9 +813,6 @@ async def create_project(
             db, source=source_backend, new_project_id=new_project_id
         )
         project.ml_backend_pool_id = new_pool_id
-        # v0.10.37 · 克隆源项目 backend 落定后, 同样按新项目 data_type 校验模态
-        # (clone 复制了 url/auth, 实时探 /setup 与校验 source 等价).
-        await _validate_backend_modality(db, source_backend.id, project.data_type)
     elif main_backend_to_enable is not None:
         from app.services.ml_backend import MLBackendService
 
@@ -809,14 +826,48 @@ async def create_project(
     if template is not None:
         template.usage_count = (template.usage_count or 0) + 1
 
+    if guide_proof is not None:
+        from app.services.guide_asset_references import copy_references
+
+        # The final lock refresh must not discard the new backend pointer.
+        await db.flush()
+        current_user = await guide_flow.reauthorize(db, guide_proof)
+        locked = await guide_flow.lock_projects(
+            db, current_user, [source_project_id, project.id], write_ids=[project.id]
+        )
+        source_project = locked[source_project_id]
+        current_refs = tuple(
+            await db.scalars(
+                select(ProjectGuideAsset.upload_id)
+                .where(ProjectGuideAsset.project_id == source_project_id)
+                .order_by(ProjectGuideAsset.upload_id)
+            )
+        )
+        if guide_snapshot != (
+            source_project.owner_id,
+            source_project.annotation_guide,
+            source_project.guide_assets,
+            source_project.guide_assets_revision,
+            current_refs,
+        ):
+            raise HTTPException(409, {"code": "guide_asset_source_changed"})
+        await copy_references(db, source_project, project)
+        project.annotation_guide = source_project.annotation_guide
+        await guide_flow.reauthorize(db, guide_proof)
+        guide_flow.check_clock(guide_proof)
     await db.commit()
+    if guide_proof is not None:
+        guide_flow.check_clock(guide_proof)
     await db.refresh(project)
     if template is not None:
         # 测试环境共享 dependency-override session, 后续 GET /project-templates/{id}
         # 会从 identity map 取出本 template; commit 后属性可能进入"待重新加载"
         # 状态触发 sync I/O. 显式 refresh 保证下次访问不触发 lazy load.
         await db.refresh(template)
-    return await _serialize_project(db, project)
+    result = await _serialize_project(db, project)
+    if guide_proof is not None:
+        guide_flow.check_clock(guide_proof)
+    return result
 
 
 async def _clone_backend_to_new_project(
@@ -1057,10 +1108,34 @@ async def get_project_readiness(
 @router.patch("/{project_id}", response_model=ProjectOut)
 async def update_project(
     data: ProjectUpdate,
+    request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     payload = data.model_dump(exclude_unset=True)
+    guide_requested = "guide_assets" in payload
+    guide_revision = payload.pop("guide_assets_revision", None)
+    guide_assets = payload.pop("guide_assets", None)
+    guide_proof = None
+    if guide_requested:
+        from app.services import guide_asset_uploads as guide_flow
+
+        guide_proof = await guide_flow.capture_authority(db, current_user, request)
+        probe_data_type = payload.get("data_type") or project.data_type
+        if payload.get("ml_backend_id"):
+            await _validate_backend_modality(
+                db, payload["ml_backend_id"], probe_data_type
+            )
+        current_user = await guide_flow.reauthorize(db, guide_proof)
+        locked = await guide_flow.lock_projects(
+            db, current_user, [project.id], write_ids=[project.id]
+        )
+        project = locked[project.id]
+        if payload.get("ml_backend_id") and probe_data_type != (
+            payload.get("data_type") or project.data_type
+        ):
+            raise HTTPException(409, {"code": "guide_asset_context_changed"})
     if (
         "video_collaboration" in payload
         or "video_sampling" in payload
@@ -1163,18 +1238,33 @@ async def update_project(
         requested_main_backend_id = payload.pop("ml_backend_id")
         if requested_main_backend_id:
             # v0.10.37 · 绑定按 data_type 校验模态 (用应用 payload 后的有效 data_type)
-            await _validate_backend_modality(
-                db,
-                requested_main_backend_id,
-                payload.get("data_type") or project.data_type,
-            )
+            if guide_proof is None:
+                await _validate_backend_modality(
+                    db,
+                    requested_main_backend_id,
+                    payload.get("data_type") or project.data_type,
+                )
             # v0.19.0 ADR-0044 · 设主 backend 即视为「本项目启用该 backend」;
             # 否则 trigger_preannotation 的 is_enabled 校验 404, 而 ai_enabled 又自动派生 true
             # → 工作台显示「已启用 AI 却跑不起来」。与 PUT /ml-backends/{rid}/enablement 对称。
             from app.services.ml_backend import MLBackendService
 
             svc = MLBackendService(db)
-            await svc.set_enabled(project.id, requested_main_backend_id, enabled=True)
+            if guide_proof is None:
+                await svc.set_enabled(
+                    project.id, requested_main_backend_id, enabled=True
+                )
+            else:
+                from sqlalchemy.exc import DBAPIError
+
+                from app.services.guide_asset_references import db_error
+
+                try:
+                    await svc.set_enabled(
+                        project.id, requested_main_backend_id, enabled=True, nowait=True
+                    )
+                except DBAPIError as exc:
+                    db_error(exc)
             pool = await svc._pool_for_registry(requested_main_backend_id)
             payload["ml_backend_pool_id"] = pool.id if pool is not None else None
         else:
@@ -1194,13 +1284,23 @@ async def update_project(
 
     for k, v in payload.items():
         setattr(project, k, v)
+    if guide_proof is not None:
+        from app.services.guide_asset_references import reconcile_assets
+
+        await reconcile_assets(db, project, guide_revision, guide_assets)
+        await guide_flow.reauthorize(db, guide_proof)
+        guide_flow.check_clock(guide_proof)
     await db.commit()
+    if guide_proof is not None:
+        guide_flow.check_clock(guide_proof)
     await db.refresh(project)
     result = await _serialize_project(db, project)
     # v0.19.3 WS1 · 保存编排能力软提示 (不挡, dispatch-time 422 仍是最终闸)。
     result["capability_warnings"] = await _compute_pipeline_capability_warnings(
         db, project.preannotate_pipeline
     )
+    if guide_proof is not None:
+        guide_flow.check_clock(guide_proof)
     return result
 
 
@@ -1270,11 +1370,25 @@ async def apply_project_pipeline(
 
 @router.delete("/{project_id}", status_code=204)
 async def delete_project(
+    request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    await delete_project_records(db, project)
+    from app.services import guide_asset_uploads as guide_flow
+    from app.services.project_task_dataset import lock_project
+
+    current_user, proof = await guide_flow.lock_authority(db, current_user, request)
+    # Match snapshot creation's advisory-before-Project order.
+    await lock_project(db, project.id)
+    locked = await guide_flow.lock_projects(
+        db, current_user, [project.id], write_ids=[project.id]
+    )
+    await delete_project_records(db, locked[project.id])
+    await guide_flow.reauthorize(db, proof)
+    guide_flow.check_clock(proof)
     await db.commit()
+    guide_flow.check_clock(proof)
     return Response(status_code=204)
 
 

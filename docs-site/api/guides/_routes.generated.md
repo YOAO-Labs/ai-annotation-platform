@@ -388,9 +388,11 @@
 
 | Method | Path |
 |---|---|
+| POST | `/{project_id}/guide-assets/upload` |
+| GET | `/{project_id}/guide-assets/content` |
+| DELETE | `/{project_id}/guide-assets` |
 | POST | `/{project_id}/guide-assets/upload-init` |
 | POST | `/{project_id}/guide-assets/upload-complete` |
-| DELETE | `/{project_id}/guide-assets` |
 | GET | `/{project_id}/guide-assets/sign-url` |
 
 ## `internal.py`
@@ -1040,4 +1042,4 @@
 
 ---
 
-_共 93 模块 / 603 路由_
+_共 95 模块 / 605 路由_

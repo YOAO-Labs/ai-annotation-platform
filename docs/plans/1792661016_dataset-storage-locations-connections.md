@@ -672,7 +672,7 @@ DELETE guide-assets仅移除当前项目引用和对应清单；原JSON的未知
 
 ### 访问与生命周期
 
-原请求账号/Key hash-scopes-expiry或JWT exp/gen/jti在准入、acquired及末端重核，沿现有尽力Redis策略，最后提交/线程排队/通知等待后再核自然到期。复用现有凭证与短锁helpers，不重构已交付消费者。涉及项目时采用User SHARE→原ApiKey SHARE→相关Project按UUID排序→当前ProjectMember SHARE→owner按UUID排序→引用/Gate的顺序，NOWAIT、populate_existing和no_autoflush；写清单取Project UPDATE，读取/复制源取SHARE。CPU/线程/网络及permit等待不持业务锁，cleanup只取owner与Gate，避免逆序。读取始终联查当前project→Ref→ready owner，注册准确UUID目的，条件读取并完整SHA/大小/末端对象核验，真实关闭后才返回内容；未知/变化409，缺失404。原项目不存在不导致引用改指当前桶。
+原请求账号/Key hash-scopes-expiry或JWT exp/gen/jti在准入、acquired及末端重核，沿现有尽力Redis策略，最后提交/线程排队/通知等待后再核自然到期。复用现有凭证与短锁helpers，不重构已交付消费者。涉及项目时采用User SHARE→原ApiKey SHARE→相关Project按UUID排序→当前ProjectMember SHARE→owner按UUID排序→引用/Gate的顺序，默认NOWAIT、populate_existing和no_autoflush；写清单取Project UPDATE，读取/复制源取SHARE。实际浏览器证明并行图片上传、正文autosave和预览会在同一Project行产生短时竞争；普通单项目上传、读取和删除对Project行采用事务内1秒lock_timeout有界等待，等待后继续重核原凭证与自然期限，长期占用仍409且不自动重放物理写入。跨项目复制、显式清单PATCH及项目删除保留NOWAIT；Member/owner/Ref/Gate锁不改变。CPU/线程/网络及permit等待不持业务锁，cleanup只取owner与Gate，避免逆序。读取始终联查当前project→Ref→ready owner，注册准确UUID目的，条件读取并完整SHA/大小/末端对象核验，真实关闭后才返回内容；未知/变化409，缺失404。原项目不存在不导致引用改指当前桶。
 
 Web useGuideAssets改认证raw上传及完整内容读取，复用silentPost/silentGetBlob，不增客户端框架。PNG/JPEG/WebP/GIF使用Blob URL；SVG保留原字节，使用不继承应用源的 `data:image/svg+xml;base64,...` 图片地址，不把可执行SVG变成应用同源Blob文档。现有CSP已允许img-src data:。依据[MDN SVG图片限制](https://developer.mozilla.org/en-US/docs/Web/SVG/Guides/SVG_as_an_image)、[data URL的独立不透明源](https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Schemes/data)和[File API Blob源规则](https://www.w3.org/TR/FileAPI/)，图片上下文的脚本限制不能替代直接打开文档的源隔离；API内容响应使用attachment及nosniff，不依赖其响应头自动传给Blob。真实浏览器以无害SVG脚本标记检查正文、放大图及打开图片地址的源隔离，不引入转码或净化依赖。
 

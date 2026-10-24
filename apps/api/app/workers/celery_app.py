@@ -119,6 +119,7 @@ celery_app.conf.update(
             "queue": "cleanup"
         },
         "app.workers.cleanup.purge_soft_deleted_attachments": {"queue": "cleanup"},
+        "app.workers.cleanup.purge_guide_assets": {"queue": "cleanup"},
         "app.workers.cleanup.purge_unreferenced_raster_masks": {"queue": "cleanup"},
         # v0.10.16 · DuckDB 同步 + async_jobs 清理走 cleanup 队列
         "app.workers.analytics.sync_to_duckdb": {"queue": "cleanup"},
@@ -218,6 +219,10 @@ celery_app.conf.update(
         "purge-soft-deleted-attachments": {
             "task": "app.workers.cleanup.purge_soft_deleted_attachments",
             "schedule": crontab(hour=3, minute=0),  # 每日 03:00 UTC
+        },
+        "purge-guide-assets": {
+            "task": "app.workers.cleanup.purge_guide_assets",
+            "schedule": 300.0,
         },
         "purge-unreferenced-raster-masks": {
             "task": "app.workers.cleanup.purge_unreferenced_raster_masks",

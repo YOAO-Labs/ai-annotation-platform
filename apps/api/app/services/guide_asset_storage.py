@@ -62,24 +62,24 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 _MESSAGES = {
-    "guide_asset_storage_identity_changed": "附件存储身份与当前端点不匹配",
-    "guide_asset_storage_unpinned": "附件尚未保存存储归属，请重新上传",
-    "guide_asset_storage_invalid_key": "附件对象键与上传记录不匹配",
+    "guide_asset_storage_identity_changed": "指南图片存储身份与当前端点不匹配",
+    "guide_asset_storage_unpinned": "指南图片尚未保存存储归属，请重新上传",
+    "guide_asset_storage_invalid_key": "指南图片对象键与上传记录不匹配",
     "guide_asset_storage_invalid_receipt": "指南图片内容回执不合法",
-    "guide_asset_storage_invalid_file_name": "附件文件名不合法",
-    "guide_asset_storage_invalid_mime_type": "附件 MIME 类型不合法",
-    "guide_asset_storage_binding_unproven": "附件存储绑定尚未登记或无法核实",
-    "guide_asset_storage_integrity_mismatch": "附件字节与独立内容回执不一致",
-    "guide_asset_storage_missing": "已保存的附件对象不存在",
-    "guide_asset_storage_budget": "附件核验超过读取预算",
-    "guide_asset_storage_unavailable": "附件存储暂不可用",
+    "guide_asset_storage_invalid_file_name": "指南图片文件名不合法",
+    "guide_asset_storage_invalid_mime_type": "指南图片 MIME 类型不合法",
+    "guide_asset_storage_binding_unproven": "指南图片存储绑定尚未登记或无法核实",
+    "guide_asset_storage_integrity_mismatch": "指南图片字节与独立内容回执不一致",
+    "guide_asset_storage_missing": "已保存的指南图片对象不存在",
+    "guide_asset_storage_budget": "指南图片核验超过读取预算",
+    "guide_asset_storage_unavailable": "指南图片存储暂不可用",
 }
 
 
 class GuideAssetStorageError(ValueError):
     def __init__(self, code, status_code=409):
         # Only fixed messages are exposed; provider exception text is never safe.
-        super().__init__(_MESSAGES.get(code, "附件存储暂不可用"))
+        super().__init__(_MESSAGES.get(code, "指南图片存储暂不可用"))
         self.code = code
         self.status_code = status_code
 

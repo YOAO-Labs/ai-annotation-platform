@@ -470,6 +470,7 @@ async def _cleanup_e2e_fixtures(
 ) -> None:
     """Destroy only terminal fixture owners, then fence and delete the fixture."""
     from app.api.v1 import _test_seed_attachments as attachments
+    from app.api.v1 import _test_seed_guide_assets as guides
     from app.services.storage_access import finish
 
     async def resolve(session):
@@ -478,6 +479,7 @@ async def _cleanup_e2e_fixtures(
     try:
         await _require_e2e_seed_database(db)
         scope = await resolve(db)
+        await guides.preflight(db, scope)
         plan = await attachments.prepare(db, scope)
         await attachments.delete_objects(db, plan, resolve)
         await db.commit()
@@ -494,7 +496,11 @@ async def _cleanup_e2e_fixtures(
             except BaseException:
                 pass
             raise
-        await attachments.finalize(db, plan, resolve)
+
+        async def retire_guides():
+            await guides.retire_references(db, scope)
+
+        await attachments.finalize(db, plan, resolve, before_gate=retire_guides)
         # The audit exemption belongs to this final transaction, not retirement.
         await _cleanup_fixture_records(db, owned, scope)
         await attachments.assert_empty(db, plan)
