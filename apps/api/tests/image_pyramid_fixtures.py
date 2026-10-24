@@ -160,10 +160,15 @@ async def ready_generation(db, item, *, pinned=True, asset=None, generation=None
             generation=1,
             lease_token=token,
             storage_ref=ref,
-            inventory=inventory,
-            state="ready",
+            inventory=None,
+            state="building",
         )
         db.add(output)
+        await db.flush()
+        # Exercise the same immutable-ledger state transition as publication.
+        # Inserting ready directly is forbidden by the database owner guard.
+        output.inventory = inventory
+        output.state = "ready"
         await db.flush()
         generation.output_id = output_id
         objects.validate_inventory(output, generation, inventory)

@@ -377,12 +377,13 @@ async def test_retry_failed_generation_keeps_cooldown(
     assert int(response.headers["retry-after"]) > 0
 
 
+@pytest.mark.parametrize("pinned", [True, False])
 async def test_task_summary_is_lightweight(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, monkeypatch, pinned
 ):
     user, token = super_admin
     task, item = await make_image_task(db_session, user.id)
-    await ready_generation(db_session, item, pinned=False)
+    await ready_generation(db_session, item, pinned=pinned)
     monkeypatch.setattr(
         physical,
         "read_manifest",
@@ -399,7 +400,7 @@ async def test_task_summary_is_lightweight(
     assert response.status_code == 200
     summary = response.json()["image_pyramid"]
     assert summary == {
-        "status": "ready",
+        "status": "ready" if pinned else "failed",
         "generation": 1,
         "width": item.width,
         "height": item.height,

@@ -143,6 +143,25 @@ async def committed_pyramid(test_engine, app_module, monkeypatch):
                     )
                 )
             if state.output_id is not None:
+                # There are no real provider objects in this transport fixture.
+                # Still honor the production ledger's forward-only settlement
+                # and deletion guards rather than disabling database triggers.
+                await db.execute(
+                    update(ImagePyramidOutput)
+                    .where(
+                        ImagePyramidOutput.id == state.output_id,
+                        ImagePyramidOutput.state.in_(("building", "ready")),
+                    )
+                    .values(state="retiring")
+                )
+                await db.execute(
+                    update(ImagePyramidOutput)
+                    .where(
+                        ImagePyramidOutput.id == state.output_id,
+                        ImagePyramidOutput.state == "retiring",
+                    )
+                    .values(state="deleted")
+                )
                 await db.execute(
                     delete(ImagePyramidOutput).where(
                         ImagePyramidOutput.id == state.output_id
