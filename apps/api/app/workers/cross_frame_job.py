@@ -15,7 +15,7 @@ from app.config import settings
 from app.application.annotation_cross_frame import bind_cross_frame_batch_stager
 from app.db.enums import ProjectRole
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob, AsyncJobStatus
+from app.db.models.async_job import AsyncJobStatus
 from app.db.models.task import Task
 from app.services.identity_contracts import IdentityActorFacts
 from app.services import task_access
@@ -119,7 +119,7 @@ def _failure_reason(exc: Exception) -> str:
 
 
 async def _cancel_requested(db: AsyncSession, job_id: uuid.UUID) -> bool:
-    job = await db.get(AsyncJob, job_id)
+    job = await async_job_svc.get_job(db, job_id)
     if job is None:
         return True
     await db.refresh(job)
@@ -137,7 +137,7 @@ async def _persist_progress(
 ) -> None:
     result = summarize_items(ordered_items)
     pct = round((len(ordered_items) / max(1, total)) * 100)
-    job = await db.get(AsyncJob, job_id)
+    job = await async_job_svc.get_job(db, job_id)
     if job is None:
         return
     if job.status != AsyncJobStatus.CANCELLED.value:
@@ -170,7 +170,7 @@ async def execute_cross_frame_job(
     job_id: uuid.UUID,
     celery_task_id: str | None = None,
 ) -> None:
-    job = await db.get(AsyncJob, job_id, populate_existing=True)
+    job = await async_job_svc.get_job(db, job_id, populate_existing=True)
     if (
         job is None
         or job.kind != JOB_KIND
@@ -183,7 +183,7 @@ async def execute_cross_frame_job(
         return
     await async_job_svc.mark_running(db, job_id, celery_task_id=celery_task_id)
     await db.commit()
-    job = await db.get(AsyncJob, job_id)
+    job = await async_job_svc.get_job(db, job_id)
     if job is None or job.kind != JOB_KIND:
         return
     payload = job.payload or {}

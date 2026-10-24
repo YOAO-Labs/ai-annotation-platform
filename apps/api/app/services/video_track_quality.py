@@ -276,7 +276,7 @@ async def dispatch_quality_run(
     dispatcher: QualityJobDispatcher,
 ) -> None:
     run = await db.get(VideoTrackQualityRun, run_id)
-    job = await db.get(AsyncJob, async_job_id)
+    job = await async_job_svc.get_job(db, async_job_id)
     if run is None or job is None or not job.celery_task_id:
         raise VideoTrackQualityError(500, "video_track_quality_dispatch_invalid")
     try:
