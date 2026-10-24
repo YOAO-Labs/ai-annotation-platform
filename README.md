@@ -196,7 +196,7 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 应用业务列表共用分页栏，默认每页 20 行，可选 10／20／50／100 行；筛选和修改每页行数后从首页继续浏览。使用方法见[列表分页](./docs-site/user-guide/reference/filtering.md#列表分页)，批次、预标历史和在线学习的分页参数见各 [API 指南](./docs-site/api/)。
 
-项目成员可在工作台阅读[标注指引](./docs-site/user-guide/projects/index.md#编写标注指引)及示例图；指引编辑和图片上传、删除由项目负责人或超级管理员管理。
+项目成员可在工作台阅读[标注指引](./docs-site/user-guide/projects/index.md#编写标注指引)及示例图；指引编辑和图片上传、删除由项目负责人或超级管理员管理。图片通过认证接口上传和读取，完整核对保存位置与内容；复制项目为已核验图片建立独立引用，源项目移除图片或被删除不影响副本。历史未核实图片保留原信息并提示重新上传；接口与图片清单的修订校验见[项目 API](./docs-site/api/guides/projects.md#标注指引图片)。
 
 平台把**账号身份（平台角色）**与**项目职责（项目角色）**分开：同一个员工可以在 A 项目标注、B 项目质检、C 项目只读，无须切换账号。项目访问与写入由项目成员关系和固定能力集决定，全项目导出收紧到质检员 / 负责人、自审按持久贡献者证据拒绝。设计见 [ADR-0075](./docs/adr/0075-platform-identity-vs-project-authority.md)，迁移、回滚与已签发 URL 限制见[员工项目角色迁移与回滚 runbook](./docs-site/ops/runbooks/project-role-migration.md)。
 

@@ -1,9 +1,8 @@
 ---
 audience: [project_admin, super_admin]
 type: how-to
-since: v0.10.14
 status: stable
-last_reviewed: 2026-06-10
+last_reviewed: 2026-10-24
 ---
 
 # 项目模板库（Project Templates）
@@ -96,9 +95,9 @@ last_reviewed: 2026-06-10
 - 模板**不存** `guide_assets`（图片资源 storage key）——
   - 跨实例 storage key 引用混乱；
   - 跨组织私密性风险；
-  - 源项目删除资产会让所有依赖模板的项目失效。
+  - 模板不保存项目间的图片读取授权与引用关系。
 
-模板只负责提供初始 Markdown；图片资源请在目标项目中重新上传，避免新项目继续引用源项目的私有对象。
+模板只负责提供初始 Markdown；图片资源请在目标项目中重新上传。需要连同已核验图片一起复制时，使用[复制项目](./index.md#从已有项目复制配置)并勾选「同时复制标注指引」；该操作会为新项目建立独立图片引用，源项目删除不会影响副本读取。
 
 ## 常见问题
 

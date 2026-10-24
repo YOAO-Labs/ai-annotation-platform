@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-24
 ---
 
 # 测试指南
@@ -241,6 +241,7 @@ test("注入 token 跳过 UI 登录", async ({ page, seed }) => {
 - **专项筛选夹具**：筛选验收使用 `seed.filtering()`（或 `e2e/fixtures/filtering.ts`）；如需在本地手动体验并保留筛选数据，可运行 `pnpm dev:worktree -- up --mode e2e --scenario filtering`（参见 [多工作树并行开发环境](./how-to/worktree-environments#手动验收筛选功能)）。
 - **并发与清理兜底**：同一测试库同一时刻只能运行一个 seed/reset 流程；多进程并行测试需同时隔离数据库与 MinIO 存储桶。Playwright 结束时的 `globalTeardown` 会调用 `/seed/cleanup`，但强制中断可能跳过 teardown，因此必须始终依赖 `annotation_e2e` 数据库隔离。
 - **评论附件清理**：owned/shared 清理通过精确夹具项目找到独立上传责任，先退休已完成上传，再沿保存位置删除；所有存储 IO 完成后才锁定并删除原夹具和已完成责任。未完成上传、活跃或未知收尾许可、保存位置不明、规范键残留和删除失败会明确失败并保留重试锚点。不要篡改90天期限或删访问账本来绕过；无法确认上传已结束时，核验归属后销毁整个可丢弃工作树 mode，参见[多工作树环境](./how-to/worktree-environments)。清理不按上传者反向删除其他项目的标注评论。
+- **指南图片清理**：owned/shared 清理只解除精确夹具项目的权威引用，并退休失去最后引用的已完成上传；其他项目的共享引用继续有效。该流程不立即删除对象，物理清理由cleanup队列后续执行，或在核验归属后销毁整个一次性mode。仍属于精确夹具项目的pending会阻挡清理；原项目已删除且无法证明属于当前scope的pending保留owner与字节，不按namespace猜测或阻挡无关夹具。不要按年龄、上传者或JSON反向清桶，也不要删除独立责任来绕过未完成写入。
 
 ---
 

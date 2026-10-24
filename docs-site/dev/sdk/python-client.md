@@ -78,6 +78,8 @@ with Client() as client:
 
 `create` 说明:后端 `type_label` 必填,未通过 `kwargs` 显式给出时 SDK 按 `type_key` → `data_type` → `name` 顺序兜底填充。
 
+正文可通过 `update(project_id, annotation_guide=...)` 保存。显式提交 `guide_assets` 时，还须提交最近读取的 `guide_assets_revision`，仅能原样删减或重排当前清单；不能增加图片key或修改元数据。缺失或过时修订返回409，调用方应重新读取并核对，不能自动重试覆盖。正文单独保存不需要图片修订，详见[指南图片API合同](../../api/guides/projects.md#标注指引图片)。指南图片的认证上传、内容读取、删除及旧传输入口在覆盖清单中归为Web专用，SDK不提供图片传输方法。
+
 `stats()` 返回可见项目聚合(`total_data` / `completed` / `ai_rate` / `pending_review`)+ 最近 12 周时间序列(`*_series`),任意已认证用户可达。
 
 `access()` 返回当前账号在该项目上的解析后权限(`ProjectAccess`):`platform_role`(平台角色)、`project_role`(项目角色,管理者可为 `None`)、`access_kind`(`super_admin` / `owner` / `member`)、`membership_id` / `membership_version`、`is_manager` 与 `capabilities`。`Project.my_project_role` 是列表 / 详情里当前账号的项目角色。授权来自项目成员关系而非账号全局角色,详见[可见性与权限](../concepts/visibility-and-permissions)。

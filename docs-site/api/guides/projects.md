@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: reference
-since: v0.1.0
 status: stable
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-24
 ---
 
 # 项目
@@ -60,6 +59,7 @@ PATCH /api/v1/projects/:id
 - `ai_enabled` / `ml_backend_id`
 - `review_required`
 - `annotation_guide` / `video_sampling` / `rendering_config`
+- `guide_assets` 与期望的 `guide_assets_revision`（见下文，仅删减或重排已有图片清单）
 
 类别**重命名**走专用端点（原子迁移 annotations）：
 
@@ -83,15 +83,39 @@ POST /api/v1/projects/:id/cleanup-orphans
 ## 标注指引图片
 
 ```http
-GET    /api/v1/projects/:id/guide-assets/sign-url?key=<resource-key>
-POST   /api/v1/projects/:id/guide-assets/upload-init
-POST   /api/v1/projects/:id/guide-assets/upload-complete
+POST   /api/v1/projects/:id/guide-assets/upload?file_name=<encoded-file-name>
+GET    /api/v1/projects/:id/guide-assets/content?key=<encoded-resource-key>
 DELETE /api/v1/projects/:id/guide-assets?key=<resource-key>
 ```
 
-图片读取沿用项目可见性规则：超级管理员、项目负责人及项目成员可申请短期签名链接，响应的 `expires_in` 为 3600 秒，实际签名到期时间会向下一个 10 分钟缓存窗口边界对齐。非成员或已移出的成员返回 404。资源 key 必须属于当前项目且已登记在该项目的 `guide_assets` 中，未登记或跨项目的 key 返回 404。已签发链接在到期前仍可使用。
+上传请求使用当前认证，正文直接发送文件原始字节，不能使用 multipart 或 JSON。`file_name` 查询参数必填，长度为 1–255；`Content-Type` 支持 `image/png`、`image/jpeg`、`image/webp`、`image/gif`、`image/svg+xml`，文件须非空且不超过 5 MiB。服务端保存安全文件名，保留原始内容，不进行图片转换。成功响应沿用五个字段，并已在本项目登记可读取的引用：
 
-上传与删除仅限项目负责人或超级管理员；普通项目成员写入返回 403。正文通过项目的 `annotation_guide` 字段读取和保存。
+```json
+{
+  "key": "projects/<original-project-uuid>/guide/<upload-uuid>",
+  "original_name": "示例图.png",
+  "content_type": "image/png",
+  "size": 12345,
+  "uploaded_at": "2026-10-24T00:00:00Z"
+}
+```
+
+读取沿用项目可见性规则：超级管理员、项目负责人及项目成员可请求图片内容；非成员或已移出的成员返回 404。服务端按当前项目的独立引用找到已就绪上传，沿保存位置完整核对 SHA-256 和大小后返回原始字节，响应为保存的 MIME，并带 `Cache-Control: private, no-store`、`X-Content-Type-Options: nosniff` 和附件文件名。响应不提供匿名下载链接。复制项目取得独立引用后，可读取原 key；key 的原项目路径不代表读取授权。
+
+上传与删除仅限项目负责人或超级管理员；可见项目的普通成员写入返回 403。DELETE 只解除当前项目引用并移除对应清单项，不改写 `annotation_guide` Markdown；其他项目仍在引用的图片继续可读。最后一个引用解除后进入退休流程，物理删除由后台清理执行。
+
+项目响应包含 `guide_assets` 和 `guide_assets_revision`。显式 PATCH 图片清单时，必须同时提交读取到的期望修订：
+
+```json
+{
+  "guide_assets": [],
+  "guide_assets_revision": 3
+}
+```
+
+清单只允许保留当前项目已登记、已核验图片的原条目并删减或重排，或原样保留已有历史条目；不能添加 key、改写元数据或借清单认领图片。实际清单变化会增加修订，上传、删除和复制也使用同一修订规则。缺失或过时修订返回 409 `guide_asset_revision_conflict`，须重新读取并核对后再提交；null、重复 key 或单独提交修订返回 422。仅保存 `annotation_guide` 正文不需要图片修订，不受此限制。
+
+历史图片保留原元数据和正文，但没有独立上传归属时读取返回 409 `guide_asset_storage_unpinned`；请重新上传并替换正文引用，或移除旧图片。旧 `upload-init`、`upload-complete`、`sign-url` 入口保留认证与输入校验，合法请求返回 409 `guide_asset_authenticated_transfer_required` 及新上传、读取路径。升级前已签发的链接仍可能在原有效期内可用。
 
 ## 当前账号的项目权限
 
