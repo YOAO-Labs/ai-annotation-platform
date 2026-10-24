@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12 与 B13 各切片至 B3-K completed locally；B3-L 托管图片 Mask 修复完整资格链已定稿。完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A、B1–B12 与 B13 各切片至 B3-K completed locally；B3-L 托管图片 Mask 修复完整资格链已定稿实施。完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -1512,7 +1512,7 @@ README、CHANGELOG Unreleased、二次推理用户指南、任务 API 与预测�
 
 新增专属 ManagedRepairUnit，复用 prediction_originals 的三 canonical 解析、原凭据复核、完整 Snapshot、真实尺寸及 physical／settled 收尾。SAM 用每 attempt／unit 独立的 mask_repair 输入责任、同 purpose 的源／目标许可、条件创建、完整回读和非 null VersionId URL；实际选池后核冻结模型声明与配置，再核当前授权／来源／父标注／输入，提交短事务后派发。确定性修复、回滚、预览和采纳不创建无用途模型副本。原件图片物理读取、解码与确切关闭在最终业务写锁之前完成；未确认关闭不得签发可提交资格，重复 close 或 TTL 不能解除未收尾责任。保留现 Snapshot、输入、RLE、action／shard 和 rollback 预算。
 
-repair_original_receipt 为独立私有类型，绑定真实 issuer、同 session／顶层事务、actor／Task、来源／实际尺寸、准确 batch／plan／unit／attempt、操作种类和 payload／result digest。分别限定预测生成、确定性变更、回滚、候选读取及采纳资格，不能从普通尺寸字典、后端 JSON、ml_backend receipt 或 J interactive_accept receipt 获得权限。显式贯穿 PredictionService、MaskMutationService、AnnotationService 与 raster 尺寸校验，使 TaskOriginal 和 primary-only 真正覆盖生成、mask-content GET、采纳和回滚。收据在幂等返回之前仍核当前权限与原件，合法重放按已提交 operation/checkpoint 的前后版本核验，不能错误地要求已经由本操作修改的标注仍等于最初几何。
+repair_original_receipt 为独立私有类型，绑定真实 issuer、同 session／顶层事务、actor／Task、来源／实际尺寸、准确 batch／plan／unit／attempt、操作种类和 payload／result digest。分别限定预测生成、确定性变更、回滚、候选读取及采纳资格，不能从普通尺寸字典、后端 JSON、ml_backend receipt 或 J interactive_accept receipt 获得权限。三类来源的候选与已接受标注均须能通过实际 mask-content 入口读取；只读资格保持既有读取 scope 且不能用于写入，已有 native／引用／视频路径不借修复授权扩权。显式贯穿 PredictionService、MaskMutationService、AnnotationService 与 raster 尺寸校验，使 TaskOriginal 和 primary-only 真正覆盖生成、mask-content GET、采纳和回滚。收据在幂等返回之前仍核当前权限与原件，合法重放按已提交 operation/checkpoint 的前后版本核验，不能错误地要求已经由本操作修改的标注仍等于最初几何。
 
 Worker 保留准确 attempt／取消围栏及 Job→batch 的锁骨架，再沿账户／项目／成员／原 Key→Task advisory→Batch／fresh Task→canonical／Gate→模型／RLE 内容→Annotation 顺序复核；最终来源检查只用调用者 session 的元信息，不另开 guard session。全部候选、Meta、candidate_records 的 result／metadata 摘要、operation、lineage、unit checkpoint 和进度在现有事务中统一提交；写入后核凭据期限及 JWT 注销缓存。原件图片／模型 I/O 不跨最终锁；现有已归属 RLE 的读取、写入及像素代数验证按既有变更事务保留，不以删除校验来假称整个 final 没有物理 I/O。
 
