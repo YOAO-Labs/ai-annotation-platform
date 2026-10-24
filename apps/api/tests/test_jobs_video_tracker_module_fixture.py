@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import base64
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
 
 from aap_jobs.queue_contract import load_queue_configuration
 from app.schemas.video_tracker_job import VideoTrackerPropagateRequest
@@ -10,7 +14,9 @@ from tests.jobs_video_tracker_module_helpers import (
     _assert_tracker_envelope,
     _tracker_request,
     _unpack_tracker_envelope,
+    _wait_task_delivery,
 )
+from app.services.video_tracking.execution import TrackerExecutionCancelled
 
 
 def test_video_tracker_queue_contract_fixture():
@@ -37,3 +43,39 @@ def test_video_tracker_queue_contract_fixture():
     assert request.target_tool_unit_id == "bbox"
     assert request.text == "car"
     assert request.output_geometry == "bbox"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state,result,cancelled,accepted",
+    [
+        ("SUCCESS", None, False, True),
+        ("FAILURE", TrackerExecutionCancelled(), True, True),
+        ("FAILURE", RuntimeError("unexpected worker failure"), True, False),
+        ("SUCCESS", None, True, False),
+        ("FAILURE", TrackerExecutionCancelled(), False, False),
+    ],
+)
+async def test_tracker_delivery_fixture_checks_cancellation_type(
+    monkeypatch, state, result, cancelled, accepted
+):
+    delivery = SimpleNamespace(state=state, get=lambda **_kwargs: result)
+    sender = SimpleNamespace(AsyncResult=lambda _execution_id: delivery)
+    ack = AsyncMock(return_value={"acknowledged": True})
+    monkeypatch.setattr(
+        "tests.test_workspace_worker_assembly_live._wait_broker_ack", ack
+    )
+    worker = object()
+    if accepted:
+        observed = await _wait_task_delivery(
+            sender, worker, "execution-id", cancelled=cancelled
+        )
+        assert observed["state"] == state
+        assert observed["result_type"] == type(result).__name__
+        ack.assert_awaited_once_with(sender, worker, "execution-id")
+    else:
+        with pytest.raises(AssertionError):
+            await _wait_task_delivery(
+                sender, worker, "execution-id", cancelled=cancelled
+            )
+        ack.assert_not_awaited()

@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from celery import Celery
 from cryptography.fernet import Fernet
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from tests.identity_module_assembly_helpers import IdentityModuleStack
 
@@ -354,14 +354,25 @@ async def _resume_gpu_consumer(sender: Celery, worker) -> None:
     assert {row["name"] for row in await _active_queues(sender, worker)} == {"gpu"}
 
 
-async def _wait_task_success(sender: Celery, worker, execution_id: str) -> dict:
+async def _wait_task_delivery(
+    sender: Celery, worker, execution_id: str, *, cancelled: bool = False
+) -> dict:
     delivery = sender.AsyncResult(execution_id)
     result = await asyncio.to_thread(delivery.get, timeout=180, propagate=False)
-    assert delivery.state == "SUCCESS", repr(result)
+    assert delivery.state == ("FAILURE" if cancelled else "SUCCESS"), repr(result)
+    if cancelled:
+        from app.services.video_tracking.execution import TrackerExecutionCancelled
+
+        assert type(result) is TrackerExecutionCancelled, repr(result)
     from tests.test_workspace_worker_assembly_live import _wait_broker_ack
 
     ack = await _wait_broker_ack(sender, worker, execution_id)
-    return {"task_id": execution_id, "ack": ack, "result_type": type(result).__name__}
+    return {
+        "task_id": execution_id,
+        "state": delivery.state,
+        "ack": ack,
+        "result_type": type(result).__name__,
+    }
 
 
 async def _release_cpu_gates(peer) -> None:
@@ -544,7 +555,7 @@ async def _exercise_api_tracker_phase(
         }
         await _resume_gpu_consumer(sender, worker)
         await _release_cpu_gates(peer)
-        success_delivery = await _wait_task_success(
+        success_delivery = await _wait_task_delivery(
             sender, worker, success_execution_id
         )
         completed_success = await _video_tracker_job(test_engine, success_job_id)
@@ -563,6 +574,17 @@ async def _exercise_api_tracker_phase(
         )
         assert [call["from_frame"] for call in peer.model_windows] == [0, 2, 4]
         success_input_id = str(ready_input.input_id)
+        record_property(
+            f"video_tracker_success_{phase}",
+            {
+                "job_id": success_job_id,
+                "execution_id": success_execution_id,
+                "input_id": success_input_id,
+                "frames": frames,
+                "delivery": success_delivery,
+                "retirement": success_retirement,
+            },
+        )
 
         await _pause_gpu_consumer(sender, worker)
         cancel_created = await _submit_tracker(
@@ -639,7 +661,7 @@ async def _exercise_api_tracker_phase(
         }
         await _resume_gpu_consumer(sender, worker)
         cancel_deliveries = [
-            await _wait_task_success(sender, worker, execution_id)
+            await _wait_task_delivery(sender, worker, execution_id, cancelled=True)
             for execution_id in sorted(observed_execution_ids)
         ]
         cancelled_after_delivery = await _video_tracker_job(test_engine, cancel_job_id)
@@ -651,6 +673,17 @@ async def _exercise_api_tracker_phase(
         assert cancel_summary["status"] == AsyncJobStatus.CANCELLED.value
         assert cancel_summary["celery_task_id"] == original_execution_id
         assert len(peer.model_windows) == 3, "cancelled redrives reached the backend"
+        async with async_sessionmaker(test_engine)() as db:
+            execution_count = await db.scalar(
+                text(
+                    "SELECT count(*) FROM aap_jobs_v1.video_executions "
+                    "WHERE job_id=:job_id"
+                ),
+                {"job_id": uuid.UUID(cancel_job_id)},
+            )
+        assert execution_count == 0, (
+            "cancelled queued work acquired execution authority"
+        )
         assert await _wait_cancel_audit_count(test_engine, cancel_job_id, 1) == 1
         assert _broker_state(sender, "gpu") == {
             "queue_size": 0,
@@ -678,6 +711,7 @@ async def _exercise_api_tracker_phase(
                 "delivery_acks": cancel_deliveries,
                 "status": cancelled_after_delivery["status"],
                 "backend_calls_unchanged": True,
+                "never_started_execution": True,
             },
             "worker": {
                 "signature": signature,
