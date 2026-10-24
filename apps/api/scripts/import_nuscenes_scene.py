@@ -662,7 +662,7 @@ async def import_nuscenes(
             gate_revision = await storage_access.check(db, location_id)
         from app.services.export_media_transfer import Admission
 
-        async with storage_access.admit(
+        async with await storage_access.acquire(
             db, location_id, "nuscenes_import_verify", expected_revision=gate_revision
         ):
             admission, stage, failure = Admission(), None, None
