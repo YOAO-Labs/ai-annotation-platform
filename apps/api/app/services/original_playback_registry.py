@@ -52,6 +52,7 @@ class Pin:
     lease_id: uuid.UUID
     _entry: object = field(repr=False)
     _registry: object = field(repr=False)
+    _lease: Lease = field(repr=False)
     _released: bool = field(default=False, init=False, repr=False)
 
 
@@ -119,6 +120,7 @@ class PlaybackRegistry:
         self._by_key: dict[Hashable, _Entry] = {}
         self._leases: dict[uuid.UUID, _LeaseRecord] = {}
         self._pins = 0
+        self._active_pins: dict[int, Pin] = {}
         self._closed = False
         self._changed = asyncio.Event()
         self._reaper = None
@@ -318,9 +320,51 @@ class PlaybackRegistry:
     def _record(self, lease_id):
         self._expire()
         record = self._leases.get(lease_id)
-        if self._closed or record is None or record.entry.retired:
+        if self._closed or record is None:
+            _error()
+        entry = record.entry
+        if (
+            entry.retired
+            or entry.unsettled
+            or not entry.published
+            or entry.stage is None
+            or entry.closing is not None
+            or entry.capture is None
+            or not entry.capture.done()
+            or self._entries.get(entry.id) is not entry
+            or self._by_key.get(entry.key) is not entry
+        ):
             _error()
         return record
+
+    def validate_lease(self, lease: Lease):
+        """Recheck a returned capability after an authorization await."""
+        if not isinstance(lease, Lease) or not isinstance(lease.id, uuid.UUID):
+            _error()
+        record = self._record(lease.id)
+        if record.lease is not lease:
+            _error()
+
+    def validate_pin(self, pin: Pin):
+        """Keep an old FD alive without admitting a retired capability to serve."""
+        if (
+            not isinstance(pin, Pin)
+            or pin._registry is not self
+            or pin._released
+            or self._active_pins.get(id(pin)) is not pin
+        ):
+            _error()
+        self.validate_lease(pin._lease)
+        record = self._record(pin.lease_id)
+        if (
+            record.lease is not pin._lease
+            or record.entry is not pin._entry
+            or record.entry.stage is not pin.stage
+            or record.lease.context is not pin.context
+            or record.lease.media_type != pin.media_type
+            or record.lease.expires_at != pin.expires_at
+        ):
+            _error()
 
     def context_for_release(self, lease_id: uuid.UUID) -> object:
         return self._record(lease_id).lease.context
@@ -339,7 +383,7 @@ class PlaybackRegistry:
         entry = record.entry
         self._pins += 1
         entry.pins += 1
-        return Pin(
+        pin = Pin(
             entry.stage,
             record.lease.context,
             record.lease.media_type,
@@ -347,14 +391,20 @@ class PlaybackRegistry:
             lease_id,
             entry,
             self,
+            record.lease,
         )
+        self._active_pins[id(pin)] = pin
+        return pin
 
     async def release_pin(self, pin: Pin):
         if not isinstance(pin, Pin) or pin._registry is not self:
             raise ValueError("Pin does not belong to this registry")
         if pin._released:
             return
+        if self._active_pins.get(id(pin)) is not pin:
+            raise ValueError("Pin was not acquired from this registry")
         pin._released = True
+        self._active_pins.pop(id(pin))
         self._pins -= 1
         pin._entry.pins -= 1
         self._changed.set()

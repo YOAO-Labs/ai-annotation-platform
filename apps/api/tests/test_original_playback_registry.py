@@ -520,3 +520,126 @@ async def test_authority_expiring_during_capture_never_publishes_late_stage(worl
         await prepare(registry, clock, stage=stage, factory=late, expires_at=expiration)
     assert_error(error, "video_playback_expired", 410)
     assert stage.closed and registry.diagnostics()["stages"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wall", [True, False])
+async def test_revalidation_after_auth_await_rejects_expired_lease_and_keeps_pin_fd(
+    world, wall
+):
+    registry, clock = world
+    stage = Stage()
+    lease = await prepare(registry, clock, stage=stage)
+    pin = registry.pin(lease.id, lease.secret)
+    registry.validate_lease(lease)
+    registry.validate_pin(pin)
+    clock.advance(301, wall=wall)
+    for validate, value in (
+        (registry.validate_lease, lease),
+        (registry.validate_pin, pin),
+    ):
+        with pytest.raises(ContentError) as error:
+            validate(value)
+        assert_error(error, "video_playback_expired", 410)
+    assert not stage.closed and registry.diagnostics()["response_pins"] == 1
+    await registry.release_pin(pin)
+    assert stage.closed and registry.diagnostics()["stages"] == 0
+
+
+@pytest.mark.asyncio
+async def test_revalidation_rejects_revoked_lease_while_other_lease_and_pin_stay_valid(
+    world,
+):
+    registry, clock = world
+    stage = Stage()
+    first = await prepare(registry, clock, stage=stage)
+    second = await prepare(registry, clock)
+    pin = registry.pin(first.id, first.secret)
+    await registry.revoke_lease(first.id)
+    with pytest.raises(ContentError):
+        registry.validate_pin(pin)
+    with pytest.raises(ContentError):
+        registry.validate_lease(first)
+    registry.validate_lease(second)
+    assert not stage.closed
+    await registry.release_pin(pin)
+    assert not stage.closed
+    await registry.revoke_lease(second.id)
+    assert stage.closed
+
+
+@pytest.mark.asyncio
+async def test_revalidation_after_shutdown_retires_capability_without_closing_active_pin(
+    world,
+):
+    registry, clock = world
+    stage = Stage()
+    lease = await prepare(registry, clock, stage=stage)
+    pin = registry.pin(lease.id, lease.secret)
+    shutdown = asyncio.create_task(registry.shutdown())
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(ContentError):
+            registry.validate_lease(lease)
+        with pytest.raises(ContentError):
+            registry.validate_pin(pin)
+        assert not stage.closed
+    finally:
+        await registry.release_pin(pin)
+        await shutdown
+    assert stage.closed
+
+
+@pytest.mark.asyncio
+async def test_exact_returned_objects_are_required_and_forged_pin_cannot_release_capacity(
+    world,
+):
+    from dataclasses import replace
+
+    registry, clock = world
+    lease = await prepare(registry, clock)
+    pin = registry.pin(lease.id, lease.secret)
+    with pytest.raises(ContentError):
+        registry.validate_lease(replace(lease))
+    forged = replace(pin)
+    with pytest.raises(ContentError):
+        registry.validate_pin(forged)
+    with pytest.raises(ValueError):
+        await registry.release_pin(forged)
+    assert registry.diagnostics()["response_pins"] == 1
+    registry.validate_pin(pin)
+    await registry.release_pin(pin)
+    with pytest.raises(ContentError):
+        registry.validate_pin(pin)
+    assert registry.diagnostics()["response_pins"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field",
+    ["stage", "context", "media_type", "expires_at", "lease_id", "_entry", "_lease"],
+)
+async def test_revalidation_fences_mutated_pin_fields_without_losing_real_release(
+    world, field
+):
+    registry, clock = world
+    lease = await prepare(registry, clock)
+    pin = registry.pin(lease.id, lease.secret)
+    original = getattr(pin, field)
+    replacement = {
+        "stage": Stage(),
+        "context": object(),
+        "media_type": "video/webm",
+        "expires_at": lease.expires_at + timedelta(seconds=1),
+        "lease_id": uuid.uuid4(),
+        "_entry": object(),
+        "_lease": object(),
+    }[field]
+    setattr(pin, field, replacement)
+    try:
+        with pytest.raises(ContentError):
+            registry.validate_pin(pin)
+    finally:
+        setattr(pin, field, original)
+        await registry.release_pin(pin)
+    assert registry.diagnostics()["response_pins"] == 0
