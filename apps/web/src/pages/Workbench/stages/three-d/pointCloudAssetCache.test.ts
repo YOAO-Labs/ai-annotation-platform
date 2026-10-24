@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TaskPointCloudManifestResponse } from "@/api/generated";
+import * as imageDisplay from "@/utils/originalImageDisplay";
 import * as originals from "@/api/originals";
 import { useAuthStore } from "@/stores/authStore";
 import type { SensorCalibration } from "@/types";
@@ -46,6 +47,7 @@ function depthResult(length = 4) {
 describe("pointCloudAssetCache", () => {
   beforeEach(() => {
     useAuthStore.setState({ user: null, token: null, sessionId: `test-${Math.random()}` });
+    vi.mocked(imageDisplay.createOriginalImageAddress).mockReset();
     buildDepthRastersMock.mockReset().mockResolvedValue(depthResult());
     decodePointCloudFrameAsyncMock.mockReset();
   });
@@ -758,5 +760,135 @@ describe("pointCloudAssetCache", () => {
     cancelPointCloudFramePrefetch();
     await expect(prefetch).resolves.toBeUndefined();
     expect(transportSignal?.aborted).toBe(true);
+  });
+  it("decodes SVG through an opaque Image address before creating the GPU bitmap", async () => {
+    const release = vi.fn();
+    vi.mocked(imageDisplay.createOriginalImageAddress).mockResolvedValue({
+      url: "data:image/svg+xml;base64,PHN2Zy8+",
+      release,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(
+          async () => new Response("<svg/>", { headers: { "Content-Type": "image/svg+xml" } }),
+        ),
+    );
+    const decode = vi.fn().mockResolvedValue(undefined);
+    const images: Array<{ src: string; decoding: string; decode: typeof decode }> = [];
+    class DecodedImage {
+      src = "";
+      decoding = "";
+      decode = decode;
+      constructor() {
+        images.push(this);
+      }
+    }
+    vi.stubGlobal("Image", DecodedImage);
+    const close = vi.fn();
+    const bitmap = { width: 640, height: 480, close };
+    const convert = vi.fn().mockImplementation(async (source) => {
+      expect(source).toBe(images[0]);
+      expect(source.src).toBe("data:image/svg+xml;base64,PHN2Zy8+");
+      expect(decode).toHaveBeenCalledTimes(1);
+      return bitmap;
+    });
+    vi.stubGlobal("createImageBitmap", convert);
+    const lease = await acquireCameraBitmap("https://assets.test/gpu-svg.svg");
+    expect(lease.bitmap).toBe(bitmap);
+    expect(convert).toHaveBeenCalledTimes(1);
+    expect(images[0].src).toBe("");
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+    lease.release();
+  });
+
+  it("aborts SVG image decoding and releases its address after the real decode settles", async () => {
+    const release = vi.fn();
+    let finish!: () => void;
+    vi.mocked(imageDisplay.createOriginalImageAddress).mockResolvedValue({
+      url: "data:image/svg+xml;base64,PHN2Zy8+",
+      release,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(
+          async () => new Response("<svg/>", { headers: { "Content-Type": "image/svg+xml" } }),
+        ),
+    );
+    const decode = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const images: Array<{ src: string }> = [];
+    class PendingImage {
+      src = "";
+      decode = decode;
+      constructor() {
+        images.push(this);
+      }
+    }
+    vi.stubGlobal("Image", PendingImage);
+    const convert = vi.fn();
+    vi.stubGlobal("createImageBitmap", convert);
+    const controller = new AbortController();
+    const pending = acquireCameraBitmap(
+      "https://assets.test/gpu-svg-cancel.svg",
+      controller.signal,
+    );
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(1));
+    controller.abort();
+    await rejected;
+    expect(images[0].src).toBe("");
+    expect(release).not.toHaveBeenCalled();
+    finish();
+    await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+    expect(convert).not.toHaveBeenCalled();
+  });
+
+  it("closes a late SVG GPU bitmap after owner retirement before releasing its opaque address", async () => {
+    const release = vi.fn(),
+      close = vi.fn();
+    let finish!: (bitmap: ImageBitmap) => void;
+    vi.mocked(imageDisplay.createOriginalImageAddress).mockResolvedValue({
+      url: "data:image/svg+xml;base64,PHN2Zy8+",
+      release,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(
+          async () => new Response("<svg/>", { headers: { "Content-Type": "image/svg+xml" } }),
+        ),
+    );
+    class DecodedImage {
+      src = "";
+      decode = vi.fn().mockResolvedValue(undefined);
+    }
+    vi.stubGlobal("Image", DecodedImage);
+    const convert = vi.fn().mockImplementation(
+      () =>
+        new Promise<ImageBitmap>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal("createImageBitmap", convert);
+    const pending = acquireCameraBitmap("https://assets.test/gpu-svg-late.svg");
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(convert).toHaveBeenCalledTimes(1));
+    useAuthStore.setState({ sessionId: "svg-owner-retired" });
+    await rejected;
+    expect(release).not.toHaveBeenCalled();
+    finish({ width: 640, height: 480, close } as unknown as ImageBitmap);
+    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(close.mock.invocationCallOrder[0]).toBeLessThan(release.mock.invocationCallOrder[0]);
   });
 });

@@ -381,7 +381,32 @@ export async function acquireCameraImageAddress(
 async function decodeBitmap(state: OwnerCache, blob: Blob, signal: AbortSignal) {
   const typed = await typedOriginalImageBlob(blob, signal);
   check(state, signal);
-  const bitmap = await createImageBitmap(typed);
+  if (typed.type !== "image/svg+xml") return checkedBitmap(state, typed, signal);
+
+  // Chromium requires an already decoded Image for SVG; keep its document origin opaque.
+  const address = await createOriginalImageAddress(typed, signal);
+  let image: HTMLImageElement | null = null;
+  const onAbort = () => {
+    if (image) image.src = "";
+  };
+  try {
+    check(state, signal);
+    image = new Image();
+    image.decoding = "async";
+    signal.addEventListener("abort", onAbort, { once: true });
+    check(state, signal);
+    image.src = address.url;
+    await image.decode();
+    check(state, signal);
+    return await checkedBitmap(state, image, signal);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+    if (image) image.src = "";
+    address.release();
+  }
+}
+async function checkedBitmap(state: OwnerCache, source: ImageBitmapSource, signal: AbortSignal) {
+  const bitmap = await createImageBitmap(source);
   try {
     check(state, signal);
     return bitmap;
