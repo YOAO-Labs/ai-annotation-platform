@@ -24,8 +24,9 @@ from tests.factory import create_project
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("dispatch", ["default", "allow", "reject"])
 async def test_enforce_prediction_uses_router_selected_instance(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, dispatch
 ) -> None:
     user, _ = super_admin
     project = await create_project(db_session, owner_id=user.id)
@@ -83,12 +84,15 @@ async def test_enforce_prediction_uses_router_selected_instance(
     monkeypatch.setattr(MLBackendRouter, "finish", fake_finish)
 
     used: list[uuid.UUID] = []
+    phases: list[str] = []
 
     class FakeTransport:
         def __init__(self, backend, **_kwargs):
+            self.backend_id = backend.id
             used.append(backend.id)
 
         async def predict(self, tasks, context=None):
+            phases.append("predict")
             return [{"tasks": tasks, "context": context}]
 
     monkeypatch.setattr(
@@ -97,6 +101,10 @@ async def test_enforce_prediction_uses_router_selected_instance(
 
     class FakeLedger:
         closed = False
+
+        async def cancel(self, route_lease):
+            finished.append((route_lease.instance_id, RouteOutcome.CANCEL))
+            return True
 
         async def aclose(self):
             self.closed = True
@@ -112,12 +120,37 @@ async def test_enforce_prediction_uses_router_selected_instance(
         ledger_factory=lambda: ledger,
     )
 
-    await client.predict([{"id": "task-1"}])
+    async def before_dispatch(transport):
+        assert transport.backend_id == selected.id
+        phases.append("check")
+        if dispatch == "reject":
+            raise ValueError("request authority changed during selection")
+
+    if dispatch == "reject":
+        with pytest.raises(ValueError, match="request authority changed"):
+            await client.predict([{"id": "task-1"}], before_dispatch=before_dispatch)
+    elif dispatch == "allow":
+        await client.predict([{"id": "task-1"}], before_dispatch=before_dispatch)
+    else:
+        await client.predict([{"id": "task-1"}])
 
     assert used == [selected.id]
     assert client.pool_id == pool.id
     assert client.last_instance_id == selected.id
-    assert finished == [(selected.id, RouteOutcome.SUCCESS)]
+    assert (
+        phases
+        == {
+            "default": ["predict"],
+            "allow": ["check", "predict"],
+            "reject": ["check"],
+        }[dispatch]
+    )
+    assert finished == [
+        (
+            selected.id,
+            RouteOutcome.CANCEL if dispatch == "reject" else RouteOutcome.SUCCESS,
+        )
+    ]
     assert ledger.closed is True
 
 

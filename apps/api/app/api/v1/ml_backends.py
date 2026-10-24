@@ -1241,6 +1241,11 @@ async def predict_test(
     async with reference_image_operation(
         db, task, current_user, request, "predict_test", input_session_factory
     ) as image_input:
+
+        async def before_dispatch(_transport):
+            await image_input.validate()
+            await db.commit()
+
         client = RoutedMLBackendClient(
             db,
             backend,
@@ -1258,7 +1263,8 @@ async def predict_test(
                     if image_input
                     else _resolve_task_url(task),
                 }
-            ]
+            ],
+            **({"before_dispatch": before_dispatch} if image_input else {}),
         )
         if image_input:
             await image_input.final()
@@ -1378,6 +1384,11 @@ async def interactive_annotating(
         if image_input:
             await image_input.validate()
             await db.commit()
+
+        async def before_dispatch(_transport):
+            await image_input.validate()
+            await db.commit()
+
         try:
             result = await client.predict_interactive(
                 task_data={
@@ -1387,6 +1398,7 @@ async def interactive_annotating(
                     else _resolve_task_url(task),
                 },
                 context=context,
+                **({"before_dispatch": before_dispatch} if image_input else {}),
                 **predict_kwargs,
             )
         except Exception:

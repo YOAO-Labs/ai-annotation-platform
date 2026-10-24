@@ -191,6 +191,7 @@ class RoutedMLBackendClient:
         context: dict | None = None,
         *,
         max_response_bytes: int | None = None,
+        before_dispatch: Callable[[Any], Awaitable[None]] | None = None,
     ) -> list[Any]:
         from app.services import trained_models
 
@@ -224,6 +225,8 @@ class RoutedMLBackendClient:
             {"required_instance_id": required_instance_id} if controlled else {}
         )
         async with self._routed_transport(**route_args) as client:
+            if before_dispatch is not None:
+                await before_dispatch(client)
             response_limit = (
                 {"max_response_bytes": max_response_bytes}
                 if max_response_bytes is not None

@@ -164,7 +164,7 @@ async def test_portable_mixed_prediction_stores_once_without_remapping_native_in
     )
     assert prediction.result[0]["instance_index"] == 7
     assert prediction.result[0]["geometry"] == shape["geometry"]
-    put.assert_awaited_once_with(FOREGROUND_RLE)
+    put.assert_awaited_once_with(FOREGROUND_RLE, db=db_session)
     assert await _count_for_task(db_session, Prediction, task.id) == 1
 
 

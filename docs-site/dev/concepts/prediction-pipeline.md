@@ -376,7 +376,7 @@ decision 内保留非授权的原图溯源，15 分钟候选 receipt 到期后�
 
 ### 托管图片的同步交互与原生掩码
 
-`managed_image_inference.ManagedImageOperation` 由同步输入上下文分派，复用原有业务授权、`prediction_originals` 的凭据／canonical 原件核验与 `PredictionInputs` v2。短事务固定 Task.version、批次、完整来源事实和原 JWT／API Key 后提交，再分配输入并用同一 purpose 持有来源及目标许可，完整核验一次图片、解码真实尺寸并上传准确版本。Mask 提示先冻结 Annotation 元数据，原图准备后再读取 RLE；业务锁不跨原图／提示对象读取或模型 HTTP。setup 后与派发前复核，响应末端沿调用者事务刷新 Batch／Task／来源与提示并调用 input `check_metadata`，不在最终锁下另开 guard session 或执行对象 I/O。
+`managed_image_inference.ManagedImageOperation` 由同步输入上下文分派，复用原有业务授权、`prediction_originals` 的凭据／canonical 原件核验与 `PredictionInputs` v2。短事务固定 Task.version、批次、完整来源事实和原 JWT／API Key 后提交，再分配输入并用同一 purpose 持有来源及目标许可，完整核验一次图片、解码真实尺寸并上传准确版本。Mask 提示先冻结 Annotation 元数据，原图准备后再读取 RLE；业务锁不跨原图／提示对象读取或模型 HTTP。setup 后复核，并在实际后端实例选中后通过 `before_dispatch` 再次核验、释放事务后发送原图 URL；响应末端沿调用者事务刷新 Batch／Task／来源与提示并调用 input `check_metadata`，不在最终锁下另开 guard session 或执行对象 I/O。
 
 候选与 logits 使用独立 `original_input` 小型严格身份，与 `reference_input` 互斥；只含内容、实际尺寸、位置修订和 canonical 事实摘要，不含私有 locator 或凭据。原生接受重新完整读取并确认关闭源句柄，随后取得最终权限／来源锁，以独立私有 receipt 绑定同 session、顶层事务、actor／Task、请求、Mask 摘要、可信尺寸及原凭据身份和期限。Prediction／Annotation／像素尺寸校验和提交前的最后检查显式传递并验证该 receipt，不能凭普通尺寸字典放行；Mask 对象写入期间过期或 JWT 被注销都会回滚业务结果。凭据复核沿当前事务与授权缓存执行，不另开会话；证据写 original_input。Decision 的内部来源身份供精确重放并在公开响应剥离，旧无来源证据不回填。
 
