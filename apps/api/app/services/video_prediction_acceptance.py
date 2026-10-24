@@ -552,10 +552,11 @@ async def _segment(db, task, actor, selection, prediction, indexes, *, lock=Fals
                 .where(DatasetItem.id == task.dataset_item_id)
                 .with_for_update(nowait=True)
             )
-        await db.execute(
-            select(VideoSegment.id)
+        await db.scalar(
+            select(VideoSegment)
             .where(VideoSegment.id == identifier)
             .with_for_update(read=True, nowait=True)
+            .execution_options(populate_existing=True)
         )
     await assert_video_annotation_write_scope(
         db, task=task, user=actor, segment_id=identifier, geometry=None

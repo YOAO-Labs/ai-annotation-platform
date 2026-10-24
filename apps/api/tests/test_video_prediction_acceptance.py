@@ -991,3 +991,41 @@ async def test_offline_rejection_has_current_write_auth_but_cannot_be_used_to_ac
             receipt,
             selection=accept.selection_value(),
         )
+
+
+async def test_final_segment_lock_refreshes_full_cached_assignee_and_lease(monkeypatch):
+    from app.services import video_collaboration
+
+    current = world()
+    segment_id = uuid.uuid4()
+    selection = accept.selection_value(0, video_segment_id=segment_id)
+    refreshed = []
+
+    async def scalar(statement):
+        sql = str(statement.compile(dialect=postgresql.dialect()))
+        assert (
+            "video_segments.assignee_id" in sql
+            and "video_segments.lock_expires_at" in sql
+        )
+        assert statement.get_execution_options()["populate_existing"] is True
+        assert "FOR SHARE NOWAIT" in sql
+        refreshed.append(True)
+        return SimpleNamespace(id=segment_id)
+
+    async def scope(*args, **kwargs):
+        assert refreshed
+
+    current.db.scalar, current.db.execute = scalar, AsyncMock()
+    monkeypatch.setattr(
+        video_collaboration, "assert_video_annotation_write_scope", scope
+    )
+    await accept._segment(
+        current.db,
+        current.task,
+        current.actor,
+        selection,
+        current.prediction,
+        [0],
+        lock=True,
+    )
+    assert refreshed == [True]
