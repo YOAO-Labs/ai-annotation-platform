@@ -626,7 +626,7 @@ API 可设 `NOTIFICATION_PUBLICATION_URL=http://notifications-publisher:8181`，
 
 普通通知仍由调用方提交后 best-effort 发布，终态 job 保留原提交前路径，durable publisher 保留 lease／重试／ack。WS 继续逐帧认证与当前投递权限检查，缺失行保留四次查询及三次 150ms 等待；公开消息合同不会收紧既有 WS gate。订阅被取消或退订失败时也会关闭 PubSub。
 
-Node peer `apps/notifications/conformance/node/realtime_event_provider.mjs --stdio` 校验 stdin 的单条事件／sync 并原字节回显，不读取连接凭据。真实本地 socket 案例 `tests/test_notifications_socket_live.py` 通过现有 module-data verifier 运行，要求独占临时 PostgreSQL／Redis，分别使用受限 API、认证角色和单频道订阅 ACL。它覆盖原始事件、Node 帧、历史 JSONB、提交可见性、撤权及断连／handler 取消；父线 8 项组合案例、实际权限及完整迁移已通过，新冷工件随下一次运行边界批量验收。源码检查、实际运行与整模块资格见[唯一台账](docs-site/dev/concepts/module-deployment.md#notification-realtime-wire)。
+Node peer `apps/notifications/conformance/node/realtime_event_provider.mjs --stdio` 校验 stdin 的单条事件／sync 并原字节回显，不读取连接凭据。真实本地 socket 案例 `tests/test_notifications_socket_live.py` 通过现有 module-data verifier 运行，要求独占临时 PostgreSQL／Redis，分别使用受限 API、认证角色和单频道订阅 ACL。它覆盖原始事件、Node 帧、历史 JSONB、提交可见性、撤权及断连／handler 取消；既有 8 项组合案例继续复用；当前冷工件、即时发布、受限 API Redis 及完整数据库恢复已通过一次限定本地组合验收，见[发布与恢复台账](docs-site/dev/concepts/module-deployment.md#notification-publication-owner)。源码检查、实际运行与整模块资格见[唯一台账](docs-site/dev/concepts/module-deployment.md#notification-realtime-wire)。
 
 ### 视频输入回收的保留前提
 
