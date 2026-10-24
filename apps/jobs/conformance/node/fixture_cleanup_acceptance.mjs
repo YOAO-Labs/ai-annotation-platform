@@ -109,7 +109,7 @@ async function liveAcceptance() {
         "pg_catalog.has_table_privilege(current_user,'public.async_jobs','UPDATE') AS can_update, " +
         "pg_catalog.has_table_privilege(current_user,'public.async_jobs','DELETE') AS can_delete",
     );
-    assert.deepEqual(Object.values(rights.rows[0]), [true, false, false, true, false]);
+    assert.deepEqual(Object.values(rights.rows[0]), [true, false, false, false, false]);
 
     phase = "inspect owner ABI and function grants";
     const catalog = await client.query(

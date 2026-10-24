@@ -30,11 +30,13 @@ may still use legacy initializers with their own private INSERT right.
 
 Legacy column edits and explicit timestamps require the corresponding private
 UPDATE plus primary-key SELECT. These checks resolve the actual PostgreSQL
-invoker, never a client JSON field. The API retains SELECT/UPDATE for consumers not yet migrated. Ordinary runtime
-profiles revoke private DELETE after the existing broad grants and reject
-inherited DELETE. Schema-owner fixture tools retain their own private rights.
-These two write-right closures do not complete Jobs credential closure or
-runtime recovery.
+invoker, never a client JSON field. The API retains SELECT for readers not yet migrated. Ordinary runtime profiles
+revoke private UPDATE (table and all current columns) and DELETE after broad
+grants, and reject inherited rights. Legacy column edits and timestamp overrides
+remain denied for ordinary roles; schema-owner fixture tools keep their own
+private rights. Production commands and payload/result projections retain the
+existing owner path. Closing write rights does not complete Jobs read credential
+closure or runtime recovery.
 
 ## Test project fixture cleanup
 
@@ -54,6 +56,23 @@ active. The E2E route keeps its earlier fixture gates, namespace/project selecti
 savepoint, and final commit; owner failures stop cleanup rather than skip Jobs.
 This capability cannot substitute for job-ID cleanup in schema-owner screenshot
 tools or for a production retention operation.
+
+## Filtering fixture outcomes
+
+`aap-jobs-filter-fixtures/v1` provides the fixed
+`aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)` capability. It updates
+the two original filtering fixture projections and returns native bigint `2`.
+The completed row receives status/progress/result; the failed row receives
+status/progress/error. Both retain all other fields, including null lifecycle
+timestamps and the failed result. Updates keep the mapper's ascending UUID
+order, original `UPDATE OF` masks and `updated_at=now()` behavior.
+
+Only actual `_test`/`_e2e` databases receive the runtime grant, and the definer
+checks the database name again. Null or duplicate IDs return `22023`; a missing
+row returns `P0002` and rolls back the entire function statement. The API keeps
+its preceding invitation flush, original final full flush, audit and commit
+order; it synchronizes the cached fields and expires `updated_at`. No general
+record-edit capability, runtime role or credential selector was added.
 
 ## Transactional row locks and refreshes
 

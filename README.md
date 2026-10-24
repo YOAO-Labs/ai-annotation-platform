@@ -417,7 +417,7 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 截图作业恢复／拒绝夹具从 Identity 公开事实读取账号 ID；偏好完整恢复使用仅限测试库的固定 Identity 写入能力。受限凭据与授权步骤见 `DEV.md`，整体状态仍以模块台账为准。
 
-门控 E2E 路由的账号、邀请及组织成员清理也通过 Identity 测试能力执行。可信测试运维凭据先应用普通 Identity 围栏，再显式追加夹具能力；普通 API 权限保持，安装步骤见 `DEV.md`。 Jobs 测试清理通过[固定项目范围能力](./docs-site/api/guides/module-data.md#jobs-测试项目清理)保留视频退役检查；普通运行账号不再直接删除 Jobs 私表。
+门控 E2E 路由的账号、邀请及组织成员清理也通过 Identity 测试能力执行。可信测试运维凭据先应用普通 Identity 围栏，再显式追加夹具能力；普通 API 权限保持，安装步骤见 `DEV.md`。 Jobs 测试清理通过[固定项目范围能力](./docs-site/api/guides/module-data.md#jobs-测试项目清理)保留视频退役检查；普通运行账号的 Jobs 私表 INSERT／UPDATE／DELETE 已撤销，筛选夹具通过固定的测试初始化能力保持原时间戳和事务语义。
 
 类别重命名已接入同一个配置 owner，在单一事务内组合项目绑定和 Labeling 类名写入；同名请求由独立提供方持锁完成投影。三路径、独立安装包、受限镜像、重启、恢复与完整迁移已通过限定本地验收，见 [类别改名 ADR](./docs/adr/0143-workspace-project-class-rename-owner.md)。
 

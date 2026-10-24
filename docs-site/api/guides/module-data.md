@@ -728,11 +728,26 @@ NULL／含 NULL 的范围及异常守卫回复为 `22023`，项目忙为 `55P03`
 `23514`。E2E 清理仍先验证开关、测试库和命名空间，保留原删除顺序及保存点；项目忙
 与未退役仍映射为 HTTP 409，Jobs 能力不可用或回包无效返回 503 并停止清理。
 
-LAN／worktree 普通角色在宽授权之后撤销私表 DELETE，并拒绝继承权限旁路；生产
-批次清理及终态保留清理继续使用既有 owner 函数。SELECT／UPDATE 及完整 Jobs
-凭据退出仍按[模块台账](/dev/concepts/module-deployment#剩余工作台账)推进。
+LAN／worktree 普通角色在宽授权之后撤销私表 INSERT／UPDATE／DELETE，清除列级
+INSERT／UPDATE 并拒绝继承旁路；生产批次清理及终态保留清理继续使用既有 owner 函数。
+普通生命周期命令和 payload／result 投影保持；显式兼容列／时间戳改写继续按实际
+invoker 权限拒绝。SELECT 及完整 Jobs 凭据退出仍按[模块台账](/dev/concepts/module-deployment#剩余工作台账)推进。
 截图等直接构造、修改和删除多领域夹具的脚本仍使用自有测试库的 schema-owner
 连接，不把该项目范围清理能力扩大成任意作业删除。
+
+## Jobs 筛选夹具初始化
+
+`aap-jobs-filter-fixtures/v1` 的固定
+`aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)` 接收 completed／failed 两条
+夹具作业 ID，返回原生 `bigint` 2。它只执行原筛选夹具的两组字段投影，保留开始／完成
+时间、失败行 result、其他字段及调用方事务；更新顺序、UPDATE OF 触发字段和默认
+更新时间与原 ORM 相同。调用方同步原缓存字段并让 updated_at 过期，原 invitation
+flush、最后完整 flush、审计及提交顺序保持。
+
+函数仅向实际测试库普通账号授权，内部再次验证 `_test`／`_e2e` 库名。空或相同 ID
+为 `22023`，缺失行是 `P0002`，后者回滚整个函数语句；非测试库为 `42501`。
+普通运行账号无私表表级／列级 UPDATE，生产更新继续通过既有生命周期能力完成。
+该函数限定筛选夹具，截图等多领域 owner 工具继续使用原自有测试库连接。
 
 ## Jobs 列表查询
 

@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import delete, inspect as sa_inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models.async_job import AsyncJob
 from app.services import async_job as jobs
@@ -71,7 +71,6 @@ def _new_pair() -> tuple[AsyncJob, AsyncJob]:
             progress_pct=0,
             payload={"fixture": "completed", "preserve": True},
             result={},
-            updated_at=_OLD_TIMESTAMP,
             created_at=_OLD_TIMESTAMP,
         ),
         AsyncJob(
@@ -80,8 +79,7 @@ def _new_pair() -> tuple[AsyncJob, AsyncJob]:
             status="pending",
             progress_pct=0,
             payload={"fixture": "failed", "preserve": True},
-            result=_FAILED_RESULT,
-            updated_at=_OLD_TIMESTAMP,
+            result={},
             created_at=_OLD_TIMESTAMP,
         ),
     )
@@ -240,7 +238,9 @@ async def _run_node_acceptance(test_engine, completed_id, failed_id):
     environment = os.environ.copy()
     environment.update(
         {
-            "JOBS_FILTER_FIXTURE_DATABASE_URL": str(url),
+            "JOBS_FILTER_FIXTURE_DATABASE_URL": url.render_as_string(
+                hide_password=False
+            ),
             "JOBS_FILTER_FIXTURE_EXPECTED_ROLE": _ROLE,
             "JOBS_FILTER_FIXTURE_EXPECTED_DATABASE": test_engine.url.database,
             "JOBS_FILTER_FIXTURE_EXPECTED_HOST": test_engine.url.host,
@@ -281,6 +281,10 @@ async def test_filter_fixture_updates_through_real_login_and_node_contract(
         await _assert_contract(test_engine, runtime)
         async with owner_sessions() as setup:
             setup.add_all([completed, failed])
+            await setup.flush()
+            completed.updated_at = _OLD_TIMESTAMP
+            failed.result = _FAILED_RESULT
+            failed.updated_at = _OLD_TIMESTAMP
             await setup.commit()
 
         async with api_sessions() as api:
@@ -290,6 +294,7 @@ async def test_filter_fixture_updates_through_real_login_and_node_contract(
             _assert_initial(cached_failed, _FAILED_RESULT)
 
             await _assert_failure(api, None, failed.id, "22023")
+            await _assert_failure(api, completed.id, None, "22023")
             await _assert_failure(api, completed.id, completed.id, "22023")
             missing_id = uuid.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff")
             await _assert_failure(api, completed.id, missing_id, "P0002")
@@ -339,15 +344,45 @@ async def test_filter_fixture_updates_through_real_login_and_node_contract(
                 completed.id,
             )
 
+            for field, value in (("status", "failed"), ("updated_at", _OLD_TIMESTAMP)):
+                legacy = await _read_job(api, completed.id)
+                with pytest.raises(DBAPIError) as denied:
+                    async with api.begin_nested():
+                        setattr(legacy, field, value)
+                        await api.flush()
+                assert _sqlstate(denied.value) == "42501"
+                _assert_outcomes(
+                    await _read_job(api, completed.id), await _read_job(api, failed.id)
+                )
+
             ordinary_job = await jobs.create_job(api, kind="audit_archive")
             lifecycle_id = ordinary_job.id
-            await jobs.update_progress(api, ordinary_job.id, 9)
+            await jobs.mark_running(
+                api, ordinary_job.id, celery_task_id="ordinary-update-probe"
+            )
+            await jobs.update_progress(
+                api,
+                ordinary_job.id,
+                9,
+                result={"value": 1},
+                extra_payload={"probe": True},
+            )
             await api.flush()
             assert ordinary_job.progress_pct == 9
             assert "updated_at" in sa_inspect(ordinary_job).expired_attributes
             persisted = await _read_job(api, ordinary_job.id)
             assert persisted is ordinary_job
-            assert persisted.status == "pending" and persisted.progress_pct == 9
+            assert persisted.status == "running" and persisted.progress_pct == 9
+            assert (
+                persisted.result == {"value": 1} and persisted.payload["probe"] is True
+            )
+            assert persisted.started_at is not None
+            await jobs.mark_complete(api, ordinary_job.id, result={"done": True})
+            await api.flush()
+            assert (
+                ordinary_job.status == "completed"
+                and ordinary_job.completed_at is not None
+            )
             await api.commit()
     finally:
         await runtime.dispose()
@@ -355,3 +390,97 @@ async def test_filter_fixture_updates_through_real_login_and_node_contract(
             cleanup_ids = ids + ([lifecycle_id] if lifecycle_id is not None else [])
             await cleanup.execute(delete(AsyncJob).where(AsyncJob.id.in_(cleanup_ids)))
             await cleanup.commit()
+
+
+async def test_filter_fixture_preserves_original_mapper_update_masks_and_order(
+    test_engine,
+):
+    from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+
+    _verify_postgres(test_engine.url)
+    completed, failed = _new_pair()
+    completed_id, failed_id = completed.id, failed.id
+    suffix = uuid.uuid4().hex[:12]
+    probe = "jobs_fixture_mask_" + suffix
+    columns = (
+        "status",
+        "progress_pct",
+        "result",
+        "error_message",
+        "updated_at",
+        "started_at",
+        "completed_at",
+    )
+    async with test_engine.connect() as connection:
+        transaction = await connection.begin()
+        try:
+            async with AsyncSession(
+                bind=connection,
+                expire_on_commit=False,
+                join_transaction_mode="create_savepoint",
+            ) as session:
+                session.add_all([completed, failed])
+                await session.flush()
+                await session.execute(
+                    text(
+                        f"CREATE TEMP TABLE {probe} (seq bigint GENERATED ALWAYS AS IDENTITY, job_id uuid, field text) ON COMMIT DROP"
+                    )
+                )
+                await session.execute(
+                    text(f"""
+                    CREATE FUNCTION public.{probe}() RETURNS trigger
+                    LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp
+                    AS $capture$ BEGIN
+                        INSERT INTO pg_temp.{probe}(job_id,field) VALUES(NEW.id,TG_ARGV[0]);
+                        RETURN NEW;
+                    END $capture$
+                """)
+                )
+                await session.execute(
+                    text(f"REVOKE ALL ON FUNCTION public.{probe}() FROM PUBLIC")
+                )
+                for field in columns:
+                    await session.execute(
+                        text(
+                            f"CREATE TRIGGER {probe}_{field} AFTER UPDATE OF {field} "
+                            f"ON public.async_jobs FOR EACH ROW EXECUTE FUNCTION public.{probe}('{field}')"
+                        )
+                    )
+                savepoint = await session.begin_nested()
+                completed.status = "completed"
+                completed.progress_pct = 100
+                completed.result = {"success_count": 2}
+                failed.status = "failed"
+                failed.progress_pct = 40
+                failed.error_message = "fixture failure"
+                await session.flush()
+                query = text(f"SELECT job_id,field FROM pg_temp.{probe} ORDER BY seq")
+                baseline = (await session.execute(query)).all()
+                await savepoint.rollback()
+                await session.execute(text("SET LOCAL ROLE identity_api_consumer"))
+                assert await session.scalar(text("SELECT current_user::text")) == _ROLE
+                assert await _call(session, completed_id, failed_id) == 2
+                await session.execute(text("RESET ROLE"))
+                observed = (await session.execute(query)).all()
+                assert observed == baseline
+                assert [row[0] for row in observed] == [failed_id] * 4 + [
+                    completed_id
+                ] * 4
+                by_job = {
+                    job_id: {field for row_id, field in observed if row_id == job_id}
+                    for job_id in (completed_id, failed_id)
+                }
+                assert by_job[completed_id] == {
+                    "status",
+                    "progress_pct",
+                    "result",
+                    "updated_at",
+                }
+                assert by_job[failed_id] == {
+                    "status",
+                    "progress_pct",
+                    "error_message",
+                    "updated_at",
+                }
+        finally:
+            await transaction.rollback()

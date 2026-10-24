@@ -233,12 +233,14 @@ async def _run():
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from aap_jobs.domain_query_contract import JOBS_DOMAIN_QUERY_PROTOCOL
     from aap_jobs.fixture_cleanup_contract import JOBS_FIXTURE_CLEANUP_PROTOCOL
+    from aap_jobs.fixture_filter_contract import JOBS_FILTER_FIXTURE_PROTOCOL
     from aap_jobs.lifecycle_contract import JOBS_LIFECYCLE_PROTOCOL
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
     from aap_jobs.row_lock_contract import JOBS_ROW_LOCK_PROTOCOL
     from app.config import settings
     from app.services.jobs_lifecycle_data import job_lock_statement
     from app.services import async_job as async_job_svc
+    from app.api.v1._test_seed_filters import _set_filter_fixture_job_outcomes
 
     job_id = uuid.UUID(sys.argv[1])
     expected_database = sys.argv[2]
@@ -348,6 +350,59 @@ async def _run():
                     raise
             else:
                 raise RuntimeError("private_insert_allowed")
+            update_privileges = (await db.execute(text(
+                "SELECT pg_catalog.has_table_privilege(current_user,"
+                "'public.async_jobs','UPDATE'), "
+                "pg_catalog.has_any_column_privilege(current_user,"
+                "'public.async_jobs','UPDATE')"
+            ))).one()
+            if tuple(update_privileges) != (False, False):
+                raise RuntimeError("private_update_privileges")
+            await async_job_svc.update_progress(
+                db, job_id, 37, result={"probe": "owner-update"},
+                extra_payload={"owner_update_probe": True},
+            )
+            await db.flush()
+            lifecycle_updated = (
+                row.progress_pct == 37 and row.result == {"probe": "owner-update"}
+                and row.payload.get("owner_update_probe") is True
+                and "updated_at" in inspect(row).expired_attributes
+            )
+            if not lifecycle_updated:
+                raise RuntimeError("owner_update_shape")
+            try:
+                async with db.begin_nested():
+                    await db.execute(text(
+                        "UPDATE public.async_jobs SET status=status WHERE false"
+                    ))
+            except Exception as error:
+                private_update_sqlstate = _sqlstate(error)
+                if private_update_sqlstate != "42501":
+                    raise
+            else:
+                raise RuntimeError("private_update_allowed")
+            completed_fixture = await async_job_svc.create_job(
+                db, kind="batch_predict", user_id=actor_id, project_id=row.project_id,
+            )
+            failed_fixture = await async_job_svc.create_job(
+                db, kind="export", user_id=actor_id, project_id=row.project_id,
+            )
+            await _set_filter_fixture_job_outcomes(db, completed_fixture, failed_fixture)
+            await db.flush()
+            fixed_fixture_outcomes = (
+                completed_fixture.status == "completed"
+                and completed_fixture.progress_pct == 100
+                and completed_fixture.result == {"success_count": 2}
+                and failed_fixture.status == "failed"
+                and failed_fixture.progress_pct == 40
+                and failed_fixture.error_message == "fixture failure"
+                and completed_fixture.started_at is None
+                and completed_fixture.completed_at is None
+                and failed_fixture.started_at is None
+                and failed_fixture.completed_at is None
+            )
+            if not fixed_fixture_outcomes:
+                raise RuntimeError("fixed_fixture_outcomes")
             private_delete = await db.scalar(text(
                 "SELECT pg_catalog.has_table_privilege(current_user,"
                 "'public.async_jobs','DELETE')"
@@ -381,6 +436,14 @@ async def _run():
                 "owner_delete": True,
                 "pending_row_removed": True,
                 "completed_row_restored": True,
+                "caller_rollback": True,
+            }
+            fixture_update_acl = {
+                "private_table_update": update_privileges[0],
+                "private_column_update": update_privileges[1],
+                "private_update_sqlstate": private_update_sqlstate,
+                "lifecycle_projection_and_expiry": lifecycle_updated,
+                "fixed_fixture_outcomes": fixed_fixture_outcomes,
                 "caller_rollback": True,
             }
             creation_acl = {
@@ -430,6 +493,7 @@ async def _run():
             "protocols": [
                 JOBS_LIFECYCLE_PROTOCOL, JOBS_ROW_LOCK_PROTOCOL, JOBS_DOMAIN_QUERY_PROTOCOL,
                 JOBS_FIXTURE_CLEANUP_PROTOCOL,
+                JOBS_FILTER_FIXTURE_PROTOCOL,
             ],
             "role_match": True,
             "database_match": True,
@@ -438,6 +502,7 @@ async def _run():
             "domain_subject_matches": domain_subject_matches,
             "creation_acl": creation_acl,
             "fixture_delete_acl": fixture_delete_acl,
+            "fixture_update_acl": fixture_update_acl,
             "private_table_from": private_table_from,
             "partial_refresh": partial_refresh,
             "same_orm_identity": same_identity,
@@ -506,6 +571,7 @@ def _assert_api_row_access_probe(
         "aap-jobs-row-locks/v1",
         "aap-jobs-domain-queries/v1",
         "aap-jobs-fixture-cleanup/v1",
+        "aap-jobs-filter-fixtures/v1",
     ]
     assert evidence["role_match"] is True
     assert evidence["database_match"] is True
@@ -536,6 +602,14 @@ def _assert_api_row_access_probe(
         "owner_delete": True,
         "pending_row_removed": True,
         "completed_row_restored": True,
+        "caller_rollback": True,
+    }
+    assert evidence["fixture_update_acl"] == {
+        "private_table_update": False,
+        "private_column_update": False,
+        "private_update_sqlstate": "42501",
+        "lifecycle_projection_and_expiry": True,
+        "fixed_fixture_outcomes": True,
         "caller_rollback": True,
     }
     assert evidence["private_table_from"] == 0

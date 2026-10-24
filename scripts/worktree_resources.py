@@ -213,6 +213,35 @@ BEGIN
 END
 $jobs_delete_acl$;
 """
+_JOBS_UPDATE_RUNTIME_ACL = """
+DO $jobs_update_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_columns text;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_class
+        WHERE oid = 'public.async_jobs'::regclass
+          AND pg_catalog.pg_has_role(v_runtime, relowner, 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'The runtime role must not own or inherit Jobs update authority';
+    END IF;
+    EXECUTE format('REVOKE UPDATE ON TABLE public.async_jobs FROM %I, PUBLIC', v_runtime);
+    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum)
+    INTO v_columns FROM pg_catalog.pg_attribute
+    WHERE attrelid = 'public.async_jobs'::regclass
+      AND attnum > 0 AND NOT attisdropped;
+    IF v_columns IS NOT NULL THEN
+        EXECUTE format('REVOKE UPDATE (%s) ON TABLE public.async_jobs FROM %I, PUBLIC',
+                       v_columns, v_runtime);
+    END IF;
+    IF pg_catalog.has_table_privilege(v_runtime, 'public.async_jobs', 'UPDATE')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.async_jobs', 'UPDATE') THEN
+        RAISE EXCEPTION 'The runtime role still has effective private Jobs UPDATE privileges';
+    END IF;
+END
+$jobs_update_acl$;
+"""
 _IDENTITY_PRIVATE_RUNTIME_ACL = """
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
@@ -997,6 +1026,8 @@ class LocalResources:
             fixture_grants = (
                 "REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) "
                 f"FROM {role}, PUBLIC",
+                "REVOKE ALL ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) "
+                f"FROM {role}, PUBLIC",
             )
             if self.resources["database"].lower().endswith(("_test", "_e2e")):
                 identity_capabilities += (
@@ -1009,6 +1040,8 @@ class LocalResources:
                     "aap_identity_fixture_v1.delete_organization_members(uuid[])",
                 )
                 fixture_grants += (
+                    "GRANT EXECUTE ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) "
+                    f"TO {role}",
                     "GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) "
                     f"TO {role}",
                     f"GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO {role}",
@@ -1369,6 +1402,7 @@ class LocalResources:
                     )
                 await connection.exec_driver_sql(_JOBS_CREATION_RUNTIME_ACL)
                 await connection.exec_driver_sql(_JOBS_DELETE_RUNTIME_ACL)
+                await connection.exec_driver_sql(_JOBS_UPDATE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
                 notification_result = await connection.execute(
                     text(

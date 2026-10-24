@@ -81,7 +81,7 @@ async def _assert_jobs_creation_privileges(engine) -> None:
             True,
             False,
             False,
-            True,
+            False,
             False,
             True,
             True,
@@ -250,7 +250,7 @@ async def test_lan_jobs_creation_facade_view_and_video_summary_preserve_transact
         await runtime.dispose()
 
 
-@pytest.mark.parametrize("privilege", ["INSERT", "DELETE"])
+@pytest.mark.parametrize("privilege", ["INSERT", "DELETE", "UPDATE"])
 async def test_lan_jobs_grants_reject_inherited_private_insert_and_restore_cleanly(
     test_engine,
     privilege,
@@ -364,6 +364,9 @@ async def test_local_runtime_reapplication_clears_async_job_column_insert(
                 await connection.exec_driver_sql(
                     f"GRANT DELETE ON TABLE public.async_jobs TO {grant_target}"
                 )
+                await connection.exec_driver_sql(
+                    f"GRANT UPDATE (status) ON TABLE public.async_jobs TO {grant_target}"
+                )
             async with runtime_engine.connect() as connection:
                 assert await connection.scalar(text("SELECT current_user")) == role
                 assert await connection.scalar(text("SELECT session_user")) == role
@@ -380,6 +383,13 @@ async def test_local_runtime_reapplication_clears_async_job_column_insert(
                     )
                 )
 
+            async with runtime_engine.connect() as connection:
+                assert await connection.scalar(
+                    text(
+                        "SELECT pg_catalog.has_any_column_privilege(current_user,"
+                        "'public.async_jobs','UPDATE')"
+                    )
+                )
             await backend.grant_runtime()
             async with runtime_engine.connect() as connection:
                 assert await connection.scalar(text("SELECT current_user")) == role
@@ -400,6 +410,14 @@ async def test_local_runtime_reapplication_clears_async_job_column_insert(
                     text(
                         "SELECT pg_catalog.has_table_privilege(current_user,"
                         "'public.async_jobs','DELETE')"
+                    )
+                )
+                assert not await connection.scalar(
+                    text(
+                        "SELECT pg_catalog.has_table_privilege(current_user,"
+                        "'public.async_jobs','UPDATE') OR "
+                        "pg_catalog.has_any_column_privilege(current_user,"
+                        "'public.async_jobs','UPDATE')"
                     )
                 )
                 assert await connection.scalar(
@@ -423,6 +441,9 @@ async def test_local_runtime_reapplication_clears_async_job_column_insert(
             )
             await connection.exec_driver_sql(
                 "REVOKE DELETE ON TABLE public.async_jobs FROM PUBLIC"
+            )
+            await connection.exec_driver_sql(
+                "REVOKE UPDATE (status) ON TABLE public.async_jobs FROM PUBLIC"
             )
         if await _role_row(test_engine, role) is not None:
             async with test_engine.begin() as connection:

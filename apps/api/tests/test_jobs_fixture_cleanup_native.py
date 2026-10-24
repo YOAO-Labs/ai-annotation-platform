@@ -265,7 +265,7 @@ async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_
                     True,
                     False,
                     False,
-                    True,
+                    False,
                     False,
                 )
 
@@ -519,8 +519,27 @@ async def test_fixture_cleanup_rejects_unretired_video_without_changing_rows(
     )
 
 
+@pytest.mark.parametrize(
+    "artifact,call,parameters,message",
+    [
+        pytest.param(
+            "0330_jobs_fixture_cleanup.sql",
+            _CALL,
+            {"ids": []},
+            "Jobs fixture cleanup requires a test database",
+            id="cleanup",
+        ),
+        pytest.param(
+            "0331_jobs_filter_fixtures.sql",
+            "SELECT aap_jobs_v1.set_filter_fixture_job_outcomes(CAST(:complete AS uuid),CAST(:failed AS uuid))",
+            {"complete": uuid.uuid4(), "failed": uuid.uuid4()},
+            "Jobs fixture initialization requires a test database",
+            id="filter-outcomes",
+        ),
+    ],
+)
 async def test_fixture_cleanup_frozen_function_rejects_actual_non_test_database(
-    test_engine, record_property
+    test_engine, record_property, artifact, call, parameters, message
 ):
     _verify_postgres(test_engine.url)
     name = "aap_jobs_guard_" + uuid.uuid4().hex[:12] + "_dev"
@@ -547,19 +566,15 @@ async def test_fixture_cleanup_frozen_function_rejects_actual_non_test_database(
         async with probe.begin() as db:
             assert await db.scalar(text("SELECT current_database()")) == name
             await db.execute(text("CREATE SCHEMA aap_jobs_v1"))
-            sql = (
-                ROOT / "apps/api/alembic/sql/0330_jobs_fixture_cleanup.sql"
-            ).read_text()
+            sql = (ROOT / "apps/api/alembic/sql" / artifact).read_text()
             for statement in sql.split("-- aap-statement-break"):
                 if statement.strip():
                     await db.exec_driver_sql(statement.strip())
         async with probe.begin() as db:
             with pytest.raises(DBAPIError) as rejected:
-                await db.scalar(text(_CALL), {"ids": []})
+                await db.scalar(text(call), parameters)
             assert _sqlstate(rejected.value) == "42501"
-            assert "Jobs fixture cleanup requires a test database" in str(
-                rejected.value.orig
-            )
+            assert message in str(rejected.value.orig)
         record_property(
             "jobs_fixture_cleanup_actual_non_test_database",
             {

@@ -152,6 +152,7 @@ def _row_access_probe_evidence(**changes):
             "aap-jobs-row-locks/v1",
             "aap-jobs-domain-queries/v1",
             "aap-jobs-fixture-cleanup/v1",
+            "aap-jobs-filter-fixtures/v1",
         ],
         "role_match": True,
         "database_match": True,
@@ -182,6 +183,14 @@ def _row_access_probe_evidence(**changes):
             "owner_delete": True,
             "pending_row_removed": True,
             "completed_row_restored": True,
+            "caller_rollback": True,
+        },
+        "fixture_update_acl": {
+            "private_table_update": False,
+            "private_column_update": False,
+            "private_update_sqlstate": "42501",
+            "lifecycle_projection_and_expiry": True,
+            "fixed_fixture_outcomes": True,
             "caller_rollback": True,
         },
         "private_table_from": 0,
@@ -285,4 +294,16 @@ def test_api_row_access_probe_rejects_missing_delete_boundary_evidence(field, va
     with pytest.raises(AssertionError):
         _assert_api_row_access_probe(
             stack, job_id=uuid.uuid4(), database="restored_test"
+        )
+
+
+@pytest.mark.parametrize("field", ["private_table_update", "private_column_update"])
+def test_api_row_access_probe_rejects_private_job_update_privileges(field):
+    evidence = _row_access_probe_evidence()
+    evidence["fixture_update_acl"][field] = True
+    with pytest.raises(AssertionError):
+        _assert_api_row_access_probe(
+            _RowAccessProbeStack(evidence),
+            job_id=uuid.uuid4(),
+            database="restored_test",
         )

@@ -72,6 +72,7 @@ last_reviewed: 2026-10-24
 | Jobs：项目／批次／所选任务导出派发                  | 复用既有私网队列合同、原 kwargs 与 export 路由                                                | 三个标注导出入口已迁移，保留提交／审计／执行 ID 绑定和失败差异                                             | [导出派发](#jobs-export-dispatch)：33 项纯检查、39 项 PostgreSQL／API 用例与当前冷组合通过，含六个真实包下载和完整恢复                            | 仅迁移派发，不扩大数据集／存储；没有新 options、canvas、取消或自动交接保证，完整 Jobs 继续跟踪                                                                                                                                                                                                                                                                   |
 | Jobs：普通运行创建权限                              | LAN／worktree 撤销表与列 INSERT，拒绝继承旁路，保留既有创建 view／视频摘要                    | 两处终态筛选种子改为 pending 创建后同事务投影，原字段／审计保持                                            | [创建权限](#jobs-creation-credentials)：7 项数据库／普通账号／CLI 用例、27 项纯检查及 24 子检查通过；当前安装 API 创建／回滚和完整恢复通过        | 私表 SELECT／UPDATE 和其他 Jobs 操作仍待收口；DELETE 按下一行单独验收，不新增 owner 凭据或改动暂缓领域                                                                                                                                                                                                                                                           |
 | Jobs：普通运行删除权限                              | 测试库限定的固定项目清理能力保留 Workspace 退役守卫；LAN／worktree 在宽授权后撤销 DELETE      | 原 E2E 删除位置迁移，命名空间、保存点、提交与 409 保持；不可用返回 503 停止清理                            | [删除权限](#jobs-delete-credentials)：20 项不同原生案例、62 项纯检查及 24 子检查通过；当前冷工件／完整恢复通过                                    | 私表 SELECT／UPDATE、其余 producer 与恢复仍未闭合；截图多领域夹具继续使用自有测试库 owner，不扩大暂缓领域                                                                                                                                                                                                                                                        |
+| Jobs：普通运行更新权限                              | LAN／worktree 清除表／列 UPDATE 并拒绝继承旁路，保留既有生命周期与 invoker 校验               | 两条筛选夹具通过固定测试能力迁移，原字段、空时间戳、缓存及事务保持                                         | [更新权限](#jobs-update-credentials)：20 项原生案例、62 项纯检查及 24 子检查通过；当前冷工件待验收                                                | 私表 SELECT、其余 producer／消息形状和领域恢复仍开放；不改暂缓的训练／资产实现                                                                                                                                                                                                                                                                                   |
 | Audit：同事务业务事件追加                           | 既有 typed owner 保留；通用追加独立包、版本化合同与固定 SQL 已实现                            | AuditService 与普通追加构造器已迁移；保留 caller 提交／回滚、快照和 ORM 缓存，无追加后私表回读             | [追加 owner](#audit-append-owner)：12 项 PG、20 项纯检查及受限临时 owner／Node 通过；完整追加授权与 Node 已在独占 PostgreSQL 验收                 | 当前 LAN 分区树仍归 API，严格配置会拒绝该布局；维护所有权、未来分区权限及组合工件待收口，本组不代表完整 Audit                                                                                                                                                                                                                                                    |
 | Audit：HTTP 请求元数据                              | 响应后 Celery 与同步回退使用相同追加 owner；超长 request ID 仅在此元数据中省略                | middleware／worker 保留原响应、短 ID、取消及孤儿 actor 匿名重试                                            | [元数据边界](#audit-http-metadata)：11 项聚焦检查；既有三次真实 Celery 资格单列，不叠加                                                           | broker 不可用、重复／丢失、提交结果不明和恢复仍需真实验收；业务审计 request ID 的独立边界尚未修复                                                                                                                                                                                                                                                                |
 | Audit：查询、筛选与导出                             | 全局列表／导出使用固定查询 owner；项目范围通过公开事件关系组合                                | super-admin 全局与 project-admin 范围已迁移，保留筛选、游标、总数和导出顺序                                | [全局查询](#audit-global-query-owner)资格保持；[读取组合](#support-read-relations)补充项目隔离及合法复合行键原生回归                              | 剩余读取、冷进程真实消费及完整模块继续验收；不得提前撤销所有 Audit 私表 SELECT                                                                                                                                                                                                                                                                                   |
@@ -2063,6 +2064,24 @@ SHA-256 为 `eb9c2e6b2b86dc633e7177976b6327531dbfb33a5deb082bd805331093776944`�
 本组关闭普通 DELETE 与限定冷工件／恢复边界；完整 Jobs、SELECT／UPDATE、其他
 消息形状／领域恢复、主工作树／日常拓扑采用、生产容量和替代语言 provider 继续跟踪。
 训练与资产实现扩展继续暂缓。
+
+## Jobs 普通运行更新权限 {#jobs-update-credentials}
+
+普通 LAN／worktree 账号在宽授权后清除自身及 PUBLIC 的 Jobs 表级和全部当前列级
+UPDATE，并拒绝继承／owner 旁路。原生命周期命令、payload／result 投影及批量 owner
+更新保持；旧兼容列与显式时间戳覆写仍按原 invoker 检查拒绝。只读审计确认生产更新
+已走 owner，SQLAlchemy bulk update 只用于缓存同步；实际阻塞是两条筛选夹具赋值。
+
+固定 `aap-jobs-filter-fixtures/v1` 能力承接这两条原始字段投影，按 UUID 顺序写入，
+保留 UPDATE OF 字段、默认更新时间、空 started_at／completed_at 和失败 result。
+API 保留 invitation flush、最后完整 flush、审计和提交点，同步原缓存并过期更新时间。
+测试库名称、参数和固定返回计数都校验；缺失行使整个函数语句回滚。没有新增服务、
+运行角色、选择器、通用字段写入或训练／资产实现。
+
+两个隔离子任务分别完成 caller 与原生／Node 验收。父线复核在执行前修正新夹具的
+创建 view 初始值、Node 凭据序列化和行数组断言，并补实际触发字段／更新顺序对照。
+20 项原生用例首次全部通过，62 项纯检查及 24 子检查、Node 合同自检通过。
+当前工件及完整恢复正在验收；完整 Jobs、剩余读取／消息形状和主环境采用继续跟踪。
 
 ## Notifications 即时发布与模块组合 {#notification-publication-owner}
 

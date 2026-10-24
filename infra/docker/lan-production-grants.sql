@@ -230,6 +230,33 @@ BEGIN
     END IF;
 END
 $jobs_delete_acl$;
+DO $jobs_update_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_columns text;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_class
+        WHERE oid = 'public.async_jobs'::regclass
+          AND pg_catalog.pg_has_role(v_runtime, relowner, 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'The runtime role must not own or inherit Jobs update authority';
+    END IF;
+    EXECUTE format('REVOKE UPDATE ON TABLE public.async_jobs FROM %I, PUBLIC', v_runtime);
+    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum)
+    INTO v_columns FROM pg_catalog.pg_attribute
+    WHERE attrelid = 'public.async_jobs'::regclass
+      AND attnum > 0 AND NOT attisdropped;
+    IF v_columns IS NOT NULL THEN
+        EXECUTE format('REVOKE UPDATE (%s) ON TABLE public.async_jobs FROM %I, PUBLIC',
+                       v_columns, v_runtime);
+    END IF;
+    IF pg_catalog.has_table_privilege(v_runtime, 'public.async_jobs', 'UPDATE')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.async_jobs', 'UPDATE') THEN
+        RAISE EXCEPTION 'The runtime role still has effective private Jobs UPDATE privileges';
+    END IF;
+END
+$jobs_update_acl$;
 REVOKE ALL ON FUNCTION aap_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[]),
     aap_jobs_v1._jobs_lifecycle_is_truthy(jsonb),
     aap_jobs_v1._jobs_lifecycle_integer(jsonb) FROM :"application_role", PUBLIC;
@@ -245,9 +272,13 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb
 
 REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[])
     FROM :"application_role", PUBLIC;
+REVOKE ALL ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)
+    FROM :"application_role", PUBLIC;
 SELECT right(lower(current_database()),5)='_test' OR right(lower(current_database()),4)='_e2e'
     AS identity_e2e_fixture_database \gset
 \if :identity_e2e_fixture_database
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)
+    TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[])
     TO :"application_role";
 GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO :"application_role";

@@ -3328,6 +3328,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.async_jobs TO :"jobs_owner";
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
 ALTER VIEW aap_jobs_v1.async_job_creation OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.read_job(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.read_job_for_update(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.read_job_for_share_nowait(uuid) OWNER TO :"jobs_owner";

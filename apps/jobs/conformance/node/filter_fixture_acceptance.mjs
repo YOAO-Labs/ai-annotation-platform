@@ -88,13 +88,9 @@ async function selfCheck() {
   return schema;
 }
 
-function assertRows(result) {
-  assert.deepEqual(
-    result.fields.map((field) => field.name),
-    columns,
-  );
-  assert.equal(result.rows.length, 2);
-  return result.rows;
+function assertRows(rows) {
+  assert.equal(rows.length, 2);
+  return rows;
 }
 
 function assertInitial(rows, completedId, failedId) {

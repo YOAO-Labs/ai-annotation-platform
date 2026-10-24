@@ -46,5 +46,8 @@ packages = ["src/aap_jobs"]
 "src/aap_jobs/fixture_cleanup.schema.json" = "aap_jobs/fixture_cleanup.schema.json"
 "src/aap_jobs/sql/0330_jobs_fixture_cleanup.sql" = "aap_jobs/sql/0330_jobs_fixture_cleanup.sql"
 
+"src/aap_jobs/fixture_filter.schema.json" = "aap_jobs/fixture_filter.schema.json"
+"src/aap_jobs/sql/0331_jobs_filter_fixtures.sql" = "aap_jobs/sql/0331_jobs_filter_fixtures.sql"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

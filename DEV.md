@@ -1881,7 +1881,7 @@ nuScenes 缓存需包含地图、元数据和关键帧传感器文件；初始�
 
 截图夹具准备、恢复和清理脚本会直接构造、更新及删除多领域测试行，
 `SCREENSHOT_DATABASE_URL` 必须指向自有一次性截图库的 schema-owner 连接。
-普通 API runtime 账号已撤销 Jobs 私表 INSERT／DELETE，不能用于这些脚本；
+普通 API runtime 账号已撤销 Jobs 私表 INSERT／UPDATE／DELETE，不能用于这些脚本；
 截图 API／worker 的普通运行连接仍按既有授权装配。不要使用日常开发库或生产库。
 
 ```bash
