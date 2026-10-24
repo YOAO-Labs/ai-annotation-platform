@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import base64
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import httpx
 
 from aap_jobs.queue_contract import load_queue_configuration
 from app.schemas.video_tracker_job import VideoTrackerPropagateRequest
 from tests.jobs_video_tracker_module_helpers import (
     _VIDEO_TRACKER_TASK_NAME,
+    _OwnedPeerLoopbackTransport,
     _assert_tracker_envelope,
     _tracker_request,
     _unpack_tracker_envelope,
@@ -87,3 +91,39 @@ async def test_tracker_delivery_fixture_checks_cancellation_type(
             )
         ack.assert_not_awaited()
         failure_ack.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_restore_operator_transport_reaches_only_its_owned_peer():
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"owned tracker control peer")
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        origin = f"http://127.0.0.1:{server.server_port}"
+        async with httpx.AsyncClient(
+            transport=_OwnedPeerLoopbackTransport(origin), trust_env=False, timeout=2
+        ) as client:
+            reply = await client.get(
+                f"http://host.docker.internal:{server.server_port}/"
+            )
+            assert reply.status_code == 200
+            assert reply.content == b"owned tracker control peer"
+            for unsafe in (
+                f"http://unowned.invalid:{server.server_port}/",
+                "http://host.docker.internal:1/",
+            ):
+                with pytest.raises(AssertionError):
+                    await client.get(unsafe)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

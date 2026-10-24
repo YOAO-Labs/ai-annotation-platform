@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from datetime import datetime, timezone
 from hashlib import sha256
+import json
 import os
 from pathlib import Path
 import secrets
@@ -20,6 +21,24 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from tests.identity_module_assembly_helpers import IdentityModuleStack
 
 _VIDEO_TRACKER_TASK_NAME = "app.workers.video_tracker.run_video_tracker_job"
+
+
+class _OwnedPeerLoopbackTransport(httpx.AsyncHTTPTransport):
+    """Resolve the container alias to the same owned peer from the host operator."""
+
+    def __init__(self, origin: str):
+        parsed = urlsplit(origin)
+        assert parsed.scheme == "http" and parsed.hostname == "127.0.0.1"
+        assert parsed.port is not None
+        self._peer_port = parsed.port
+        super().__init__()
+
+    async def handle_async_request(self, request):
+        assert request.url.scheme == "http"
+        assert request.url.host == "host.docker.internal"
+        assert request.url.port == self._peer_port
+        request.url = request.url.copy_with(host="127.0.0.1")
+        return await super().handle_async_request(request)
 
 
 class _MediaBoundIdentityModuleStack(IdentityModuleStack):
@@ -739,6 +758,7 @@ async def _exercise_api_tracker_phase(
             "queue_failure": queue_failure,
             "success_status": completed_success["status"],
             "cancel_status": cancelled_after_delivery["status"],
+            "worker_container_id": record["worker"]["runtime"]["container_id"],
         }
     except BaseException:
         try:
@@ -882,6 +902,7 @@ async def exercise_video_tracker_queue_and_restore(
         _reserve_port,
     )
     from tests.test_video_window_recovery_live import _bbox_artifact
+    from tests.test_workspace_worker_assembly_live import _broker_state
 
     assert test_engine.url.database and str(test_engine.url.database).endswith("_test")
     _verify_postgres(test_engine.url)
@@ -893,6 +914,7 @@ async def exercise_video_tracker_queue_and_restore(
     inbox = None
     clone_engine = None
     workers = []
+    source_peer_stack = AsyncExitStack()
     source_headers = None
     source_phase = None
     restored_phase = None
@@ -983,15 +1005,20 @@ async def exercise_video_tracker_queue_and_restore(
                         media, Path(tmp_path) / "metadata-source", world
                     ),
                 )
-                async with _checkpoint_cpu_backend(
-                    listener,
-                    registry_id=world["registry_id"],
-                    control_token=backend_token,
-                    storage_origin=media.endpoint,
-                    expected_source_sha256=sha256(video).hexdigest(),
-                    context_mode="none",
-                    artifact=artifact,
-                    weights_sha256=weights_sha256,
+                # Restore must rebind the exact backend incarnation, even after scope retirement.
+                async with nullcontext(
+                    await source_peer_stack.enter_async_context(
+                        _checkpoint_cpu_backend(
+                            listener,
+                            registry_id=world["registry_id"],
+                            control_token=backend_token,
+                            storage_origin=media.endpoint,
+                            expected_source_sha256=sha256(video).hexdigest(),
+                            context_mode="none",
+                            artifact=artifact,
+                            weights_sha256=weights_sha256,
+                        )
+                    )
                 ) as peer:
                     stack = _media_runtime_stack(
                         test_engine=test_engine,
@@ -1038,6 +1065,10 @@ async def exercise_video_tracker_queue_and_restore(
                         )
 
             _assert_owned_broker_target(sender, "gpu")
+            source_container_ids = [
+                *stack._service_ids.values(),
+                source_phase["worker_container_id"],
+            ]
             snapshot.write_bytes(
                 _postgres_tool(
                     test_engine,
@@ -1076,6 +1107,90 @@ async def exercise_video_tracker_queue_and_restore(
                         record_property(
                             "video_tracker_jobs_queue_restore_readback", readback
                         )
+
+                        import subprocess
+                        from aap_inference.restore import VideoRestoreManager
+                        from aap_inference.restore_contract import RestoreCommand
+                        from aap_inference.restore_postgres import (
+                            VideoRestorePostgresProvider,
+                        )
+                        from aap_inference.routing_backend_control import (
+                            BackendRoutingControl,
+                        )
+                        from tests.test_video_restore_worker_live import _clone_role_dsn
+
+                        for container_id in source_container_ids:
+                            inspected = subprocess.run(
+                                ["docker", "container", "inspect", container_id],
+                                capture_output=True,
+                                text=True,
+                                timeout=15,
+                            )
+                            assert inspected.returncode == 1
+                            assert "No such" in inspected.stderr
+                        stopped_media = [
+                            {"pid": process.pid, "exit_code": process.poll()}
+                            for process in media.processes
+                        ]
+                        assert all(
+                            row["exit_code"] is not None for row in stopped_media
+                        )
+                        async with test_engine.connect() as source_db:
+                            source_sessions = await source_db.scalar(
+                                text(
+                                    "SELECT count(*) FROM pg_catalog.pg_stat_activity "
+                                    "WHERE datname=current_database() "
+                                    "AND backend_type='client backend' AND usename<>'owner'"
+                                )
+                            )
+                        assert source_sessions == 0
+                        assert peer.controller.active_requests == 0
+                        fence = {
+                            "source_database": str(test_engine.url.database),
+                            "removed_source_containers": source_container_ids,
+                            "stopped_source_media_processes": stopped_media,
+                            "source_consumer_sessions": source_sessions,
+                            "gpu_broker": _broker_state(sender, "gpu"),
+                            "default_broker": _broker_state(sender, "default"),
+                        }
+                        assert (
+                            fence["gpu_broker"]
+                            == fence["default_broker"]
+                            == {
+                                "queue_size": 0,
+                                "unacknowledged": 0,
+                            }
+                        )
+                        restore_dsn = _clone_role_dsn(
+                            "AAP_MODULE_DATA_VIDEO_RESTORE_URL",
+                            "video_restore_operator_client",
+                            restored_database,
+                        )
+                        manager = VideoRestoreManager(
+                            VideoRestorePostgresProvider(restore_dsn),
+                            backend_control=BackendRoutingControl(
+                                transport_factory=lambda: _OwnedPeerLoopbackTransport(
+                                    backend_origin
+                                )
+                            ),
+                        )
+                        identity = await manager.inspect()
+                        command = RestoreCommand(
+                            restore_id=str(uuid.uuid4()),
+                            backup_sha256=sha256(snapshot.read_bytes()).hexdigest(),
+                            fence_sha256=sha256(
+                                json.dumps(fence, sort_keys=True).encode()
+                            ).hexdigest(),
+                            **identity,
+                        )
+                        activation = await manager.execute(command)
+                        assert activation.state == "completed", activation.reason
+                        assert activation.record["counts"]["registries_rebound"] == 1
+                        record_property(
+                            "video_tracker_jobs_queue_restore_activation",
+                            {"fence": fence, "restore": activation.record},
+                        )
+                        await source_peer_stack.aclose()
 
                         listener, backend_origin = _reserve_port()
                         backend_token = secrets.token_urlsafe(24)
@@ -1181,4 +1296,7 @@ async def exercise_video_tracker_queue_and_restore(
                                 if inbox is not None:
                                     inbox.close()
                             finally:
-                                owner_s3.close()
+                                try:
+                                    owner_s3.close()
+                                finally:
+                                    await source_peer_stack.aclose()
