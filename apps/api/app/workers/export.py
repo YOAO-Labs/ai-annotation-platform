@@ -1,12 +1,4 @@
-"""v0.10.27 · 导出异步化 worker（计划 §4 阶段 3）。
-
-照 batch_predict 模板：`@celery_app.task` + `asyncio.run(_run_export(...))`，内部 async_sessionmaker。
-
-流程：mark_running → 算指纹（max updated_at + active count）→ compute_cache_key →
-export_cache.lookup（命中且探活在 → 刷新预签名 URL 直接 mark_complete）→ 否则生成 ZIP
-（export_packaging.build_export_zip）→ put 到 export 桶 `image/{project_id}/{job_id}.zip` →
-export_cache.record → update_progress 分段 → mark_complete。异常 mark_failed。
-"""
+"""Build, verify and publish independently owned export candidates."""
 
 from __future__ import annotations
 
@@ -16,7 +8,7 @@ import os
 import re
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 import redis.asyncio as aioredis
 from sqlalchemy import func, select
@@ -29,7 +21,6 @@ from sqlalchemy.ext.asyncio import (
 from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
-from app.db.models.export_artifact import ExportArtifact
 from app.db.models.dataset import DatasetItem, Scene, SensorCalibrationRevision
 from app.db.models.project import Project
 from app.db.models.scene_pose import SceneFramePose
@@ -37,11 +28,10 @@ from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
 from app.services import async_job as async_job_svc
+from app.services import export_outputs, export_storage
 from app.services.exporting import cache as export_cache
-from app.services.exporting.packaging import (
-    PRESIGN_EXPIRES_SECONDS,
-    build_export_zip,
-)
+from app.services.exporting import output_authority
+from app.services.exporting.packaging import build_export_zip
 from app.services.exporting.video_scope import VideoExportScope
 from app.services.exporting.scope import lock_task_scope
 from app.services.mask_formats import registry as mask_format_registry
@@ -76,8 +66,8 @@ async def _complete_from_cache(
     db: AsyncSession,
     *,
     job_uuid: uuid.UUID,
-    hit: ExportArtifact,
-    export_bucket: str,
+    hit: export_outputs.CacheHit,
+    project_id: uuid.UUID,
     download_name: str,
     cache_key: str,
     task_ids: list[uuid.UUID] | None,
@@ -89,10 +79,13 @@ async def _complete_from_cache(
     # arguments against the stored job scope and fails closed on mismatch.
     await check_cancelled(db, job_uuid, lock=True)
     await _reauthorize_export_final_write(db, job_uuid, task_ids, batch_id=batch_id)
-    download_url = storage_service.generate_download_url(
-        hit.object_key,
-        expires_in=PRESIGN_EXPIRES_SECONDS,
-        bucket=export_bucket,
+    current_job = await db.get(AsyncJob, job_uuid)
+    if current_job is None or current_job.project_id != project_id:
+        export_outputs.reject("export_cache_output_mismatch")
+    download_url = await export_outputs.sign_cached(
+        db,
+        hit,
+        project_id=current_job.project_id,
         download_name=download_name,
     )
     result = {
@@ -572,6 +565,7 @@ async def _reauthorize_export_final_write(
         batch_id=batch_id,
         allow_reference=bool((job.payload or {}).get("export_authority")),
     )
+    await output_authority.validate(db, job, lock=True)
 
 
 async def _run_export(
@@ -597,12 +591,10 @@ async def _run_export(
     video_frame_mode = str(opts.get("video_frame_mode", "keyframes"))
     axis_frame = str(opts.get("axis_frame", "iso"))
     video_scope = VideoExportScope.from_dict(opts.get("video_export_scope"))
-    export_bucket = settings.minio_export_bucket
     lock_client = None
     lock_key: str | None = None
     lock_owner: str | None = None
     lock_acquired = False
-    uploaded_object_key: str | None = None
     reference_media = None
 
     engine = create_async_engine(settings.database_url, echo=False)
@@ -660,6 +652,7 @@ async def _run_export(
                         job_uuid=job_uuid,
                         batch_id=batch_uuid,
                     )
+                await output_authority.validate(db, job_row)
                 build_task_ids = (
                     reference_media.task_ids if reference_media else selected_task_ids
                 )
@@ -740,7 +733,7 @@ async def _run_export(
                 hit = (
                     None
                     if reference_media
-                    else await export_cache.lookup(db, cache_key, bucket=export_bucket)
+                    else await export_cache.lookup(db, cache_key)
                 )
                 if hit is None:
                     lock_key = f"export-build:{cache_key}"
@@ -767,16 +760,14 @@ async def _run_export(
                     hit = (
                         None
                         if reference_media
-                        else await export_cache.lookup(
-                            db, cache_key, bucket=export_bucket
-                        )
+                        else await export_cache.lookup(db, cache_key)
                     )
                 if hit is not None:
                     await _complete_from_cache(
                         db,
                         job_uuid=job_uuid,
                         hit=hit,
-                        export_bucket=export_bucket,
+                        project_id=proj_uuid,
                         download_name=download_name,
                         cache_key=cache_key,
                         task_ids=selected_task_ids,
@@ -806,27 +797,26 @@ async def _run_export(
                     await async_job_svc.update_progress(db, job_uuid, 70)
                     await db.commit()
 
-                    object_key = f"{media}/{project_id}/{async_job_id}.zip"
-                    # 流式多段上传（boto3 upload_file），不把整文件读进内存。
                     await check_cancelled(db, job_uuid)
-                    uploaded_object_key = object_key
-                    await asyncio.to_thread(
-                        storage_service.upload_file,
-                        zip_path,
-                        object_key,
-                        bucket=export_bucket,
-                        content_type="application/zip",
+                    candidate = await export_outputs.create(
+                        db,
+                        project_id=proj_uuid,
+                        job_id=job_uuid,
+                        media=media,
+                        format=",".join(sorted(targets)),
+                        file_count=file_count,
+                        path=zip_path,
+                        expected_size=size_bytes,
                     )
+                    revision = await export_outputs.write(db, candidate, zip_path)
                 finally:
-                    # 上传成功或失败都清理临时文件，避免磁盘泄漏。
+                    # Hashing and storage_access.run drain their physical threads,
+                    # including repeated cancellation, before releasing this path.
                     try:
                         os.unlink(zip_path)
                     except OSError:
                         pass
 
-                expires_at = datetime.now(timezone.utc) + timedelta(
-                    seconds=PRESIGN_EXPIRES_SECONDS
-                )
                 await async_job_svc.update_progress(db, job_uuid, 90)
                 await db.commit()
 
@@ -837,23 +827,19 @@ async def _run_export(
                 )
                 if reference_media:
                     await reference_media.validate(final=True)
+                output = await export_outputs.publish(db, candidate, revision)
                 await export_cache.record(
                     db,
                     cache_key=cache_key,
-                    project_id=proj_uuid,
+                    output=output,
                     batch_id=batch_uuid,
-                    format=",".join(sorted(targets)),
-                    object_key=object_key,
-                    file_count=file_count,
-                    size_bytes=size_bytes,
-                    expires_at=expires_at,
                 )
-                download_url = storage_service.generate_download_url(
-                    object_key,
-                    expires_in=PRESIGN_EXPIRES_SECONDS,
-                    bucket=export_bucket,
+                download_url = export_storage.sign(
+                    candidate,
                     download_name=download_name,
                 )
+                object_key = export_outputs.object_key(candidate)
+                expires_at = candidate.expires_at
                 await async_job_svc.mark_complete(
                     db,
                     job_uuid,
@@ -877,7 +863,6 @@ async def _run_export(
                     },
                 )
                 await db.commit()
-                uploaded_object_key = None
                 await _publish_export_notification(db, pending)
                 log.info(
                     "run_export complete job=%s key=%s files=%d bytes=%d",
@@ -890,17 +875,9 @@ async def _run_export(
                 await db.rollback()
                 if isinstance(exc, ExportBuildInProgress):
                     raise
-                if uploaded_object_key is not None:
-                    try:
-                        storage_service.delete_object(
-                            uploaded_object_key,
-                            bucket=export_bucket,
-                        )
-                    except Exception:  # noqa: BLE001
-                        log.exception(
-                            "failed to clean orphan export object key=%s",
-                            uploaded_object_key,
-                        )
+                # A failed PUT, cancellation, or unknown commit outcome never
+                # authorizes deleting bytes. The independent candidate retains
+                # responsibility until its fixed deadline and explicit retirement.
                 if isinstance(exc, ExportCancelled):
                     return
                 try:
@@ -916,8 +893,8 @@ async def _run_export(
                     }:
                         await db.rollback()
                         return
-                    err = (
-                        getattr(exc, "code", "reference_export_failed")
+                    err = getattr(exc, "code", None) or (
+                        "reference_export_failed"
                         if reference_media
                         else f"{type(exc).__name__}: {exc}"
                     )

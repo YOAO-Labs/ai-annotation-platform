@@ -27,8 +27,8 @@ class _CacheDB:
         self.value = value
         self.deleted: list[object] = []
 
-    async def execute(self, _statement: object) -> _ScalarResult:
-        return _ScalarResult(self.value)
+    async def scalar(self, _statement: object):
+        return self.value
 
     async def delete(self, value: object) -> None:
         self.deleted.append(value)
@@ -98,31 +98,24 @@ def test_cache_key_is_target_order_independent_and_contract_sensitive() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cache_lookup_deletes_stale_row_when_object_is_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_cache_lookup_delegates_saved_output_verification(monkeypatch):
     artifact = SimpleNamespace(object_key="image/project/job.zip")
     db = _CacheDB(artifact)
-    monkeypatch.setattr(cache.storage_service, "verify_upload", lambda *a, **kw: None)
-
-    assert await cache.lookup(db, "cache-key", bucket="exports") is None  # type: ignore[arg-type]
-    assert db.deleted == [artifact]
+    verify = AsyncMock(return_value=None)
+    monkeypatch.setattr(cache.export_outputs, "verify_cache", verify)
+    assert await cache.lookup(db, "cache-key") is None
+    verify.assert_awaited_once_with(db, artifact)
+    assert db.deleted == []
 
 
 @pytest.mark.asyncio
-async def test_cache_lookup_returns_live_artifact(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    artifact = SimpleNamespace(object_key="image/project/job.zip")
+async def test_cache_lookup_returns_explicit_verified_hit(monkeypatch):
+    artifact, hit = object(), object()
     db = _CacheDB(artifact)
-    monkeypatch.setattr(
-        cache.storage_service,
-        "verify_upload",
-        lambda *a, **kw: {"size": 12},
-    )
-
-    assert await cache.lookup(db, "cache-key", bucket="exports") is artifact  # type: ignore[arg-type]
-    assert db.deleted == []
+    verify = AsyncMock(return_value=hit)
+    monkeypatch.setattr(cache.export_outputs, "verify_cache", verify)
+    assert await cache.lookup(db, "cache-key") is hit
+    verify.assert_awaited_once_with(db, artifact)
 
 
 def test_export_worker_registration_and_route_are_stable() -> None:
@@ -150,6 +143,11 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
     )
     actor = SimpleNamespace(id=actor_id, is_active=True, role="annotator")
     db = SimpleNamespace(
+        get=AsyncMock(
+            return_value=SimpleNamespace(
+                project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+            )
+        ),
         commit=AsyncMock(),
         rollback=AsyncMock(),
         scalar=AsyncMock(return_value=None),
@@ -215,6 +213,9 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
 def isolate_cancel_owner(monkeypatch):
     # Durable cancellation is exercised against real DB rows in reference media tests.
     monkeypatch.setattr(export_worker, "check_cancelled", AsyncMock())
+    # This file isolates worker wiring; persisted request proofs are covered by
+    # authority and reference-media DB tests.
+    monkeypatch.setattr(export_worker.output_authority, "validate", AsyncMock())
 
 
 @pytest.mark.parametrize("targets", [["davis", "mots"], ["kitti"], ["aap_json"]])
@@ -226,6 +227,11 @@ async def test_export_worker_cache_hit_skips_packaging(
     monkeypatch.setattr(export_worker, "_assert_export_task_scope", AsyncMock())
     monkeypatch.setattr(export_worker, "_reauthorize_export_final_write", AsyncMock())
     db = SimpleNamespace(
+        get=AsyncMock(
+            return_value=SimpleNamespace(
+                project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+            )
+        ),
         commit=AsyncMock(),
         rollback=AsyncMock(),
         scalar=AsyncMock(return_value=None),
@@ -301,9 +307,9 @@ async def test_export_worker_cache_hit_skips_packaging(
     build_export_zip = AsyncMock(side_effect=AssertionError("cache hit rebuilt ZIP"))
     monkeypatch.setattr(export_worker, "build_export_zip", build_export_zip)
     monkeypatch.setattr(
-        export_worker.storage_service,
-        "generate_download_url",
-        lambda *a, **kw: "https://download.invalid/cached.zip",
+        export_worker.export_outputs,
+        "sign_cached",
+        AsyncMock(return_value="https://download.invalid/cached.zip"),
     )
 
     project_id = "11111111-1111-1111-1111-111111111111"
@@ -343,11 +349,7 @@ async def test_export_worker_cache_hit_skips_packaging(
     assert compute_cache_key.call_args.kwargs[
         "options_digest"
     ] == export_worker.canonical_digest(expected_options)
-    lookup.assert_awaited_once_with(
-        db,
-        "cache-key",
-        bucket=export_worker.settings.minio_export_bucket,
-    )
+    lookup.assert_awaited_once_with(db, "cache-key")
     result = mark_complete.await_args.kwargs["result"]
     assert result["cache_hit"] is True
     assert result["object_key"] == artifact.object_key
@@ -384,6 +386,11 @@ async def test_export_worker_final_reauth_blocks_url_after_cache_hit(
         AsyncMock(side_effect=ValueError("export capability is no longer valid")),
     )
     db = SimpleNamespace(
+        get=AsyncMock(
+            return_value=SimpleNamespace(
+                project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+            )
+        ),
         commit=AsyncMock(),
         rollback=AsyncMock(),
         scalar=AsyncMock(return_value=None),
@@ -438,10 +445,8 @@ async def test_export_worker_final_reauth_blocks_url_after_cache_hit(
     )
     monkeypatch.setattr(export_worker.export_cache, "record", AsyncMock())
     monkeypatch.setattr(export_worker, "build_export_zip", AsyncMock())
-    generate = Mock(side_effect=AssertionError("URL must not be minted"))
-    monkeypatch.setattr(
-        export_worker.storage_service, "generate_download_url", generate
-    )
+    generate = AsyncMock(side_effect=AssertionError("URL must not be minted"))
+    monkeypatch.setattr(export_worker.export_outputs, "sign_cached", generate)
 
     with pytest.raises(ValueError):
         await export_worker._run_export(
@@ -454,7 +459,7 @@ async def test_export_worker_final_reauth_blocks_url_after_cache_hit(
             celery_task_id="celery-final-reauth",
         )
 
-    generate.assert_not_called()
+    generate.assert_not_awaited()
     mark_complete.assert_not_awaited()
     mark_failed.assert_awaited_once()
 
@@ -466,6 +471,11 @@ async def test_export_worker_cache_miss_contender_retries_without_packaging(
     monkeypatch.setattr(export_worker, "_assert_export_task_scope", AsyncMock())
     monkeypatch.setattr(export_worker, "_reauthorize_export_final_write", AsyncMock())
     db = SimpleNamespace(
+        get=AsyncMock(
+            return_value=SimpleNamespace(
+                project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+            )
+        ),
         commit=AsyncMock(),
         rollback=AsyncMock(),
         scalar=AsyncMock(return_value=None),
@@ -546,6 +556,11 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
     monkeypatch.setattr(export_worker, "_assert_export_task_scope", AsyncMock())
     monkeypatch.setattr(export_worker, "_reauthorize_export_final_write", AsyncMock())
     db = SimpleNamespace(
+        get=AsyncMock(
+            return_value=SimpleNamespace(
+                project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+            )
+        ),
         commit=AsyncMock(),
         rollback=AsyncMock(),
         scalar=AsyncMock(return_value=None),
@@ -600,9 +615,9 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
     build_export_zip = AsyncMock()
     monkeypatch.setattr(export_worker, "build_export_zip", build_export_zip)
     monkeypatch.setattr(
-        export_worker.storage_service,
-        "generate_download_url",
-        lambda *a, **kw: "https://download.invalid/cached.zip",
+        export_worker.export_outputs,
+        "sign_cached",
+        AsyncMock(return_value="https://download.invalid/cached.zip"),
     )
     redis_client = SimpleNamespace(
         set=AsyncMock(return_value=True),
@@ -633,13 +648,18 @@ async def test_export_worker_rechecks_cache_after_winning_singleflight_lock(
 
 
 @pytest.mark.asyncio
-async def test_export_worker_removes_uploaded_object_when_cache_record_fails(
+async def test_export_worker_keeps_candidate_when_cache_record_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
     monkeypatch.setattr(export_worker, "_assert_export_task_scope", AsyncMock())
     monkeypatch.setattr(export_worker, "_reauthorize_export_final_write", AsyncMock())
     db = SimpleNamespace(
+        get=AsyncMock(
+            return_value=SimpleNamespace(
+                project_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+            )
+        ),
         commit=AsyncMock(),
         rollback=AsyncMock(),
         scalar=AsyncMock(return_value=None),
@@ -701,7 +721,16 @@ async def test_export_worker_removes_uploaded_object_when_cache_record_fails(
         "build_export_zip",
         AsyncMock(return_value=(str(zip_path), 1, 3)),
     )
-    monkeypatch.setattr(export_worker.storage_service, "upload_file", Mock())
+    candidate = SimpleNamespace(
+        expires_at=datetime.now(timezone.utc) + timedelta(days=7)
+    )
+    create = AsyncMock(return_value=candidate)
+    write = AsyncMock(return_value=1)
+    monkeypatch.setattr(export_worker.export_outputs, "create", create)
+    monkeypatch.setattr(export_worker.export_outputs, "write", write)
+    monkeypatch.setattr(
+        export_worker.export_outputs, "publish", AsyncMock(return_value=candidate)
+    )
     delete_object = Mock()
     monkeypatch.setattr(export_worker.storage_service, "delete_object", delete_object)
     redis_client = SimpleNamespace(
@@ -725,11 +754,9 @@ async def test_export_worker_removes_uploaded_object_when_cache_record_fails(
             celery_task_id="celery-4",
         )
 
-    delete_object.assert_called_once_with(
-        "image/11111111-1111-1111-1111-111111111111/"
-        "22222222-2222-2222-2222-222222222222.zip",
-        bucket=export_worker.settings.minio_export_bucket,
-    )
+    delete_object.assert_not_called()
+    create.assert_awaited_once()
+    write.assert_awaited_once_with(db, candidate, str(zip_path))
     assert not zip_path.exists()
     mark_failed.assert_awaited_once()
     redis_client.eval.assert_awaited_once()

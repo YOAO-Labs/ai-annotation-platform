@@ -23,10 +23,14 @@ from app.db.models.annotation import Annotation
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
+from app.db.models.export_output import ExportOutput
+from app.core.security import hash_password
 from app.db.models.task import Task
 from app.schemas.async_job import AsyncJobOut
 from app.services import dataset_references
 from app.services.content_snapshot import ContentError
+from app.services.exporting import output_authority
+from tests.test_export_outputs import export_objects as export_objects
 from app.services.exporting.packaging import (
     IMAGE_EXPORT_TARGETS,
     _FETCH_IMAGES_TEMPLATE,
@@ -54,15 +58,26 @@ async def make_export(
 ):
     _, project, _, content = world
     actor = actor or content[2]
+    key = await db.get(ApiKey, key_id) if key_id else None
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            api_key_id=key_id, api_key_scopes=key.scopes if key else None
+        ),
+        headers={"authorization": "Bearer test-export-key"} if key else {},
+    )
     proof = await capture_export_authority(
         db,
         project,
         actor,
-        SimpleNamespace(state=SimpleNamespace(api_key_id=key_id)),
+        request,
         batch_id=batch_id,
         task_ids=selected,
     )
-    payload = {"export_authority": proof} if proof else {}
+    payload = {
+        "output_authority": await output_authority.capture(db, project, actor, request)
+    }
+    if proof:
+        payload["export_authority"] = proof
     if selected is not None:
         payload["task_ids"] = [str(v) for v in selected]
     job = AsyncJob(
@@ -254,7 +269,7 @@ async def test_original_authority_and_binding_rechecked_after_snapshot(
         user_id=content[2].id,
         name="export",
         key_prefix="ak_export",
-        key_hash="original",
+        key_hash=hash_password("test-export-key"),
         scopes=["tasks:read"],
     )
     db_session.add(key)
@@ -297,7 +312,15 @@ async def test_batch_outside_reference_neither_read_nor_rejected(
         kind="export",
         project_id=project.id,
         user_id=content[2].id,
-        payload={},
+        payload={
+            "output_authority": {
+                "schema": 1,
+                "actor_id": str(content[2].id),
+                "project_id": str(project.id),
+                "api_key_id": None,
+                "key_proof": None,
+            }
+        },
         result={},
     )
     db_session.add(job)
@@ -321,11 +344,12 @@ async def test_batch_outside_reference_neither_read_nor_rejected(
 @pytest.mark.parametrize(
     "mutation", ["source_disable", "cancel", "cancel_failure", "failure"]
 )
-async def test_worker_does_not_publish_or_keep_uploaded_object_after_final_rejection(
+async def test_worker_refuses_publication_but_retains_pending_after_final_rejection(
     db_session,
     reference_world,
     mutation,
     monkeypatch,
+    export_objects,
 ):
     _, project, _, content = reference_world
     job, media = await make_export(db_session, reference_world)
@@ -357,17 +381,7 @@ async def test_worker_does_not_publish_or_keep_uploaded_object_after_final_rejec
     monkeypatch.setattr(
         storage_service, "generate_download_url", Mock(return_value="signed")
     )
-    uploaded = []
-    deleted = []
-
-    def upload(path, key, **kwargs):
-        assert zipfile.is_zipfile(path)
-        uploaded.append(key)
-
-    monkeypatch.setattr(storage_service, "upload_file", upload)
-    monkeypatch.setattr(
-        storage_service, "delete_object", lambda key, **kw: deleted.append(key)
-    )
+    uploaded, deleted = export_objects.puts, export_objects.deleted
     original_guard = worker._reauthorize_export_final_write
 
     async def guard(db, job_id, ids, **kwargs):
@@ -410,7 +424,15 @@ async def test_worker_does_not_publish_or_keep_uploaded_object_after_final_rejec
             worker_node_id="worker:content@test",
         )
     job = await db_session.get(AsyncJob, job.id, populate_existing=True)
-    assert len(uploaded) == 1 and deleted == uploaded
+    assert len(uploaded) == 1 and not deleted
+    output = await db_session.scalar(
+        select(ExportOutput).where(ExportOutput.job_id == job.id)
+    )
+    assert output is not None and output.state == "pending"
+    assert (output.storage_ref["bucket"], output.storage_ref["object_key"]) == uploaded[
+        0
+    ]
+    assert zipfile.is_zipfile(io.BytesIO(export_objects.objects[uploaded[0]]))
     assert job.status == ("cancelled" if mutation.startswith("cancel") else "failed")
     assert not job.result.get("download_url")
     assert (
