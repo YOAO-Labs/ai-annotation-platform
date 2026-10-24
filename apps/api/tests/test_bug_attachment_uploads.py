@@ -182,6 +182,44 @@ async def api_key(client, actor):
     return result.json()
 
 
+def operation_filter(location_id, purpose):
+    return (
+        StorageOperation.location_id == location_id,
+        StorageOperation.purpose == purpose,
+    )
+
+
+async def owned_operations(db, location_id, purpose):
+    """Inspect only this UUID purpose, outside the business SAVEPOINT."""
+    async with storage_access.engine(db).connect() as connection:
+        return set(
+            await connection.scalars(
+                select(StorageOperation.id).where(
+                    *operation_filter(location_id, purpose)
+                )
+            )
+        )
+
+
+async def clear_closed_test_operations(db, location_id, purpose):
+    """The caller has attested closure of its synthetic physical handles."""
+    async with storage_access.engine(db).begin() as connection:
+        identifiers = set(
+            await connection.scalars(
+                select(StorageOperation.id).where(
+                    *operation_filter(location_id, purpose)
+                )
+            )
+        )
+        if identifiers:
+            await connection.execute(
+                delete(StorageOperation).where(
+                    *operation_filter(location_id, purpose),
+                    StorageOperation.id.in_(identifiers),
+                )
+            )
+
+
 @pytest.mark.parametrize(
     "format,mime",
     [("PNG", "image/png"), ("JPEG", "image/jpeg"), ("WEBP", "image/webp")],
@@ -631,7 +669,18 @@ async def test_delete_transaction_failure_has_zero_physical_io(
     report = await _seed_bug(db_session, annotator[0].id, "new")
     row = await seed_receipt(db_session, objects, annotator[0].id, bound=report.id)
     await db_session.commit()
-    request = Request({"type": "http", "headers": []})
+    request = Request(
+        {
+            "type": "http",
+            "scheme": "http",
+            "method": "DELETE",
+            "path": f"/api/v1/bug_reports/{report.id}",
+            "query_string": b"",
+            "headers": [],
+            "server": ("test", 80),
+            "client": ("127.0.0.1", 12345),
+        }
+    )
     monkeypatch.setattr(
         BugReportService,
         "delete",
@@ -650,6 +699,11 @@ async def test_unknown_close_keeps_read_permit_and_blocks_cleanup(
 ):
     value = await uploaded(httpx_client, annotator)
     report = await created(httpx_client, annotator, [value])
+    row = await db_session.scalar(select(BugAttachmentUpload))
+    location_id, purpose = (
+        uuid.UUID(row.storage_ref["location_id"]),
+        uploads.read_purpose(row.id),
+    )
 
     class UnknownClose(io.BytesIO):
         def close(self):
@@ -657,26 +711,25 @@ async def test_unknown_close_keeps_read_permit_and_blocks_cleanup(
             raise OSError("unconfirmed physical close")
 
     objects.body_factory = UnknownClose
-    response = await downloaded(httpx_client, annotator, report, value["storageKey"])
-    assert response.status_code == 503, response.text
-    row = await db_session.scalar(select(BugAttachmentUpload))
-    permit = await db_session.scalar(
-        select(StorageOperation).where(
-            StorageOperation.purpose == uploads.read_purpose(row.id)
+    try:
+        response = await downloaded(
+            httpx_client, annotator, report, value["storageKey"]
         )
-    )
-    assert permit is not None
-    # Delete retires business state, but uncertain read closure retains bytes.
-    response = await httpx_client.delete(
-        f"/api/v1/bug_reports/{report['id']}", headers=bearer(annotator[1])
-    )
-    assert response.status_code == 204 and not objects.deleted
-    # This test owns the fake physical handle and can attest to its final close.
-    await db_session.execute(
-        delete(StorageOperation).where(StorageOperation.id == permit.id)
-    )
-    await db_session.commit()
-    assert (await uploads.cleanup(db_session))["deleted"] == 1
+        assert response.status_code == 503, response.text
+        assert len(await owned_operations(db_session, location_id, purpose)) == 1
+        # Delete retires business state, but uncertain read closure retains bytes.
+        response = await httpx_client.delete(
+            f"/api/v1/bug_reports/{report['id']}", headers=bearer(annotator[1])
+        )
+        assert response.status_code == 204 and not objects.deleted
+        assert all(body.closed for body in objects.bodies)
+        await clear_closed_test_operations(db_session, location_id, purpose)
+        assert (await uploads.cleanup(db_session))["deleted"] == 1
+    finally:
+        # This fake closes its BytesIO before raising. Its test alone can attest
+        # closure; a business SAVEPOINT cannot retire the independent ledger.
+        assert all(body.closed for body in objects.bodies)
+        await clear_closed_test_operations(db_session, location_id, purpose)
 
 
 async def test_repeated_cancellation_waits_for_actual_image_validation(monkeypatch):
@@ -727,8 +780,10 @@ async def test_repeated_cancellation_drains_put_and_preserves_pending(
             "x.png",
         )
     )
+    receipt = None
     try:
         assert await asyncio.to_thread(entered.wait, 5)
+        receipt = uploads.snapshot(await db_session.scalar(select(BugAttachmentUpload)))
         task.cancel()
         await asyncio.sleep(0)
         task.cancel()
@@ -736,12 +791,21 @@ async def test_repeated_cancellation_drains_put_and_preserves_pending(
         assert not task.done() and not finished.is_set()
     finally:
         release.set()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            if receipt is not None:
+                location_id = uuid.UUID(receipt.storage_ref["location_id"])
+                purpose = "bug_attachment_write_" + receipt.id.hex
+                assert finished.is_set() and all(body.closed for body in objects.bodies)
+                try:
+                    assert not await owned_operations(db_session, location_id, purpose)
+                finally:
+                    await clear_closed_test_operations(db_session, location_id, purpose)
     assert finished.is_set()
     assert (await db_session.scalar(select(BugAttachmentUpload))).state == "pending"
     assert not objects.deleted
-    assert await db_session.scalar(select(StorageOperation)) is None
 
 
 @pytest.mark.parametrize("scopes", [[], ["*"]])
@@ -760,6 +824,11 @@ async def test_download_revoked_between_snapshot_and_admission_has_no_io(
 ):
     value = await uploaded(httpx_client, annotator)
     report = await created(httpx_client, annotator, [value])
+    row = await db_session.scalar(select(BugAttachmentUpload))
+    location_id, purpose = (
+        uuid.UUID(row.storage_ref["location_id"]),
+        uploads.read_purpose(row.id),
+    )
     objects.reads.clear()
     original = storage_access.acquire
 
@@ -771,10 +840,17 @@ async def test_download_revoked_between_snapshot_and_admission_has_no_io(
         return permit
 
     monkeypatch.setattr(storage_access, "acquire", acquire)
-    response = await downloaded(httpx_client, annotator, report, value["storageKey"])
-    assert response.status_code == 403, response.text
-    assert not objects.reads
-    assert await db_session.scalar(select(StorageOperation)) is None
+    try:
+        response = await downloaded(
+            httpx_client, annotator, report, value["storageKey"]
+        )
+        assert response.status_code == 403, response.text
+        assert not objects.reads
+        assert not await owned_operations(db_session, location_id, purpose)
+    finally:
+        # No handle is expected; attest closure even if that assertion failed.
+        assert all(body.closed for body in objects.bodies)
+        await clear_closed_test_operations(db_session, location_id, purpose)
 
 
 async def test_actual_read_blocks_delete_until_repeated_cancellation_settles(
@@ -782,6 +858,11 @@ async def test_actual_read_blocks_delete_until_repeated_cancellation_settles(
 ):
     value = await uploaded(httpx_client, annotator)
     report = await created(httpx_client, annotator, [value])
+    row = await db_session.scalar(select(BugAttachmentUpload))
+    location_id, purpose = (
+        uuid.UUID(row.storage_ref["location_id"]),
+        uploads.read_purpose(row.id),
+    )
     entered, release, finished = threading.Event(), threading.Event(), threading.Event()
 
     class BlockingBody(io.BytesIO):
@@ -816,22 +897,21 @@ async def test_actual_read_blocks_delete_until_repeated_cancellation_settles(
         task.cancel()
         await asyncio.sleep(0)
         assert not task.done() and not finished.is_set()
-        row = await db_session.scalar(select(BugAttachmentUpload))
+        await db_session.refresh(row)
         assert row.state == "retired"
-        assert (
-            await db_session.scalar(
-                select(StorageOperation).where(
-                    StorageOperation.purpose == uploads.read_purpose(row.id)
-                )
-            )
-            is not None
-        )
+        assert len(await owned_operations(db_session, location_id, purpose)) == 1
     finally:
         release.set()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            assert finished.is_set() and all(body.closed for body in objects.bodies)
+            try:
+                assert not await owned_operations(db_session, location_id, purpose)
+            finally:
+                await clear_closed_test_operations(db_session, location_id, purpose)
     assert finished.is_set()
-    assert await db_session.scalar(select(StorageOperation)) is None
     assert (await uploads.cleanup(db_session))["deleted"] == 1
 
 
