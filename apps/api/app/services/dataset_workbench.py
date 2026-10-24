@@ -128,20 +128,31 @@ def visible_mapping_query(item_id, actor):
 
 
 def observations(
-    dataset_id, actor, *, preferred_source_id=None, reference_source_ids=None
+    dataset_id,
+    actor,
+    *,
+    preferred_source_id=None,
+    reference_source_ids=None,
+    item_ids=None,
+    state_only=False,
 ):
     """One SQL relation for both filtering and display, without source I/O."""
     if dataset_id is None and reference_source_ids is None:
         raise ValueError("Observations require a dataset or explicit reference sources")
-    provenance_query = visible_mapping_query(DatasetItem.id, actor).with_only_columns(
-        DatasetSourceItem.source_id
-    )
-    if preferred_source_id is not None:
-        provenance_query = provenance_query.where(
-            DatasetSourceItem.source_id == preferred_source_id
-        )
-    provenance = provenance_query.limit(1).correlate(DatasetItem).scalar_subquery()
-    source_id = func.coalesce(DatasetReference.source_id, provenance)
+    if state_only:
+        # Non-reference state depends on the managed original, not its optional
+        # directory provenance. Reference state always uses its retained source.
+        source_id = DatasetReference.source_id
+    else:
+        provenance_query = visible_mapping_query(
+            DatasetItem.id, actor
+        ).with_only_columns(DatasetSourceItem.source_id)
+        if preferred_source_id is not None:
+            provenance_query = provenance_query.where(
+                DatasetSourceItem.source_id == preferred_source_id
+            )
+        provenance = provenance_query.limit(1).correlate(DatasetItem).scalar_subquery()
+        source_id = func.coalesce(DatasetReference.source_id, provenance)
     accepted = (
         select(DatasetSourceRevision.accepted_at)
         .where(
@@ -258,6 +269,49 @@ def observations(
         (and_(~ref, verified, replica.is_not(None)), "verified"),
         else_="unverified",
     )
+    if state_only:
+
+        def scoped(query):
+            if dataset_id is not None:
+                query = query.where(DatasetItem.dataset_id == dataset_id)
+            if item_ids is not None:
+                query = query.where(DatasetItem.id.in_(item_ids))
+            return query
+
+        reference_states = scoped(
+            select(DatasetItem.id.label("item_id"), state.label("state"))
+            .select_from(DatasetItem)
+            .join(DatasetReference, DatasetReference.dataset_item_id == DatasetItem.id)
+            .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
+            .outerjoin(DatasetSource, DatasetSource.id == DatasetReference.source_id)
+            .outerjoin(StorageLocation, StorageLocation.id == DatasetSource.location_id)
+            .outerjoin(changes, literal(True))
+        )
+        if reference_source_ids is not None:
+            return reference_states.where(
+                DatasetReference.source_id.in_(reference_source_ids)
+            ).subquery("item_observations")
+        # Managed/unverified items have no reference availability history. Keep
+        # source changes and preview checks on the reference branch only.
+        managed_states = scoped(
+            select(
+                DatasetItem.id.label("item_id"),
+                case(
+                    (and_(verified, replica.is_not(None)), "verified"),
+                    else_="unverified",
+                ).label("state"),
+            )
+            .select_from(DatasetItem)
+            .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
+            .where(
+                ~select(1)
+                .select_from(DatasetReference)
+                .where(DatasetReference.dataset_item_id == DatasetItem.id)
+                .correlate(DatasetItem)
+                .exists()
+            )
+        )
+        return union_all(reference_states, managed_states).subquery("item_observations")
     from app.services.original_cache import storage_identity
     from app.services.storage import storage_service
 
@@ -318,37 +372,44 @@ def observations(
         .limit(1)
         .lateral("original_cache_record")
     )
-    base = (
-        select(
-            DatasetItem.id.label("item_id"),
-            state.label("state"),
-            case(
-                (ref, func.coalesce(changes.c.observed_at, accepted_at)), else_=replica
-            ).label("observed_at"),
-            func.coalesce(preview, False).label("preview_available"),
-            cache.c.verified_at.is_not(None).label("original_cache_recorded"),
-            cache.c.verified_at.label("original_cache_recorded_at"),
-            cache.c.expires_at.label("original_cache_expires_at"),
-            case((manageable, DatasetSource.id), else_=None).label("source_id"),
-            case((manageable, DatasetSource.name), else_=None).label("source_name"),
-            case((manageable, DatasetSource.location_id), else_=None).label(
-                "location_id"
-            ),
-            ref.label("is_reference"),
-            func.coalesce(manageable, False).label("can_manage"),
+    columns = [DatasetItem.id.label("item_id"), state.label("state")]
+    if not state_only:
+        columns.extend(
+            [
+                case(
+                    (ref, func.coalesce(changes.c.observed_at, accepted_at)),
+                    else_=replica,
+                ).label("observed_at"),
+                func.coalesce(preview, False).label("preview_available"),
+                cache.c.verified_at.is_not(None).label("original_cache_recorded"),
+                cache.c.verified_at.label("original_cache_recorded_at"),
+                cache.c.expires_at.label("original_cache_expires_at"),
+                case((manageable, DatasetSource.id), else_=None).label("source_id"),
+                case((manageable, DatasetSource.name), else_=None).label("source_name"),
+                case((manageable, DatasetSource.location_id), else_=None).label(
+                    "location_id"
+                ),
+                ref.label("is_reference"),
+                func.coalesce(manageable, False).label("can_manage"),
+            ]
         )
+    base = (
+        select(*columns)
         .select_from(DatasetItem)
         .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
         .outerjoin(DatasetReference, DatasetReference.dataset_item_id == DatasetItem.id)
         .outerjoin(DatasetSource, DatasetSource.id == source_id)
         .outerjoin(StorageLocation, StorageLocation.id == DatasetSource.location_id)
         .outerjoin(changes, literal(True))
-        .outerjoin(cache, literal(True))
     )
+    if not state_only:
+        base = base.outerjoin(cache, literal(True))
     if dataset_id is not None:
         base = base.where(DatasetItem.dataset_id == dataset_id)
     if reference_source_ids is not None:
         base = base.where(DatasetReference.source_id.in_(reference_source_ids))
+    if item_ids is not None:
+        base = base.where(DatasetItem.id.in_(item_ids))
     return base.subquery("item_observations")
 
 
@@ -402,7 +463,13 @@ async def item_query(
 ):
     """Authorized item relation shared by pages and immutable training selection."""
     await require_dataset(db, dataset_id)
-    obs = observations(dataset_id, actor, preferred_source_id=source_id)
+    obs = (
+        observations(dataset_id, actor, preferred_source_id=source_id, state_only=True)
+        if state
+        else select(DatasetItem.id.label("item_id"))
+        .where(DatasetItem.dataset_id == dataset_id)
+        .subquery("item_membership")
+    )
     query = select(obs)
     if source_id is not None:
         await require_filter_source(db, dataset_id, source_id, actor)
@@ -528,13 +595,27 @@ async def item_page(
     if item_id is not None:
         query = query.where(obs.c.item_id == item_id)
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    members = (
+        query.with_only_columns(obs.c.item_id)
+        .join(DatasetItem, DatasetItem.id == obs.c.item_id)
+        .order_by(DatasetItem.created_at.desc(), DatasetItem.id)
+        .limit(limit)
+        .offset(offset)
+        .cte("dataset_page")
+        .prefix_with("MATERIALIZED", dialect="postgresql")
+    )
+    details = observations(
+        dataset_id,
+        actor,
+        preferred_source_id=source_id,
+        item_ids=select(members.c.item_id),
+    )
     rows = list(
         (
             await db.execute(
-                query.join(DatasetItem, DatasetItem.id == obs.c.item_id)
+                select(details)
+                .join(DatasetItem, DatasetItem.id == details.c.item_id)
                 .order_by(DatasetItem.created_at.desc(), DatasetItem.id)
-                .limit(limit)
-                .offset(offset)
             )
         ).mappings()
     )
@@ -555,7 +636,7 @@ async def item_page(
 
 async def workbench(db, dataset_id, actor):
     await require_dataset(db, dataset_id)
-    obs = observations(dataset_id, actor)
+    obs = observations(dataset_id, actor, state_only=True)
     counts = dict(
         (
             await db.execute(select(obs.c.state, func.count()).group_by(obs.c.state))
