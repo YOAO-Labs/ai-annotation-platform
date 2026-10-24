@@ -6,6 +6,9 @@ import type { TaskVideoManifestResponse, TaskVideoFrameTimetableResponse } from 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const videoHookMocks = vi.hoisted(() => ({
+  clockOptions: vi.fn(),
+  bitmapOptions: vi.fn(),
+  preciseOptions: vi.fn(),
   activeBitmap: null as {
     frameIndex: number;
     bitmap: ImageBitmap;
@@ -31,6 +34,7 @@ const videoHookMocks = vi.hoisted(() => ({
 
 vi.mock("./useFrameClock", () => ({
   useFrameClock: (options: { onFrameChange: (frame: number) => void }) => {
+    videoHookMocks.clockOptions(options);
     videoHookMocks.onFrameChange = options.onFrameChange;
     return {
       seekToAsync: videoHookMocks.seekToAsync,
@@ -41,68 +45,74 @@ vi.mock("./useFrameClock", () => ({
   },
 }));
 vi.mock("./useVideoBitmapCache", () => ({
-  useVideoBitmapCache: () => ({
-    activeBitmap: videoHookMocks.activeBitmap,
-    cachedRanges: [],
-    capture: videoHookMocks.capture,
-    showFrame: videoHookMocks.showFrame,
-  }),
+  useVideoBitmapCache: (options: unknown) => (
+    videoHookMocks.bitmapOptions(options),
+    {
+      activeBitmap: videoHookMocks.activeBitmap,
+      cachedRanges: [],
+      capture: videoHookMocks.capture,
+      showFrame: videoHookMocks.showFrame,
+    }
+  ),
 }));
 vi.mock("./useVideoPreciseFrame", () => ({
-  useVideoPreciseFrame: () => ({
-    active: false,
-    bitmap: videoHookMocks.preciseBitmap,
-    sourceState: "disabled",
-    fallbackReason: null,
-    diagnostics: {
-      supported: false,
-      webcodecsEnabled: false,
-      decoderActive: false,
-      chunkId: null,
-      datasetItemId: null,
-      chunkSizeFrames: null,
-      decodeRequests: 0,
-      decoderErrors: 0,
-      urlRefreshed: false,
-    },
-    performance: {
-      manifestCacheHits: 0,
-      samplesCacheHits: 0,
-      chunkByteCacheHits: 0,
-      bitmapCacheHits: 0,
-      bytesFetched: 0,
-      bitmapBytes: 0,
-      bitmapBudgetBytes: 0,
-      activeDecoders: 0,
-      liveVideoFrames: 0,
-      chunkBytes: 0,
-      chunkBudgetBytes: 0,
-      sessionCreates: 0,
-      sessionResets: 0,
-      sessionDisposals: 0,
-      encodedChunksSubmitted: 0,
-      staleResults: 0,
-      prefetchRequests: 0,
-      prefetchHits: 0,
-      evictions: 0,
-      lastManifestMs: null,
-      lastSamplesMs: null,
-      lastChunkFetchMs: null,
-      lastDemuxMs: null,
-      lastQueueMs: null,
-      lastCodecMs: null,
-      lastDecodeMs: null,
-      lastBitmapMs: null,
-      lastDecodeMode: null,
-      lastPaintMs: null,
-      lastVisibleMs: null,
-      paintedFrameIndex: null,
-      gopStartDecodeIndex: null,
-      targetTimestampUs: null,
-      codec: null,
-    },
-    markFramePainted: vi.fn(),
-  }),
+  useVideoPreciseFrame: (options: unknown) => (
+    videoHookMocks.preciseOptions(options),
+    {
+      active: false,
+      bitmap: videoHookMocks.preciseBitmap,
+      sourceState: "disabled",
+      fallbackReason: null,
+      diagnostics: {
+        supported: false,
+        webcodecsEnabled: false,
+        decoderActive: false,
+        chunkId: null,
+        datasetItemId: null,
+        chunkSizeFrames: null,
+        decodeRequests: 0,
+        decoderErrors: 0,
+        urlRefreshed: false,
+      },
+      performance: {
+        manifestCacheHits: 0,
+        samplesCacheHits: 0,
+        chunkByteCacheHits: 0,
+        bitmapCacheHits: 0,
+        bytesFetched: 0,
+        bitmapBytes: 0,
+        bitmapBudgetBytes: 0,
+        activeDecoders: 0,
+        liveVideoFrames: 0,
+        chunkBytes: 0,
+        chunkBudgetBytes: 0,
+        sessionCreates: 0,
+        sessionResets: 0,
+        sessionDisposals: 0,
+        encodedChunksSubmitted: 0,
+        staleResults: 0,
+        prefetchRequests: 0,
+        prefetchHits: 0,
+        evictions: 0,
+        lastManifestMs: null,
+        lastSamplesMs: null,
+        lastChunkFetchMs: null,
+        lastDemuxMs: null,
+        lastQueueMs: null,
+        lastCodecMs: null,
+        lastDecodeMs: null,
+        lastBitmapMs: null,
+        lastDecodeMode: null,
+        lastPaintMs: null,
+        lastVisibleMs: null,
+        paintedFrameIndex: null,
+        gopStartDecodeIndex: null,
+        targetTimestampUs: null,
+        codec: null,
+      },
+      markFramePainted: vi.fn(),
+    }
+  ),
 }));
 vi.mock("./useVideoFramePreview", () => ({
   useVideoFramePreview: () => ({ preview: null, previewFor: vi.fn(), prefetch: vi.fn() }),
@@ -179,6 +189,9 @@ function setup(
 describe("useVideoPlaybackController", () => {
   beforeEach(() => {
     localStorage.clear();
+    videoHookMocks.clockOptions.mockClear();
+    videoHookMocks.bitmapOptions.mockClear();
+    videoHookMocks.preciseOptions.mockClear();
     videoHookMocks.activeBitmap = null;
     videoHookMocks.preciseBitmap = null;
     videoHookMocks.seekToAsync.mockReset().mockImplementation(async (frameIndex: number) => {
@@ -203,6 +216,62 @@ describe("useVideoPlaybackController", () => {
     const { result } = setup();
     expect(result.current.maxFrame).toBe(99);
     expect(result.current.fps).toBe(30);
+  });
+
+  it("partitions precise/native caches by main generation without resetting the frame or original source", () => {
+    const oldGeneration = "10000000-0000-4000-8000-000000000001";
+    const nextGeneration = "10000000-0000-4000-8000-000000000002";
+    const overrides = {
+      manifest: { ...MANIFEST, metadata_generation_id: oldGeneration },
+      controlledFrameIndex: 5,
+    };
+    const { result, rerender } = setup(undefined, overrides);
+    const sourceKey = videoHookMocks.clockOptions.mock.lastCall?.[0].sourceKey;
+    const oldCacheKey = videoHookMocks.bitmapOptions.mock.lastCall?.[0].sourceKey;
+    expect(videoHookMocks.preciseOptions.mock.lastCall?.[0].metadataGenerationId).toBe(
+      oldGeneration,
+    );
+    overrides.manifest = { ...MANIFEST, metadata_generation_id: nextGeneration };
+    rerender();
+    expect(result.current.frameIndex).toBe(5);
+    expect(videoHookMocks.clockOptions.mock.lastCall?.[0].sourceKey).toBe(sourceKey);
+    expect(videoHookMocks.bitmapOptions.mock.lastCall?.[0].sourceKey).not.toBe(oldCacheKey);
+    expect(videoHookMocks.preciseOptions.mock.lastCall?.[0].metadataGenerationId).toBe(
+      nextGeneration,
+    );
+  });
+
+  it("ignores an old timetable and recaptures when this generation's PTS table arrives", () => {
+    const generation = "10000000-0000-4000-8000-000000000002";
+    const oldGeneration = "10000000-0000-4000-8000-000000000001";
+    const overrides = {
+      manifest: { ...MANIFEST, metadata_generation_id: generation },
+      controlledFrameIndex: 5,
+      frameTimetable: {
+        metadata_generation_id: oldGeneration,
+        task_id: "T1",
+        fps: 30,
+        frame_count: 100,
+        source: "ffprobe",
+        frames: Array.from({ length: 100 }, (_, i) => ({
+          frame_index: i,
+          pts_ms: i * 37,
+          pict_type: i === 0 ? "I" : "P",
+          byte_offset: null,
+          is_keyframe: i === 0,
+        })),
+      } as TaskVideoFrameTimetableResponse,
+    };
+    const { result, rerender } = setup(undefined, overrides);
+    expect(videoHookMocks.clockOptions.mock.lastCall?.[0].timebase.ptsMs).toBeNull();
+    const oldCacheKey = videoHookMocks.bitmapOptions.mock.lastCall?.[0].sourceKey;
+    overrides.frameTimetable = { ...overrides.frameTimetable, metadata_generation_id: generation };
+    rerender();
+    expect(videoHookMocks.clockOptions.mock.lastCall?.[0].timebase.ptsMs).toEqual(
+      overrides.frameTimetable.frames.map((frame) => frame.pts_ms),
+    );
+    expect(videoHookMocks.bitmapOptions.mock.lastCall?.[0].sourceKey).not.toBe(oldCacheKey);
+    expect(result.current.frameIndex).toBe(5);
   });
 
   it("原件源未就绪时不交付缓存JPEG或QC定位成功", async () => {

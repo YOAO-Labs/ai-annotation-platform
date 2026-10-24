@@ -319,8 +319,15 @@ export function useVideoPlaybackController({
   );
 
   const timebase = useMemo(
-    () => buildFrameTimebase(manifest?.metadata, frameTimetable),
-    [frameTimetable, manifest?.metadata],
+    () =>
+      buildFrameTimebase(
+        manifest?.metadata,
+        !manifest?.metadata_generation_id ||
+          frameTimetable?.metadata_generation_id === manifest.metadata_generation_id
+          ? frameTimetable
+          : undefined,
+      ),
+    [frameTimetable, manifest?.metadata, manifest?.metadata_generation_id],
   );
   const fps = timebase.fps;
   const frameCount = timebase.frameCount;
@@ -401,13 +408,18 @@ export function useVideoPlaybackController({
     showFrame: showCachedBitmapFrame,
   } = useVideoBitmapCache({
     taskId: manifest?.task_id,
-    sourceKey,
+    sourceKey: JSON.stringify([
+      sourceKey,
+      manifest?.metadata_generation_id ?? null,
+      timebase.ptsMs ? "pts" : "fps",
+    ]),
     maxItems: performanceConfig.videoBitmapCache,
   });
 
   // 精确帧:WebCodecs decoder 激活时优先 precise bitmap,回退 native <video> capture bitmap。
   const precise = useVideoPreciseFrame({
     taskId: manifest?.task_id,
+    metadataGenerationId: manifest?.metadata_generation_id,
     frameIndex,
     enabled: !isPlaybackActive && playableSource,
     decodeEnabled: !frameClock.isSeeking || presentationRequest !== null,

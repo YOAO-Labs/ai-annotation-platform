@@ -24,6 +24,8 @@ import type { CachedVideoBitmap } from "./useVideoBitmapCache";
 
 export interface UseVideoPreciseFrameArgs {
   taskId: string | null | undefined;
+  /** Main manifest generation; every derivative and bitmap must belong to this owner. */
+  metadataGenerationId: string | null | undefined;
   frameIndex: number;
   /** 暂停态为 true；允许立即展示已经缓存的精确帧。 */
   enabled: boolean;
@@ -165,6 +167,7 @@ function errorStatus(err: unknown): number | undefined {
  */
 export function useVideoPreciseFrame({
   taskId,
+  metadataGenerationId,
   frameIndex,
   enabled,
   decodeEnabled = enabled,
@@ -176,12 +179,19 @@ export function useVideoPreciseFrame({
   const decoderEnabled = resolveVideoChunkDecoderEnabled();
   const active = detectWebCodecsSupport() && decoderEnabled;
   // 1-2. decoder inactive(无 flag / 无 WebCodecs)→ 全链路 disabled。
-  const pipelineEnabled = active && !!taskId && !!ownerKey && enabled;
+  const pipelineEnabled =
+    active && !!taskId && !!ownerKey && isVideoGeneration(metadataGenerationId) && enabled;
   const canDecode = pipelineEnabled && decodeEnabled;
 
   // latest-request-wins:effect 内异步 decode 完成后只激活仍匹配的 frame。
-  const latestRef = useRef({ taskId, ownerKey, frameIndex, enabled: canDecode });
-  latestRef.current = { taskId, ownerKey, frameIndex, enabled: canDecode };
+  const latestRef = useRef({
+    taskId,
+    ownerKey,
+    metadataGenerationId,
+    frameIndex,
+    enabled: canDecode,
+  });
+  latestRef.current = { taskId, ownerKey, metadataGenerationId, frameIndex, enabled: canDecode };
   // 单调递增的请求 token;decode 完成后与 latestRef 一起保证旧请求不覆盖当前显示帧。
   const generationRef = useRef(0);
   // 方向感知预取:记录上次 frameIndex,差值符号决定预取方向;0 表示方向未知不预取。
@@ -272,7 +282,7 @@ export function useVideoPreciseFrame({
 
   // 3. task manifest v2(仅 precise pipeline 激活时增量查询,不切主工作台 manifest)。
   const manifestQuery = useQuery({
-    queryKey: ["video-manifest-v2", ownerKey, taskId],
+    queryKey: ["video-manifest-v2", ownerKey, taskId, metadataGenerationId],
     queryFn: async ({ signal }) => {
       assertVideoDerivativeOwner(ownerKey, signal);
       const value = await tasksApi.getVideoManifestV2(taskId as string, { signal });
@@ -287,7 +297,10 @@ export function useVideoPreciseFrame({
     retryDelay: videoMetadataRetryDelay,
   });
 
-  const manifest: VideoManifestV2Response | undefined = manifestQuery.data;
+  const manifest: VideoManifestV2Response | undefined =
+    manifestQuery.data?.metadata_generation_id === metadataGenerationId
+      ? manifestQuery.data
+      : undefined;
   const datasetItemId = manifest?.dataset_item_id ?? null;
   const chunkSizeFrames = manifest?.chunk_size_frames ?? null;
   const manifestValid =
@@ -321,7 +334,7 @@ export function useVideoPreciseFrame({
     setPaintedFrameIndex(null);
     setLastPaintMs(null);
     setLastVisibleMs(null);
-  }, [taskId, frameIndex]);
+  }, [taskId, metadataGenerationId, frameIndex]);
 
   useEffect(() => {
     refreshedKeyRef.current = null;
@@ -377,7 +390,7 @@ export function useVideoPreciseFrame({
   const chunkFailed = !!chunk && chunk.status === "failed";
   const chunkUrl = chunk?.url ?? null;
 
-  const decoderTaskId = JSON.stringify([ownerKey, taskId, manifest?.metadata_generation_id]);
+  const decoderTaskId = JSON.stringify([ownerKey, taskId, metadataGenerationId]);
   const decoder = useVideoChunkDecoder({
     taskId: decoderTaskId,
     resourceKey: chunkReady ? chunkIdentity : null,
@@ -575,7 +588,7 @@ export function useVideoPreciseFrame({
     let next: PreciseFrameFallbackReason | null = null;
     if (!pipelineEnabled) {
       next = null;
-    } else if (manifestQuery.isError || (manifest && !manifestValid)) {
+    } else if (manifestQuery.isError || (manifestQuery.data && !manifestValid)) {
       next = "api_unavailable";
     } else if (chunkQuery.isError) {
       next = "api_unavailable";
@@ -602,7 +615,7 @@ export function useVideoPreciseFrame({
   }, [
     pipelineEnabled,
     manifestQuery.isError,
-    manifest,
+    manifestQuery.data,
     manifestValid,
     chunkQuery.isError,
     chunkFailed,
@@ -683,6 +696,7 @@ export function useVideoPreciseFrame({
       if (
         latest.taskId !== taskId ||
         latest.ownerKey !== ownerKey ||
+        latest.metadataGenerationId !== metadataGenerationId ||
         latest.frameIndex !== frameIndex ||
         !latest.enabled
       ) {
@@ -721,6 +735,7 @@ export function useVideoPreciseFrame({
     decoderTaskId,
     chunkIdentity,
     ownerKey,
+    metadataGenerationId,
   ]);
 
   const bitmap = useMemo<CachedVideoBitmap | null>(() => {

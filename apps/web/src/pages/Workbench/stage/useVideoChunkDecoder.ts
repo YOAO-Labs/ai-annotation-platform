@@ -504,6 +504,13 @@ export function useVideoChunkDecoder({
       if (!taskId || !active) {
         return { bitmap: null, fallbackReason: "flag_disabled" };
       }
+      if (
+        !mountedRef.current ||
+        taskIdRef.current !== taskId ||
+        resourceKeyRef.current !== resourceKey
+      ) {
+        return { bitmap: null, fallbackReason: "stale_request" };
+      }
       const normalizedFrame = Math.max(0, Math.round(args.targetFrameIndex));
       const key = chunkDecoderCacheKey(taskId, normalizedFrame, resourceKey);
       const cached =
@@ -842,7 +849,7 @@ export function useVideoChunkDecoder({
     mountedRef.current = true;
     const cache = cacheRef.current;
     const inFlight = inFlightRef.current;
-    const sessionSlot = sessionRef.current;
+    const sessions = sessionRef;
     const activeBitmap = activeBitmapRef;
     const uncachedBitmaps = uncachedBitmapRef;
     const retiredBitmaps = retiredBitmapRef;
@@ -857,7 +864,9 @@ export function useVideoChunkDecoder({
       for (const owned of retiredBitmaps.current) closeBitmap(owned.entry.bitmap);
       retiredBitmaps.current = [];
       inFlight.clear();
-      sessionSlot.session?.dispose();
+      const session = sessions.current.session;
+      sessions.current = { session: null, identity: null };
+      session?.dispose();
     };
   }, []);
 

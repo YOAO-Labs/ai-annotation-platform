@@ -45,6 +45,100 @@ describe("useVideoFramePreview", () => {
     vi.useRealTimers();
   });
 
+  it.each(["width", "format", "disabled"] as const)(
+    "retires pending previews when %s changes and ignores late responses",
+    async (change) => {
+      let resolveOld!: (value: Awaited<ReturnType<typeof tasksApi.getVideoFrame>>) => void;
+      const ready = {
+        ...FRAME_IDENTITY,
+        frame_index: 5,
+        width: 320,
+        format: "webp" as const,
+        status: "ready" as const,
+        url: "/old.webp",
+        retry_after: null,
+        error: null,
+      };
+      api.getVideoFrame.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOld = resolve;
+          }),
+      );
+      api.prefetchVideoFrames.mockImplementation(() => new Promise(() => {}));
+      const initial = { width: 320, format: "webp" as "webp" | "jpeg", enabled: true };
+      const { result, rerender } = renderHook(
+        (props) =>
+          useVideoFramePreview({
+            ...props,
+            taskId: "task-1",
+            metadataGenerationId: METADATA_GENERATION,
+            maxFrame: 9,
+          }),
+        { initialProps: initial },
+      );
+      act(() => result.current.previewFor(5));
+      await waitFor(() => expect(api.getVideoFrame).toHaveBeenCalledTimes(1));
+      const oldSignal = api.getVideoFrame.mock.calls[0][3]?.signal;
+      const next = {
+        width: change === "width" ? 640 : 320,
+        format: change === "format" ? ("jpeg" as const) : ("webp" as const),
+        enabled: change !== "disabled",
+      };
+      rerender(next);
+      expect(result.current.preview).toBeNull();
+      expect(oldSignal?.aborted).toBe(true);
+      for (const call of api.prefetchVideoFrames.mock.calls)
+        expect(call[3]?.signal?.aborted).toBe(true);
+      await act(async () => {
+        resolveOld(ready);
+      });
+      expect(result.current.preview).toBeNull();
+      expect(result.current.diagnostics.cacheSize).toBe(0);
+      expect(result.current.diagnostics.inFlight).toBe(0);
+      api.getVideoFrame.mockResolvedValue({ ...ready, ...next, url: "/new-preview" });
+      act(() => result.current.previewFor(5));
+      if (!next.enabled) {
+        expect(api.getVideoFrame).toHaveBeenCalledTimes(1);
+        expect(result.current.preview).toBeNull();
+      } else {
+        await waitFor(() => expect(result.current.preview?.url).toBe("/new-preview"));
+        expect(api.getVideoFrame.mock.calls[1][2]).toEqual({
+          width: next.width,
+          format: next.format,
+        });
+      }
+    },
+  );
+
+  it("hides an already ready preview immediately when disabled", async () => {
+    api.getVideoFrame.mockResolvedValue({
+      ...FRAME_IDENTITY,
+      frame_index: 5,
+      width: 320,
+      format: "webp",
+      status: "ready",
+      url: "/ready.webp",
+      retry_after: null,
+      error: null,
+    });
+    const { result, rerender } = renderHook(
+      ({ enabled }) =>
+        useVideoFramePreview({
+          enabled,
+          taskId: "task-1",
+          metadataGenerationId: METADATA_GENERATION,
+          maxFrame: 9,
+        }),
+      { initialProps: { enabled: true } },
+    );
+    act(() => result.current.previewFor(5));
+    await waitFor(() => expect(result.current.preview?.status).toBe("ready"));
+    rerender({ enabled: false });
+    expect(result.current.preview).toBeNull();
+    expect(result.current.diagnostics.cacheSize).toBe(0);
+  });
+
   it("loads a ready frame preview and reuses the in-memory cache", async () => {
     api.getVideoFrame.mockResolvedValue({
       frame_index: 5,

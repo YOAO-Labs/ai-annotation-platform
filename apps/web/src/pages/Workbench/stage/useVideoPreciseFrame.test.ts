@@ -226,9 +226,13 @@ function Wrapper({ children }: { children: ReactNode }) {
   return createElement(QueryClientProvider, { client: queryClient }, children);
 }
 
-function renderPrecise(initialProps: Parameters<typeof useVideoPreciseFrame>[0]) {
+type PreciseProps = Omit<Parameters<typeof useVideoPreciseFrame>[0], "metadataGenerationId"> & {
+  metadataGenerationId?: string | null;
+};
+function renderPrecise(initialProps: PreciseProps) {
   return renderHook(
-    (props: Parameters<typeof useVideoPreciseFrame>[0]) => useVideoPreciseFrame(props),
+    (props: PreciseProps) =>
+      useVideoPreciseFrame({ metadataGenerationId: METADATA_GENERATION, ...props }),
     { initialProps, wrapper: Wrapper },
   );
 }
@@ -1057,21 +1061,22 @@ describe("useVideoPreciseFrame", () => {
       status: 200,
       arrayBuffer: async () => makeBytes(),
     } as Response);
-    const { result } = renderPrecise({
+    const props = {
       taskId: "t1",
       frameIndex: 5,
       enabled: true,
       bitmapBudgetBytes: 4_000_000,
       chunkBudgetBytes: 8_000_000,
       prefetchFrames: 0,
-    });
+    };
+    const { result, rerender } = renderPrecise(props);
     await waitFor(() => expect(result.current.sourceState).toBe("ready"));
     const oldBitmap = result.current.bitmap?.bitmap;
     generation = "10000000-0000-4000-8000-000000000002";
     output = "20000000-0000-4000-8000-000000000002";
-    await act(async () => {
-      await queryClient.invalidateQueries({ queryKey: ["video-manifest-v2"] });
-    });
+    rerender({ ...props, metadataGenerationId: generation });
+    expect(result.current.bitmap).toBeNull();
+    expect(oldBitmap?.close).toHaveBeenCalledTimes(1);
     await waitFor(() => {
       expect(result.current.sourceState).toBe("ready");
       expect(result.current.bitmap?.bitmap).not.toBe(oldBitmap);
@@ -1080,6 +1085,86 @@ describe("useVideoPreciseFrame", () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
     expect(decoders).toHaveLength(2);
     expect(result.current.performance.chunkBytes).toBe(64);
+  });
+
+  it("rejects an old manifest-v2 generation immediately after the main manifest changes", async () => {
+    getManifestV2.mockResolvedValue(manifest());
+    const { result } = renderPrecise({
+      taskId: "t1",
+      metadataGenerationId: "10000000-0000-4000-8000-000000000002",
+      frameIndex: 5,
+      enabled: true,
+      bitmapBudgetBytes: 4_000_000,
+      chunkBudgetBytes: 8_000_000,
+      prefetchFrames: 0,
+    });
+    await waitFor(() => expect(result.current.fallbackReason).toBe("api_unavailable"));
+    expect(getManifestV2).toHaveBeenCalledTimes(1);
+    expect(result.current.bitmap).toBeNull();
+    expect(getChunk).not.toHaveBeenCalled();
+    expect(decoders).toHaveLength(0);
+  });
+
+  it("closes a late G1 bitmap after the main generation switches to G2 at the same task/frame", async () => {
+    let generation = METADATA_GENERATION;
+    let output = identity().output_id;
+    getManifestV2.mockImplementation(async () => ({
+      ...manifest(),
+      metadata_generation_id: generation,
+    }));
+    getChunk.mockImplementation(async () => ({
+      ...readyChunk(),
+      metadata_generation_id: generation,
+      output_id: output,
+    }));
+    getSamples.mockImplementation(async () => ({
+      ...samples(),
+      metadata_generation_id: generation,
+      output_id: output,
+    }));
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => makeBytes(),
+    } as Response);
+    let resolveOld!: (bitmap: ImageBitmap) => void;
+    const oldBitmap = fakeBitmap();
+    const nextBitmap = fakeBitmap();
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveOld = resolve;
+            }),
+        )
+        .mockResolvedValue(nextBitmap),
+    );
+    const props = {
+      taskId: "t1",
+      frameIndex: 5,
+      enabled: true,
+      bitmapBudgetBytes: 4_000_000,
+      chunkBudgetBytes: 8_000_000,
+      prefetchFrames: 0,
+    };
+    const { result, rerender } = renderPrecise(props);
+    await waitFor(() => expect(resolveOld).toBeTypeOf("function"));
+    generation = "10000000-0000-4000-8000-000000000002";
+    output = "20000000-0000-4000-8000-000000000002";
+    rerender({ ...props, metadataGenerationId: generation });
+    expect(result.current.bitmap).toBeNull();
+    await waitFor(() => expect(result.current.bitmap?.bitmap).toBe(nextBitmap));
+    await act(async () => {
+      resolveOld(oldBitmap);
+    });
+    await waitFor(() => expect(oldBitmap.close).toHaveBeenCalledTimes(1));
+    expect(result.current.bitmap?.bitmap).toBe(nextBitmap);
+    expect(nextBitmap.close).not.toHaveBeenCalled();
+    expect(getManifestV2).toHaveBeenCalledTimes(2);
+    expect(getSamples.mock.calls.map((call) => call[3])).toEqual([identity().output_id, output]);
   });
 
   // latest-request-wins decode 竞态(decode 进行中切帧/task):由 decode effect 的 `cancelled`

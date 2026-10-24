@@ -166,14 +166,15 @@ export function useVideoFramePreview({
   anchorPrefetchCount = DEFAULT_ANCHOR_PREFETCH_COUNT,
 }: UseVideoFramePreviewArgs) {
   const ownerKey = useVideoDerivativeOwnerKey();
-  const scopeKey = JSON.stringify([ownerKey, taskId, metadataGenerationId]);
+  const scopeKey = JSON.stringify([ownerKey, taskId, metadataGenerationId, width, format, enabled]);
   const liveScopeRef = useRef(scopeKey);
   liveScopeRef.current = scopeKey;
   const [previewState, setPreviewState] = useState<{
     scope: string;
     value: VideoFramePreview | null;
   } | null>(null);
-  const preview = previewState?.scope === scopeKey && !!ownerKey ? previewState.value : null;
+  const preview =
+    enabled && previewState?.scope === scopeKey && !!ownerKey ? previewState.value : null;
   const setPreview = useCallback(
     (
       value:

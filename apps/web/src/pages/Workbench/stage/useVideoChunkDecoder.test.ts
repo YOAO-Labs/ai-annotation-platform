@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { buildGopPlan, type EncodedVideoDecodePlan, type VideoGopPlan } from "./videoChunkDemux";
 import type { VideoChunkSampleEntry, VideoChunkSamplesResponse } from "@/types";
 import type { VideoGopSessionIdentity } from "./videoGopDecoderSession";
@@ -467,6 +467,94 @@ describe("useVideoChunkDecoder · 缓存、single-flight 与诊断 (mock WebCode
     unmount();
     expect(bitmapClose).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["resource", "task", "clear"] as const)(
+    "%s 切换后卸载释放当前会话，所有实际 decoder 均关闭",
+    async (transition) => {
+      const initial = { taskId: "task-1", resourceKey: "output-1" };
+      const { result, rerender, unmount } = renderHook(
+        (props) => useVideoChunkDecoder({ ...props, enabled: true }),
+        { initialProps: initial },
+      );
+      await act(async () => {
+        await result.current.decodePlan(decodeArgs(1));
+      });
+      expect(decoders).toHaveLength(1);
+      const next = {
+        taskId: transition === "task" ? "task-2" : initial.taskId,
+        resourceKey: transition === "resource" ? "output-2" : initial.resourceKey,
+      };
+      if (transition === "clear") act(() => result.current.clear());
+      else rerender(next);
+      expect(decoders[0].close).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await result.current.decodePlan(decodeArgs(2, next.taskId));
+      });
+      expect(decoders).toHaveLength(2);
+      expect(result.current.diagnostics.activeDecoders).toBe(1);
+      unmount();
+      expect(decoders.every((decoder) => decoder.close.mock.calls.length === 1)).toBe(true);
+      expect(decoders.filter((decoder) => decoder.close.mock.calls.length === 0)).toHaveLength(0);
+    },
+  );
+
+  it("retired decode callbacks cannot create sessions after a resource switch or unmount", async () => {
+    const { result, rerender, unmount } = renderHook(
+      ({ resourceKey }) => useVideoChunkDecoder({ taskId: "task-1", resourceKey, enabled: true }),
+      { initialProps: { resourceKey: "output-1" } },
+    );
+    const retiredDecode = result.current.decodePlan;
+    rerender({ resourceKey: "output-2" });
+    await act(async () => {
+      expect(await retiredDecode(decodeArgs(1))).toMatchObject({
+        bitmap: null,
+        fallbackReason: "stale_request",
+      });
+    });
+    expect(decoders).toHaveLength(0);
+    const currentDecode = result.current.decodePlan;
+    unmount();
+    expect(await currentDecode(decodeArgs(2))).toMatchObject({
+      bitmap: null,
+      fallbackReason: "stale_request",
+    });
+    expect(decoders).toHaveLength(0);
+  });
+
+  it.each(["clear", "unmount"] as const)(
+    "%s 期间迟到的配置检查不会创建遗留 decoder",
+    async (transition) => {
+      let resolveSupport!: (value: VideoDecoderSupport) => void;
+      vi.mocked(VideoDecoder.isConfigSupported).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSupport = resolve;
+          }),
+      );
+      const { result, unmount } = renderHook(() =>
+        useVideoChunkDecoder({ taskId: "task-1", enabled: true }),
+      );
+      let pending!: Promise<VideoChunkDecodeResult>;
+      act(() => {
+        pending = result.current.decodePlan(decodeArgs(1));
+      });
+      await waitFor(() => expect(resolveSupport).toBeTypeOf("function"));
+      if (transition === "clear") {
+        act(() => result.current.clear());
+        await act(async () => {
+          await result.current.decodePlan(decodeArgs(2));
+        });
+        expect(decoders).toHaveLength(1);
+      }
+      unmount();
+      await act(async () => {
+        resolveSupport({ supported: true });
+        expect((await pending).bitmap).toBeNull();
+      });
+      expect(decoders).toHaveLength(transition === "clear" ? 1 : 0);
+      expect(decoders.every((decoder) => decoder.close.mock.calls.length === 1)).toBe(true);
+    },
+  );
 
   it("单张 bitmap 超预算时不入 LRU，但前台目标仍可显示并由 active 所有权释放", async () => {
     const { result } = renderHook(() =>
