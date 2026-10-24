@@ -1840,11 +1840,8 @@ class BatchService:
 
         # Annotations own the soft reference; detach it before PredictionService removes
         # partitioned prediction rows and their metadata.
-        task_id_select = select(Task.id).where(Task.id.in_(task_ids))
         await detach_prediction_parents_for_tasks(self.db, task_ids=task_ids)
-        prediction_counts = await PredictionService(self.db).delete_for_tasks(
-            task_id_select
-        )
+        prediction_counts = await PredictionService(self.db).delete_for_tasks(task_ids)
 
         await execute_batch_control(
             self.db,

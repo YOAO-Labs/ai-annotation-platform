@@ -28,12 +28,12 @@ import zipfile
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import DatasetItem
 from app.services.project_access import get_workspace_project
-from app.db.models.prediction import Prediction, PredictionMeta
+from app.db.models.prediction import Prediction
 from app.schemas.aap_json import (
     AAPImportErrorEntry,
     AAPImportResult,
@@ -43,6 +43,7 @@ from app.schemas.aap_json import (
 )
 from app.schemas._jsonb_types import Geometry
 from app.services.prediction import PredictionService, derive_tool_unit_from_result
+from app.services.labeling_prediction_records import purge_imported_prediction_records
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultPort,
     ApplyPredictionResultRequest,
@@ -298,11 +299,28 @@ async def _purge_predictions(
             "source_scope must be one of: ml_backend, external_import, all"
         )
 
-    filters = [Prediction.project_id == project_id]
+    normalized_task_ids = None
     if task_ids is not None:
         normalized_task_ids = list(dict.fromkeys(task_ids))
         if not normalized_task_ids:
             return _empty_purge_counts()
+
+    if not dry_run:
+        data = await purge_imported_prediction_records(
+            db,
+            project_id=project_id,
+            task_ids=normalized_task_ids,
+            source_scope=source_scope,
+        )
+        return {
+            "ml_backend": data.ml_backend,
+            "external_import": data.external_import,
+            "unknown": data.unknown,
+            "total": data.total,
+        }
+
+    filters = [Prediction.project_id == project_id]
+    if normalized_task_ids is not None:
         filters.append(Prediction.task_id.in_(normalized_task_ids))
     if source_scope != "all":
         filters.append(Prediction.source == source_scope)
@@ -319,14 +337,6 @@ async def _purge_predictions(
     if not target_ids:
         return counts
 
-    if dry_run:
-        return counts
-
-    await db.execute(
-        delete(PredictionMeta).where(PredictionMeta.prediction_id.in_(target_ids))
-    )
-    await db.execute(delete(Prediction).where(Prediction.id.in_(target_ids)))
-    await db.flush()
     return counts
 
 

@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
 from app.db.models.project import Project
-from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
@@ -87,9 +86,8 @@ async def bulk_clear_preannotate(
                     batch_id, actor_id=actor_id
                 )
             else:
-                task_id_select = select(Task.id).where(Task.batch_id == batch_id)
                 await detach_prediction_parents_for_tasks(db, batch_id=batch_id)
-                cascade = await PredictionService(db).delete_for_tasks(task_id_select)
+                cascade = await PredictionService(db).delete_for_batch(batch_id)
                 cascade["prediction_jobs"] = await delete_batch_predict_jobs(
                     db, batch_id
                 )
