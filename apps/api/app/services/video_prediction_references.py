@@ -736,8 +736,12 @@ class VideoPredictionJob:
         )
         if selected is None:
             reject("prediction_video_model_changed")
-        actual_id = getattr(transport, "backend_id", None)
-        if not isinstance(actual_id, uuid.UUID):
+        raw_id = getattr(transport, "backend_id", None)
+        try:
+            actual_id = uuid.UUID(str(raw_id))
+        except (ValueError, TypeError, AttributeError):
+            reject("prediction_video_model_changed")
+        if not isinstance(raw_id, (str, uuid.UUID)) or str(raw_id) != str(actual_id):
             reject("prediction_video_model_changed")
         await self._fresh(task.id)
         await self.deliveries[task.id][0].check_live()

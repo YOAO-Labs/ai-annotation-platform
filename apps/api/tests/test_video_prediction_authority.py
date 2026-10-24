@@ -583,8 +583,10 @@ def live_inputs(world):
     return inputs
 
 
+@pytest.mark.parametrize("transport_kind", ["stub", "actual"])
 async def test_actual_transport_setup_has_no_open_owned_sql_session_and_rechecks_after(
     monkeypatch,
+    transport_kind,
 ):
     world = setup_job()
     live_inputs(world)
@@ -630,7 +632,22 @@ async def test_actual_transport_setup_has_no_open_owned_sql_session_and_rechecks
     )
     pool = AsyncMock()
     monkeypatch.setattr(video, "_pool", pool)
-    transport = SimpleNamespace(backend_id=actual_id, setup=setup)
+    if transport_kind == "actual":
+        from app.services.ml_client import MLBackendClient
+
+        transport = MLBackendClient(
+            SimpleNamespace(
+                id=actual_id,
+                url="http://controlled.invalid",
+                auth_method="none",
+                auth_token=None,
+                extra_params={},
+            )
+        )
+        transport.setup = setup
+        assert transport.backend_id == str(actual_id)
+    else:
+        transport = SimpleNamespace(backend_id=actual_id, setup=setup)
     await world.owner.before_dispatch(world.task, transport, stage_id=7)
     assert events == [
         "initial-guard",
