@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import type { ComponentProps } from "react";
@@ -42,7 +42,7 @@ const mocks = vi.hoisted(() => {
     createFeedback: { mutateAsync: vi.fn(), isPending: false },
     patchFeedback: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false },
     deleteFeedback: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false },
-    attachmentDownloadUrl: vi.fn(),
+    attachmentDownload: vi.fn(),
     isCurrentAuthOwner: vi.fn(() => true),
     historyQuery: {
       data: undefined,
@@ -84,7 +84,7 @@ vi.mock("@/hooks/useProjects", () => ({
   useProjectMentionCandidates: () => mocks.mentionCandidates,
 }));
 vi.mock("@/api/comments", () => ({
-  commentsApi: { attachmentDownloadUrl: mocks.attachmentDownloadUrl },
+  commentsApi: { attachmentDownload: mocks.attachmentDownload },
 }));
 vi.mock("@/stores/authStore", () => ({
   isCurrentAuthOwner: mocks.isCurrentAuthOwner,
@@ -268,8 +268,8 @@ const feedbackData = (id: string) => ({
   updated_at: null,
 });
 
-function renderPanel(props: Partial<ComponentProps<typeof CommentsPanel>> = {}) {
-  return render(
+function panelElement(props: Partial<ComponentProps<typeof CommentsPanel>> = {}) {
+  return (
     <MemoryRouter>
       <CommentsPanel
         annotationId={null}
@@ -278,8 +278,63 @@ function renderPanel(props: Partial<ComponentProps<typeof CommentsPanel>> = {}) 
         currentUserId="user-a"
         {...props}
       />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderPanel(props: Partial<ComponentProps<typeof CommentsPanel>> = {}) {
+  return render(panelElement(props));
+}
+
+function attachmentRows(includeFeedback = false) {
+  mocks.taskQuery.data = {
+    pages: [
+      {
+        items: [
+          {
+            source: "annotation_comment",
+            data: {
+              ...annotationData("comment-a", "annotation-row"),
+              attachments: [
+                {
+                  storageKey: "comment-attachments/annotation-row/a.txt",
+                  fileName: "a.txt",
+                  mimeType: "text/plain",
+                  size: 0,
+                },
+              ],
+            },
+            actions: { edit: false, change_status: false, delete: false, reply: false },
+          },
+          ...(includeFeedback
+            ? [
+                {
+                  source: "feedback" as const,
+                  data: {
+                    ...feedbackData("feedback-a"),
+                    attachments: [
+                      { storage_key: "task-feedback/a.txt", file_name: "a.txt", size: 4 },
+                    ],
+                  },
+                  actions: { edit: false, change_status: false, delete: false, reply: false },
+                },
+              ]
+            : []),
+        ],
+        next_cursor: null,
+        total: includeFeedback ? 2 : 1,
+      },
+    ],
+    pageParams: [undefined],
+  };
+}
+
+function downloadDOM() {
+  const createObjectURL = vi.fn(() => "blob:comment-attachment");
+  const revokeObjectURL = vi.fn();
+  vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  return { createObjectURL, revokeObjectURL, click };
 }
 
 beforeEach(() => {
@@ -308,7 +363,7 @@ beforeEach(() => {
   mocks.deleteFeedback.mutateAsync.mockReset();
   mocks.deleteComment.mutate.mockReset();
   mocks.deleteComment.mutateAsync.mockReset();
-  mocks.attachmentDownloadUrl.mockReset();
+  mocks.attachmentDownload.mockReset();
   mocks.isCurrentAuthOwner.mockReset();
   mocks.isCurrentAuthOwner.mockReturnValue(true);
   mocks.patchComment.mutateAsync.mockResolvedValue(undefined);
@@ -691,196 +746,149 @@ describe("CommentsPanel discussion feed", () => {
     expect(screen.getAllByRole("button", { name: "删除评论" })).toHaveLength(1);
   });
 
-  it("附件操作使用行数据的 annotation_id，任务 feedback 附件明确不可下载", async () => {
-    mocks.taskQuery.data = {
-      pages: [
-        {
-          items: [
-            {
-              source: "annotation_comment",
-              data: {
-                ...annotationData("comment-a", "annotation-row"),
-                attachments: [
-                  {
-                    storageKey: "comment-attachments/annotation-row/a.txt",
-                    fileName: "a.txt",
-                    mimeType: "text/plain",
-                    size: 4,
-                  },
-                ],
-              },
-              actions: { edit: false, change_status: false, delete: false, reply: false },
-            },
-            {
-              source: "feedback",
-              data: {
-                ...feedbackData("feedback-a"),
-                attachments: [{ storage_key: "task-feedback/a.txt", file_name: "a.txt", size: 4 }],
-              },
-              actions: { edit: false, change_status: false, delete: false, reply: false },
-            },
-          ],
-          next_cursor: null,
-          total: 2,
-        },
-      ],
-      pageParams: [undefined],
-    };
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      blob: vi.fn().mockResolvedValue(new Blob(["attachment"], { type: "text/plain" })),
-    });
-    const createObjectURL = vi.fn(() => "blob:comment-attachment");
-    const revokeObjectURL = vi.fn();
+  it("附件认证读取使用行数据的 annotation_id，任务 feedback 附件仍不可下载", async () => {
+    attachmentRows(true);
+    const blob = new Blob([], { type: "text/plain" });
+    mocks.attachmentDownload.mockResolvedValue(blob);
+    const dom = downloadDOM();
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
-    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    mocks.attachmentDownloadUrl.mockResolvedValue({ download_url: "https://signed.example/a.txt" });
     renderPanel({ annotationId: "annotation-current" });
-
     const row = screen.getAllByTestId("discussion-comment-row")[0];
     fireEvent.click(within(row).getByRole("button", { name: /a\.txt/ }));
-    await waitFor(() =>
-      expect(mocks.attachmentDownloadUrl).toHaveBeenCalledWith(
-        "annotation-row",
-        "comment-attachments/annotation-row/a.txt",
-      ),
+    await waitFor(() => expect(dom.click).toHaveBeenCalledTimes(1));
+    expect(mocks.attachmentDownload).toHaveBeenCalledWith(
+      "annotation-row",
+      "comment-attachments/annotation-row/a.txt",
+      expect.any(AbortSignal),
     );
-    expect(fetchMock).toHaveBeenCalledWith("https://signed.example/a.txt", {
-      credentials: "omit",
-    });
-    expect(anchorClick).toHaveBeenCalledTimes(1);
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:comment-attachment");
+    expect(dom.createObjectURL).toHaveBeenCalledWith(blob);
+    expect(dom.revokeObjectURL).toHaveBeenCalledWith("blob:comment-attachment");
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByText("a.txt（暂不支持下载）")).toBeInTheDocument();
   });
 
-  it("附件签名地址失败时在对应卡片显示错误，并保留重试入口", async () => {
-    mocks.taskQuery.data = {
-      pages: [
-        {
-          items: [
-            {
-              source: "annotation_comment",
-              data: {
-                ...annotationData("comment-a", "annotation-row"),
-                attachments: [
-                  {
-                    storageKey: "comment-attachments/annotation-row/a.txt",
-                    fileName: "a.txt",
-                    mimeType: "text/plain",
-                    size: 4,
-                  },
-                ],
-              },
-              actions: { edit: false, change_status: false, delete: false, reply: false },
-            },
-          ],
-          next_cursor: null,
-          total: 1,
-        },
-      ],
-      pageParams: [undefined],
-    };
-    const error = Object.assign(new Error("无权限"), { status: 403 });
-    mocks.attachmentDownloadUrl.mockRejectedValueOnce(error);
-    renderPanel({ annotationId: "annotation-current" });
+  it.each([403, 409, 410, 503])(
+    "认证下载 HTTP %s 错误只在对应附件显示并允许重试",
+    async (status) => {
+      attachmentRows();
+      mocks.attachmentDownload.mockRejectedValueOnce(
+        Object.assign(new Error("附件不可用"), { status }),
+      );
+      const dom = downloadDOM();
+      renderPanel({ annotationId: "annotation-current" });
+      const button = screen.getByRole("button", { name: /a\.txt/ });
+      fireEvent.click(button);
+      await waitFor(() =>
+        expect(screen.getByTestId("discussion-attachment-error")).toHaveTextContent(String(status)),
+      );
+      if (status === 409)
+        expect(screen.getByTestId("discussion-attachment-error")).toHaveTextContent("重新上传");
+      if (status === 410)
+        expect(screen.getByTestId("discussion-attachment-error")).toHaveTextContent("已过期");
+      expect(button).toBeEnabled();
+      expect(dom.createObjectURL).not.toHaveBeenCalled();
+      mocks.attachmentDownload.mockResolvedValueOnce(new Blob(["retried file"]));
+      fireEvent.click(button);
+      fireEvent.click(button);
+      await waitFor(() => expect(dom.click).toHaveBeenCalledTimes(1));
+      expect(mocks.attachmentDownload).toHaveBeenCalledTimes(2);
+      expect(screen.queryByTestId("discussion-attachment-error")).not.toBeInTheDocument();
+      expect(dom.revokeObjectURL).toHaveBeenCalledTimes(1);
+    },
+  );
 
-    const button = screen.getByRole("button", { name: /a\.txt/ });
-    fireEvent.click(button);
-    await waitFor(() =>
-      expect(screen.getByTestId("discussion-attachment-error")).toHaveTextContent("403"),
-    );
-    expect(button).toBeEnabled();
-  });
-
-  it("签名 URL 返回 503 时在对应卡片显示错误且允许重试", async () => {
-    mocks.taskQuery.data = {
-      pages: [
-        {
-          items: [
-            {
-              source: "annotation_comment",
-              data: {
-                ...annotationData("comment-a", "annotation-row"),
-                attachments: [
-                  {
-                    storageKey: "comment-attachments/annotation-row/a.txt",
-                    fileName: "a.txt",
-                    mimeType: "text/plain",
-                    size: 4,
-                  },
-                ],
-              },
-              actions: { edit: false, change_status: false, delete: false, reply: false },
-            },
-          ],
-          next_cursor: null,
-          total: 1,
-        },
-      ],
-      pageParams: [undefined],
-    };
-    mocks.attachmentDownloadUrl.mockResolvedValue({ download_url: "https://signed.example/a.txt" });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, blob: vi.fn() }));
-    renderPanel({ annotationId: "annotation-current" });
-
-    const button = screen.getByRole("button", { name: /a\.txt/ });
-    fireEvent.click(button);
-    await waitFor(() =>
-      expect(screen.getByTestId("discussion-attachment-error")).toHaveTextContent("503"),
-    );
-    expect(button).toBeEnabled();
-  });
-
-  it("账号会话在签名接口返回前变更时不再请求文件或触发浏览器下载", async () => {
-    mocks.taskQuery.data = {
-      pages: [
-        {
-          items: [
-            {
-              source: "annotation_comment",
-              data: {
-                ...annotationData("comment-a", "annotation-row"),
-                attachments: [
-                  {
-                    storageKey: "comment-attachments/annotation-row/a.txt",
-                    fileName: "a.txt",
-                    mimeType: "text/plain",
-                    size: 4,
-                  },
-                ],
-              },
-              actions: { edit: false, change_status: false, delete: false, reply: false },
-            },
-          ],
-          next_cursor: null,
-          total: 1,
-        },
-      ],
-      pageParams: [undefined],
-    };
-    let resolveSigned: (value: { download_url: string }) => void = () => {};
-    mocks.attachmentDownloadUrl.mockReturnValueOnce(
-      new Promise<{ download_url: string }>((resolve) => {
-        resolveSigned = resolve;
+  it("账号在认证文件返回前变更时不触发浏览器下载", async () => {
+    attachmentRows();
+    let resolve!: (blob: Blob) => void;
+    mocks.attachmentDownload.mockReturnValueOnce(
+      new Promise<Blob>((done) => {
+        resolve = done;
       }),
     );
-    const fetchMock = vi.fn();
-    const createObjectURL = vi.fn();
-    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL: vi.fn() });
+    const dom = downloadDOM();
     renderPanel({ annotationId: "annotation-current" });
-
     fireEvent.click(screen.getByRole("button", { name: /a\.txt/ }));
-    await waitFor(() => expect(mocks.attachmentDownloadUrl).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.attachmentDownload).toHaveBeenCalledTimes(1));
     mocks.isCurrentAuthOwner.mockReturnValue(false);
-    resolveSigned({ download_url: "https://signed.example/a.txt" });
-    await waitFor(() => expect(fetchMock).not.toHaveBeenCalled());
+    await act(async () => {
+      resolve(new Blob(["old account file"]));
+    });
+    expect(dom.createObjectURL).not.toHaveBeenCalled();
+    expect(dom.click).not.toHaveBeenCalled();
+  });
 
-    expect(createObjectURL).not.toHaveBeenCalled();
-    expect(anchorClick).not.toHaveBeenCalled();
+  it("任务 A→B→A 取消旧下载，迟到返回不清除同键的新请求", async () => {
+    attachmentRows();
+    let oldResolve!: (blob: Blob) => void;
+    let nextResolve!: (blob: Blob) => void;
+    mocks.attachmentDownload
+      .mockReturnValueOnce(
+        new Promise<Blob>((done) => {
+          oldResolve = done;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise<Blob>((done) => {
+          nextResolve = done;
+        }),
+      );
+    const dom = downloadDOM();
+    const view = renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /a\.txt/ }));
+    const signal = mocks.attachmentDownload.mock.calls[0][2] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+    view.rerender(panelElement({ taskId: "task-b" }));
+    expect(signal.aborted).toBe(true);
+    view.rerender(panelElement());
+    const button = screen.getByRole("button", { name: /a\.txt/ });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    await act(async () => {
+      oldResolve(new Blob(["old task file"]));
+    });
+    expect(button).toBeDisabled();
+    expect(dom.createObjectURL).not.toHaveBeenCalled();
+    nextResolve(new Blob(["current task file"]));
+    await waitFor(() => expect(dom.click).toHaveBeenCalledTimes(1));
+    expect(button).toBeEnabled();
+    expect(dom.revokeObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it("卸载面板会取消读取，忽略不响应取消的迟到 Blob", async () => {
+    attachmentRows();
+    let resolve!: (blob: Blob) => void;
+    mocks.attachmentDownload.mockReturnValueOnce(
+      new Promise<Blob>((done) => {
+        resolve = done;
+      }),
+    );
+    const dom = downloadDOM();
+    const view = renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /a\.txt/ }));
+    const signal = mocks.attachmentDownload.mock.calls[0][2] as AbortSignal;
+    view.unmount();
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      resolve(new Blob(["unmounted file"]));
+    });
+    expect(dom.createObjectURL).not.toHaveBeenCalled();
+    expect(dom.click).not.toHaveBeenCalled();
+  });
+
+  it("创建临时 URL 后权限变化仍会释放 URL 而不点击链接", async () => {
+    attachmentRows();
+    mocks.attachmentDownload.mockResolvedValueOnce(new Blob(["file"]));
+    const dom = downloadDOM();
+    dom.createObjectURL.mockImplementation(() => {
+      mocks.isCurrentAuthOwner.mockReturnValue(false);
+      return "blob:comment-attachment";
+    });
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /a\.txt/ }));
+    await waitFor(() => expect(dom.revokeObjectURL).toHaveBeenCalledTimes(1));
+    expect(dom.click).not.toHaveBeenCalled();
+    expect(document.querySelector('a[download="a.txt"]')).not.toBeInTheDocument();
   });
 
   it("提供 session draft store 的 legacy annotation composer 不受全局 mutation pending 阻塞", () => {
