@@ -155,6 +155,12 @@ async def test_strict_login_creates_scoped_job_and_rejects_private_legacy_writes
             assert visible.status == "pending"
             assert visible.project_id == project_id
             assert visible.retained_project_id is None
+            await async_job_svc.update_progress(strict, created_id, 7)
+            await strict.flush()
+            assert "updated_at" in sa_inspect(visible).expired_attributes
+            await strict.refresh(visible, attribute_names=["updated_at"])
+            assert visible.updated_at is not None
+            assert "updated_at" not in sa_inspect(visible).expired_attributes
             await strict.commit()
 
         async with owner_sessions() as owner:

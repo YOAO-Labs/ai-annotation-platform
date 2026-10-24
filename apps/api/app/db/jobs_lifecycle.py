@@ -7,10 +7,12 @@ import json
 from collections.abc import Mapping
 from datetime import datetime
 
-from sqlalchemy import event, inspect, text
+from sqlalchemy import column, event, func, inspect, select, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, attributes, object_session
+from sqlalchemy.orm import Session, aliased, attributes, object_session
 from sqlalchemy.orm.exc import StaleDataError
+from sqlalchemy.sql import visitors
+from sqlalchemy.sql.elements import BindParameter, BinaryExpression
 
 _TRACE = "aap_jobs_lifecycle_commands"
 _TABLES = set()
@@ -155,6 +157,85 @@ def _apply_job_update(mapper, connection, target):
     state.info.pop(_TRACE, None)
 
 
+def _retarget_job_column_load(execute_state):
+    """Keep AsyncJob expired-column refreshes on the fixed Jobs read capability."""
+    if not execute_state.is_column_load or not execute_state.is_select:
+        return
+
+    mappers = execute_state.all_mappers
+    if len(mappers) != 1:
+        return
+    mapper = mappers[0]
+    table = mapper.local_table
+    if table not in _TABLES:
+        return
+    if execute_state.session.get_bind(mapper=mapper).dialect.name != "postgresql":
+        return
+
+    statement = execute_state.statement
+    # shortcut: rebaseline this SQLAlchemy 2.0 refresh-Select shape on ORM upgrades.
+    if (
+        getattr(statement, "_for_update_arg", None) is not None
+        or statement._with_options
+        or statement._order_by_clauses
+        or statement._group_by_clauses
+        or statement._having_criteria
+        or statement._limit_clause is not None
+        or statement._offset_clause is not None
+        or statement.get_final_froms() != [table]
+    ):
+        return
+
+    parameters = execute_state.parameters
+    if not isinstance(parameters, Mapping) or not parameters:
+        return
+    primary_keys = mapper.primary_key
+    where = statement.whereclause
+    if len(primary_keys) != 1 or where is None:
+        return
+
+    primary_key = primary_keys[0]
+    primary_key_bind = None
+    for expression in visitors.iterate(where):
+        if (
+            isinstance(expression, BinaryExpression)
+            and getattr(expression.left, "table", None) is table
+            and getattr(expression.left, "key", None) == primary_key.key
+            and isinstance(expression.right, BindParameter)
+            and expression.right.key in parameters
+        ):
+            if primary_key_bind is not None:
+                return
+            primary_key_bind = expression.right
+    if primary_key_bind is None:
+        return
+
+    source = (
+        func.aap_jobs_v1.read_job(primary_key_bind)
+        .table_valued(
+            *(column(column_.name, type_=column_.type) for column_ in table.columns)
+        )
+        .alias(table.name)
+    )
+    entity = aliased(mapper.class_, source, adapt_on_names=True)
+
+    def adapt_column(expression):
+        if (
+            getattr(expression, "table", None) is table
+            and getattr(expression, "key", None) in table.c
+        ):
+            return getattr(entity, expression.key)
+        return None
+
+    adapted_where = visitors.replacement_traverse(where, {}, adapt_column)
+    rewritten = select(entity).where(adapted_where)
+    rewritten._compile_options = statement._compile_options
+    execution_options = statement.get_execution_options()
+    if execution_options:
+        rewritten = rewritten.execution_options(**execution_options)
+    execute_state.statement = rewritten
+
+
 def _retarget_job_insert(connection, cursor, statement, parameters, context, many):
     command = getattr(getattr(context, "compiled", None), "statement", None)
     table = getattr(command, "table", None)
@@ -193,6 +274,8 @@ def install_jobs_owner_mapping(model):
     _TABLES.add(model.__table__)
     event.listen(model, "before_update", _apply_job_update)
     event.listen(model, "after_insert", _clear_insert_trace)
+    if not event.contains(Session, "do_orm_execute", _retarget_job_column_load):
+        event.listen(Session, "do_orm_execute", _retarget_job_column_load)
     if not event.contains(Engine, "before_cursor_execute", _retarget_job_insert):
         event.listen(Engine, "before_cursor_execute", _retarget_job_insert, retval=True)
         event.listen(Session, "after_rollback", _clear_rolled_back_traces)
