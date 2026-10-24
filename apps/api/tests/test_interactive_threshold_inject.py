@@ -17,6 +17,13 @@ from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.ml_client import PredictionResult
+from app.db.models.user import User
+from tests.managed_image_inference_fixtures import (
+    attach_managed,
+    db_session as db_session,
+    input_world as input_world,
+    sync_world as sync_world,
+)
 from tests.conftest import create_registry_with_pool
 
 
@@ -57,6 +64,7 @@ async def _seed(db, owner_id, *, box=0.4, text=0.3):
     )
     db.add(task)
     await db.flush()
+    await attach_managed(db, proj, await db.get(User, owner_id), task=task)
     return proj, backend, task
 
 

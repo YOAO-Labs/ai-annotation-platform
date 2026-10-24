@@ -19,6 +19,13 @@ from app.db.models.task import Task
 from app.services.ml_client import PredictionResult
 from app.services.ai_mask_session import verify_ai_mask_session
 from app.services.ai_mask_receipt import verify_ai_mask_receipt
+from app.db.models.user import User
+from tests.managed_image_inference_fixtures import (
+    attach_managed,
+    db_session as db_session,
+    input_world as input_world,
+    sync_world as sync_world,
+)
 from tests.conftest import create_registry_with_pool
 
 
@@ -53,6 +60,7 @@ async def _seed(db, owner_id):
     )
     db.add(task)
     await db.flush()
+    await attach_managed(db, project, await db.get(User, owner_id), task=task)
     return project, backend, task
 
 
