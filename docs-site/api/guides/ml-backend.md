@@ -165,6 +165,16 @@ POST /api/v1/projects/:id/ml-backends/:bid/capabilities/refresh
 
 原生候选的 ID 与采纳回执绑定其在完整 `result` 中的索引，例如第二个实例的 Mask 索引为 `3`。`accept_receipts` 只为 Mask 签发；客户端删除或采纳其他候选后，仍须使用原索引采纳 Mask，不得按过滤后的列表重新编号。框沿用普通标注创建路径，Mask 使用[原子采纳接口](./tasks-and-annotations#原生-ai-mask-候选采纳)。
 
+## 托管图片的同步预测
+
+`predict-test` 和图片 `interactive-annotating` 按已登记原件保存的位置完整核验图片，支持 TaskOriginal、直接 DatasetItem 以及 primary 关联，不按当前用途桶拼接同名 URL。模型收到版本固定的独占临时副本，setup 后和响应前复核本次原 JWT／API Key、任务版本、权限、来源及维护状态；缺原件归属、来源变化或权限撤销时拒绝结果。
+
+predict-test 保持当前项目管理权限和只读语义，可读取管理者可见的已完成任务，不要求开启交互 AI。交互要求当前可编辑、有效分派与编辑锁允许、项目交互 AI 开启；原有端点 scope 要求保持，带 `mask_prompt_source` 另需 `annotations:read`。
+
+原生候选 receipt 和加密 `mask_input_next` 使用服务器生成的 `original_input` 身份，绑定 Task、原件、完整摘要、真实尺寸及 canonical 来源摘要，与引用图片的 `reference_input` 分开。客户端不能补写来源；旧托管候选、续点或 decision 缺少证据时需重新推理。原生接受重新完整核验原件，支持独立任务与 primary 关联，保持 create／refine、If-Match 和原子幂等合同；来源变化时已有 decision 也不能绕过检查。公开来源投影不包含对象路径、凭据或签名 URL。
+
+这两个同步接口不创建后台作业，临时输入沿既有独立账本清理。导入桶版本控制和未知关闭的部署要求与[后台图片输入](./predictions#托管图片的固定输入)一致。视频帧、二次推理、批量 mask repair 和整段追踪仍使用各自的输入流程。
+
 ## 原地引用图片的同步预测
 
 `POST /projects/{project_id}/ml-backends/{backend_id}/predict-test?task_id=...` 支持引用图片，要求当前项目管理权限及 `tasks:read`。这是只读测试，可用于管理者可见的已完成任务，不要求任务处于可编辑状态。

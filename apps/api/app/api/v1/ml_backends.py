@@ -78,7 +78,10 @@ from app.services.project_access import ProjectAccess, ProjectCapability
 from app.services.storage import StorageService
 from app.services.audit import AuditService
 from app.services.ai_mask_receipt import issue_ai_mask_receipt
-from app.services.ai_mask_prompt import resolve_authorized_mask_prompt
+from app.services.ai_mask_prompt import (
+    capture_image_mask_prompt_source,
+    resolve_authorized_mask_prompt,
+)
 from app.services.ai_mask_session import issue_ai_mask_session
 from app.api.v1.tasks._shared import (
     _assert_review_adjustment_evidence,
@@ -816,6 +819,7 @@ async def _prepare_safe_interactive_context(
     task_id: uuid.UUID,
     frame_index: int | None = None,
     reference_input: dict | None = None,
+    original_input: dict | None = None,
 ) -> tuple[dict, str | None]:
     from app.services.trained_models import is_controlled
 
@@ -844,6 +848,7 @@ async def _prepare_safe_interactive_context(
         frame_index=frame_index,
         requested_backend_id=str(backend_id),
         reference_input=reference_input,
+        original_input=original_input,
     )
 
 
@@ -883,7 +888,17 @@ def _interactive_response(
     task_id: uuid.UUID,
     frame_index: int | None,
     reference_input: dict | None = None,
+    original_input: dict | None = None,
 ) -> dict:
+    if reference_input is not None and original_input is not None:
+        raise ValueError("Mask source identities are mutually exclusive")
+    source_claims = (
+        {"original_input": original_input}
+        if original_input is not None
+        else {"reference_input": reference_input}
+        if reference_input is not None
+        else {}
+    )
     operation = mask_ai_operation(context)
     decode_started = time.monotonic()
     try:
@@ -955,7 +970,7 @@ def _interactive_response(
                     "prompt_summary": prompt_summary,
                     "prompt_source": prompt_source,
                     "accept_target": accept_target,
-                    **({"reference_input": reference_input} if reference_input else {}),
+                    **source_claims,
                 }
             )
     mask_input_next = None
@@ -984,7 +999,7 @@ def _interactive_response(
                     "origin_prompt_revision": prompt_revision,
                     "candidate_id": normalized[0].get("candidate_id"),
                     "candidate_index": 0,
-                    **({"reference_input": reference_input} if reference_input else {}),
+                    **source_claims,
                 },
             )
         except ValueError as exc:
@@ -1225,7 +1240,7 @@ async def predict_test(
 
     async with reference_image_operation(
         db, task, current_user, request, "predict_test", input_session_factory
-    ) as reference:
+    ) as image_input:
         client = RoutedMLBackendClient(
             db,
             backend,
@@ -1239,14 +1254,14 @@ async def predict_test(
             [
                 {
                     "id": str(task.id),
-                    "file_path": reference.url
-                    if reference
+                    "file_path": image_input.url
+                    if image_input
                     else _resolve_task_url(task),
                 }
             ]
         )
-        if reference:
-            await reference.final()
+        if image_input:
+            await image_input.final()
         return {
             "results": [
                 {"task_id": r.task_id, "result": r.result, "score": r.score}
@@ -1291,19 +1306,16 @@ async def interactive_annotating(
     await _assert_task_visible(db, task, current_user, access=access)
     if (body.context or {}).get("mask_prompt_source") is not None:
         assert_request_scopes(request, "annotations:read")
-    from app.services.reference_keys import is_reference
-
-    if is_reference(task.file_path):
-        await db.commit()
+    # Release initial membership/editability locks before any original or RLE I/O.
+    await db.commit()
 
     # AI 推理参数 (阈值 / 变体等) 已统一改走工作台 AI 面板: 前端按所绑定 backend 的
     # /setup.params 动态渲染、每用户独立调整, 并随 context 透传。平台不再注入项目级 DINO
     # 阈值 (那会把 gsam2 专属参数塞给 sam3 等不支持的后端); 各 backend 缺省值由自身 /setup 决定。
-    resolved_context = await resolve_authorized_mask_prompt(
+    prompt_source = await capture_image_mask_prompt_source(
         db,
         task=task,
         context=dict(body.context or {}),
-        frame_index=None,
     )
     async with reference_image_operation(
         db,
@@ -1313,18 +1325,33 @@ async def interactive_annotating(
         "interactive_predict",
         input_session_factory,
         annotations_read=(body.context or {}).get("mask_prompt_source") is not None,
-        prompt_source=resolved_context.get("mask_prompt"),
-    ) as reference:
+        prompt_source=prompt_source,
+    ) as image_input:
+        verified_size = (
+            (image_input.snapshot.width, image_input.snapshot.height)
+            if image_input
+            else None
+        )
+        resolved_context = await resolve_authorized_mask_prompt(
+            db,
+            task=task,
+            context=dict(body.context or {}),
+            frame_index=None,
+            verified_image_size=verified_size,
+        )
+        provenance = (
+            {image_input.provenance_key: image_input.identity()} if image_input else {}
+        )
         context, model_id = await _prepare_safe_interactive_context(
             backend,
             backend_id,
             resolved_context,
             task_id=task.id,
             frame_index=None,
-            reference_input=reference.identity() if reference else None,
+            **provenance,
         )
         expected_size = (
-            await _task_media_size(db, task)
+            verified_size or await _task_media_size(db, task)
             if context.get("output_geometry") == "mask"
             else None
         )
@@ -1348,15 +1375,15 @@ async def interactive_annotating(
         metric_prompt = mask_ai_prompt_family(context)
         metric_geometry = str(context.get("output_geometry") or "unknown")
         inference_started = time.monotonic()
-        if reference:
-            await reference.validate()
+        if image_input:
+            await image_input.validate()
             await db.commit()
         try:
             result = await client.predict_interactive(
                 task_data={
                     "id": str(task.id),
-                    "file_path": reference.url
-                    if reference
+                    "file_path": image_input.url
+                    if image_input
                     else _resolve_task_url(task),
                 },
                 context=context,
@@ -1384,8 +1411,8 @@ async def interactive_annotating(
         )
         # Do not return restricted candidates from a revoked/role-changed authority:
         # re-acquire the task row and locked membership at the response boundary.
-        if reference:
-            await reference.final()
+        if image_input:
+            await image_input.final()
         else:
             await _reacquire_write_boundary(db, task.id, current_user)
         encode_started = time.monotonic()
@@ -1399,7 +1426,7 @@ async def interactive_annotating(
                 model_id=model_id,
                 task_id=task.id,
                 frame_index=None,
-                reference_input=reference.identity() if reference else None,
+                **provenance,
             )
         except Exception:
             observe_mask_ai_phase(

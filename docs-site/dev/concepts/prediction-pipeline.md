@@ -374,6 +374,14 @@ worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, f
 
 decision 内保留非授权的原图溯源，15 分钟候选 receipt 到期后仍可在既有 24 小时 decision 期限内重放相同请求；重放同样复核当前权限和严格原图，不额外写候选。私有证据不在公开响应中输出，公开客户端仍只提交原有候选凭证。批量 mask repair 使用下述独立资格；后台原生掩码预标使用本页的逐结果资格。
 
+### 托管图片的同步交互与原生掩码
+
+`managed_image_inference.ManagedImageOperation` 由同步输入上下文分派，复用原有业务授权、`prediction_originals` 的凭据／canonical 原件核验与 `PredictionInputs` v2。短事务固定 Task.version、批次、完整来源事实和原 JWT／API Key 后提交，再分配输入并用同一 purpose 持有来源及目标许可，完整核验一次图片、解码真实尺寸并上传准确版本。Mask 提示先冻结 Annotation 元数据，原图准备后再读取 RLE；业务锁不跨原图／提示对象读取或模型 HTTP。setup 后与派发前复核，响应末端沿调用者事务刷新 Batch／Task／来源与提示并调用 input `check_metadata`，不在最终锁下另开 guard session 或执行对象 I/O。
+
+候选与 logits 使用独立 `original_input` 小型严格身份，与 `reference_input` 互斥；只含内容、实际尺寸、位置修订和 canonical 事实摘要，不含私有 locator 或凭据。原生接受重新完整读取并确认关闭源句柄，随后取得最终权限／来源锁，以独立私有 receipt 绑定同 session、顶层事务、actor／Task、请求、Mask 摘要、可信尺寸及原凭据身份和期限。Prediction／Annotation／像素尺寸校验和提交前的最后检查显式传递并验证该 receipt，不能凭普通尺寸字典放行；Mask 对象写入期间过期或 JWT 被注销都会回滚业务结果。凭据复核沿当前事务与授权缓存执行，不另开会话；证据写 original_input。Decision 的内部来源身份供精确重放并在公开响应剥离，旧无来源证据不回填。
+
+物理工作保留真实 Future 并排空，未知关闭标记不会被后续 close 的 no-op 消除。同步模型输入关闭在事务释放后进行；来源仍持同 purpose 时，首次准确回收延期属于正常保护。接受仅重新读取原件，不生成模型输入或新后台任务。视频与引用的既有权限、身份和持久化合同保持独立。
+
 ### 引用图片的批量修复
 
 `reference_mask_repair.ReferenceRepairUnit` 按分片/候选组管理固定引用内容、当前 Job 私有 Key proof、真实 Worker 节点严格快照及临时输入。确定性修复仅需审核写入与 native gate；SAM 另需 AI 开关，并在计划中固定模型声明、变体和参数。当前协议提供声明配置身份，不虚构 checkpoint 摘要。实际路由 transport 的 setup 在发送原图 URL 前核对冻结模型；最终短事务共享锁定 pool、项目启用关联、成员和 registry，保留实际 instance/pool 溯源。

@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import uuid
 
@@ -193,6 +194,20 @@ def receipt_world(monkeypatch):
 
     db.get = get
     monkeypatch.setattr(originals, "managed_binding", managed_binding)
+    credentials = {
+        "schema": 1,
+        "actor_id": str(actor_id),
+        "api_key_id": None,
+        "key_fingerprint": None,
+        "key_expires_at": None,
+        "jwt": None,
+    }
+
+    async def reauthorize(owned_db, proof, current_actor_id, key_id):
+        assert owned_db is db and proof == credentials
+        assert current_actor_id == actor_id and key_id is None
+
+    monkeypatch.setattr(originals, "reauthorize", reauthorize)
     mask = build_rle_reference(RLE)
     receipt = native._NativeReceipt(
         issuer=native._ISSUER,
@@ -200,6 +215,7 @@ def receipt_world(monkeypatch):
         transaction=db.sync_session.transaction,
         actor_id=actor_id,
         task_id=task.id,
+        credentials=originals.encoded(credentials),
         binding=originals.encoded({**task_binding(task), "original": binding}),
         idempotency_key="one-request",
         request_digest="digest",
@@ -215,6 +231,30 @@ def receipt_world(monkeypatch):
         receipt=receipt,
         geometry={"type": "raster_mask", "mask": mask},
     )
+
+
+@pytest.mark.parametrize("kind", ["jwt", "api_key"])
+async def test_native_receipt_rechecks_expiry_before_persistence_reads(
+    receipt_world, kind
+):
+    world = receipt_world
+    past = datetime.now(timezone.utc) - timedelta(seconds=1)
+    credentials = {"jwt": None, "key_expires_at": None}
+    if kind == "jwt":
+        credentials["jwt"] = {
+            "expires_at": past.isoformat(),
+            "generation": 1,
+            "jti": "a-native-mask-request",
+        }
+    else:
+        credentials["key_expires_at"] = past.isoformat()
+    receipt = replace(world.receipt, credentials=originals.encoded(credentials))
+    with pytest.raises(ContentError) as caught:
+        await native.validate_native_receipt(
+            world.db, world.task.id, world.task.project_id, receipt
+        )
+    assert caught.value.status == 403
+    assert world.db.reads == []
 
 
 @pytest.mark.parametrize(

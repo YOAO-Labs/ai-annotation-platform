@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 import json
+import uuid
 
 from sqlalchemy import select
 
@@ -25,6 +26,7 @@ class _NativeReceipt:
     transaction: object
     actor_id: object
     task_id: object
+    credentials: str = field(repr=False)
     binding: str = field(repr=False)
     idempotency_key: object
     request_digest: str
@@ -34,6 +36,7 @@ class _NativeReceipt:
 
 async def qualify_native_acceptance(db, task, actor, request, data):
     from app.services.ai_mask_accept import (
+        AiMaskAcceptError,
         _validate_receipt,
         _validate_replay,
         ai_mask_accept_request_digest,
@@ -76,7 +79,9 @@ async def qualify_native_acceptance(db, task, actor, request, data):
     )
     failure = None
     try:
-        await owner.open_for_acceptance(annotations_read=data.target.mode == "refine")
+        await owner.open_for_acceptance(
+            annotations_read=owner.prompt_source is not None
+        )
         # No source handle or permit remains open while final business locks are held.
         await owner.final()
         current = await db.scalar(query.with_for_update(read=True, nowait=True))
@@ -109,6 +114,7 @@ async def qualify_native_acceptance(db, task, actor, request, data):
             db.sync_session.get_transaction(),
             actor.id,
             task.id,
+            originals.encoded(owner.credentials),
             originals.encoded(owner.binding),
             data.idempotency_key,
             request_digest,
@@ -119,6 +125,26 @@ async def qualify_native_acceptance(db, task, actor, request, data):
         )
     except BaseException as exc:
         failure = exc
+        if isinstance(exc, ContentError):
+            existing_errors = {
+                "mask_prompt_source_changed": (
+                    "mask_prompt_source_changed",
+                    "Mask prompt source content has changed",
+                ),
+                "prediction_task_locked": (
+                    "task_lock_conflict",
+                    "task is locked by another user",
+                ),
+                "ai_interactive_disabled": (
+                    "ai_interactive_disabled",
+                    "AI interactive is disabled for this project",
+                ),
+            }
+            if exc.code in existing_errors:
+                reason, message = existing_errors[exc.code]
+                raise AiMaskAcceptError(
+                    status_code=exc.status, reason=reason, message=message
+                ) from exc
         raise
     finally:
         await owner.close(failure)
@@ -139,6 +165,14 @@ async def validate_native_receipt(
         or (actor_id is not None and receipt.actor_id != actor_id)
     ):
         raise ContentError("prediction_original_receipt_invalid")
+    credentials = json.loads(receipt.credentials)
+    originals.check_clock(credentials)
+    await originals.reauthorize(
+        db,
+        credentials,
+        receipt.actor_id,
+        uuid.UUID(credentials["api_key_id"]) if credentials["api_key_id"] else None,
+    )
     task = await db.get(Task, task_id, populate_existing=True)
     if (
         task is None
