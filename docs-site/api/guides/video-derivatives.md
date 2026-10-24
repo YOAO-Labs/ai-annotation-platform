@@ -16,6 +16,8 @@ Task 的 `/tasks/{task_id}/video/...` 和可见 Task 支撑的 `/videos/{dataset
 
 manifest 返回 `metadata_generation_id`，整段 `video_url` 和 `fallback_video_url` 为空。旧未登记派生结果触发新 metadata output，提交后排队，返回 `503 {"detail":{"code":"video_metadata_preparing"}}`；客户端有限次轮询。未知原件、撤权、维护门禁和关闭不确定不降级为旧路径。
 
+元数据、分块和 samples 读取遇到明确的短锁错误 `409 content_busy`、`storage_original_busy` 或 `storage_maintenance_busy` 时，浏览器最多重试三次，间隔为 200、400、600 毫秒。其他 409、权限或来源错误不自动重试；元数据准备中的 503 保留独立的有限等待策略。
+
 `GET .../frame-timetable?expected_metadata_generation_id=<uuid>` 返回该冻结 generation 的完整时间表及 ID；当前 generation 不符返回 409。未提供参数仍读取当前代。元数据、活动指针与数据库时序索引同次提交，封面生成期间不提前发布。
 
 ## 帧、块与样本
