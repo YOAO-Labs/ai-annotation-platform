@@ -1,3 +1,5 @@
+from app.db.models.guide_asset_upload import GuideAssetUpload
+from app.db.models.project_guide_asset import ProjectGuideAsset
 from app.db.models.comment_attachment_upload import CommentAttachmentUpload
 from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.db.models.managed_original_creation import ManagedOriginalCreation
@@ -321,3 +323,6 @@ __all__ += ["BugAttachmentUpload"]
 __all__ += ["AuditArchiveOutput"]
 
 __all__ += ["CommentAttachmentUpload"]
+
+
+__all__ += ["GuideAssetUpload", "ProjectGuideAsset"]
