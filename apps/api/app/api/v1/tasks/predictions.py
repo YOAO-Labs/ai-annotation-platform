@@ -264,6 +264,7 @@ async def get_prediction_raster_mask_content(
 async def get_prediction_mask_content_frame(
     task_id: uuid.UUID,
     prediction_id: uuid.UUID,
+    request: Request,
     shape_index: int = Path(ge=0),
     frame_index: int = Path(ge=0),
     db: AsyncSession = Depends(get_db),
@@ -290,7 +291,25 @@ async def get_prediction_mask_content_frame(
             status_code=422, detail="Prediction shape is not a video mask track"
         )
     try:
-        await validate_mask_geometry_for_task(db, task, geometry)
+        from app.services import video_prediction_reads as video_reads
+        from app.services.video_prediction_acceptance import requires_qualification
+        from app.db.models.prediction import PredictionMeta
+
+        metadata = await db.scalar(
+            select(PredictionMeta).where(PredictionMeta.prediction_id == prediction.id)
+        )
+        video_read_receipt = None
+        if requires_qualification(prediction, metadata):
+            video_read_receipt = await video_reads.qualify_candidate_read(
+                db, task, current_user, request, prediction.id, shape_index, frame_index
+            )
+        await validate_mask_geometry_for_task(
+            db, task, geometry, video_read_receipt=video_read_receipt
+        )
+    except ContentError as exc:
+        from app.services.dataset_content import content_http_error
+
+        raise content_http_error(exc) from None
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
@@ -302,7 +321,15 @@ async def get_prediction_mask_content_frame(
     if resolved is None:
         raise HTTPException(status_code=404, detail="Mask is outside at this frame")
     try:
+        if video_read_receipt is not None:
+            return await video_reads.read_content(
+                db, task, video_read_receipt, resolved["mask"]
+            )
         return await load_coco_rle(resolved["mask"])
+    except ContentError as exc:
+        from app.services.dataset_content import content_http_error
+
+        raise content_http_error(exc) from None
     except (KeyError, ValueError) as exc:
         raise HTTPException(
             status_code=409,

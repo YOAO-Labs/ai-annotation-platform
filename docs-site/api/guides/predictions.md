@@ -51,6 +51,8 @@ Worker 完整核验登记原件的 SHA／长度，并对同一文件实际探测
 
 普通 Prediction 的单条和整组采纳按当前调用者重新核验准确候选、当前原件及掩码内容，不要求生成时的 JWT／Key 仍有效。来源变化、候选被替换、内容不符或当前权限失效时拒绝写入；驳回不要求原视频在线。`extra.original_video_input` 仅为安全来源摘要，完整来源和候选证明由服务端保存，不接受客户端或模型自行补写。
 
+视频轨迹 Mask 候选的 `GET /tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}/{frame_index}` 和已采纳标注的 `GET /annotations/{annotation_id}/mask-content/{frame_index}` 使用当前 `annotations:read` 权限，支持同样三类原件。服务端重新核验原件、真实尺寸、准确帧的 RLE 及其存储归属，内容读取与关闭先于最终权限复核；不要求采纳写权限或生成凭据仍有效。已采纳标注保留服务端来源血缘，父候选清理后仍可核验读取；客户端填写 `source`、父候选 ID 或属性不能补造该资格。
+
 逐帧图片执行、专用交互 Tracker／纠错／修复子任务以及引用视频沿各自既有边界处理；本合同不扩张它们的准入或改变模型 `file_path` 协议。同步视频预测测试见[预测测试说明](./ml-backend.md#托管视频的预测测试)。
 
 ## 原地引用图片

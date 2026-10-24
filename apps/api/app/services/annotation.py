@@ -133,6 +133,12 @@ def _sync_attributes_meta(
     old_attrs = old_attrs or {}
     old_meta = old_meta or {}
     new_meta: dict = {}
+    # This server-owned source lineage is independent of editable attributes.
+    # Annotation request schemas do not accept attributes_meta.
+    from app.services.video_prediction_reads import LINEAGE_KEY
+
+    if LINEAGE_KEY in old_meta:
+        new_meta[LINEAGE_KEY] = copy.deepcopy(old_meta[LINEAGE_KEY])
     for key, val in (new_attrs or {}).items():
         if key.startswith("_"):
             continue
@@ -677,6 +683,18 @@ class AnnotationService:
                     "keyframe" if geometry.get("type") == "box_3d" else "sample"
                 ),
             )
+            if video_acceptance_receipt is not None:
+                from app.services.video_prediction_reads import (
+                    LINEAGE_KEY,
+                    annotation_lineage,
+                )
+
+                annotation.attributes_meta = {
+                    **annotation.attributes_meta,
+                    LINEAGE_KEY: annotation_lineage(
+                        self.db, annotation, prediction, video_acceptance_receipt, idx
+                    ),
+                }
             self.db.add(annotation)
             if task is not None:
                 try:

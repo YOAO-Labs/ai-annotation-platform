@@ -120,6 +120,7 @@ async def _load_visible_mask_annotation(
     db: AsyncSession,
     user: User,
     request: Request | None = None,
+    frame_index: int | None = None,
 ) -> tuple[Annotation, Task, dict]:
     annotation = await db.get(Annotation, annotation_id)
     if annotation is None or not annotation.is_active:
@@ -135,6 +136,7 @@ async def _load_visible_mask_annotation(
         )
     try:
         repair_read_receipt = None
+        video_read_receipt = None
         from app.services.reference_keys import is_reference
 
         qualified_read = task.dataset_item_id is None
@@ -175,8 +177,22 @@ async def _load_visible_mask_annotation(
             repair_read_receipt = await qualify_annotation_read(
                 db, task, user, request, annotation
             )
+        if task.file_type == "video" and geometry.get("type") == "video_track_mask":
+            from app.services import video_prediction_reads as video_reads
+
+            if await video_reads.requires_annotation_read(db, annotation):
+                if request is None:
+                    raise ContentError("prediction_video_read_receipt_invalid")
+                video_read_receipt = await video_reads.qualify_annotation_read(
+                    db, task, user, request, annotation.id, frame_index
+                )
+                request.state.video_mask_read = (db, task, video_read_receipt)
         await validate_mask_geometry_for_task(
-            db, task, geometry, repair_read_receipt=repair_read_receipt
+            db,
+            task,
+            geometry,
+            repair_read_receipt=repair_read_receipt,
+            video_read_receipt=video_read_receipt,
         )
     except ContentError as exc:
         from app.services.managed_mask_repair import repair_http_error
@@ -198,8 +214,24 @@ async def _mask_content_response(
     mask_ref: dict,
     request: Request,
 ) -> Response:
+    loader = load_coco_rle
+    qualified_read = getattr(request.state, "video_mask_read", None)
+    if qualified_read is not None:
+        from app.services.video_prediction_reads import read_content
+
+        db, task, receipt = qualified_read
+        try:
+            payload = await read_content(db, task, receipt, mask_ref)
+        except ContentError as exc:
+            from app.services.dataset_content import content_http_error
+
+            raise content_http_error(exc) from None
+
+        async def loader(reference):
+            return payload
+
     return await mask_content_response(
-        owner_id=annotation_id, mask_ref=mask_ref, request=request, loader=load_coco_rle
+        owner_id=annotation_id, mask_ref=mask_ref, request=request, loader=loader
     )
 
 
@@ -253,7 +285,7 @@ async def get_annotation_mask_content_frame(
     user: User = Depends(get_current_user),
 ) -> Response:
     annotation, _task, geometry = await _load_visible_mask_annotation(
-        annotation_id, db, user, request
+        annotation_id, db, user, request, frame_index=frame_index
     )
     if geometry.get("type") in {"raster_mask", "video_mask"}:
         if (

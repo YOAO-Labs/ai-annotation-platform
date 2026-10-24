@@ -414,6 +414,7 @@ async def validate_mask_geometry_for_task(
     native_original_receipt=None,
     repair_original_receipt=None,
     repair_read_receipt=None,
+    video_read_receipt=None,
     video_result_receipt=None,
     video_acceptance_receipt=None,
 ) -> None:
@@ -422,6 +423,26 @@ async def validate_mask_geometry_for_task(
     支持 video_mask / video_track_mask（视频）和 raster_mask（图片）。
     """
     geom_type = geometry.get("type")
+
+    if video_read_receipt is not None:
+        if (
+            any(
+                value is not None
+                for value in (
+                    native_original_receipt,
+                    repair_original_receipt,
+                    repair_read_receipt,
+                    video_result_receipt,
+                    video_acceptance_receipt,
+                )
+            )
+            or geom_type != "video_track_mask"
+        ):
+            raise ContentError("prediction_video_read_receipt_invalid")
+        from app.services.video_prediction_reads import validate_geometry_receipt
+
+        await validate_geometry_receipt(db, task, video_read_receipt, geometry)
+        return
 
     if video_result_receipt is not None or video_acceptance_receipt is not None:
         if (

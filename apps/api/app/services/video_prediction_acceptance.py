@@ -659,7 +659,7 @@ async def _mask_owner(db, reference, *, lock=False):
 
 
 @_busy
-async def qualify_mask_references(db, value, probe):
+async def qualify_mask_references(db, value, probe, *, content=None, content_key=None):
     """Read all actual RLE content before business locks; freeze saved owners."""
     from app.services import raster_mask_objects
     from app.services.raster_mask_storage import validate_reference_for_rle
@@ -668,6 +668,8 @@ async def qualify_mask_references(db, value, probe):
         _reject("prediction_video_io_transaction_open")
     _saved_results(value, probe)
     references_to_read = _references(value)
+    if content is not None and content_key not in references_to_read:
+        _reject("prediction_video_mask_changed")
     facts = []
     if not references_to_read:
         return facts
@@ -683,6 +685,8 @@ async def qualify_mask_references(db, value, probe):
             await common.settled(owned.rollback())
             if not _same(before, after):
                 _reject("prediction_video_mask_changed")
+            if content is not None and reference["object_key"] == content_key:
+                content[content_key] = deepcopy(rle)
             facts.append(before)
     _saved_results(value, probe)
     return _json(facts)

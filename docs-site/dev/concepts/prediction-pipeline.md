@@ -159,6 +159,8 @@ WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分�
 
 托管整段视频使用独立原件与输入 owner：三 canonical 来源的完整读取、同 FD probe、每 attempt 固定版本临时副本、实际 transport 前的授权／配置复核，以及源文件真实关闭后的最终短事务。输出先限制响应和几何预算，再适配聚合轨迹或逐帧框／多边形／Mask；私有结果资格绑定实际输出与 pipeline shape 身份，不能用仅有来源的 receipt 授予任意结果写入权限。普通采纳重新完整核验当前原件和实际 RLE，最终只在调用者事务核元信息与对象 owner；公开 Job／Prediction 不暴露私有授权和存储定位。逐帧与专用交互 Tracker 保持各自合同，见[固定输入 API](../../api/guides/predictions.md#托管视频的固定输入)。
 
+Mask 内容 GET 使用独立只读资格：完整原件和 RLE 先读取并确认关闭，仅保留当前请求帧的有界内容，再在调用者事务中核对授权、来源、候选／标注及物理 owner。采纳时服务器在 `attributes_meta._video_prediction` 保存安全来源血缘，普通属性编辑保留该命名空间；HTTP 创建／更新不能提供它。已采纳标注读取不依赖父候选永久存在，不复用要求写权限的采纳 receipt。
+
 ## 按后端动态参数透传
 
 `PreannotateRequest`（`apps/api/app/api/v1/projects.py`）新增 `params: dict | None` 字段，由前端按选中 backend 的 `/setup.params` 用 SchemaForm 渲染并按 backend 记忆（`User.preferences.ai.params_by_backend`）后带上。
