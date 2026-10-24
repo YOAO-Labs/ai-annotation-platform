@@ -1334,6 +1334,33 @@ async def import_nuscenes(
                 "name": scene_name,
                 "frames": len(samples),
                 **({"skipped": True} if prior_scene is not None else {}),
+                **(
+                    {"upgraded_point_clouds": upgraded}
+                    if (
+                        upgraded := sum(
+                            candidate["prior"] is not None
+                            and candidate["created"] is not None
+                            and candidate["file_type"] == "point_cloud"
+                            for candidate in candidates
+                        )
+                    )
+                    else {}
+                ),
+                **(
+                    {"backfilled_camera_dimensions": backfilled}
+                    if (
+                        backfilled := sum(
+                            candidate["prior"] is not None
+                            and candidate["file_type"] == "image"
+                            and (
+                                candidate["prior"][5] is None
+                                or candidate["prior"][6] is None
+                            )
+                            for candidate in candidates
+                        )
+                    )
+                    else {}
+                ),
             }
         )
     project_display_id = project_display_id or _derived_display_id(
