@@ -67,9 +67,20 @@ def prepare_interactive_context(
     frame_index: int | None = None,
     requested_backend_id: str | None = None,
     reference_input: dict | None = None,
+    original_input: dict | None = None,
 ) -> tuple[dict[str, Any], str | None]:
     """Resolve one image-interactive model and bind its safe prompt contract."""
 
+    if reference_input is not None and original_input is not None:
+        _error(409, "mask_source_identity_conflict", "Mask source identities conflict")
+    if original_input is not None:
+        from app.services.managed_image_inference import normalize_identity
+
+        original_input = normalize_identity(original_input)
+        if original_input["task_id"] != task_id or frame_index is not None:
+            _error(
+                409, "mask_source_identity_conflict", "Mask source does not match task"
+            )
     prepared = dict(context)
     # The shared backend may still serve older API instances that only accept
     # Masks. Only this platform boundary negotiates the paired response.
@@ -342,6 +353,17 @@ def prepare_interactive_context(
             _error(409, exc.reason, str(exc))
         if claims is None:
             _error(422, "invalid_mask_session", "Mask session is invalid")
+        if original_input is not None:
+            from app.services.content_snapshot import ContentError
+
+            try:
+                normalize_identity(claims.get("original_input"))
+            except ContentError:
+                _error(
+                    409,
+                    "mask_session_mismatch",
+                    "Mask session does not match this prompt",
+                )
         mask_prompt = prepared.get("mask_prompt")
         source = (
             {
@@ -360,6 +382,7 @@ def prepare_interactive_context(
             "source": source,
             "model_variants": prepared.get("model_variants") or {},
             "reference_input": reference_input,
+            "original_input": original_input,
         }
         if any(claims.get(key) != value for key, value in expected_session.items()):
             _error(
@@ -382,15 +405,18 @@ def prepare_interactive_context(
                 "source_version": mask_prompt.get("source_version"),
                 "source_digest": mask_prompt.get("source_digest"),
             }
+        revision = {
+            "task_id": task_id,
+            "frame_index": frame_index,
+            "model_id": model_id,
+            "context": revision_context,
+            "session_origin": session_origin,
+            "reference_input": reference_input,
+        }
+        if original_input is not None:
+            revision["original_input"] = original_input
         revision_bytes = json.dumps(
-            {
-                "task_id": task_id,
-                "frame_index": frame_index,
-                "model_id": model_id,
-                "context": revision_context,
-                "session_origin": session_origin,
-                "reference_input": reference_input,
-            },
+            revision,
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,

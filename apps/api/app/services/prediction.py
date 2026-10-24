@@ -492,6 +492,7 @@ class PredictionService:
         repair_reference_receipt=None,
         background_native_reference_receipt=None,
         original_receipt=None,
+        native_original_receipt=None,
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
         from app.services.reference_access import reject_reference_scope
@@ -499,7 +500,29 @@ class PredictionService:
         reference_evidence = None
         original_evidence = None
         native_qualification = None
-        if original_receipt is not None:
+        if native_original_receipt is not None:
+            from app.services.managed_native_inference import validate_native_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                any(
+                    receipt is not None
+                    for receipt in (
+                        original_receipt,
+                        reference_receipt,
+                        native_reference_receipt,
+                        repair_reference_receipt,
+                        background_native_reference_receipt,
+                    )
+                )
+                or source != INTERACTIVE_ACCEPT_PREDICTION_SOURCE
+                or (token_meta or {}).get("mask_objects") is not None
+            ):
+                raise ContentError("prediction_original_receipt_invalid")
+            original_evidence = await validate_native_receipt(
+                self.db, task_id, project_id, native_original_receipt, result=result
+            )
+        elif original_receipt is not None:
             from app.services.prediction_originals import validate_receipt
             from app.services.content_snapshot import ContentError
 
@@ -608,6 +631,17 @@ class PredictionService:
             .with_for_update()
             .execution_options(populate_existing=True)
         )
+        if (
+            task is not None
+            and task.file_type == "image"
+            and source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE
+            and native_original_receipt is None
+        ):
+            from app.services.content_snapshot import ContentError
+            from app.services.reference_keys import is_reference
+
+            if not is_reference(task.file_path):
+                raise ContentError("prediction_requires_original_provenance")
         await prepare_mask_payload_for_write(
             self.db,
             task,
@@ -615,6 +649,7 @@ class PredictionService:
             portable_mask_meta=token_meta
             if (token_meta or {}).get("mask_objects") is not None
             else None,
+            native_original_receipt=native_original_receipt,
         )
         prediction = Prediction(
             id=uuid.uuid4(),

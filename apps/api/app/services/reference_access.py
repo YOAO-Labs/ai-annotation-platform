@@ -74,23 +74,34 @@ async def reference_task_guard(
             .join(Annotation, Annotation.task_id == Task.id)
             .where(Annotation.id.in_(ids))
         )
-    if task is None or not is_reference(task.file_path):
+    if task is None:
         return
-    if request.method == "POST" and request.url.path.endswith(
-        "/ai-mask-candidates/accept"
+    if (
+        request.method == "POST"
+        and request.url.path.endswith("/ai-mask-candidates/accept")
+        and (is_reference(task.file_path) or task.file_type == "image")
     ):
         from pydantic import ValidationError
         from app.schemas.ai_mask import AiMaskAcceptRequest
         from app.services.ai_mask_accept import AiMaskAcceptError
-        from app.services.reference_inference import qualify_native_acceptance
+
+        reference = is_reference(task.file_path)
+        if reference:
+            from app.services.reference_inference import qualify_native_acceptance
+        else:
+            from app.services.managed_native_inference import qualify_native_acceptance
 
         try:
             data = AiMaskAcceptRequest.model_validate(await request.json())
         except (ValidationError, ValueError):
             return  # The endpoint owns request-schema errors.
         try:
-            request.state.reference_native_acceptance = await qualify_native_acceptance(
-                db, task, actor, request, data
+            setattr(
+                request.state,
+                "reference_native_acceptance"
+                if reference
+                else "original_native_acceptance",
+                await qualify_native_acceptance(db, task, actor, request, data),
             )
         except AiMaskAcceptError as exc:
             raise HTTPException(exc.status_code, detail=exc.detail) from None
@@ -101,9 +112,16 @@ async def reference_task_guard(
             if isinstance(exc, DBAPIError) and _busy_lock_error(exc):
                 await db.rollback()
                 raise HTTPException(
-                    409, detail={"code": "reference_inference_busy"}
+                    409,
+                    detail={
+                        "code": "reference_inference_busy"
+                        if reference
+                        else "managed_inference_busy"
+                    },
                 ) from None
             raise content_http_error(exc) from None
+        return
+    if not is_reference(task.file_path):
         return
     if request.method == "POST" and re.fullmatch(
         r"/api/v1/tasks/[^/]+/predictions/[^/]+/accept", request.url.path

@@ -15,6 +15,7 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
+from app.services.content_snapshot import ContentError
 from app.observability.metrics import record_raster_mask_content_operation
 from app.services.raster_mask_capabilities import evaluate_raster_mask_capabilities
 from app.services.storage import StorageService, storage_service
@@ -372,16 +373,63 @@ async def reserve_raster_mask_upload(
     return current + 1
 
 
+def validate_image_mask_dimensions(geometry, width, height) -> None:
+    """Compare a raster Mask with dimensions whose authority belongs to the caller."""
+    if not width or not height:
+        raise RasterMaskContractError(
+            status_code=409,
+            reason="raster_mask_source_dimensions_missing",
+            message="source image width / height metadata is required for raster mask",
+        )
+    if (
+        int(width) > MAX_IMAGE_MASK_DIMENSION
+        or int(height) > MAX_IMAGE_MASK_DIMENSION
+        or int(width) * int(height) > MAX_IMAGE_MASK_PIXELS
+    ):
+        raise RasterMaskContractError(
+            status_code=422,
+            reason="raster_mask_dimensions_exceeded",
+            message=(
+                "source image exceeds the raster mask limit "
+                f"({MAX_IMAGE_MASK_DIMENSION}px / {MAX_IMAGE_MASK_PIXELS} pixels)"
+            ),
+            max_dimension=MAX_IMAGE_MASK_DIMENSION,
+            max_pixels=MAX_IMAGE_MASK_PIXELS,
+        )
+    expected_size = [int(height), int(width)]
+    mask = geometry.get("mask") or {}
+    if list(mask.get("size") or []) != expected_size:
+        raise RasterMaskContractError(
+            status_code=422,
+            reason="raster_mask_size_mismatch",
+            message=f"mask size must match source image {expected_size}",
+        )
+
+
 async def validate_mask_geometry_for_task(
     db: AsyncSession,
     task: Task,
     geometry: dict[str, Any],
+    *,
+    native_original_receipt=None,
 ) -> None:
     """验证掩码几何是否与任务数据集项匹配。
 
     支持 video_mask / video_track_mask（视频）和 raster_mask（图片）。
     """
     geom_type = geometry.get("type")
+
+    if native_original_receipt is not None:
+        from app.services.managed_native_inference import validate_native_receipt
+
+        await validate_native_receipt(
+            db,
+            task.id,
+            task.project_id,
+            native_original_receipt,
+            result=[{"geometry": geometry}],
+        )
+        return
 
     if geom_type == "raster_mask":
         # v0.23.6 · 图片掩码验证
@@ -398,39 +446,7 @@ async def validate_mask_geometry_for_task(
                 reason="raster_mask_image_required",
                 message="raster mask requires an image dataset item",
             )
-        width = item.width
-        height = item.height
-        if not width or not height:
-            raise RasterMaskContractError(
-                status_code=409,
-                reason="raster_mask_source_dimensions_missing",
-                message=(
-                    "source image width / height metadata is required for raster mask"
-                ),
-            )
-        if (
-            int(width) > MAX_IMAGE_MASK_DIMENSION
-            or int(height) > MAX_IMAGE_MASK_DIMENSION
-            or int(width) * int(height) > MAX_IMAGE_MASK_PIXELS
-        ):
-            raise RasterMaskContractError(
-                status_code=422,
-                reason="raster_mask_dimensions_exceeded",
-                message=(
-                    "source image exceeds the raster mask limit "
-                    f"({MAX_IMAGE_MASK_DIMENSION}px / {MAX_IMAGE_MASK_PIXELS} pixels)"
-                ),
-                max_dimension=MAX_IMAGE_MASK_DIMENSION,
-                max_pixels=MAX_IMAGE_MASK_PIXELS,
-            )
-        expected_size = [int(height), int(width)]
-        mask = geometry.get("mask") or {}
-        if list(mask.get("size") or []) != expected_size:
-            raise RasterMaskContractError(
-                status_code=422,
-                reason="raster_mask_size_mismatch",
-                message=f"mask size must match source image {expected_size}",
-            )
+        validate_image_mask_dimensions(geometry, item.width, item.height)
         return
 
     if geom_type in {"video_mask", "video_track_mask"}:
@@ -498,6 +514,7 @@ async def prepare_mask_payload_for_write(
     reference_value: Any | None = None,
     required_upload_keys: set[str] | None = None,
     portable_mask_meta: dict[str, Any] | None = None,
+    native_original_receipt=None,
 ) -> None:
     """Gate, validate and claim every mask in a nested persistence payload.
 
@@ -508,6 +525,8 @@ async def prepare_mask_payload_for_write(
     """
     geometries = collect_mask_geometries(value)
     if not geometries:
+        if native_original_receipt is not None:
+            raise ContentError("prediction_original_geometry_not_supported")
         if portable_mask_meta is not None:
             from app.services.controlled_segmentation import validate_portable_masks
 
@@ -547,8 +566,12 @@ async def prepare_mask_payload_for_write(
 
     for geometry in geometries:
         try:
-            await validate_mask_geometry_for_task(db, task, geometry)
+            await validate_mask_geometry_for_task(
+                db, task, geometry, native_original_receipt=native_original_receipt
+            )
         except RasterMaskContractError:
+            raise
+        except ContentError:
             raise
         except ValueError as exc:
             raise RasterMaskContractError(
@@ -634,9 +657,13 @@ async def prepare_mask_geometry_for_annotation_write(
     db: AsyncSession,
     task: Task | None,
     geometry: dict[str, Any],
+    *,
+    native_original_receipt=None,
 ) -> None:
     """Backward-compatible direct-geometry wrapper for annotation writes."""
-    await prepare_mask_payload_for_write(db, task, geometry)
+    await prepare_mask_payload_for_write(
+        db, task, geometry, native_original_receipt=native_original_receipt
+    )
 
 
 def canonical_rle_bytes(rle: dict[str, Any]) -> bytes:

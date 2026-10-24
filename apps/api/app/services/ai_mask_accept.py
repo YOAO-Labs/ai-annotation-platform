@@ -29,6 +29,7 @@ from app.services.annotation_evidence import record_annotation_actor
 from app.services.annotation_propagation import _new_track_id
 from app.services.annotation_track_identity import prepare_compact_track_identity
 from app.services.audit import AuditAction, AuditService
+from app.services.content_snapshot import ContentError
 from app.services.prediction import PredictionService
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
@@ -71,6 +72,7 @@ def ai_mask_accept_request_digest(data: AiMaskAcceptRequest) -> str:
 def _replay_response(decision: AiMaskAcceptDecision) -> AiMaskAcceptResponse:
     snapshot = dict(decision.response_json or {})
     snapshot.pop("_reference_input", None)
+    snapshot.pop("_original_input", None)
     snapshot["replayed"] = True
     return AiMaskAcceptResponse.model_validate(snapshot)
 
@@ -435,7 +437,11 @@ async def accept_ai_mask_candidate(
         request.state, "reference_native_acceptance", None
     )
     native_reference_evidence = None
+    native_original_receipt = getattr(request.state, "original_native_acceptance", None)
+    native_original_evidence = None
     if is_reference(task.file_path):
+        if native_original_receipt is not None:
+            raise ContentError("prediction_original_receipt_invalid")
         from app.services.reference_inference import validate_native_receipt
 
         native_reference_evidence = await validate_native_receipt(
@@ -446,6 +452,21 @@ async def accept_ai_mask_candidate(
             actor_id=current_user.id,
             data=data,
         )
+    elif task.file_type == "image":
+        from app.services.managed_native_inference import validate_native_receipt
+
+        if native_reference_receipt is not None:
+            raise ContentError("prediction_original_receipt_invalid")
+        native_original_evidence = await validate_native_receipt(
+            db,
+            task.id,
+            task.project_id,
+            native_original_receipt,
+            actor_id=current_user.id,
+            data=data,
+        )
+    elif native_original_receipt is not None:
+        raise ContentError("prediction_original_receipt_invalid")
     _assert_task_still_editable(task, current_user, access=access)
     from app.api.v1.tasks._shared import (
         _assert_review_adjustment_evidence,
@@ -509,7 +530,13 @@ async def accept_ai_mask_candidate(
         if task.dataset_item_id
         else None
     )
-    media_type = item.file_type if item is not None else None
+    media_type = (
+        "image"
+        if native_original_evidence is not None
+        else item.file_type
+        if item is not None
+        else None
+    )
     if media_type not in {"image", "video"}:
         raise AiMaskAcceptError(
             status_code=422,
@@ -580,7 +607,12 @@ async def accept_ai_mask_candidate(
         task.project_id, "region", data.class_name
     )
     try:
-        await validate_mask_geometry_for_task(db, task, annotation_geometry)
+        await validate_mask_geometry_for_task(
+            db,
+            task,
+            annotation_geometry,
+            native_original_receipt=native_original_receipt,
+        )
         await store_mask_reference_objects(
             db,
             annotation_geometry,
@@ -588,6 +620,8 @@ async def accept_ai_mask_candidate(
             task_id=task.id,
         )
     except RasterMaskContractError:
+        raise
+    except ContentError:
         raise
     except ValueError as exc:
         raise AiMaskAcceptError(
@@ -628,6 +662,7 @@ async def accept_ai_mask_candidate(
         inference_time_ms=inference_time_ms,
         source=INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
         native_reference_receipt=native_reference_receipt,
+        native_original_receipt=native_original_receipt,
         pipeline_extra={
             "mask_ai_accept": {
                 "candidate_id": candidate.candidate_id,
@@ -654,6 +689,7 @@ async def accept_ai_mask_candidate(
             confidence=score,
             parent_prediction_id=prediction.id,
             video_segment_id=data.video_segment_id,
+            native_original_receipt=native_original_receipt,
         )
     else:
         geometry, track_id = prepare_compact_track_identity(
@@ -736,6 +772,11 @@ async def accept_ai_mask_candidate(
             **(
                 {"_reference_input": native_reference_evidence}
                 if native_reference_evidence
+                else {}
+            ),
+            **(
+                {"_original_input": native_original_evidence}
+                if native_original_evidence
                 else {}
             ),
         },

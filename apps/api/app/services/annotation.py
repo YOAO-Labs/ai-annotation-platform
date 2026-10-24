@@ -255,8 +255,20 @@ class AnnotationService:
         attributes: dict | None = None,
         tool_unit_id: str = "bbox",
         video_segment_id: uuid.UUID | None = None,
+        native_original_receipt=None,
     ) -> Annotation:
         task = await self.db.get(Task, task_id)
+        if native_original_receipt is not None:
+            from app.services.managed_native_inference import validate_native_receipt
+
+            await validate_native_receipt(
+                self.db,
+                task_id,
+                task.project_id if task else None,
+                native_original_receipt,
+                actor_id=user_id,
+                result=[{"geometry": geometry}],
+            )
         # A2 · record before any Annotation/SceneTrack lock: this takes the task
         # row lock first, keeps the global Task -> Annotation order, and rolls
         # back with the mutation if the mutation fails.
@@ -272,7 +284,9 @@ class AnnotationService:
                 task_id, parent_annotation_id, video_segment_id
             )
 
-        await prepare_mask_geometry_for_annotation_write(self.db, task, geometry)
+        await prepare_mask_geometry_for_annotation_write(
+            self.db, task, geometry, native_original_receipt=native_original_receipt
+        )
         geometry, track_id = prepare_compact_track_identity(geometry)
         if geometry.get("type") == "box_3d" and track_id is None:
             track_id = _new_track_id()
