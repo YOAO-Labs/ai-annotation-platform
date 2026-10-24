@@ -23,7 +23,8 @@ from tests.factory import create_project, create_task
 from tests.test_prediction_reference_delivery import backend_for
 
 
-async def managed_task(db, project, owner, *, primary=False):
+async def managed_task(db, project, owner, *, primary=False, task=None):
+    """Register logical source facts; physical readers need a separate I/O fixture."""
     output = io.BytesIO()
     with Image.new("RGB", (12, 8), "red") as image:
         image.save(output, "PNG")
@@ -51,7 +52,7 @@ async def managed_task(db, project, owner, *, primary=False):
     asset = await register_item_asset(
         db, item, sha256=hashlib.sha256(raw).hexdigest(), size_bytes=len(raw)
     )
-    task = await create_task(db, project_id=project.id)
+    task = task or await create_task(db, project_id=project.id)
     task.file_path, task.file_name = item.file_path, item.file_name
     if primary:
         db.add(
