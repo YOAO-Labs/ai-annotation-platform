@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from functools import partial
 import logging
 import uuid
 
 from sqlalchemy import delete, or_, select
 
 from app.db.models.export_artifact import ExportArtifact
+from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import export_storage, storage_access
@@ -21,6 +24,7 @@ _FACTS = (
     "id",
     "project_id",
     "job_id",
+    "media_bundle_id",
     "media",
     "format",
     "file_count",
@@ -53,23 +57,33 @@ class OutputSnapshot:
     created_at: datetime
     expires_at: datetime
     _storage_ref: dict = field(repr=False)
+    media_bundle_id: uuid.UUID | None = None
 
     @property
     def storage_ref(self):
         return deepcopy(self._storage_ref)
 
 
+def _fact(row, name):
+    if name == "media_bundle_id" and not isinstance(
+        row, (ExportOutput, OutputSnapshot)
+    ):
+        # Historical lightweight consumers model unassociated candidates only.
+        return getattr(row, name, None)
+    return getattr(row, name)
+
+
 def snapshot(row):
     """Thread arguments contain immutable values, never an attached ORM record."""
     export_storage.resolve(row)
-    facts = {name: deepcopy(getattr(row, name)) for name in _FACTS}
+    facts = {name: deepcopy(_fact(row, name)) for name in _FACTS}
     facts["_storage_ref"] = facts.pop("storage_ref")
     return OutputSnapshot(**facts)
 
 
 def same(row, receipt):
     current = snapshot(row)
-    return all(getattr(current, name) == getattr(receipt, name) for name in _FACTS)
+    return all(_fact(current, name) == _fact(receipt, name) for name in _FACTS)
 
 
 def object_key(receipt):
@@ -90,30 +104,139 @@ async def _locked(db, identifier):
 
 
 async def _settled_thread(call, *args):
-    task = asyncio.create_task(asyncio.to_thread(call, *args))
+    task = None
     try:
+        task = asyncio.get_running_loop().run_in_executor(
+            None, copy_context().run, partial(call, *args)
+        )
         return await asyncio.shield(task)
-    except asyncio.CancelledError:
+    except BaseException as interrupted:
+        if task is None:
+            raise storage_access.mark_unsettled(interrupted)
         # The temporary ZIP remains owned until hashing physically finishes.
+        # Soft limits and a second interruption must also drain the real thread.
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except BaseException:
+                continue
         try:
-            await storage_access.finish(task)
-        except BaseException:
-            pass
+            task.result()
+        except BaseException as late:
+            if getattr(late, "storage_operation_unsettled", False):
+                storage_access.mark_unsettled(interrupted)
         raise
 
 
+def _identifier(value):
+    try:
+        result = uuid.UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        reject("export_storage_invalid_receipt")
+    if not isinstance(value, (str, uuid.UUID)) or str(value) != str(result):
+        reject("export_storage_invalid_receipt")
+    return result
+
+
+def _instant(value):
+    if not isinstance(value, datetime) or value.utcoffset() is None:
+        reject("export_storage_invalid_receipt")
+    return value.astimezone(timezone.utc)
+
+
+def _creation_valid(
+    bundle, *, bundle_id, identifier, project_id, job_id, media, started, expires
+):
+    current = now()
+    if started > current or not started < expires <= started + timedelta(days=7):
+        reject("export_storage_invalid_receipt")
+    if expires <= current:
+        reject("export_storage_expired")
+    if bundle is None:
+        return
+    if (
+        bundle.id != bundle_id
+        or bundle.project_id != _identifier(project_id)
+        or bundle.job_id != _identifier(job_id)
+        or bundle.zip_output_id != identifier
+        or bundle.created_at != started
+        or bundle.expires_at != expires
+        or media != "image"
+        or bundle.state != "building"
+        or bundle.published_at is not None
+        or bundle.retired_at is not None
+        or not isinstance(bundle.lease_token, uuid.UUID)
+        or bundle.lease_expires_at is None
+    ):
+        reject()
+    if _instant(bundle.lease_expires_at) <= current:
+        reject("export_storage_expired")
+
+
 async def create(
-    db, *, project_id, job_id, media, format, file_count, path, expected_size=None
+    db,
+    *,
+    project_id,
+    job_id,
+    media,
+    format,
+    file_count,
+    path,
+    expected_size=None,
+    output_id=None,
+    media_bundle_id=None,
+    created_at=None,
+    expires_at=None,
 ):
     """Persist a distinct immutable candidate before any object-store write."""
     sha256, size_bytes = await _settled_thread(export_storage.file_receipt, path)
     if expected_size is not None and size_bytes != expected_size:
         reject("export_storage_integrity_mismatch")
-    started = now()
-    row = ExportOutput(
-        id=uuid.uuid4(),
+    bundle = None
+    if media_bundle_id is not None:
+        media_bundle_id = _identifier(media_bundle_id)
+        bundle = await db.scalar(
+            select(ExportMediaBundle)
+            .where(ExportMediaBundle.id == media_bundle_id)
+            .with_for_update(nowait=True)
+            .execution_options(populate_existing=True)
+        )
+        if bundle is None or bundle.id != media_bundle_id:
+            reject()
+    identifier = (
+        _identifier(output_id)
+        if output_id is not None
+        else (bundle.zip_output_id if bundle is not None else uuid.uuid4())
+    )
+    started = (
+        _instant(created_at)
+        if created_at is not None
+        else (_instant(bundle.created_at) if bundle is not None else now())
+    )
+    expires = (
+        _instant(expires_at)
+        if expires_at is not None
+        else (
+            _instant(bundle.expires_at)
+            if bundle is not None
+            else started + timedelta(days=7)
+        )
+    )
+    facts = dict(
+        bundle_id=media_bundle_id,
+        identifier=identifier,
         project_id=project_id,
         job_id=job_id,
+        media=media,
+        started=started,
+        expires=expires,
+    )
+    _creation_valid(bundle, **facts)
+    row = ExportOutput(
+        id=identifier,
+        project_id=project_id,
+        job_id=job_id,
+        media_bundle_id=media_bundle_id,
         media=media,
         format=format,
         file_count=file_count,
@@ -121,11 +244,13 @@ async def create(
         size_bytes=size_bytes,
         state="pending",
         created_at=started,
-        expires_at=started + timedelta(days=7),
+        expires_at=expires,
     )
     row.storage_ref = await export_storage.allocate(db, row)
+    _creation_valid(bundle, **facts)
     db.add(row)
     await db.flush()
+    _creation_valid(bundle, **facts)
     receipt = snapshot(row)
     await db.commit()
     return receipt
