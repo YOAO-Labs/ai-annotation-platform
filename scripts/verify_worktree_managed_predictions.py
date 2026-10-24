@@ -17,6 +17,7 @@ import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -990,7 +991,7 @@ def pipeline(backend_id):
             "model_id": "geometry",
             "task": "detect",
             "input": {"mode": "geometry"},
-            "write": {"target": "intermediate"},
+            "write": {"target": "geometry"},
         },
         {
             **shared,
@@ -1107,7 +1108,21 @@ async def check_prediction(factory, case, job):
         [row["stage"] for row in selected if row["executed"]] == [7, 9, 11],
         "非零根阶段链未执行完整",
     )
-    require(case["case"] in json.dumps(prediction.result), "裁图属性未写回根几何")
+    enriched = [
+        shape
+        for shape in prediction.result
+        if shape.get("attributes", {}).get("color") == case["case"]
+    ]
+    lineage = metadata.extra["pipeline"]["shape_lineage"]
+    root = [entry for entry in lineage if entry["stage"] == 7]
+    child = [entry for entry in lineage if entry["stage"] == 9]
+    require(
+        len(enriched) == len(root) == len(child) == 1
+        and enriched[0]["pipeline_shape_id"] == child[0]["shape_id"]
+        and child[0]["parent_shape_id"] == root[0]["shape_id"]
+        and child[0]["parent_stage"] == 7,
+        "裁图属性或已交付子几何谱系不一致",
+    )
     return prediction.id
 
 
@@ -1245,6 +1260,8 @@ async def qualify(backend, worker, storage, report, *, expected_database):
     from app.db.models.task import Task
     from app.main import app
 
+    # Signed input URLs belong only to the controlled HTTP request, not logs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     require(not app.dependency_overrides, "验收拒绝 ASGI dependency override")
     async with factory() as db:
         require(
