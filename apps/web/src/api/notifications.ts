@@ -5,7 +5,7 @@ export interface NotificationItem {
   type: string;
   target_type: string;
   target_id: string;
-  payload: Record<string, unknown>;
+  payload: unknown;
   read_at: string | null;
   created_at: string;
 }

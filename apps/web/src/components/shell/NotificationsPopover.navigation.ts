@@ -11,6 +11,7 @@ import { tasksApi } from "@/api/tasks";
 import type { TaskResponse } from "@/types";
 import type { NotificationItem } from "@/api/notifications";
 import type { WorkbenchDiscussionTarget } from "@/utils/workbenchNavigation";
+import { notificationPayloadRecord } from "./NotificationsPopover.helpers";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PAGE_LIMIT = 50;
@@ -46,7 +47,7 @@ function isUuid(value: unknown): value is string {
 }
 
 function payloadString(item: NotificationItem, key: string): string {
-  const value = item.payload?.[key];
+  const value = notificationPayloadRecord(item.payload)[key];
   return typeof value === "string" ? value : "";
 }
 
@@ -56,7 +57,7 @@ function requiredUuid(value: unknown, message: string): string {
 }
 
 function requiredPayloadUuid(item: NotificationItem, key: string, message: string): string {
-  return requiredUuid(item.payload?.[key], message);
+  return requiredUuid(notificationPayloadRecord(item.payload)[key], message);
 }
 
 function requirePayloadValue(
@@ -184,7 +185,7 @@ async function resolveFeedbackNotification(
   requirePayloadValue(item, "source", "feedback", "通知中的问题来源无效。");
   const replyId =
     item.type === "feedback.reply_created"
-      ? requiredUuid(item.payload?.reply_id, "通知中的回复 ID 格式无效。")
+      ? requiredUuid(notificationPayloadRecord(item.payload).reply_id, "通知中的回复 ID 格式无效。")
       : null;
 
   let cursor: string | undefined;
@@ -395,7 +396,10 @@ async function resolveAnnotationCommentNotification(
   signal: AbortSignal,
 ): Promise<ResolvedDiscussionNotification> {
   const commentId = requiredUuid(item.target_id, "通知中的评论 ID 格式无效。");
-  const annotationId = requiredUuid(item.payload?.annotation_id, "通知中的标注 ID 格式无效。");
+  const annotationId = requiredUuid(
+    notificationPayloadRecord(item.payload).annotation_id,
+    "通知中的标注 ID 格式无效。",
+  );
   const projectHint = requiredPayloadUuid(item, "project_id", "通知中的评论所属项目 ID 格式无效。");
   const taskHint = requiredPayloadUuid(item, "task_id", "通知中的评论所属任务 ID 格式无效。");
   requirePayloadValue(item, "source", "annotation_comment", "通知中的评论来源无效。");

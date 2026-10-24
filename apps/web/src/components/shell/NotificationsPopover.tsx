@@ -39,6 +39,7 @@ import {
   GROUP_ORDER,
   filterNotificationItems,
   groupNotificationItems,
+  notificationPayloadRecord,
   type NotificationFilter,
 } from "./NotificationsPopover.helpers";
 
@@ -134,8 +135,8 @@ export function chooseWorkMode(capabilities: ReadonlySet<string>, status?: strin
 
 function jobVerb(item: NotificationItem): string | null {
   if (!item.type.startsWith("job.")) return null;
-  const payload = item.payload || {};
-  const kind = stringValue((payload as { kind?: unknown }).kind);
+  const payload = notificationPayloadRecord(item.payload);
+  const kind = stringValue(payload.kind);
   const label = JOB_KIND_LABEL[kind] ?? "后台任务";
   if (item.type === "job.completed") return `${label}完成`;
   if (item.type === "job.failed") return `${label}失败`;
@@ -144,50 +145,50 @@ function jobVerb(item: NotificationItem): string | null {
 }
 
 function jobTitle(item: NotificationItem): string {
-  const payload = item.payload || {};
-  const kind = stringValue((payload as { kind?: unknown }).kind);
+  const payload = notificationPayloadRecord(item.payload);
+  const kind = stringValue(payload.kind);
   if (kind === "batch_predict") {
-    return stringValue((payload as { ml_backend_name?: unknown }).ml_backend_name);
+    return stringValue(payload.ml_backend_name);
   }
   if (kind === "video_tracker") {
-    return stringValue((payload as { model_key?: unknown }).model_key);
+    return stringValue(payload.model_key);
   }
   if (kind === "predictions_import") {
-    return stringValue((payload as { format?: unknown }).format).toUpperCase();
+    return stringValue(payload.format).toUpperCase();
   }
   if (kind === "prediction_retry") {
-    return stringValue((payload as { ml_backend_name?: unknown }).ml_backend_name);
+    return stringValue(payload.ml_backend_name);
   }
   if (kind === "dataset_import") {
-    return stringValue((payload as { dataset_name?: unknown }).dataset_name);
+    return stringValue(payload.dataset_name);
   }
   if (kind === "mask_format_import") {
-    return stringValue((payload as { format?: unknown }).format).toUpperCase();
+    return stringValue(payload.format).toUpperCase();
   }
   return "";
 }
 
 export function jobSnippet(item: NotificationItem): string {
-  const payload = item.payload || {};
-  const error = stringValue((payload as { error_message?: unknown }).error_message);
+  const payload = notificationPayloadRecord(item.payload);
+  const error = stringValue(payload.error_message);
   if (error) return error;
 
   // skip_predicted 下候选 task 全部已预标被跳过 → 给明确文案, 免得「成功 0/失败 0」被误读为没生效。
-  const reason = stringValue((payload as { reason?: unknown }).reason);
+  const reason = stringValue(payload.reason);
   if (reason === "all_predicted") {
-    const skippedCount = (payload as { skipped_count?: unknown }).skipped_count;
+    const skippedCount = payload.skipped_count;
     return `已全部预标，跳过 ${skippedCount ?? 0} 个`;
   }
 
-  const success = (payload as { success_count?: unknown }).success_count;
-  const failed = (payload as { failed_count?: unknown }).failed_count;
+  const success = payload.success_count;
+  const failed = payload.failed_count;
   if (success !== undefined || failed !== undefined) {
     return `成功 ${success ?? 0} / 失败 ${failed ?? 0}`;
   }
 
-  const imported = (payload as { imported?: unknown }).imported;
-  const skipped = (payload as { skipped?: unknown }).skipped;
-  const errorCount = (payload as { error_count?: unknown }).error_count;
+  const imported = payload.imported;
+  const skipped = payload.skipped;
+  const errorCount = payload.error_count;
   if (imported !== undefined || skipped !== undefined || errorCount !== undefined) {
     return `导入 ${imported ?? 0} / 跳过 ${skipped ?? 0} / 错误 ${errorCount ?? 0}`;
   }
@@ -239,11 +240,11 @@ interface NotifRowProps {
 function NotifRow({ item, onClick, onDelete, deletePending }: NotifRowProps) {
   const isUnread = item.read_at === null;
   const visual = notificationVisual(item);
-  const payload = item.payload || {};
-  const actorName = (payload as { actor_name?: string }).actor_name || "系统";
-  const fromStatus = (payload as { from_status?: string }).from_status;
-  const toStatus = (payload as { to_status?: string }).to_status;
-  const reopen = Boolean((payload as { reopen?: boolean }).reopen);
+  const payload = notificationPayloadRecord(item.payload);
+  const actorName = (payload.actor_name as string | undefined) || "系统";
+  const fromStatus = payload.from_status as string | undefined;
+  const toStatus = payload.to_status as string | undefined;
+  const reopen = Boolean(payload.reopen as boolean | undefined);
 
   // v0.7.0：batch.rejected 复用同一行渲染，但 payload 字段不同
   const isBatchRejected = item.type === "batch.rejected";
@@ -251,27 +252,25 @@ function NotifRow({ item, onClick, onDelete, deletePending }: NotifRowProps) {
   const isExport = item.target_type === "export";
   const isJob = item.target_type === "async_job";
   const displayId = isBatchRejected
-    ? (payload as { batch_display_id?: string }).batch_display_id || ""
+    ? (payload.batch_display_id as string | undefined) || ""
     : isExport
-      ? (payload as { project_display_id?: string }).project_display_id || ""
+      ? (payload.project_display_id as string | undefined) || ""
       : isJob
         ? stringValue(
-            (payload as { batch_display_id?: unknown }).batch_display_id ||
-              (payload as { task_display_id?: unknown }).task_display_id ||
-              (payload as { project_display_id?: unknown }).project_display_id,
+            payload.batch_display_id || payload.task_display_id || payload.project_display_id,
           )
         : stringValue(payload.task_display_id) || stringValue(payload.display_id);
   const title = isBatchRejected
-    ? (payload as { batch_name?: string }).batch_name || ""
+    ? (payload.batch_name as string | undefined) || ""
     : isExport
-      ? ((payload as { format?: string }).format || "").toUpperCase()
+      ? ((payload.format as string | undefined) || "").toUpperCase()
       : isJob
         ? jobTitle(item)
-        : (payload as { title?: string }).title || "";
+        : (payload.title as string | undefined) || "";
   const snippet = isBatchRejected
-    ? (payload as { feedback?: string }).feedback || ""
+    ? (payload.feedback as string | undefined) || ""
     : isExport
-      ? (payload as { error?: string }).error || ""
+      ? (payload.error as string | undefined) || ""
       : isJob
         ? jobSnippet(item)
         : stringValue(payload.reject_reason) || stringValue(payload.snippet);
@@ -438,7 +437,7 @@ export function NotificationsPopover({
         batchId = task.batch_id ?? undefined;
         status = task.status;
       } else {
-        const payloadProjectId = stringValue(item.payload?.project_id);
+        const payloadProjectId = stringValue(notificationPayloadRecord(item.payload).project_id);
         if (!payloadProjectId) throw new Error("通知缺少项目信息，请从任务列表查看该批次。");
         const batch = await batchesApi.get(payloadProjectId, item.target_id);
         if (!current()) return;
