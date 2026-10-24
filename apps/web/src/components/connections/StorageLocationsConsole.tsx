@@ -21,6 +21,7 @@ import { StorageConnectionsPanel } from "./StorageConnectionsPanel";
 import { StorageLocationSourceSummary } from "./StorageLocationSourceSummary";
 import { StorageMaintenanceImpact } from "./StorageMaintenanceImpact";
 import { StorageLocationMaintenance } from "./StorageLocationMaintenance";
+import { AvatarBindingChangeButton } from "./AvatarBindingChangeButton";
 import { safeDatasetReturn } from "@/components/datasets/storageNavigation";
 
 const PURPOSES = [
@@ -165,7 +166,7 @@ function ConsoleOwner() {
           <div className="p-4">
             <h2 className="mb-1 text-sm font-semibold">平台用途映射</h2>
             <p className="mb-3 text-xs text-muted-foreground">
-              用途与物理桶独立计列；已配置表示部署映射匹配，不代表位置在线或迁移完成。
+              用途与物理桶独立计列；已配置表示用途映射有效，不代表位置在线或迁移完成。
             </p>
             {role !== "super_admin" ? (
               <p className="text-xs text-muted-foreground">全局用途映射仅超级管理员可查看。</p>
@@ -232,7 +233,9 @@ function ConsoleOwner() {
                                 写入：
                                 {binding?.write_policy === "deployment_mapping"
                                   ? "当前部署目标"
-                                  : "未提供"}
+                                  : binding?.write_policy === "current_binding"
+                                    ? "当前登记目标"
+                                    : "未提供"}
                               </div>
                             </td>
                             <td className="px-2 py-2 tabular-nums">
@@ -249,6 +252,24 @@ function ConsoleOwner() {
                                   : binding?.state === "mismatch"
                                     ? "配置不匹配"
                                     : "未配置"}
+                              {purpose === "avatars" &&
+                                binding?.state === "configured" &&
+                                binding.change_policy === "reviewed_avatar_switch" && (
+                                  <AvatarBindingChangeButton
+                                    binding={binding}
+                                    onApplied={async () => {
+                                      await Promise.all(
+                                        [
+                                          ["storage-bindings"],
+                                          ["storage-source-locations"],
+                                          ["storage-location"],
+                                          ["avatar-binding-candidates"],
+                                          ["storage-buckets"],
+                                        ].map((queryKey) => client.invalidateQueries({ queryKey })),
+                                      );
+                                    }}
+                                  />
+                                )}
                             </td>
                           </tr>
                         );
@@ -262,6 +283,11 @@ function ConsoleOwner() {
                       当前部署映射锁定，受控用途切换尚未开放。已固定位置的对象按记录读取，其余入口保留既有兼容规则。
                     </p>
                   )}
+                {bindingData?.some((row) => row.change_policy === "reviewed_avatar_switch") && (
+                  <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                    当前仅开放头像用途的位置切换，其余用途保持锁定。已有头像保留保存位置，切换不搬迁历史对象。
+                  </p>
+                )}
               </>
             )}
           </div>

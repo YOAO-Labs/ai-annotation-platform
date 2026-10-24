@@ -7,7 +7,13 @@ import { StorageLocationsConsole } from "./StorageLocationsConsole";
 
 const state = vi.hoisted(() => ({ role: "super_admin", session: "session", revision: 1 }));
 const api = vi.hoisted(() => ({ locationPage: vi.fn(), location: vi.fn(), probe: vi.fn() }));
-const storage = vi.hoisted(() => ({ bindings: vi.fn(), probes: vi.fn() }));
+const storage = vi.hoisted(() => ({
+  bindings: vi.fn(),
+  probes: vi.fn(),
+  avatarBindingCandidates: vi.fn(),
+  previewAvatarBinding: vi.fn(),
+  applyAvatarBinding: vi.fn(),
+}));
 vi.mock("@/api/datasetSources", () => ({ datasetSourcesApi: api }));
 vi.mock("@/api/storage", () => ({ storageApi: storage }));
 vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ role: state.role }) }));
@@ -184,6 +190,69 @@ it("keeps missing policy fields unknown rather than inferring them from the bind
   expect(within(row).getByText("写入：未提供")).toBeInTheDocument();
   expect(within(row).getByText("位置修订 未提供")).toBeInTheDocument();
   expect(screen.queryByText(/当前部署映射锁定/)).not.toBeInTheDocument();
+});
+it("offers only the controlled avatar action and refreshes mapping, locations and usage after apply", async () => {
+  const binding = {
+    purpose: "avatars",
+    location_id: ID,
+    bucket: "avatars-a",
+    generation: 1,
+    location_config_revision: 1,
+    state: "configured",
+    read_policy: "consumer_owned_compatibility",
+    write_policy: "current_binding",
+    change_policy: "reviewed_avatar_switch",
+  };
+  const target = {
+    location_id: "22222222-2222-2222-2222-222222222222",
+    name: "头像目标",
+    config_revision: 2,
+  };
+  storage.bindings.mockResolvedValue([binding, { ...binding, purpose: "datasets" }]);
+  storage.avatarBindingCandidates.mockResolvedValue({ items: [target], total: 1 });
+  storage.previewAvatarBinding.mockResolvedValue({
+    purpose: "avatars",
+    previous: binding,
+    target: { ...target, bucket: "avatars-b", key_prefix: "_aap_managed/avatars/" },
+    history: { pending: 0, ready: 2, retired: 0, unlocated_users: 0 },
+    capabilities: { conditional_write: true, full_read: true, delete: true },
+    can_apply: true,
+    measured_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 300_000).toISOString(),
+    impact_token: "reviewed",
+  });
+  storage.applyAvatarBinding.mockResolvedValue({
+    ...binding,
+    generation: 2,
+    location_id: target.location_id,
+  });
+  const view = mount("/storage?tab=bindings");
+  const invalidate = vi.spyOn(view.client, "invalidateQueries");
+  const button = await screen.findByRole("button", { name: "切换头像位置" });
+  expect(screen.getAllByRole("button", { name: "切换头像位置" })).toHaveLength(1);
+  expect(
+    within(screen.getByRole("row", { name: /用户头像/ })).getByText("写入：当前登记目标"),
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("row", { name: /托管数据集/ })).queryByRole("button"),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText(/当前仅开放头像用途的位置切换/)).toBeInTheDocument();
+  fireEvent.click(button);
+  await screen.findByRole("option", { name: target.name });
+  fireEvent.change(screen.getByRole("combobox", { name: "目标存储位置" }), {
+    target: { value: target.location_id },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "验证并预览" }));
+  await screen.findByRole("region", { name: "头像绑定变更预览" });
+  fireEvent.click(screen.getByRole("button", { name: "确认切换" }));
+  await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["storage-buckets"] }));
+  for (const key of [
+    "storage-bindings",
+    "storage-source-locations",
+    "storage-location",
+    "avatar-binding-candidates",
+  ])
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: [key] });
 });
 it("only exposes safe dataset return links and does not query global bindings for managers", async () => {
   state.role = "project_admin";

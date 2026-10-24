@@ -1,6 +1,10 @@
 import { apiClient } from "./client";
 import type {
   StorageBindingOut,
+  AvatarBindingApply,
+  AvatarBindingCandidates,
+  AvatarBindingChange,
+  AvatarBindingPreview,
   StorageProbeOut,
   StorageUsageBreakdown,
 } from "./generated/types.gen";
@@ -89,6 +93,18 @@ export interface VideoAssetRetryResponse {
 export const storageApi = {
   bindings: (signal?: AbortSignal) =>
     apiClient.get<StorageBindingOut[]>("/storage-locations/bindings", { signal }),
+  avatarBindingCandidates: (offset: number, signal?: AbortSignal, limit = 20) =>
+    apiClient.get<AvatarBindingCandidates>(
+      `/storage-locations/bindings/avatars/candidates?limit=${limit}&offset=${offset}`,
+      { signal },
+    ),
+  previewAvatarBinding: (payload: AvatarBindingChange) =>
+    apiClient.post<AvatarBindingPreview>(
+      "/storage-locations/bindings/avatars/change-preview",
+      payload,
+    ),
+  applyAvatarBinding: (payload: AvatarBindingApply) =>
+    apiClient.patch<StorageBindingOut>("/storage-locations/bindings/avatars", payload),
   probes: (id: string, signal?: AbortSignal) =>
     apiClient.get<StorageProbeOut[]>(`/storage-locations/${id}/probes`, { signal }),
   health: () => apiClient.get<StorageHealthResponse>("/storage/health"),
