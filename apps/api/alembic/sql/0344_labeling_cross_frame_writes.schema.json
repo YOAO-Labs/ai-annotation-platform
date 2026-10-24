@@ -1,0 +1,902 @@
+{
+  "$defs": {
+    "CrossFrameAnnotationSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "video_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Video Segment Id"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "parent_prediction_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Prediction Id"
+        },
+        "parent_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Annotation Id"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        },
+        "sensor_dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Dataset Item Id"
+        },
+        "sensor_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Role"
+        },
+        "sensor_visibility": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Visibility"
+        },
+        "calibration_revision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration Revision"
+        },
+        "calibration_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration Digest"
+        },
+        "temporal_role": {
+          "enum": ["keyframe", "derived", "sample"],
+          "title": "Temporal Role",
+          "type": "string"
+        },
+        "lead_time": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lead Time"
+        },
+        "was_cancelled": {
+          "title": "Was Cancelled",
+          "type": "boolean"
+        },
+        "ground_truth": {
+          "title": "Ground Truth",
+          "type": "boolean"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "attributes_meta": {
+          "additionalProperties": true,
+          "title": "Attributes Meta",
+          "type": "object"
+        },
+        "z_order": {
+          "title": "Z Order",
+          "type": "integer"
+        },
+        "is_locked": {
+          "title": "Is Locked",
+          "type": "boolean"
+        },
+        "is_hidden": {
+          "title": "Is Hidden",
+          "type": "boolean"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "project_id",
+        "video_segment_id",
+        "user_id",
+        "source",
+        "annotation_type",
+        "tool_unit_id",
+        "class_name",
+        "geometry",
+        "confidence",
+        "parent_prediction_id",
+        "parent_annotation_id",
+        "track_id",
+        "scene_track_id",
+        "sensor_dataset_item_id",
+        "sensor_role",
+        "sensor_visibility",
+        "calibration_revision",
+        "calibration_digest",
+        "temporal_role",
+        "lead_time",
+        "was_cancelled",
+        "ground_truth",
+        "is_active",
+        "attributes",
+        "attributes_meta",
+        "z_order",
+        "is_locked",
+        "is_hidden",
+        "version",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "CrossFrameAnnotationSnapshot",
+      "type": "object"
+    },
+    "CrossFrameSceneTrackEnsure": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "track_id": {
+          "title": "Track Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "frames": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Frames",
+          "type": "array"
+        },
+        "interval_source": {
+          "const": "derived",
+          "title": "Interval Source",
+          "type": "string"
+        }
+      },
+      "required": ["project_id", "scene_id", "track_id", "class_name", "frames", "interval_source"],
+      "title": "CrossFrameSceneTrackEnsure",
+      "type": "object"
+    },
+    "CrossFrameSceneTrackSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "track": {
+          "$ref": "#/$defs/SceneTrackRecord"
+        },
+        "changed": {
+          "title": "Changed",
+          "type": "boolean"
+        }
+      },
+      "required": ["track", "changed"],
+      "title": "CrossFrameSceneTrackSnapshot",
+      "type": "object"
+    },
+    "CrossFrameSourceFence": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        },
+        "geometry_type": {
+          "title": "Geometry Type",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "expected_track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Track Id"
+        },
+        "target_track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Track Id"
+        },
+        "expected_scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Scene Track Id"
+        },
+        "expected_temporal_role": {
+          "enum": ["keyframe", "derived", "sample"],
+          "title": "Expected Temporal Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "annotation_id",
+        "task_id",
+        "project_id",
+        "expected_version",
+        "geometry_type",
+        "class_name",
+        "expected_track_id",
+        "target_track_id",
+        "expected_scene_track_id",
+        "expected_temporal_role"
+      ],
+      "title": "CrossFrameSourceFence",
+      "type": "object"
+    },
+    "CrossFrameSourceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        },
+        "temporal_role": {
+          "enum": ["keyframe", "derived", "sample"],
+          "title": "Temporal Role",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "written_fields": {
+          "items": {
+            "enum": ["track_id", "scene_track_id", "temporal_role", "version", "updated_at"],
+            "type": "string"
+          },
+          "title": "Written Fields",
+          "type": "array"
+        }
+      },
+      "required": [
+        "annotation_id",
+        "version",
+        "track_id",
+        "scene_track_id",
+        "temporal_role",
+        "updated_at",
+        "written_fields"
+      ],
+      "title": "CrossFrameSourceSnapshot",
+      "type": "object"
+    },
+    "CrossFrameTargetWrite": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_id": {
+          "format": "uuid",
+          "title": "Annotation Id",
+          "type": "string"
+        },
+        "source_annotation_id": {
+          "format": "uuid",
+          "title": "Source Annotation Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "video_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Video Segment Id"
+        },
+        "source": {
+          "enum": ["manual", "interpolated"],
+          "title": "Source",
+          "type": "string"
+        },
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "temporal_role": {
+          "enum": ["derived", "sample"],
+          "title": "Temporal Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "annotation_id",
+        "source_annotation_id",
+        "task_id",
+        "project_id",
+        "video_segment_id",
+        "source",
+        "annotation_type",
+        "tool_unit_id",
+        "class_name",
+        "geometry",
+        "track_id",
+        "attributes",
+        "temporal_role"
+      ],
+      "title": "CrossFrameTargetWrite",
+      "type": "object"
+    },
+    "CrossFrameTaskFence": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "title": "Expected Version",
+          "type": "integer"
+        }
+      },
+      "required": ["task_id", "project_id", "expected_version"],
+      "title": "CrossFrameTaskFence",
+      "type": "object"
+    },
+    "CrossFrameWriteCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-cross-frame-writes/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["propagate", "propagate_batch", "interpolate_range"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "task_fences": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameTaskFence"
+          },
+          "title": "Task Fences",
+          "type": "array"
+        },
+        "source_annotations": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameSourceFence"
+          },
+          "title": "Source Annotations",
+          "type": "array"
+        },
+        "target_annotations": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameTargetWrite"
+          },
+          "title": "Target Annotations",
+          "type": "array"
+        },
+        "scene_tracks": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameSceneTrackEnsure"
+          },
+          "title": "Scene Tracks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "actor_id",
+        "task_fences",
+        "source_annotations",
+        "target_annotations",
+        "scene_tracks"
+      ],
+      "title": "CrossFrameWriteCommand",
+      "type": "object"
+    },
+    "CrossFrameWriteData": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameAnnotationSnapshot"
+          },
+          "title": "Annotations",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameSourceSnapshot"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "scene_tracks": {
+          "items": {
+            "$ref": "#/$defs/CrossFrameSceneTrackSnapshot"
+          },
+          "title": "Scene Tracks",
+          "type": "array"
+        }
+      },
+      "required": ["annotations", "sources", "scene_tracks"],
+      "title": "CrossFrameWriteData",
+      "type": "object"
+    },
+    "SceneTrackRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "track_id": {
+          "title": "Track Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "presence_mode": {
+          "title": "Presence Mode",
+          "type": "string"
+        },
+        "attributes": {
+          "title": "Attributes"
+        },
+        "attributes_meta": {
+          "title": "Attributes Meta"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
+        "retired_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retired At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "scene_id",
+        "track_id",
+        "class_name",
+        "presence_mode",
+        "attributes",
+        "attributes_meta",
+        "revision",
+        "created_by",
+        "retired_at",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "SceneTrackRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-cross-frame-writes/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "const": true,
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "$ref": "#/$defs/CrossFrameWriteCommand"
+    },
+    "data": {
+      "$ref": "#/$defs/CrossFrameWriteData"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "CrossFrameWriteReply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-cross-frame-writes/v1",
+  "x-postgresql-functions": {
+    "aap_labeling_v1.cross_frame_write_command(jsonb)": {
+      "argument_types": ["jsonb"],
+      "returns": "jsonb",
+      "owner": "labeling",
+      "security_definer": true,
+      "caller_transaction_required": true,
+      "function_only_login": true,
+      "operations": ["propagate", "propagate_batch", "interpolate_range"],
+      "table_access": {
+        "public.tasks": {
+          "select": ["id", "project_id", "version"]
+        },
+        "public.annotations": {
+          "select": [
+            "id",
+            "task_id",
+            "project_id",
+            "video_segment_id",
+            "user_id",
+            "source",
+            "annotation_type",
+            "tool_unit_id",
+            "class_name",
+            "geometry",
+            "confidence",
+            "parent_prediction_id",
+            "parent_annotation_id",
+            "track_id",
+            "scene_track_id",
+            "sensor_dataset_item_id",
+            "sensor_role",
+            "sensor_visibility",
+            "calibration_revision",
+            "calibration_digest",
+            "temporal_role",
+            "lead_time",
+            "was_cancelled",
+            "ground_truth",
+            "is_active",
+            "attributes",
+            "attributes_meta",
+            "z_order",
+            "is_locked",
+            "is_hidden",
+            "version",
+            "created_at",
+            "updated_at"
+          ],
+          "insert": [
+            "id",
+            "task_id",
+            "project_id",
+            "video_segment_id",
+            "user_id",
+            "source",
+            "annotation_type",
+            "tool_unit_id",
+            "class_name",
+            "geometry",
+            "track_id",
+            "temporal_role",
+            "attributes"
+          ],
+          "update": ["track_id", "scene_track_id", "temporal_role", "version", "updated_at"]
+        },
+        "public.scene_tracks": {
+          "select": ["id"]
+        }
+      },
+      "sequence_access": [],
+      "public_capabilities": ["aap_labeling_v1.scene_track_domain_command(jsonb)"]
+    }
+  }
+}

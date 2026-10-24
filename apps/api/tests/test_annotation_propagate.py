@@ -564,7 +564,11 @@ async def test_propagate_batch_resolution_not_amplified_by_box_count(
             geometry=_box3d(center=(float(i), 0.0, 0.0)),
         )
 
-    svc = AnnotationService(db_session)
+    from app.services.labeling_cross_frame_writes import (
+        LabelingCrossFrameWriteService,
+    )
+
+    svc = LabelingCrossFrameWriteService(db_session)
     counters = {"axis": 0, "pose": 0}
     orig_axis = svc._resolve_axis_convention
     orig_pose = svc._frame_pose
