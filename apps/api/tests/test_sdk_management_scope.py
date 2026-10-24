@@ -353,10 +353,12 @@ async def test_batch_export_requires_annotation_export_capability_before_dispatc
         )
         actors.append(actor)
     dispatched = []
-    monkeypatch.setattr(
-        "app.workers.export.run_export.delay",
-        lambda **kwargs: dispatched.append(kwargs),
-    )
+
+    async def _dispatch_job(**kwargs):
+        dispatched.append(kwargs)
+        return kwargs["execution_id"]
+
+    monkeypatch.setattr("app.services.jobs_queue.dispatch_job", _dispatch_job)
     await db_session.flush()
     base = f"/api/v1/projects/{project.id}/batches/{batch.id}"
     for actor in actors[:2]:

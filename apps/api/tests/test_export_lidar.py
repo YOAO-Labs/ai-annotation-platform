@@ -660,11 +660,12 @@ async def test_failed_lidar_preflight_creates_no_async_job(
     project.data_type = "lidar"
     dispatched = False
 
-    def _dispatch(**_kwargs):
+    async def _dispatch(**kwargs):
         nonlocal dispatched
         dispatched = True
+        return kwargs["execution_id"]
 
-    monkeypatch.setattr("app.workers.export.run_export.delay", _dispatch)
+    monkeypatch.setattr("app.services.jobs_queue.dispatch_job", _dispatch)
 
     preflight_response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/exports/lidar:preflight",
@@ -947,11 +948,13 @@ async def test_lidar_export_zip_writes_standard_targets(
             video_frame_mode="keyframes",
         )
 
-    dispatched: dict = {}
-    monkeypatch.setattr(
-        "app.workers.export.run_export.delay",
-        lambda **kwargs: dispatched.update(kwargs),
-    )
+    dispatched: list[dict] = []
+
+    async def _dispatch_job(**kwargs):
+        dispatched.append(kwargs)
+        return kwargs["execution_id"]
+
+    monkeypatch.setattr("app.services.jobs_queue.dispatch_job", _dispatch_job)
     preflight_response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/exports/lidar:preflight",
         json={
@@ -982,7 +985,9 @@ async def test_lidar_export_zip_writes_standard_targets(
         batch_preflight_response.json()
     )
     assert export_response.status_code == 202
-    assert dispatched["opts"]["lidar"] == {"kitti_camera_role": "camera_front"}
+    assert dispatched[0]["kwargs"]["opts"]["lidar"] == {
+        "kitti_camera_role": "camera_front"
+    }
 
 
 def test_clean_export_targets_filters_lidar_targets():
