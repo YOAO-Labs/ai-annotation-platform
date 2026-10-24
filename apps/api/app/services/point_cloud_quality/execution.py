@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import numpy as np
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
@@ -95,9 +95,13 @@ async def _cancel_requested(db, run: PointCloudQualityRun) -> bool:
         return False
     job = (
         await db.execute(
-            select(AsyncJob.status, AsyncJob.payload).where(
-                AsyncJob.id == run.async_job_id
-            )
+            select(AsyncJob.status, AsyncJob.payload).from_statement(
+                text(
+                    "SELECT status, payload FROM aap_jobs_v1.read_job("
+                    "CAST(:job_id AS pg_catalog.uuid))"
+                )
+            ),
+            {"job_id": run.async_job_id},
         )
     ).one_or_none()
     return bool(

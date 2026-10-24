@@ -25,7 +25,7 @@ from app.schemas.point_cloud_quality import (
     PointCloudQualityRunRequest,
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
-from app.services.async_job import create_job
+from app.services.async_job import create_job, get_job
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_qc.service import canonical_digest
 from app.services.point_cloud_quality.config import (
@@ -554,7 +554,7 @@ async def dispatch_quality_run(
     dispatcher: QualityJobDispatcher,
 ) -> None:
     run = await db.get(PointCloudQualityRun, run_id)
-    job = await db.get(AsyncJob, async_job_id)
+    job = await get_job(db, async_job_id)
     if run is None or job is None or not job.celery_task_id:
         raise PointCloudQualityError(500, "point_cloud_quality_dispatch_invalid")
     try:
