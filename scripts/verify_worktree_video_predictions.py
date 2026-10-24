@@ -1014,6 +1014,23 @@ async def scenarios(backend, worker, storage, report, expected_database):
                     checks[
                         case["case"] + "_readonly_candidate_and_annotation_rle_get"
                     ] = "passed"
+                    async with factory() as db:
+                        row = await db.get(Annotation, uuid.UUID(accepted[0]["id"]))
+                        # A committed fixture simulates the retained annotation
+                        # after parent unlink and a legitimate manual keyframe.
+                        # This does not qualify an editor or tracker write API.
+                        geometry = deepcopy(row.geometry)
+                        geometry["keyframes"][1]["source"] = "manual"
+                        row.geometry = geometry
+                        row.parent_prediction_id = None
+                        row.version += 1
+                        await db.commit()
+                    await read_mask(
+                        f"/api/v1/annotations/{accepted[0]['id']}/mask-content/2"
+                    )
+                    checks[
+                        case["case"] + "_retained_lineage_and_manual_keyframe_read"
+                    ] = "passed"
                 checks[model + "_" + case["case"] + "_workbench_and_normal_accept"] = (
                     "passed"
                 )
