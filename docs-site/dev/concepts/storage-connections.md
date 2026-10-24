@@ -41,6 +41,8 @@ ManagedOriginalCreation显式区分dataset/task作用域。Task分配保存proje
 
 ### 认证通用原件交付
 
+浏览器公共读取模块 `apps/web/src/api/originals.ts` 只构造Task/Item/精确camera link的认证请求，核对身份中的完整下载路径，不给任意URL附加Bearer。原件下载共用两路可取消排队，覆盖完整响应体，前景可提升预取；只有明确容量不足才有限重试。资源owner按账号/session划分，同session令牌刷新后在途旧凭据结果最多重试一次，不能覆盖新凭据；跨账号、session及不完整的跨标签凭据停止读取。该公共层不建立原件缓存，各显示消费者仍须管理自己的内容版本、地址与释放。
+
 `original_binary` 按 Task、精确相机 link 或 DatasetItem 冻结来源；`originals` 路由提供零物理 I/O 的身份及绑定 content UUID/SHA 的完整下载。相机只借当前 Task 可见性读取其明确 camera\_ 链接；不借此开放任意 Item。Item 入口仍要求 Dataset 管理权限，并校验路径中的 dataset_id。来源、原请求凭证和 Gate 在准入后与交付前复核；引用图片继续使用既有严格图片入口。
 
 `original_binary_response` 复用严格 reader，单文件512MiB、独立两槽，槽覆盖复制与响应到真实文件关闭，声明大小的最大同时暂存为1GiB。匿名临时文件不产生命名缓存；取消、超时及发送失败等待在途线程收尾。复制和响应各120秒为合作式期限，真实收尾可能更长。octet-stream attachment 不执行图片解码，也不支持 Range/HEAD 或条件304；大文件明确413，不隐式回退签名地址。既有图片四槽独立保留。浏览器 DTO、会话资产生命周期及原生视频 Range 仍需后续接入，不把下载接口当作播放协议。
