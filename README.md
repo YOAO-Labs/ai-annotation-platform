@@ -66,7 +66,7 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 原地引用图片支持[后台图片导出](./docs-site/api/guides/export.md)：固定任务和内容，核验后将原图放入 ZIP，可取消且失败不发布部分包。
 
-图片预标的覆盖模式在结果通过检查后逐题替换；失败或提交前取消会保留旧候选及已采纳 AI 标注，多条结果一起提交。取消边界与已完成数量见[异步任务 API](./docs-site/api/guides/async-jobs.md)。
+图片预标的覆盖模式在结果通过检查后逐题替换；失败或提交前取消会保留旧候选及已采纳 AI 标注，多条结果一起提交。托管图片预标及重试使用完整核验、固定不可变版本的临时输入，部署需启用 import 桶版本控制，见[部署与恢复说明](./docs-site/ops/deploy/storage-recovery.md#图片预标临时输入的部署与恢复)。取消边界与已完成数量见[异步任务 API](./docs-site/api/guides/async-jobs.md)。
 
 托管图片的后台预标、ROI 和两种失败重试沿[固定原件输入](./docs-site/api/guides/predictions.md#托管图片的固定输入)执行：提交时冻结任务、配置和来源，整图与裁剪共用完整核验快照，每次尝试使用独立且回读核验的临时副本。重试保留原图片和配置；历史缺可信来源的记录需新建预标请求。
 

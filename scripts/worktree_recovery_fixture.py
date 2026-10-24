@@ -1787,6 +1787,14 @@ async def run(options):
                     raise WorktreeError("只能向新建源写入合成样本")
                 if await db.scalar(text("SELECT count(*) FROM users")):
                     raise WorktreeError("拒绝向非空演练源写入样本")
+                from app.services.storage import storage_service
+                from worktree_recovery_prediction_inputs import (
+                    enable_owned_import_versioning,
+                )
+
+                await asyncio.to_thread(
+                    enable_owned_import_versioning, storage_service, root=root
+                )
                 result = await seed(db, Path(options.external))
             elif options.action == "inspect":
                 result = await inspect_database(db)
