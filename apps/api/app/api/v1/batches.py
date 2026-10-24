@@ -1417,6 +1417,15 @@ async def export_batch(
     from app.services.exporting import output_authority
 
     output_proof = await output_authority.capture(db, project, actor, request)
+    export_opts = {
+        "include_attributes": include_attributes,
+        "video_frame_mode": video_frame_mode,
+        "axis_frame": axis_frame,
+        "video_overlap_policy": video_overlap_policy,
+        "mots_frame_base": mots_frame_base,
+        **({"video_export_scope": video_scope_payload} if video_scope_payload else {}),
+        **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
+    }
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.EXPORT.value,
@@ -1425,23 +1434,23 @@ async def export_batch(
         payload={
             **({"export_authority": export_authority} if export_authority else {}),
             "output_authority": output_proof,
+            "batch_id": str(batch_id),
             "targets": targets,
-            "include_attributes": include_attributes,
-            "video_frame_mode": video_frame_mode,
-            "axis_frame": axis_frame,
-            "video_overlap_policy": video_overlap_policy,
-            "mots_frame_base": mots_frame_base,
             "project_id": str(project_id),
             "project_display_id": project.display_id,
             "batch_display_id": batch.display_id,
-            **(
-                {"video_export_scope": video_scope_payload}
-                if video_scope_payload
-                else {}
-            ),
-            **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
+            **export_opts,
         },
     )
+    from app.services.content_snapshot import ContentError
+    from app.services.exporting.lidar_jobs import capture_job
+
+    try:
+        await capture_job(
+            db, job, project, batch_id=batch_id, targets=targets, opts=export_opts
+        )
+    except ContentError as exc:
+        raise HTTPException(status_code=exc.status, detail={"code": exc.code}) from exc
     await AuditService.log(
         db,
         actor=actor,
@@ -1458,19 +1467,7 @@ async def export_batch(
                 "project_id": str(project_id),
                 "batch_display_id": batch.display_id,
             },
-            filter_criteria={
-                "include_attributes": include_attributes,
-                "video_frame_mode": video_frame_mode,
-                "axis_frame": axis_frame,
-                "video_overlap_policy": video_overlap_policy,
-                "mots_frame_base": mots_frame_base,
-                **(
-                    {"video_export_scope": video_scope_payload}
-                    if video_scope_payload
-                    else {}
-                ),
-                **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
-            },
+            filter_criteria=export_opts,
         ),
     )
     await db.commit()
@@ -1479,19 +1476,7 @@ async def export_batch(
         project_id=str(project_id),
         batch_id=str(batch_id),
         targets=targets,
-        opts={
-            "include_attributes": include_attributes,
-            "video_frame_mode": video_frame_mode,
-            "axis_frame": axis_frame,
-            "video_overlap_policy": video_overlap_policy,
-            "mots_frame_base": mots_frame_base,
-            **(
-                {"video_export_scope": video_scope_payload}
-                if video_scope_payload
-                else {}
-            ),
-            **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
-        },
+        opts=export_opts,
         async_job_id=str(job.id),
     )
     return {"job_id": str(job.id)}

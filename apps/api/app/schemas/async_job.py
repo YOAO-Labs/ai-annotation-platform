@@ -40,6 +40,7 @@ class AsyncJobOut(BaseModel):
                 "directory_authority",
                 "export_authority",
                 "output_authority",
+                "lidar_media",
                 "prediction_authority",
                 "repair_authority",
                 "point_cloud_quality_authority",
