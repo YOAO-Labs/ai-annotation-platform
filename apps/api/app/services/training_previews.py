@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import logging
 import secrets
 import tempfile
 from collections import Counter
@@ -33,7 +34,7 @@ from app.schemas.training_run import TrainingRunCreate
 from app.services import async_job as jobs, training_runs as training
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service as storage
-from app.services import training_dataset_storage
+from app.services import training_dataset_storage, training_preview_storage
 from app.services.training_artifacts import read_json_artifact
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
@@ -43,7 +44,9 @@ from app.services.training_dataset_bridge import (
 
 ACTIVE = {"queued", "running", "cancelling", "lost"}
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
+_GENERATE_KEY = object()
 now = training.now
+log = logging.getLogger(__name__)
 
 
 def resource_id():
@@ -268,6 +271,13 @@ async def create(db, project, user, body, api_key_id):
     )
     db.add(preview)
     await db.flush()
+    try:
+        await training_preview_storage.allocate(db, preview)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
     job = await jobs.create_job(
         db,
         kind="training_preview",
@@ -334,6 +344,7 @@ def due_to_stop(preview):
 async def assignment(db, preview, *, stop=False):
     urls = {}
     if not stop:
+        storage_owner(preview)
         version = await db.get(TrainingDatasetVersion, preview.dataset_id)
         try:
             if version is None or version.project_id != preview.project_id:
@@ -400,6 +411,13 @@ async def claim(db, body):
                 if exc.status_code != 403:
                     raise
                 stop = True
+            if not stop:
+                try:
+                    storage_owner(preview)
+                except HTTPException as exc:
+                    if exc.status_code != 409:
+                        raise
+                    stop = True
             return await assignment(db, preview, stop=stop)
         return None
     # Resolve an old durable claim before qualifying a new runtime. An idle
@@ -433,6 +451,13 @@ async def claim(db, body):
             await terminal(db, preview, "cancelled", "原生预览排队期间已过期")
             continue
         if not training.runtime_compatible(preview.spec["config"], body.runtime):
+            continue
+        try:
+            storage_owner(preview)
+        except HTTPException as exc:
+            if exc.status_code != 409:
+                raise
+            await terminal(db, preview, "failed", "预览产物存储归属不可用，请先核验")
             continue
         try:
             await training.authority(db, preview)
@@ -513,6 +538,13 @@ async def heartbeat(db, preview_id, body):
         if exc.status_code != 403:
             raise
         stop = "原生预览权限已撤销，正在停止执行"
+    if not stop:
+        try:
+            storage_owner(preview)
+        except HTTPException as exc:
+            if exc.status_code != 409:
+                raise
+            stop = "原生预览产物存储归属不可用，正在停止执行"
     if stop:
         preview.status, preview.error_message = "cancelling", stop
         await jobs.request_cancel(db, preview.async_job_id)
@@ -521,7 +553,30 @@ async def heartbeat(db, preview_id, body):
 
 
 def prefix(preview):
-    return f"projects/{preview.project_id}/previews/{preview.id}/"
+    return training_preview_storage.prefix_for(preview.project_id, preview.id)
+
+
+def storage_owner(preview):
+    """Resolve saved ownership before preview output access or new execution."""
+    try:
+        return training_preview_storage.resolve(preview)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+
+
+def artifact_key(owner, name, key=_GENERATE_KEY):
+    try:
+        return training_preview_storage.expect_artifact(
+            owner, name, owner.key(name) if key is _GENERATE_KEY else key
+        )
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
 
 
 async def uploads(db, preview_id, body):
@@ -531,6 +586,7 @@ async def uploads(db, preview_id, body):
         raise HTTPException(
             status_code=409, detail="预览已取消或超过时限，不能授权上传"
         )
+    owner = storage_owner(preview)
     inventory = {spec.name: spec.model_dump() for spec in body.artifacts}
     expected_names = {
         f"preview-{index}.png" for index in range(preview.spec["count"])
@@ -556,8 +612,8 @@ async def uploads(db, preview_id, body):
             url=storage.client.generate_presigned_url(
                 "put_object",
                 Params={
-                    "Bucket": storage.training_bucket,
-                    "Key": prefix(preview) + name,
+                    "Bucket": owner.bucket,
+                    "Key": artifact_key(owner, name),
                     "ContentLength": spec["size_bytes"],
                     "Metadata": metadata,
                 },
@@ -569,18 +625,29 @@ async def uploads(db, preview_id, body):
 
 
 def read_report(preview, artifacts=None):
+    owner = storage_owner(preview)
     artifacts = preview.artifacts if artifacts is None else artifacts
     spec = artifacts.get("report.json")
     if not spec:
         raise ValueError("Missing preview report")
+    artifact_key(owner, "report.json", spec["key"])
     raw = read_json_artifact(
         spec,
         preview.id,
+        bucket=owner.bucket,
         metadata_key="preview-id",
-        required_metadata={"input-digest": preview.input_digest},
+        required_metadata={
+            "input-digest": preview.input_digest,
+            "sha256": spec["sha256"],
+        },
         node_budget=200000,
         string_budget=64000,
     )
+    return validate_report(preview, artifacts, raw)
+
+
+def validate_report(preview, artifacts, raw):
+    """Validate native report semantics against frozen inputs without storage I/O."""
     report = TrainingPreviewReport.model_validate(raw)
     frozen = preview.spec
     expected_transforms = {
@@ -640,11 +707,11 @@ def read_report(preview, artifacts=None):
 
 
 def read_image(preview, output, artifacts=None):
+    owner = storage_owner(preview)
     artifacts = preview.artifacts if artifacts is None else artifacts
     spec = artifacts[output.image]
-    response = storage.client.get_object(
-        Bucket=storage.training_bucket, Key=spec["key"]
-    )
+    key = artifact_key(owner, output.image, spec["key"])
+    response = storage.client.get_object(Bucket=owner.bucket, Key=key)
     target = tempfile.SpooledTemporaryFile(max_size=8 * 1024**2, mode="w+b")
     try:
         metadata = response.get("Metadata", {})
@@ -652,6 +719,7 @@ def read_image(preview, output, artifacts=None):
             response["ContentLength"] != spec["size_bytes"]
             or metadata.get("preview-id") != str(preview.id)
             or metadata.get("input-digest") != preview.input_digest
+            or metadata.get("sha256") != spec["sha256"]
         ):
             raise ValueError("Preview object identity mismatch")
         sha, size = hashlib.sha256(), 0
@@ -690,8 +758,9 @@ async def finish(db, preview_id, body):
     status = "cancelled" if stop else body.status
     if status == "succeeded":
         await training.authority(db, preview)
+        owner = storage_owner(preview)
         artifacts = {
-            name: {**spec, "key": prefix(preview) + name}
+            name: {**spec, "key": artifact_key(owner, name)}
             for name, spec in preview.upload_inventory.items()
         }
         try:
@@ -699,6 +768,8 @@ async def finish(db, preview_id, body):
             for output in report.outputs:
                 image = await asyncio.to_thread(read_image, preview, output, artifacts)
                 image.close()
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(
                 status_code=422, detail="预览产物缺失、损坏或与冻结输入不符"
@@ -727,6 +798,8 @@ async def output(preview):
     if preview.status == "succeeded" and not expired:
         try:
             report = await asyncio.to_thread(read_report, preview)
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(
                 status_code=422, detail="原生预览报告缺失、损坏或身份不符"
@@ -800,14 +873,29 @@ async def cleanup(db):
     ).all()
     removed = 0
     for preview in rows:
+        if await db.scalar(
+            select(TrainingPreviewResourceLease.resource_id)
+            .where(TrainingPreviewResourceLease.preview_id == preview.id)
+            .limit(1)
+        ):
+            continue
         if preview.status == "queued":
             await terminal(db, preview, "cancelled", "原生预览已过期")
         preview.status = "expired"
         if preview.put_expires_at and preview.put_expires_at >= now():
             continue
-        await asyncio.to_thread(
-            storage.delete_prefix, prefix(preview), bucket=storage.training_bucket
-        )
+        try:
+            owner = training_preview_storage.resolve(preview)
+        except TrainingDatasetError as exc:
+            log.warning("Preview cleanup blocked for %s (%s)", preview.id, exc.code)
+            continue
+        try:
+            await asyncio.to_thread(
+                storage.delete_prefix, owner.prefix, bucket=owner.bucket
+            )
+        except Exception:
+            log.exception("Preview cleanup failed for %s", preview.id)
+            continue
         await db.delete(preview)
         removed += 1
     return dict(removed=removed, stopping=stopping)

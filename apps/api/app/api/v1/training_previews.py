@@ -169,6 +169,8 @@ async def image(
     except BaseException as exc:
         if source is not None:
             source.close()
+        if isinstance(exc, HTTPException):
+            raise
         if isinstance(exc, Exception):
             raise HTTPException(
                 status_code=422, detail="原生预览图片缺失、损坏或身份不符"
