@@ -123,15 +123,15 @@ async def test_task_authorization_and_legacy_url_share_visibility(
         headers=headers(annotator),
     )
     assert response.status_code == 200 and response.content == data
-    monkeypatch.setattr(
-        storage_service,
-        "generate_download_url",
-        lambda *args, **kw: "http://storage.test/legacy",
-    )
+
+    def no_original_signature(*args, **kwargs):
+        pytest.fail("legacy file-url must never sign an original")
+
+    monkeypatch.setattr(storage_service, "generate_download_url", no_original_signature)
     response = await httpx_client.get(base + "/file-url", headers=headers(annotator))
+    assert response.status_code == 409
     assert (
-        response.status_code == 200
-        and response.json()["url"] == "http://storage.test/legacy"
+        response.json()["detail"]["code"] == "original_requires_authenticated_download"
     )
     for suffix in ["/file-url", "/content?sha256=" + asset.checksum_value]:
         assert (
@@ -149,14 +149,15 @@ async def test_task_authorization_and_legacy_url_share_visibility(
 
 
 @pytest.mark.parametrize(
-    "dataset_bound,file_type,bucket_attribute",
+    "dataset_bound,file_type",
     [
-        (True, "image", "datasets_bucket"),
-        (False, "point_cloud", "datasets_bucket"),
-        (False, "image", "bucket"),
+        (True, "image"),
+        (False, "point_cloud"),
+        (False, "image"),
+        (False, "video"),
     ],
 )
-async def test_file_url_uses_the_tasks_actual_purpose_bucket(
+async def test_file_url_rejects_all_managed_originals_without_signing(
     httpx_client,
     db_session,
     annotator,
@@ -164,7 +165,6 @@ async def test_file_url_uses_the_tasks_actual_purpose_bucket(
     monkeypatch,
     dataset_bound,
     file_type,
-    bucket_attribute,
 ):
     task = stored_world[0]
     if not dataset_bound:
@@ -181,8 +181,11 @@ async def test_file_url_uses_the_tasks_actual_purpose_bucket(
     response = await httpx_client.get(
         f"/api/v1/files/tasks/{task.id}/file-url", headers=headers(annotator)
     )
-    assert response.status_code == 200, response.text
-    assert signed == [(task.file_path, getattr(storage_service, bucket_attribute))]
+    assert response.status_code == 409, response.text
+    assert (
+        response.json()["detail"]["code"] == "original_requires_authenticated_download"
+    )
+    assert signed == []
 
 
 async def test_membership_revocation_after_copy_closes_snapshot(

@@ -43,6 +43,7 @@ class TaskOut(BaseModel):
     display_id: str
     file_name: str
     file_url: str | None = None
+    original_identity_path: str | None = None
     storage_mode: str = "managed"
     content_sha256: str | None = None
     file_type: str
@@ -131,7 +132,9 @@ class PointCloudCameraOut(BaseModel):
     name: str
     role: str
     dataset_item_id: UUID
-    image_url: str
+    link_id: UUID | None = None
+    original_identity_path: str | None = None
+    image_url: str | None = None
     width: int | None = None
     height: int | None = None
     calibration: SensorCalibration | None = None
@@ -141,7 +144,8 @@ class PointCloudCameraOut(BaseModel):
 
 class TaskPointCloudManifestResponse(BaseModel):
     task_id: UUID
-    point_cloud_url: str
+    original_identity_path: str | None = None
+    point_cloud_url: str | None = None
     point_cloud_format: str = "pcd"
     cameras: list[PointCloudCameraOut]
     expires_in: int

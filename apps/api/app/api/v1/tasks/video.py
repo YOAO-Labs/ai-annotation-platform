@@ -285,13 +285,6 @@ async def get_point_cloud_manifest(
 
     links = await get_linked_items(db, task_id)
 
-    def _presign(key: str) -> str:
-        return storage_service.generate_download_url(
-            key,
-            expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
-            bucket=storage_service.datasets_bucket,
-        )
-
     # 一次性取出所有关联 DatasetItem，避免逐 link 往返 DB
     item_ids = [link.dataset_item_id for link in links]
     items_by_id: dict[uuid.UUID, DatasetItem] = {}
@@ -303,19 +296,7 @@ async def get_point_cloud_manifest(
         )
         items_by_id = {item.id: item for item in rows}
 
-    # 主点云 URL：优先 primary_lidar link，否则回退 task.file_path
-    point_cloud_url: str | None = None
     primary_link = next((link for link in links if link.role == "primary_lidar"), None)
-    if primary_link is not None:
-        primary_item = items_by_id.get(primary_link.dataset_item_id)
-        if primary_item is not None:
-            point_cloud_url = _presign(primary_item.file_path)
-    if point_cloud_url is None:
-        if not task.file_path:
-            raise HTTPException(
-                status_code=404, detail="Point cloud file not available"
-            )
-        point_cloud_url = _presign(task.file_path)
 
     cameras: list[PointCloudCameraOut] = []
     for link in links:
@@ -344,7 +325,10 @@ async def get_point_cloud_manifest(
                 name=link.role[len("camera_") :],
                 role=link.role,
                 dataset_item_id=item.id,
-                image_url=_presign(item.file_path),
+                link_id=link.id,
+                original_identity_path=(
+                    f"/api/v1/files/tasks/{task.id}/links/{link.id}/original-identity"
+                ),
                 width=item.width,
                 height=item.height,
                 calibration=calibration,
@@ -400,9 +384,9 @@ async def get_point_cloud_manifest(
 
     return TaskPointCloudManifestResponse(
         task_id=task.id,
-        point_cloud_url=point_cloud_url,
+        original_identity_path=f"/api/v1/files/tasks/{task.id}/original-identity",
         cameras=cameras,
-        expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
+        expires_in=0,
         axis_convention=axis_convention,
         scene_id=scene_id_out,
         scene_name=scene_name_out,

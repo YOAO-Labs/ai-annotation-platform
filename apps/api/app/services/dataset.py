@@ -569,13 +569,16 @@ class DatasetService:
                 d["file_url"] = None
                 out.append(d)
                 continue
-            try:
-                d["file_url"] = storage_service.generate_download_url(
-                    item.file_path,
-                    bucket=storage_service.datasets_bucket,
-                )
-            except Exception:
-                d["file_url"] = None
+            d["file_url"] = None
+            if item.file_type == "video":
+                # Native video playback keeps its separate migration contract.
+                try:
+                    d["file_url"] = storage_service.generate_download_url(
+                        item.file_path,
+                        bucket=storage_service.datasets_bucket,
+                    )
+                except Exception:
+                    pass
             if item.thumbnail_path and not directory_owned:
                 try:
                     thumbnail_bucket = storage_service.bucket_for_cache_key(
@@ -1462,6 +1465,11 @@ def _item_dict(item: DatasetItem) -> dict:
         "file_name": item.file_name,
         "file_path": item.file_path,
         "file_type": item.file_type,
+        "original_identity_path": (
+            f"/api/v1/datasets/{item.dataset_id}/items/{item.id}/original-identity"
+            if item.file_type != "video" and not is_reference(item.file_path)
+            else None
+        ),
         "file_size": item.file_size,
         "content_hash": item.content_hash,
         "width": item.width,

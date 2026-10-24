@@ -90,6 +90,7 @@ class DatasetItemOut(BaseModel):
     # v0.13.1 · 结构化视图: calibration 仅点云相机项有, extra="allow" 保留其它 key。
     metadata: DatasetItemMetadata = Field(default_factory=DatasetItemMetadata)
     file_url: str | None = None
+    original_identity_path: str | None = None
     thumbnail_url: str | None = None
     blurhash: str | None = None
     created_at: datetime

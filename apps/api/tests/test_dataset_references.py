@@ -86,6 +86,7 @@ async def test_registration_is_idempotent_and_never_writes_originals(
     )
     item = listed.json()["items"][0]
     assert item["file_url"] is None and item["metadata"]["storage_mode"] == "reference"
+    assert item["original_identity_path"] is None
     assert is_reference(item["file_path"])
     assert before == {p.name: p.read_bytes() for p in root.iterdir() if p.is_file()}
     assert first.json()["sha256"] == hashlib.sha256(data).hexdigest()
@@ -115,6 +116,7 @@ async def test_assigned_employee_reads_and_saves_reference_annotation(
     ).status_code in (403, 404)
     dto = await httpx_client.get(f"/api/v1/tasks/{task.id}", headers=headers(annotator))
     assert dto.json()["storage_mode"] == "reference" and dto.json()["file_url"] is None
+    assert dto.json()["original_identity_path"] is None
     assert dto.json()["content_sha256"] == registered["sha256"]
     payload = {
         "class_name": "car",

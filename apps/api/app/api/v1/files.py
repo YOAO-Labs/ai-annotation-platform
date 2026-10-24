@@ -11,7 +11,6 @@ from app.schemas.task import (
     TaskFileUrlResponse,
     TaskContentIdentity,
 )
-from app.services.storage import storage_service
 from app.services.content_snapshot import IMAGE_RESPONSES
 
 router = APIRouter()
@@ -82,18 +81,9 @@ async def get_file_url(
 
     await _assert_task_visible(db, task, current_user)
 
-    from app.services.reference_keys import is_reference
-
-    if is_reference(task.file_path):
-        raise HTTPException(409, detail={"code": "reference_requires_verified_content"})
-
-    bucket = (
-        storage_service.datasets_bucket
-        if task.dataset_item_id or task.file_type == "point_cloud"
-        else storage_service.bucket
+    raise HTTPException(
+        409, detail={"code": "original_requires_authenticated_download"}
     )
-    url = storage_service.generate_download_url(task.file_path, bucket=bucket)
-    return TaskFileUrlResponse(url=url, expires_in=3600)
 
 
 @router.get(
