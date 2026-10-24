@@ -163,6 +163,8 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
 
 `client.notifications` 提供当前账号的有界通知列表、未读计数、已读处理、清理和偏好更新。偏好只修改明确给出的频道，保留其它设置。
 
+通知的 `payload` 保留服务端 JSON 原值，可以是对象、数组、字符串、数字、布尔值或 `null`；省略该字段时仍默认为空对象。REST 列表、typed WebSocket 流和 `aap notifications list --json` 均不把旧值强制转换成对象。
+
 `client.pipelines` 管理可见编排库；`apply()` 将模板复制到项目，`preannotate()` 才提交推理。使用明确的范围和稳定的 `Idempotency-Key`，通过现有 `jobs.get/wait` 查询受理后的状态。服务器继续校验项目／组织权限、backend 启用、模型能力、任务归属与锁状态，不提供独立的 dry-run。
 
 ```bash

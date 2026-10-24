@@ -25008,10 +25008,8 @@
             "type": "string"
           },
           "payload": {
-            "additionalProperties": true,
             "default": {},
-            "title": "Payload",
-            "type": "object"
+            "title": "Payload"
           },
           "read_at": {
             "anyOf": [
