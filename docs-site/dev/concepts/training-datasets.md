@@ -216,6 +216,10 @@ API 预检逐项执行有界严格读取并及时关闭临时快照，报告引�
 
 #### 实验产物的固定归属
 
+新 Run 通过共享 `training_contract.input_membership` 固定加载器成员合同。已有逐图／标签摘要校验继续负责文件完整性；原生适配器另外观察实际成员，防止原生解码或过滤静默缩小训练集。Ultralytics 在训练开始、验证开始与独立训练集评估取得 `im_files`；LibreYOLO 通过实例 trainer 扩展钩子取得包装层底部的 `img_files`，每轮验证后、平台检查点发布前核对懒建验证器，最终验证器另在加载器建立后核对。保留原生采样和训练算法。
+
+本地成员回执由 Supervisor 校验并嵌入已有执行 manifest，成功发布时 API 使用保存桶和现有有界 JSON 读取器核验 Run／Attempt／config／版本与完整集合。合同和能力均显式声明；镜像相同不能绕过能力检查。历史无声明 Run 不回填，续训按新 Attempt 重新观察，配方不复制数据绑定的成员合同，增强预览不附加训练合同。执行器源码烘焙在镜像中，宿主机源码变更不会更新已运行镜像的能力。
+
 `TrainingRun.storage_ref` 固定 `projects/{project_id}/runs/{run_id}/`，`purpose=training-run`；平台 API、自动策略与参数搜索在新实验创建事务中、首个 attempt 前显式分配。`new_attempt` 和续训不隐式分配。`training_run_storage` 复用归属校验器，并强制键位于该实验下规范的 `attempts/{attempt_id}/` 非空子路径；执行还须通过 `run_id` 外键属于该实验。输入数据使用 `TrainingDatasetVersion` 自己的归属，与产物独立。
 
 上传签名、完成核验、检查点续训、报告及观测日志文件、脱敏副本、模型注册和后续消费均解析 Run owner。`TrainedModelVersion` 通过同项目 Run/Attempt 外键与精确发布清单解析来源，不另存物理归属；模型安装、下载、评估和初始化不从当前 training 桶或目标实验推断来源。冻结配置、初始化 pin、模型 artifact/provenance、内容摘要和共享训练协议保持原合同。

@@ -1,6 +1,7 @@
 """Automatic training: semantic growth, current authority and durable scheduling."""
 
 import copy
+import hashlib
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
@@ -13,11 +14,22 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
 from app.services import learning_policies as service, training_runs as runs
 from app.services.training_dataset_bridge import semantic_partitions
-from tests.test_training_runs import ready_dataset, executor_claim
+from tests.test_training_runs import (
+    ready_dataset,
+    executor_claim as legacy_executor_claim,
+)
 
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("training_config_fixture")
+
+
+def executor_claim():
+    from training_contract.input_membership import POLICY_DIGEST
+
+    claim = legacy_executor_claim()
+    claim.runtime["input_receipt_policy_digest"] = POLICY_DIGEST
+    return claim
 
 
 async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effective_values(
@@ -61,7 +73,7 @@ async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effecti
 
 
 def manifest(train=None, val="v1", classes=None):
-    return {
+    value = {
         "schema": 1,
         "classes": classes or ["car"],
         "content_digest": "c" * 64,
@@ -84,6 +96,15 @@ def manifest(train=None, val="v1", classes=None):
             }
         ],
     }
+    for sample in value["samples"]:
+        split, task = sample["split"], sample["task_id"]
+        sample.update(
+            image_path=f"images/{split}/{task}.png",
+            label_path=f"labels/{split}/{task}.txt",
+        )
+        for field in ("sha256", "label_sha256"):
+            sample[field] = hashlib.sha256(sample[field].encode()).hexdigest()
+    return value
 
 
 @pytest.fixture

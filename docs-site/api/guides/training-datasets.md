@@ -407,6 +407,16 @@ POST /api/v1/projects/{project_id}/training-runs/{run_id}/storage-pin
 
 执行器通过原有 `X-Training-Executor-Token` 调用 `/api/v1/internal/training/previews/claim`、`/{preview_id}/heartbeat`、`uploads` 和 `finish`。claim 的 `purpose` 固定为 `augmentation-preview`，资源为节点的 `augmentation-preview/cpu-0`；协议与策略摘要及镜像必须匹配。回报以原 claim 的执行器、boot 和 CPU 租约凭据 fencing；`finish.process_exited` 必须为 true。失联、取消和过期不直接释放未知进程的租约，撤权后允许有效 fence 确认停止，但禁止发布成功。
 
+### 实际训练成员回执
+
+新 Run 在版本 manifest 含完整 `samples` 时，将 `input_contract` 固定到 `config` 及其摘要：`schema: 1`、`policy_digest`、`members_digest` 与 `counts.train/val`。成员摘要包含任务、划分、图片／标签相对路径及 SHA、尺寸与大小；相同图片内容的不同任务保留为不同成员。明确存在但无效的清单返回 `422`；历史缺少清单的版本和已有 Run 保留原合同。
+
+训练 Executor 的 runtime 必须声明匹配的 `input_receipt_policy_digest`，否则不能领取新合同，即使镜像摘要相同也不例外。同 claim 重放同样核验能力。续训固定原 Run 合同，为新 Attempt 重新观察加载器；旧 Attempt 回执不能用于新执行。CPU 增强预览使用独立合同，不要求训练成员回执能力。
+
+成功执行的现有 `manifest.json`（role 为 `manifest`）包含 `input_membership`，绑定 `run_id/attempt_id/config_digest/dataset_id/dataset_sha256`，并包含合同策略、集合摘要、数量和按 train／val 分组的 `{task_id, member_digest}`。服务端在成功终态与释放租约前，从保存的产物位置完整核验 manifest 的字节、摘要、元数据、配置与集合；缺失或不符返回 `422`。失败、取消无需完整回执；完全相同的终态重放不重新读取存储。
+
+成员来自实际原生加载器，允许重排，拒绝遗漏、额外、重复、跨划分与根外路径。该清单说明加载器接纳的基础成员，不表示逐 epoch 抽样轨迹。通过现有执行产物下载接口读取，不新增接口或产物数量。
+
 ### 辅助产物归属与历史核验
 
 新预览、逐样本评估和主动学习轮次分别在创建事务固定自己的输出根前缀；所有尝试及重试复用原归属。它们与输入训练版本、来源模型及原始候选各自独立。报告读取（包括解析缓存命中）、预览 PNG、主动学习 PNG 复用或重建及候选报告清理，都先检查保存端点、桶和准确的文件／attempt／ordinal。未知归属在物理 I/O 前返回 `409`；主动学习不会先读原图补造副本。归属不进入公开响应、冻结 spec 或执行器请求。

@@ -91,8 +91,9 @@ def ultralytics_model_path(spec):
 class UltralyticsTrainingEvaluation:
     """Evaluate frozen training members with the validation recipe, without augmentation."""
 
-    def __init__(self, output):
+    def __init__(self, output, membership=None):
         self.output = output
+        self.membership = membership
         self.validator = None
 
     def __call__(self, trainer):
@@ -128,6 +129,8 @@ class UltralyticsTrainingEvaluation:
             validator.dataloader = validator.get_dataloader(
                 trainer.data["train"], trainer.batch_size
             )
+            if self.membership is not None:
+                self.membership.observe("train", validator.dataloader.dataset.im_files)
             self.validator = validator
         # A separate validator preserves validation fitness, best selection and reports.
         return {
@@ -322,7 +325,10 @@ def ultralytics_report(result, spec, comparison=None):
     return report
 
 
-def ultralytics_train(spec: dict, output: Path, progress=None):
+def ultralytics_train(spec: dict, output: Path, progress=None, membership=None):
+    from .input_membership import membership_for
+
+    membership = membership_for(spec, output, membership)
     progress = progress or NativeProgress(spec, output)
     # The framework checks the parent before creating its config subdirectory.
     # Materialize our writable state directory before importing it.
@@ -394,7 +400,7 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
         .get("evaluate_train", False)
     )
     training_evaluation = (
-        UltralyticsTrainingEvaluation(output) if evaluate_train else None
+        UltralyticsTrainingEvaluation(output, membership) if evaluate_train else None
     )
 
     def epoch_end(trainer):
@@ -437,6 +443,9 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
     initialization_baseline = prepare_initialization(spec, model)
 
     def started(trainer):
+        if membership is not None:
+            membership.observe("train", trainer.train_loader.dataset.im_files)
+            membership.observe("val", trainer.test_loader.dataset.im_files)
         checkpoints.started(trainer)
         record_native_configuration(
             spec,
@@ -486,7 +495,13 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
             getattr(trainer, "_platform_batch_images", None)
         ),
     )
-    model.add_callback("on_val_start", lambda validator: progress.phase("evaluating"))
+
+    def validating(validator):
+        if membership is not None:
+            membership.observe("val", validator.dataloader.dataset.im_files)
+        progress.phase("evaluating")
+
+    model.add_callback("on_val_start", validating)
     model.add_callback("on_val_end", lambda validator: progress.phase("training"))
     # Upstream resets its OOM counter after on_train_start. Set it at epoch start
     # so an OOM propagates instead of silently changing this fixed batch size.
@@ -542,6 +557,8 @@ def ultralytics_train(spec: dict, output: Path, progress=None):
     report["comparison"] = ultralytics_descriptor(
         spec, weights, model.trainer.validator, report["summary"]
     )
+    if membership is not None:
+        membership.complete()
     atomic_json(output / "metrics.json", report)
     atomic_json(
         output / "result.json",

@@ -25,6 +25,11 @@ from training_contract.models import (
 )
 from training_contract.observability import failure_receipt, redact_text
 from training_contract.assets import AssetReference
+from training_contract.input_membership import (
+    contract_for as input_contract_for,
+    declared_contract as input_contract,
+    verify_receipt as verify_input_receipt,
+)
 
 from app.config import settings
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -316,7 +321,20 @@ def requires_prepared_asset(framework, version, base):
     )
 
 
+def input_runtime_compatible(config, runtime):
+    try:
+        inputs = input_contract(config)
+        return (
+            inputs is None
+            or runtime.get("input_receipt_policy_digest") == inputs["policy_digest"]
+        )
+    except (ValueError, KeyError, TypeError):
+        return False
+
+
 def runtime_compatible(config, runtime):
+    if not input_runtime_compatible(config, runtime):
+        return False
     framework = config["framework"]
     if requires_prepared_asset(
         framework, config["framework_version"], config.get("base_model", {})
@@ -422,7 +440,9 @@ async def authority(db, run):
         ) from exc
 
 
-async def frozen_config(db, project_id, body: TrainingRunCreate):
+async def frozen_config(
+    db, project_id, body: TrainingRunCreate, *, observe_members=True
+):
     options = catalog()
     if not options["enabled"]:
         raise HTTPException(status_code=409, detail="训练执行器尚未配置，请联系管理员")
@@ -553,6 +573,12 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
             verify_frozen(config)
         except (ValueError, KeyError, TypeError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        inputs = input_contract_for(dataset.manifest) if observe_members else None
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail="训练数据成员清单无效") from exc
+    if inputs is not None:
+        config["input_contract"] = inputs
     return config
 
 
@@ -890,6 +916,10 @@ async def claim(db, body):
                     status_code=409, detail="执行器密钥已变更，请先协调旧租约"
                 )
             run = await db.get(TrainingRun, attempt.run_id)
+            if not input_runtime_compatible(run.config, body.runtime):
+                raise HTTPException(
+                    status_code=409, detail="执行器不支持冻结的训练输入合同"
+                )
             return await assignment(db, run, attempt, token)
         return None
     if body.recover_only:
@@ -1198,6 +1228,29 @@ def verify_native_artifact(run, attempt, artifacts):
         )
 
 
+def verify_input_artifact(run, attempt, artifacts):
+    """Verify actual native admission through the existing saved-owner manifest."""
+    if input_contract(run.config) is None:
+        return
+    spec = artifacts.get("manifest.json")
+    if not spec or spec["role"] != "manifest":
+        raise ValueError("Successful training requires its execution manifest")
+    from app.services.training_artifacts import read_json_artifact
+
+    owner = attempt_storage_owner(run, attempt, spec["key"])
+    manifest = read_json_artifact(spec, attempt.id, bucket=owner.bucket)
+    if (
+        manifest.get("run_id") != str(run.id)
+        or manifest.get("attempt_id") != str(attempt.id)
+        or manifest.get("config_digest") != run.config_digest
+        or content_digest(manifest.get("config")) != run.config_digest
+    ):
+        raise ValueError("Execution manifest differs from its frozen attempt")
+    verify_input_receipt(
+        manifest.get("input_membership"), run.config, run.id, attempt.id
+    )
+
+
 async def finish(db, attempt_id, body):
     lease, run, attempt = await fenced(db, attempt_id, body, allow_terminal=True)
     request_digest = content_digest(body.request_payload())
@@ -1285,6 +1338,13 @@ async def finish(db, attempt_id, body):
         except (ValueError, KeyError, TypeError) as exc:
             raise HTTPException(
                 status_code=422, detail="原生参数观测缺失或与冻结配置不符"
+            ) from exc
+    if status == "succeeded":
+        try:
+            await asyncio.to_thread(verify_input_artifact, run, attempt, artifacts)
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            raise HTTPException(
+                status_code=422, detail="训练实际接纳成员回执缺失或与冻结清单不符"
             ) from exc
     attempt.artifacts = artifacts
     attempt.native_accounting = body.native_accounting

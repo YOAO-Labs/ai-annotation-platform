@@ -1,6 +1,6 @@
 # EPIC-10：数据集版本、血缘与训练消费
 
-> 状态：E10-A、E10-B1、E10-B2-A complete；其余血缘增强与 E10-C 缓存保留后续切片，不分配发布版本。
+> 状态：E10-A、E10-B1、E10-B2-A complete；E10-B2-B 实现与本地验证完成，现用训练 Executor 镜像未升级；其余来源解释与 E10-C 缓存保留后续切片，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -12,6 +12,22 @@
 | 负责角色      | 训练平台后端、数据集后端、算法使用者、测试                                          |
 | 最小依赖      | E01 内容身份、E05 验证读取、E11 最小版本权限                                        |
 | 协作          | E04 源变化；E06 训练节点可达性；E08 筛选/质量；E12 容量与恢复                       |
+
+## E10-B2-B 实施合同 — 实际训练接纳集合与冻结清单对账
+
+基线 `80094d98b`。仅落实原始 E10-S06／AC08 的实际使用清单，不重建已有冻结 manifest、逐图／标签校验、运行绑定、模型血缘或节点缓存。当前已支持的 Ultralytics 检测／实例分割（含直接 RLE）与 LibreYOLO9 检测均接入；不缩小为单框架，也不扩张算法或模型资格。人工 3100／8100、共享配置、现有执行服务与镜像保持；根树串行写入，只读代理提供调用关系复核。
+
+有完整 samples 清单的新冻结 Run 记录显式 schema 1 `input_contract`：策略摘要、期望成员摘要及 train／val 数量。成员摘要覆盖 Task、split、相对图片／标签路径、两种 SHA、尺寸和大小，保留同 SHA 的不同成员。历史 Run 和缺少成员清单的历史版本不回填；已声明但不合法的清单／合同拒绝，不能降级为旧合同。新合同进入原 config digest，运行恢复仍固定原 Run，只为新 Attempt 重新观测。
+
+Executor 在既有完整文件校验后，从实际原生 loader 取成员：Ultralytics 的 train／val、独立训练评估和最终验证，直接 RLE 保持现有数据集；Libre 通过现有 trainer／validator 子类扩展钩子取得底层成员，不替换训练或验证算法。规范化实际路径后拒绝遗漏、额外、重复、跨 split 或根外样本，允许矩形批重排。现有 fraction 固定 1.0；Libre 有放回抽样不改变底层成员，回执不声称记录每 epoch 的抽样轨迹。
+
+紧凑实际成员只保存 Task 与 member digest，按 split 分组，放入已有执行 `manifest.json`，绑定 Run／Attempt／config 和数据版本／包摘要；不新增第十三个产物或新 owner／表。成功发布前复用现有 8MiB／100k 节点完整 JSON 读取器和保存桶，核对身份、集合、数量与摘要，失败不发布成功。取消、失败和终态回执重放沿现有规则收尾；配方不复制数据集合同。
+
+新能力由真实实现的 Executor 发布精确 policy capability，API 在镜像相等的快捷兼容分支之前检查。当前镜像源码为烘焙内容，不能把代码修改、旧服务健康或伪造 capability 当成部署成功；本轮不重建或替换它。旧运行沿旧合同，新合同执行必须有匹配能力，保留明确的部署限制。
+
+准确范围：共享新增 `training_contract/input_membership.py` 与合同测试；Executor 新增输入观测 helper，修改 `adapters.py`、`train.py`、`libreyolo_adapter.py`、`worker.py` 和对应测试；API 在 `training_runs.py` 接冻结／能力／成功发布校验，复用 `training_artifacts.py`，新增专项测试。同步训练用户／API／开发说明、README、CHANGELOG、本计划与执行队列。无新依赖、迁移、环境变量或公开路由；若响应 schema 无变化仅验证 OpenAPI／SDK 现合同，不生成虚假接口差异。
+
+验证覆盖集合缺失／额外／重复、同 SHA 不同成员、顺序变化、跨 split／根外、20k 成员既有 JSON 预算、未知合同、旧运行、旧同镜像能力拒绝、恢复后的新 Attempt、篡改回执与成功／失败／取消发布。实际原生 loader 在已有训练镜像中以当前源码只读挂载进行 CPU 验证，不安装依赖或重建镜像；API 测试只用 owner 核验的一次性环境。相关既有执行器／发布回归通过后检查文档和 diff，清理任务资源与产物并提交。本片不要求新模型／GPU／生产资格工程。
 
 ## E10-B2-A 晋升复核与实施合同
 
@@ -327,3 +343,15 @@ M1 必须让一个已关联项目的原地图片目录，通过统一 resolver �
 真实浏览器核对比较分类→筛选→前后对照、两侧来源事实、复制、Escape 与焦点返回；1440×1000/390×844 明暗截图无横向溢出。控制台无错误或警告，观察到的 HTTP 响应无失败；导航/切换取消的请求不计作成功响应。来源详情保持居中弹层、内滚动及角色字号。用户/API/架构、README、CHANGELOG 与 OpenAPI 同步。
 
 人工3100/8100及普通/维护Worker、beat保留并刷新，doctor健康；两个队列实际派发当前训练签名并安全忽略不存在的验收版本。业务数据仍为8数据集、12样本、7项目、12任务、7标注、67异步记录；预测、输入租约与完整缓存仍为0，无活动任务。一次性模式、验收样本/包、浏览器、脚本、截图、报告及任务缓存清理后提交；不重建镜像、不推送、不发布。managed 来源补齐、实际消费集合回执、条件触发的训练节点缓存和完整故事矩阵仍后置，整个E10未完成。
+
+### E10-B2-B：实际加载器成员与冻结清单对账
+
+2026-10-25 完成实现和本地验证，基线 `80094d98b`，实现与本节记录同提交。对应原始 E10-S06／AC08：新 Run 固定小型成员合同，保留同内容的不同逻辑成员；当前支持的 Ultralytics 检测／多边形及直接 RLE 分割和 LibreYOLO9 检测，从实际原生 loader 取得基础成员。重排允许，漏项、重复、额外、跨 split 与根外拒绝。逐图／标签完整校验继续复用，未替换加载器、采样或模型算法。
+
+实际清单绑定 Run／Attempt／config／数据版本及包摘要，嵌入已有执行 manifest，不增加上传产物数量、表、接口、依赖或环境变量。API 从保存桶完整核验 manifest，成功终态与租约释放前对账；恢复保持合同但为新 Attempt 重新观察，旧回执不能替代。历史无合同 Run 不回填，失败、取消与精确终态重放保持。新能力检查先于同镜像快捷匹配；同 claim 重放也不能绕过。增强预览复用配置构建时明确不附加训练合同，修正了本轮复核发现的兼容回归。
+
+本地分批累计 531 个不同用例通过：158 API／DB、97 Executor、272 共享合同和 4 SDK。覆盖旧合同、显式坏清单、真实原生检测／分割／RLE／Libre 数据集、损坏图片被原生过滤、实际 adapter 的 train／val／独立 train evaluator／最终 val 接线、最终验证缺员不发布、恢复与旧 Attempt 回执、成功／失败／取消／重放和当前桶改变。两万成员经过现有 8MiB／100k 节点 JSON 读取器，缓存命中仍完整读取并关闭对象。早期失败涉及预览错误附加训练合同、测试夹具不完整及缺少模拟能力，已修正；最终无未解决失败。原生验证在既有镜像内挂载当前只读源码、禁网并限制 CPU／内存；没有安装依赖、重建镜像或运行 GPU 训练。
+
+Ruff／格式、OpenAPI 无漂移、SDK 合同、文档 frontmatter／导航／可读性／构建及 diff 检查通过。正式文档同步至 `docs-site/user-guide/online-learning/experiments.md`、`docs-site/api/guides/training-datasets.md`、`docs-site/dev/concepts/training-datasets.md`、README 和 CHANGELOG Unreleased。当前工作树 API／普通及维护 Worker 已通过所属监督单元刷新，人工 3100／8100 和 Beat 保留；十二表 155 行、24 个对象及十二源文件指纹保持。一次性 test 数据库／Redis／九桶和临时容器、测试样本、报告、缓存及构建产物按归属清理。
+
+部署边界：现用训练 Executor 是旧的烘焙镜像，未宣告新能力，本次未修改该服务；源码和本地 loader 验证不等于新合同已经在现用 GPU 执行器部署。新合同训练须更新 Executor 后才可领取，旧 Run 继续沿原合同。整个 E10 仍未完成；后续回到 E10-S04 的托管来源／可用性解释及原始故事矩阵，节点缓存按既有测量条件单独推进，不启动 Tracker M2 或新增业务专项。

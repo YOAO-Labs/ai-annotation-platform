@@ -230,7 +230,9 @@ async def create(db, project, user, body, api_key_id):
         configuration=body.configuration,
         request_id=body.request_id,
     )
-    config = await training.frozen_config(db, project.id, run_body)
+    config = await training.frozen_config(
+        db, project.id, run_body, observe_members=False
+    )
     try:
         validate_request(config, body.seed, body.epoch, body.count)
         version = await db.get(TrainingDatasetVersion, body.dataset_id)
