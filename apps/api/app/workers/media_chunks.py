@@ -12,6 +12,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from app.workers.media_process import run_process
 from app.workers.media_timestamps import rounded_frame_seek_seconds
 
 FFMPEG_CHUNK_TIMEOUT_SECONDS = 180
@@ -22,8 +23,11 @@ def extract_video_chunk(
     output_path: str | Path,
     start_ms: int,
     frame_count: int,
+    *,
+    pass_fds: tuple[int, ...] = (),
 ) -> None:
-    proc = subprocess.run(
+    runner = run_process if pass_fds else subprocess.run
+    proc = runner(
         [
             "ffmpeg",
             "-y",
@@ -56,6 +60,7 @@ def extract_video_chunk(
         capture_output=True,
         text=True,
         timeout=FFMPEG_CHUNK_TIMEOUT_SECONDS,
+        **({"pass_fds": pass_fds} if pass_fds else {}),
     )
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "ffmpeg chunk extraction failed")
@@ -66,8 +71,11 @@ def extract_video_chunk_smart_copy(
     output_path: str | Path,
     start_ms: int,
     duration_ms: int,
+    *,
+    pass_fds: tuple[int, ...] = (),
 ) -> None:
-    proc = subprocess.run(
+    runner = run_process if pass_fds else subprocess.run
+    proc = runner(
         [
             "ffmpeg",
             "-y",
@@ -90,6 +98,7 @@ def extract_video_chunk_smart_copy(
         capture_output=True,
         text=True,
         timeout=FFMPEG_CHUNK_TIMEOUT_SECONDS,
+        **({"pass_fds": pass_fds} if pass_fds else {}),
     )
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "ffmpeg chunk smart-copy failed")
