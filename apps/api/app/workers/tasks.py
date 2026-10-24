@@ -4,6 +4,7 @@ from app.services.prediction_execution import execution_summary
 import asyncio
 from copy import deepcopy
 import json
+import inspect
 import logging
 import time
 import uuid
@@ -77,6 +78,85 @@ def _retryable_request_context(context: dict | None) -> dict | None:
         return None
     payload = json.dumps(context, ensure_ascii=False, separators=(",", ":")).encode()
     return context if len(payload) <= _MAX_FAILED_PREDICTION_CONTEXT_BYTES else None
+
+
+def _require_image_job_proof(project, proof):
+    if (
+        project is not None
+        and project.data_type == "image"
+        and (not isinstance(proof, dict) or not proof)
+    ):
+        from app.services.content_snapshot import ContentError
+
+        raise ContentError("prediction_original_requires_new_request", 409)
+
+
+def _require_image_inputs(task, owner, inputs):
+    if task.file_type == "image" and (owner is None or inputs is None):
+        from app.services.content_snapshot import ContentError
+
+        raise ContentError("prediction_original_requires_new_request", 409)
+
+
+def _failure_input(owner, task_id):
+    """Keep the original binding even when capture failed before opening inputs."""
+    if owner is None or task_id not in owner.bindings:
+        return {}
+    binding = owner.failure_binding(task_id)
+    if "original" in binding:
+        return {"original_input": binding}
+    if "reference" in binding:
+        return {"reference_input": binding}
+    return {}
+
+
+def _input_receipt_kwargs(owner, task_id, receipt):
+    if owner is not None and owner.is_managed(task_id):
+        if receipt is None:
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("prediction_original_requires_new_request", 409)
+        return {"original_receipt": receipt}
+    return {"reference_receipt": receipt} if receipt is not None else {}
+
+
+async def _upload_crop_inputs(
+    image, boxes, *, task, upload_crop, before_dispatch, cache, **options
+):
+    """Hold at most one encoded crop; only completed URLs enter the parent cache."""
+    from app.workers.roi import CropBatch, box_class_name, crop_inputs_from_boxes
+
+    batch = CropBatch()
+    classes = options.get("parent_class_filter")
+    allowed = set(classes) if classes else None
+    for index, box in enumerate(boxes):
+        if not isinstance(box, dict) or (
+            allowed is not None and box_class_name(box) not in allowed
+        ):
+            continue
+        key = (index, round(options.get("pad", 0.05), 4))
+        if key in cache:
+            cached = cache[key]
+            batch.inputs.append(cached["input"])
+            batch.transforms[str(index)] = cached["transform"]
+            continue
+        prepared = crop_inputs_from_boxes(image, [box], delivery="deferred", **options)
+        batch.skipped_geometry += prepared.skipped_geometry
+        if not prepared.inputs:
+            continue
+        if before_dispatch:
+            await before_dispatch()
+        content = prepared.contents.pop("0")
+        uploaded = upload_crop(task, index, content)
+        url = await uploaded if inspect.isawaitable(uploaded) else uploaded
+        del content, uploaded
+        item = {"id": str(index), "file_path": url}
+        transform = prepared.transforms["0"]
+        batch.inputs.append(item)
+        batch.transforms[str(index)] = transform
+        cache[key] = {"input": item, "transform": transform}
+        del prepared
+    return batch
 
 
 def _stage_totals_snapshot(totals: dict[int, dict]) -> list[dict]:
@@ -414,7 +494,8 @@ async def _execute_task_pipeline(
 
     注: 真正的几何 depth-3 (crop 内检测新子物体 + 坐标回映) 不在本版, 见 0.18.15 计划。
 
-    upload_crop: ``(task, box_idx, jpeg_bytes) -> url``; 非 None → presigned 投递, None → data URI。
+    upload_crop: ``(task, box_idx, jpeg_bytes) -> url | Awaitable[url]``;
+        production awaits each bounded crop upload before dispatch.
     stage_modes: ``list[str]`` 与 stages 等长 (按列表位置), 每项 ``"crop"|"geometry"``; None → 全 crop。
     stage_stats: ``{stage号: {...}}`` —— 源阶段 {detected}; 下游 {targeted, ok, failed, skipped_geometry}。
     """
@@ -572,11 +653,6 @@ async def _execute_task_pipeline(
         # depth-3 阶段的子下标语义与 root_boxes 不同 (是中间几何), 按 parent_stage 分桶
         # 避免 (idx, pad) 撞键喂错图 (claude[bot] P1)。
         crop_cache_by_parent: dict[int | None, dict] = {}
-        upload_fn = (
-            (lambda idx, buf: upload_crop(task, idx, buf))
-            if upload_crop is not None
-            else None
-        )
         dropped: set[int] = set()
         new_shapes: list[
             dict
@@ -665,17 +741,30 @@ async def _execute_task_pipeline(
             pad = _resolve_pad(stage, depths.get(snum, 2))
             parent_key = stage.get("parent_stage")
             crop_cache = crop_cache_by_parent.setdefault(parent_key, {})
-            batch = crop_inputs_from_boxes(
-                image,
-                parent_boxes,
+            crop_options = dict(
                 pad=pad,
                 parent_class_filter=pcf,
-                delivery=delivery,
-                upload_fn=upload_fn,
-                cache=crop_cache,
                 min_crop_side_px=32,
                 mask_objects=(pred_result.meta or {}).get("mask_objects"),
             )
+            if upload_crop is not None:
+                batch = await _upload_crop_inputs(
+                    image,
+                    parent_boxes,
+                    task=task,
+                    upload_crop=upload_crop,
+                    before_dispatch=before_dispatch,
+                    cache=crop_cache,
+                    **crop_options,
+                )
+            else:
+                batch = crop_inputs_from_boxes(
+                    image,
+                    parent_boxes,
+                    delivery=delivery,
+                    cache=crop_cache,
+                    **crop_options,
+                )
             stats[snum]["skipped_geometry"] += batch.skipped_geometry
             crop_inputs = batch.inputs
             # 默认 (attributes): 对孙子暴露 (可能已富集属性的) 父框几何。
@@ -1018,6 +1107,7 @@ async def _run_batch(
                 db, precreated_job.id, celery_task_id=celery_task_id
             )
             await db.commit()
+        _require_image_job_proof(project, reference_proof)
         if batch_id:
             selected_batch = await db.get(TaskBatch, uuid.UUID(batch_id))
             if (
@@ -1344,6 +1434,27 @@ async def _run_batch(
                 },
             )
 
+        snapshot_id = precreated_job.execution_snapshot_id if precreated_job else None
+        reference_job = None
+        if reference_proof is not None:
+            from app.services.prediction_references import ReferencePredictionJob
+
+            reference_job = ReferencePredictionJob(
+                db,
+                async_job_id,
+                reference_proof,
+                project_id=project_uuid,
+                actor_id=uuid.UUID(user_id) if user_id else None,
+                task_ids=requested_task_ids,
+                batch_id=uuid.UUID(batch_id) if batch_id else None,
+                scope=execution_scope,
+                predict_mode=predict_mode,
+                snapshot_id=snapshot_id,
+                snapshot_digest=snapshot_digest,
+                node_id=worker_node_id,
+                execution_unit=execution_unit,
+            )
+            await reference_job.authorize()
         if total == 0:
             if await _cancel_requested(lock=True):
                 await _finish_cancelled(cancelled_at_index=0)
@@ -1522,26 +1633,6 @@ async def _run_batch(
                     )
                 )
 
-        snapshot_id = precreated_job.execution_snapshot_id if precreated_job else None
-        reference_job = None
-        if reference_proof is not None:
-            from app.services.prediction_references import ReferencePredictionJob
-
-            reference_job = ReferencePredictionJob(
-                db,
-                async_job_id,
-                reference_proof,
-                project_id=project_uuid,
-                actor_id=uuid.UUID(user_id) if user_id else None,
-                task_ids=requested_task_ids,
-                batch_id=uuid.UUID(batch_id) if batch_id else None,
-                scope=execution_scope,
-                predict_mode=predict_mode,
-                snapshot_id=snapshot_id,
-                snapshot_digest=snapshot_digest,
-                node_id=worker_node_id,
-                execution_unit=execution_unit,
-            )
         retry_request_context = (
             None if snapshot_id else _retryable_request_context(stage_contexts[0])
         )
@@ -1631,6 +1722,7 @@ async def _run_batch(
                     await validate_task_scope(db, project, task, actor, execution_scope)
                 if reference_job is not None:
                     task_inputs = await reference_job.open_inputs(task, SessionLocal)
+                _require_image_inputs(task, reference_job, task_inputs)
                 results, pipeline_extra, stage_stats = await _run_task_pipeline(
                     task,
                     stages,
@@ -1699,6 +1791,9 @@ async def _run_batch(
                 reference_receipt = (
                     await reference_job.final_receipt(task) if reference_job else None
                 )
+                receipt_kwargs = _input_receipt_kwargs(
+                    reference_job, task_uuid, reference_receipt
+                )
                 if snapshot_id:
                     pipeline_extra = {
                         **(pipeline_extra or {}),
@@ -1757,9 +1852,7 @@ async def _run_batch(
                         **(
                             {"background_native_reference_receipt": native_receipt}
                             if native_receipt is not None
-                            else {"reference_receipt": reference_receipt}
-                            if reference_receipt is not None
-                            else {}
+                            else receipt_kwargs
                         ),
                     )
                     partial_prediction_ids.append(str(created_prediction.id))
@@ -1789,15 +1882,7 @@ async def _run_batch(
                             "stage_errors": pipeline_extra["pipeline"].get(
                                 "stage_errors", []
                             ),
-                            **(
-                                {
-                                    "reference_input": deepcopy(
-                                        reference_job.bindings[task_uuid]
-                                    )
-                                }
-                                if task_inputs
-                                else {}
-                            ),
+                            **_failure_input(reference_job, task_uuid),
                         },
                     )
                     partial_failure.execution_snapshot_id = snapshot_id
@@ -1821,14 +1906,7 @@ async def _run_batch(
                     await engine.dispose()
                     return
                 failure_extra: dict = {"execution_scope": execution_scope}
-                if (
-                    reference_job is not None
-                    and task_uuid in reference_job.bindings
-                    and reference_job.bindings[task_uuid].get("reference")
-                ):
-                    failure_extra["reference_input"] = deepcopy(
-                        reference_job.bindings[task_uuid]
-                    )
+                failure_extra.update(_failure_input(reference_job, task_uuid))
                 if snapshot_id:
                     failure_extra["execution_snapshot"] = {
                         "id": str(snapshot_id),

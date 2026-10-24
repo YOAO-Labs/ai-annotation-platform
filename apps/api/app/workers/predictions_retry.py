@@ -35,6 +35,17 @@ class _PredictionRetryTerminalFailure(Exception):
         super().__init__(str(result.get("reason") or result.get("status") or "failed"))
 
 
+def _require_qualified_image_retry(task, project, retry_job_id):
+    """A late historical image delivery must not invent today's original source."""
+    if retry_job_id is None and (
+        (task is not None and task.file_type == "image")
+        or (project is not None and project.data_type == "image")
+    ):
+        from app.services.content_snapshot import ContentError
+
+        raise ContentError("prediction_original_requires_new_request", 409)
+
+
 @celery_app.task(
     bind=True, name="app.workers.predictions_retry.retry_failed_prediction"
 )
@@ -190,6 +201,7 @@ async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> d
     """重试业务逻辑。终态通知由外层 async_jobs 统一发。"""
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
     from app.db.models.prediction import FailedPrediction
+    from app.db.models.project import Project
     from app.db.models.task import Task
     from app.services.gpu_arbitration.dispatch import (
         build_gpu_dispatch_context_factory,
@@ -216,6 +228,8 @@ async def _run_retry_attempt(session_factory, failed_id: str, user_id: str) -> d
         snapshot_id = fp.execution_snapshot_id
         stored_context = (fp.extra or {}).get("request_context")
         request_context = stored_context if isinstance(stored_context, dict) else None
+        project = await db.get(Project, fp.project_id)
+        _require_qualified_image_retry(task, project, None)
         ns = NotificationService(db)
         pending = await ns.notify(
             user_id=uid,
@@ -422,6 +436,9 @@ async def _run_snapshot_retry(
         _resolve_input_mode,
         _hold_preannotation_authority,
         _preannotation_actor_revoked,
+        _require_image_job_proof,
+        _require_image_inputs,
+        _input_receipt_kwargs,
     )
 
     pipeline_errors = None
@@ -445,6 +462,7 @@ async def _run_snapshot_retry(
             project = await db.get(Project, fp.project_id)
             if not task or not actor or not project:
                 raise ValueError("原始任务或执行者已不可用")
+            _require_qualified_image_retry(task, project, retry_job_id)
             payload, digest = await load_snapshot(
                 db, fp.execution_snapshot_id, project.id
             )
@@ -464,6 +482,7 @@ async def _run_snapshot_retry(
                     if job
                     else None
                 )
+                _require_image_job_proof(project, proof)
                 if (
                     not proof
                     or (fp.extra or {}).get("retry_job_id") != str(retry_job_id)
@@ -490,6 +509,7 @@ async def _run_snapshot_retry(
                 task_inputs = await reference_owner.open_inputs(task, session_factory)
             else:
                 task_inputs = None
+            _require_image_inputs(task, reference_owner, task_inputs)
             stages = sorted(payload["stages"], key=lambda stage: stage["stage"])
             clients, contexts, modes = [], [], []
             for stage in stages:
@@ -574,6 +594,9 @@ async def _run_snapshot_retry(
             await validate_task_scope(db, project, task, actor, scope, lock=True)
             if reference_owner is not None:
                 reference_receipt = await reference_owner.final_receipt(task)
+            receipt_kwargs = _input_receipt_kwargs(
+                reference_owner, task_uuid, reference_receipt
+            )
 
             extra = {
                 **(extra or {}),
@@ -619,9 +642,7 @@ async def _run_snapshot_retry(
                     **(
                         {"background_native_reference_receipt": native_receipt}
                         if native_receipt is not None
-                        else {"reference_receipt": reference_receipt}
-                        if reference_receipt is not None
-                        else {}
+                        else receipt_kwargs
                     ),
                 )
                 first = first or pred

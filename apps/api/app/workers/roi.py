@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 
 from PIL import Image
 
+from app.services.content_snapshot import ContentError, MAX_BYTES
 from app.services.raster_mask_storage import validate_reference_for_rle
 from app.utils.raster_mask_rle import coco_rle_bbox_pixels
 
@@ -37,6 +38,16 @@ class CropBatch:
     inputs: list[dict] = field(default_factory=list)
     skipped_geometry: int = 0
     transforms: dict[str, dict] = field(default_factory=dict)
+    contents: dict[str, bytes] = field(default_factory=dict, repr=False)
+
+
+class _CropBuffer(io.BytesIO):
+    """Reject an oversized pending crop before buffering more encoded bytes."""
+
+    def write(self, content):
+        if self.tell() + len(content) > MAX_BYTES:
+            raise ContentError("prediction_input_too_large", 413)
+        return super().write(content)
 
 
 def box_class_name(box: dict) -> str | None:
@@ -163,6 +174,8 @@ def crop_inputs_from_boxes(
         delivery: v0.18.4 · crop 投递方式。``"data_uri"`` (默认, 纯函数自足, 单测/已知支持
             ``data:`` 的后端) 内联 base64; ``"presigned"`` (worker 生产默认) 经 ``upload_fn``
             上传对象存储回 URL——对所有走 ``httpx.get`` 的下游后端 (gsam2/sam3) 通用。
+            ``"deferred"`` returns bounded JPEG bytes in ``contents`` without I/O;
+            the async caller owns sequential upload and its URL-only cache.
         upload_fn: v0.18.4 · ``delivery="presigned"`` 时必传, ``(box_idx, jpeg_bytes) -> url``。
         cache: v0.18.4 · 可选 ``{cache_key: input}``。并行兄弟阶段 target 同一批父框时复用
             已裁/已上传 crop, 不重复裁剪 + 重编码 + 重上传。**调用方需为每个父阶段传独立 cache**
@@ -174,11 +187,14 @@ def crop_inputs_from_boxes(
         ``id`` 即 boxes 中的下标 (字符串, **保留原下标**即使被类别过滤), 供下游结果回写到对应父框;
         ``skipped_geometry`` 为命中路由但几何不支持被跳过的父框数。类别不匹配的父框是路由跳过, 不计入。
     """
+    if delivery == "deferred" and cache is not None:
+        raise ValueError("Deferred crops use the async caller's URL cache")
     img_w, img_h = image.size
     filter_set = set(parent_class_filter) if parent_class_filter else None
     inputs: list[dict] = []
     skipped_geometry = 0
     transforms: dict[str, dict] = {}
+    contents: dict[str, bytes] = {}
     for idx, box in enumerate(boxes):
         if not isinstance(box, dict):
             continue
@@ -218,10 +234,14 @@ def crop_inputs_from_boxes(
             ):
                 skipped_geometry += 1
                 continue
-            with io.BytesIO() as buf, crop.convert("RGB") as rgb:
+            buffer = _CropBuffer if delivery == "deferred" else io.BytesIO
+            with buffer() as buf, crop.convert("RGB") as rgb:
                 rgb.save(buf, format="JPEG", quality=jpeg_quality)
                 jpeg_bytes = buf.getvalue()
-        if delivery == "presigned":
+        if delivery == "deferred":
+            contents[str(idx)] = jpeg_bytes
+            file_path = None
+        elif delivery == "presigned":
             if upload_fn is None:
                 raise ValueError("delivery='presigned' 需要 upload_fn")
             file_path = upload_fn(idx, jpeg_bytes)
@@ -242,7 +262,10 @@ def crop_inputs_from_boxes(
             cache[cache_key] = {"input": inp, "transform": transform}
         inputs.append(inp)
     return CropBatch(
-        inputs=inputs, skipped_geometry=skipped_geometry, transforms=transforms
+        inputs=inputs,
+        skipped_geometry=skipped_geometry,
+        transforms=transforms,
+        contents=contents,
     )
 
 
