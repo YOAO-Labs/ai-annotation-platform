@@ -220,7 +220,9 @@ async def test_segmentation_extends_existing_fixture_without_replacing_detection
     assert len(masks) == 8 and all(a.geometry["type"] == "raster_mask" for a in masks)
     for annotation in masks:
         ref = annotation.geometry["mask"]
-        payload, _ = memory_storage.objects[storage_service.bucket, ref["object_key"]]
+        from app.services.raster_mask_storage import canonical_rle_bytes, load_coco_rle
+
+        payload = canonical_rle_bytes(await load_coco_rle(ref, db=db_session))
         assert hashlib.sha256(payload).hexdigest() == ref["sha256"]
         assert json.loads(payload)["size"] == [24, 32]
     tasks = list(
