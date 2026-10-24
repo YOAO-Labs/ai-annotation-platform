@@ -19,11 +19,15 @@ import re
 import uuid
 
 import hashlib
+from contextlib import nullcontext
+from copy import copy
 
 from botocore.exceptions import ClientError
 
 from app.services import avatar_storage, storage_access
 from app.services.storage import storage_service
+from app.services.avatar_storage_target import object_params, version_id, _prove_absent
+from app.services.dataset_assets import LEGACY_LOCATION_ID
 
 PRESET_PREFIX = "preset:"
 UPLOAD_PREFIX = "upload:"
@@ -94,7 +98,23 @@ def validate_client_ref(ref: str | None) -> str | None:
     return build_preset_ref(slug)
 
 
-def write_avatar_object(record, data: bytes) -> None:
+def _client_context(owner, target):
+    ref = owner.ref
+    if target is None:
+        if ref["location_id"] != str(LEGACY_LOCATION_ID):
+            raise avatar_storage.AvatarStorageError("avatar_storage_binding_unproven")
+        return nullcontext(storage_service.client)
+    if (
+        str(target.location_id) != ref["location_id"]
+        or target.endpoint_url != owner.endpoint_url
+        or target.bucket != owner.bucket
+        or target.key_prefix + owner.object_key.rsplit("/", 1)[-1] != owner.object_key
+    ):
+        raise avatar_storage.AvatarStorageError("avatar_storage_identity_changed")
+    return target.client()
+
+
+def write_avatar_object(record, data: bytes, *, target=None) -> str | None:
     """Write only the exact saved object, then independently verify its bytes."""
     owner = avatar_storage.resolve(record)
     if (
@@ -102,33 +122,51 @@ def write_avatar_object(record, data: bytes) -> None:
         or hashlib.sha256(data).hexdigest() != record.sha256
     ):
         raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
-    storage_service.put_bytes(
-        owner.object_key,
-        data,
-        content_type="image/webp",
-        cache_control=AVATAR_CACHE_CONTROL,
-        bucket=owner.bucket,
-    )
-    if read_avatar_object(record) is None:
-        raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
+    with _client_context(owner, target) as client:
+        response = client.put_object(
+            Bucket=owner.bucket,
+            Key=owner.object_key,
+            Body=data,
+            IfNoneMatch="*",
+            ContentType="image/webp",
+            CacheControl=AVATAR_CACHE_CONTROL,
+        )
+        receipt = copy(record)
+        receipt.object_version_id = version_id(response)
+        if _read(client, owner, receipt) is None:
+            raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
+    return receipt.object_version_id
 
 
-def read_avatar_object(record) -> tuple[bytes, str] | None:
+def read_avatar_object(record, *, target=None) -> tuple[bytes, str] | None:
     """Bound a full read by the independent receipt; always close its body."""
     owner = avatar_storage.resolve(record)
+    with _client_context(owner, target) as client:
+        return _read(client, owner, record)
+
+
+def _read(client, owner, record):
+    version = getattr(record, "object_version_id", None)
     try:
-        response = storage_service.client.get_object(
-            Bucket=owner.bucket, Key=owner.object_key
+        response = client.get_object(
+            **object_params(owner.bucket, owner.object_key, version)
         )
     except ClientError as exc:
         if exc.response.get("Error", {}).get("Code") in {
             "404",
             "NoSuchKey",
+            "NoSuchVersion",
             "NotFound",
         }:
             return None
         raise
     with storage_access.closing_registered(response["Body"]) as body:
+        if (
+            (version is not None and response.get("VersionId") != version)
+            or response.get("ContentRange") is not None
+            or response.get("DeleteMarker")
+        ):
+            raise avatar_storage.AvatarStorageError("avatar_storage_invalid_receipt")
         checksum = hashlib.sha256()
         chunks, size = [], 0
         while True:
@@ -147,7 +185,17 @@ def read_avatar_object(record) -> tuple[bytes, str] | None:
     return b"".join(chunks), f'"{record.sha256}"'
 
 
-def delete_avatar_object(record) -> None:
+def delete_avatar_object(record, *, target=None) -> None:
     """The caller owns the committed retirement; never infer its current bucket."""
     owner = avatar_storage.resolve(record)
-    storage_service.delete_object(owner.object_key, bucket=owner.bucket)
+    version = getattr(record, "object_version_id", None)
+    with _client_context(owner, target) as client:
+        params = object_params(owner.bucket, owner.object_key, version)
+        if (
+            target is not None
+            and version is None
+            and _read(client, owner, record) is None
+        ):
+            return
+        client.delete_object(**params)
+        _prove_absent(client, params)

@@ -8,6 +8,7 @@ import uuid
 import pytest
 
 from app.config import settings
+from app.db.models.dataset_asset import StorageBinding
 from app.services import avatar_storage as owners
 from app.services.avatar_image import MAX_AVATAR_FILE_BYTES
 from app.services.dataset_assets import LEGACY_LOCATION_ID
@@ -189,8 +190,13 @@ def allocation_db(storage):
     binding = SimpleNamespace(
         location_id=LEGACY_LOCATION_ID, generation=1, bucket=storage.avatars_bucket
     )
+
+    async def selected(statement):
+        entity = statement.column_descriptions[0]["entity"]
+        return binding if entity is StorageBinding else location
+
     db = SimpleNamespace(
-        get=AsyncMock(return_value=location), scalar=AsyncMock(return_value=binding)
+        get=AsyncMock(return_value=location), scalar=AsyncMock(side_effect=selected)
     )
     return db, location, binding
 
@@ -218,7 +224,7 @@ async def test_new_allocation_uses_verified_persisted_binding_only(
         ("location", "config_revision", 2),
         ("location", "config", {"endpoint": "other.invalid", "use_ssl": False}),
         ("binding", "location_id", uuid.uuid4()),
-        ("binding", "generation", 2),
+        ("binding", "generation", 0),
         ("binding", "bucket", "historical-is-not-new-write-target"),
     ],
 )
@@ -237,7 +243,9 @@ async def test_new_allocation_rejects_changed_binding(
 async def test_new_allocation_rejects_missing_binding(storage, monkeypatch, missing):
     db, _, _ = allocation_db(storage)
     monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
-    (db.get if missing == "location" else db.scalar).return_value = None
+    mock = db.get if missing == "location" else db.scalar
+    mock.side_effect = None
+    mock.return_value = None
     with pytest.raises(owners.AvatarStorageError) as caught:
         await owners.allocate(db, TOKEN)
     assert caught.value.code == "avatar_storage_binding_unproven"
@@ -253,3 +261,68 @@ async def test_new_allocation_does_not_hide_bootstrap_conflict(storage, monkeypa
     assert caught.value.code == "avatar_storage_binding_unproven"
     assert "secret" not in str(caught.value)
     db.get.assert_not_awaited()
+
+
+async def test_switch_back_to_legacy_keeps_new_binding_generation(storage, monkeypatch):
+    db, _, binding = allocation_db(storage)
+    monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
+    binding.generation = 3
+    result = await owners.allocate(db, TOKEN)
+    assert result == {
+        **reference(bucket=storage.avatars_bucket),
+        "schema": 2,
+        "binding_generation": 3,
+    }
+
+
+def external_reference(**changes):
+    endpoint_url = "https://avatar-storage.example.test"
+    bucket = "registered-avatars"
+    return {
+        **reference(),
+        "schema": 2,
+        "location_id": str(uuid.uuid4()),
+        "config_revision": 4,
+        "binding_generation": 2,
+        "endpoint_url": endpoint_url,
+        "bucket": bucket,
+        "object_key": f"team/图片/_aap_managed/avatars/{TOKEN}.webp",
+        "storage_identity": managed_storage_identity(endpoint_url, bucket),
+        **changes,
+    }
+
+
+def test_schema2_saved_owner_keeps_registered_endpoint_and_full_prefix(storage):
+    ref = external_reference()
+    saved = owners.resolve_ref(ref, expected_key=f"{TOKEN}.webp")
+    assert saved.endpoint_url == ref["endpoint_url"]
+    assert saved.object_key == ref["object_key"]
+    storage.client.meta.endpoint_url = "https://unrelated-current.example.test"
+    assert owners.resolve_ref(ref).ref == ref
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        f"{TOKEN}.webp",
+        f"/_aap_managed/avatars/{TOKEN}.webp",
+        f"team//_aap_managed/avatars/{TOKEN}.webp",
+        f"../_aap_managed/avatars/{TOKEN}.webp",
+        f"team/./_aap_managed/avatars/{TOKEN}.webp",
+        f"team\\x/_aap_managed/avatars/{TOKEN}.webp",
+        f"team\x00/_aap_managed/avatars/{TOKEN}.webp",
+        f"team/_aap_managed/avatars/{'b' * 32}.webp",
+        f"{'a' * 1000}/_aap_managed/avatars/{TOKEN}.webp",
+    ],
+)
+def test_schema2_rejects_noncanonical_key_and_wrong_token(storage, key):
+    with pytest.raises(owners.AvatarStorageError):
+        owners.resolve_ref(
+            external_reference(object_key=key), expected_key=f"{TOKEN}.webp"
+        )
+
+
+@pytest.mark.parametrize("version", ["", True, 1, "x" * 1025, "version\nprivate"])
+def test_provider_version_receipt_is_bounded(storage, version):
+    with pytest.raises(owners.AvatarStorageError):
+        owners.resolve(record(object_version_id=version))

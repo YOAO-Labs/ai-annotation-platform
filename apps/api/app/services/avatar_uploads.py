@@ -26,6 +26,8 @@ def now():
 
 
 def http_error(exc):
+    if isinstance(exc, HTTPException):
+        return exc
     if isinstance(exc, avatar_storage.AvatarStorageError):
         return HTTPException(exc.status_code, {"code": exc.code})
     if isinstance(exc, ContentError):
@@ -114,7 +116,34 @@ def _snapshot(row):
         storage_ref=deepcopy(row.storage_ref),
         sha256=row.sha256,
         size_bytes=row.size_bytes,
+        object_version_id=getattr(row, "object_version_id", None),
     )
+
+
+async def _save_write_version(db, receipt, version):
+    """Keep a provider receipt even when later user publication is refused."""
+    if version is None:
+        return receipt
+    from app.services.avatar_storage_target import version_id
+
+    version_id({"VersionId": version})
+    row = await db.scalar(
+        select(AvatarUpload)
+        .where(AvatarUpload.token == receipt.token)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        row is None
+        or row.state != "pending"
+        or _snapshot(row).__dict__ != receipt.__dict__
+    ):
+        raise HTTPException(409, {"code": "avatar_upload_changed"})
+    row.object_version_id = version
+    await db.flush()
+    result = _snapshot(row)
+    await db.commit()
+    return result
 
 
 async def _retire_previous(db, actor, previous_ref):
@@ -204,6 +233,10 @@ async def upload(db, actor, data, request, *, authority=None):
     db.add(row)
     await db.flush()
     receipt = _snapshot(row)
+    try:
+        target = await avatar_storage.io_target(db, receipt)
+    except Exception as exc:
+        raise http_error(exc) from None
     await db.commit()
     revision = None
 
@@ -212,7 +245,7 @@ async def upload(db, actor, data, request, *, authority=None):
         revision = permit.revision
 
     try:
-        await storage_access.run(
+        version = await storage_access.run(
             db,
             uuid.UUID(ref["location_id"]),
             "avatar_upload",
@@ -220,7 +253,9 @@ async def upload(db, actor, data, request, *, authority=None):
             receipt,
             data,
             on_acquired=acquired,
+            **({"target": target} if target is not None else {}),
         )
+        receipt = await _save_write_version(db, receipt, version)
     except Exception as exc:
         # Failed publication never authorizes physical deletion. An unknown
         # storage outcome retains both the pending row and any unsettled permit.
@@ -272,12 +307,14 @@ async def read(db, token):
         return None
     try:
         receipt = _snapshot(row)
+        target = await avatar_storage.io_target(db, receipt)
         return await storage_access.run(
             db,
             uuid.UUID(receipt.storage_ref["location_id"]),
             "avatar_read",
             avatar.read_avatar_object,
             receipt,
+            **({"target": target} if target is not None else {}),
         )
     except Exception as exc:
         raise http_error(exc) from None
@@ -309,12 +346,14 @@ async def _cleanup_one(db, token):
     # Retired state cannot be reactivated, and user routes cannot select a token.
     # Release business locks before an independently registered physical delete.
     await db.commit()
+    target = await avatar_storage.io_target(db, receipt)
     await storage_access.run(
         db,
         uuid.UUID(receipt.storage_ref["location_id"]),
         "avatar_retirement",
         avatar.delete_avatar_object,
         receipt,
+        **({"target": target} if target is not None else {}),
     )
     current = await db.scalar(
         select(AvatarUpload)

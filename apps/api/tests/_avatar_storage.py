@@ -26,7 +26,8 @@ class _FakeS3Client:
             endpoint_url=f"{scheme}://{settings.minio_endpoint}"
         )
 
-    def get_object(self, *, Bucket: str, Key: str) -> dict:  # noqa: N803
+    def get_object(self, *, Bucket: str, Key: str, VersionId=None) -> dict:  # noqa: N803
+        assert VersionId is None
         self._owner.reads.append((Bucket, Key))
         try:
             data = self._owner.objects[(Bucket, Key)]
@@ -35,6 +36,24 @@ class _FakeS3Client:
         body = self._owner.body_factory(data)
         self._owner.bodies.append(body)
         return {"Body": body, "ETag": self._owner.etags[(Bucket, Key)]}
+
+    def put_object(self, *, Bucket, Key, Body, IfNoneMatch, ContentType, CacheControl):  # noqa: N803
+        assert IfNoneMatch == "*"
+        if (Bucket, Key) in self._owner.objects:
+            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
+        self._owner.put_bytes(
+            Key,
+            Body,
+            content_type=ContentType,
+            cache_control=CacheControl,
+            bucket=Bucket,
+        )
+        return {}
+
+    def delete_object(self, *, Bucket, Key, VersionId=None):  # noqa: N803
+        assert VersionId is None
+        self._owner.delete_object(Key, bucket=Bucket)
+        return {}
 
 
 class FakeAvatarStorage:
