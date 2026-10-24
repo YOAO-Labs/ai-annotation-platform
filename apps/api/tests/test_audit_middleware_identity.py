@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -72,4 +73,23 @@ async def test_metadata_write_failure_does_not_change_http_response(monkeypatch)
     result = await AuditMiddleware(lambda *_args: None).dispatch(request, call_next)
 
     assert result is response
+    persist.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_audit_sync_cancellation_is_not_swallowed(monkeypatch):
+    from app.middleware import audit as audit_module
+
+    request = _request(state={})
+    response = Response("committed", status_code=201)
+    persist = AsyncMock(side_effect=asyncio.CancelledError())
+    monkeypatch.setattr(audit_module.settings, "audit_async", False)
+    monkeypatch.setattr(audit_module, "_persist_audit_sync", persist)
+
+    async def call_next(_request):
+        return response
+
+    with pytest.raises(asyncio.CancelledError):
+        await AuditMiddleware(lambda *_args: None).dispatch(request, call_next)
+
     persist.assert_awaited_once()

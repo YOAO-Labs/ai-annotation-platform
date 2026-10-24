@@ -22,7 +22,16 @@ input event and validated receipt under `no_autoflush`, then performs the
 original explicit full flush without reading `audit_logs`. This preserves
 cached values, pending-actor deletion order and pending-new-actor foreign-key
 behavior. HTTP metadata retains the post-response best-effort policy and its
-stale-actor foreign-key retry as an anonymous event. Existing narrow
+stale-actor foreign-key retry as an anonymous event. Its optional request ID is
+included only when it fits the append contract's 36-character limit; an
+overlong `X-Request-ID` remains unchanged in the request context and response
+header but is omitted from this metadata row. Broker publish failures fall back
+to the same synchronous append path, while a publish result with unknown
+delivery outcome can still produce a duplicate and a later worker failure can
+still lose the row. This path remains best-effort and has no exactly-once
+guarantee. This normalization is limited to middleware HTTP metadata; explicit
+business-audit calls still use the request-context ID directly, so their
+overlength handling remains a separate existing follow-up. Existing narrow
 `aap_audit_v1.record_*` functions remain the cross-owner transaction path.
 
 `query_events(jsonb)` provides the fixed global filters used by the super-admin

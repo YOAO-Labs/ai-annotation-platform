@@ -81,7 +81,7 @@ def _build_payload(request: Request, status_code: int) -> dict:
         "path": path_short(request.url.path),
         "status_code": status_code,
         "ip": extract_client_ip(request),
-        "request_id": rid or None,
+        "request_id": rid if rid and len(rid) <= 36 else None,
     }
 
 
