@@ -1061,7 +1061,9 @@ async def exercise_video_tracker_queue_and_restore(
                     restored_media_dir = Path(tmp_path) / "video-media-restored"
                     restored_media_dir.mkdir(parents=True, exist_ok=True)
                     async with _video_runtime(
-                        clone_engine, restored_media_dir
+                        clone_engine,
+                        restored_media_dir,
+                        source_test_engine=test_engine,
                     ) as clone_media:
                         stack.bind_media(clone_media)
                         await stack.switch_database(restored_database)
