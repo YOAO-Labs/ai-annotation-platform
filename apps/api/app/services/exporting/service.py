@@ -1077,36 +1077,7 @@ class ExportService:
 
         return buf.getvalue()
 
-    async def export_aap_json(
-        self,
-        project_id: uuid.UUID,
-        *,
-        batch_id: uuid.UUID | None = None,
-        axis_frame: AxisFrame = "iso",
-        video_scope: VideoExportScope | None = None,
-    ) -> str:
-        """v0.10.15 · AAP JSON v1.0 无损中间格式.
-
-        与 COCO/YOLO/VOC 并列, 但**包含**它们丢失的字段: attribute_schema 值、
-        prediction.confidence、annotation.source、annotation_guide、classes_config.
-        双数组 annotations[] / predictions[] 分开 (不混 type 字段).
-        """
-        project, tasks, annotations = await self._load_data(
-            project_id, batch_id, video_scope=video_scope
-        )
-        if not project:
-            return json.dumps({})
-
-        task_ids = [t.id for t in tasks]
-        predictions = await self._load_predictions(project_id, task_ids)
-
-        ann_by_task: dict[uuid.UUID, list[Annotation]] = {}
-        for ann in annotations:
-            ann_by_task.setdefault(ann.task_id, []).append(ann)
-        pred_by_task: dict[uuid.UUID, list[Prediction]] = {}
-        for pred in predictions:
-            pred_by_task.setdefault(pred.task_id, []).append(pred)
-
+    async def _aap_scene_tracks(self, annotations):
         exported_scene_track_ids = {
             ann.scene_track_id for ann in annotations if ann.scene_track_id is not None
         }
@@ -1162,6 +1133,48 @@ class ExportService:
                 for track, scene_name in scene_track_rows
             ]
 
+        return scene_track_entries
+
+    async def _aap_batch_display_id(self, batch_id):
+        if batch_id is None:
+            return None
+        from app.db.models.task_batch import TaskBatch
+
+        batch = await self.db.get(TaskBatch, batch_id)
+        return batch.display_id if batch else None
+
+    async def export_aap_json(
+        self,
+        project_id: uuid.UUID,
+        *,
+        batch_id: uuid.UUID | None = None,
+        axis_frame: AxisFrame = "iso",
+        video_scope: VideoExportScope | None = None,
+    ) -> str:
+        """v0.10.15 · AAP JSON v1.0 无损中间格式.
+
+        与 COCO/YOLO/VOC 并列, 但**包含**它们丢失的字段: attribute_schema 值、
+        prediction.confidence、annotation.source、annotation_guide、classes_config.
+        双数组 annotations[] / predictions[] 分开 (不混 type 字段).
+        """
+        project, tasks, annotations = await self._load_data(
+            project_id, batch_id, video_scope=video_scope
+        )
+        if not project:
+            return json.dumps({})
+
+        task_ids = [t.id for t in tasks]
+        predictions = await self._load_predictions(project_id, task_ids)
+
+        ann_by_task: dict[uuid.UUID, list[Annotation]] = {}
+        for ann in annotations:
+            ann_by_task.setdefault(ann.task_id, []).append(ann)
+        pred_by_task: dict[uuid.UUID, list[Prediction]] = {}
+        for pred in predictions:
+            pred_by_task.setdefault(pred.task_id, []).append(pred)
+
+        scene_track_entries = await self._aap_scene_tracks(annotations)
+
         axis_by_task = (
             await self._axis_convention_by_task(tasks) if axis_frame == "source" else {}
         )
@@ -1170,13 +1183,7 @@ class ExportService:
         is_video = project.data_type == "video"
         dataset_items = await self._load_dataset_items(tasks) if is_video else {}
 
-        # batch display_id (项目级导出时为 None)
-        batch_display_id: str | None = None
-        if batch_id:
-            from app.db.models.task_batch import TaskBatch  # 懒导入避免循环
-
-            batch = await self.db.get(TaskBatch, batch_id)
-            batch_display_id = batch.display_id if batch else None
+        batch_display_id = await self._aap_batch_display_id(batch_id)
 
         task_blocks: list[AAPTaskBlock] = []
         mask_objects: dict[str, dict] = {}

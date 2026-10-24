@@ -10,7 +10,11 @@ def logical_sources(snapshot: dict) -> dict[str, dict[str, str]]:
     """Map target-relative paths to canonical source keys without physical I/O."""
     # Packaging owns the persisted naming conventions. Import at use time so
     # the collector and packaging can both consume this helper without a cycle.
-    from app.services.exporting.packaging import _camera_name, _lidar_media_path
+    from app.services.exporting.packaging import (
+        _camera_name,
+        _lidar_frame_key,
+        _lidar_media_path,
+    )
 
     targets = [
         target
@@ -18,6 +22,7 @@ def logical_sources(snapshot: dict) -> dict[str, dict[str, str]]:
         if target in {"kitti", "pointmask", "coco-multicamera", "nuscenes"}
     ]
     result: dict[str, dict[str, str]] = {target: {} for target in targets}
+    generated = {target: set() for target in targets}
     items = {item["id"]: SimpleNamespace(**item) for item in snapshot["items"]}
     links = {link["id"]: SimpleNamespace(**link) for link in snapshot["links"]}
     cameras_by_task = {}
@@ -42,6 +47,11 @@ def logical_sources(snapshot: dict) -> dict[str, dict[str, str]]:
         if previous != source_key:
             raise ValueError("lidar_media_path_collision")
 
+    def generated_path(target, path):
+        if path in generated[target]:
+            raise ValueError("lidar_media_path_collision")
+        generated[target].add(path)
+
     def binding_for(task_id, role):
         try:
             return bindings[(task_id, role)]
@@ -52,6 +62,18 @@ def logical_sources(snapshot: dict) -> dict[str, dict[str, str]]:
         task_id = task["id"]
         camera_links = cameras_by_task.get(task_id, [])
         for target in targets:
+            if target in {"kitti", "pointmask"}:
+                primary = binding_for(task_id, "primary_lidar")
+                item = items.get(primary["source"].get("item_id"))
+                frame = _lidar_frame_key(SimpleNamespace(**task), item)
+                generated_path(
+                    target,
+                    f"label_2/{frame}.txt"
+                    if target == "kitti"
+                    else f"segmentation/{frame}.label",
+                )
+                if target == "kitti":
+                    generated_path(target, f"calib/{frame}.txt")
             if target in {"kitti", "pointmask", "nuscenes"}:
                 primary = binding_for(task_id, "primary_lidar")
                 item_id = primary["source"].get("item_id")
@@ -85,6 +107,8 @@ def logical_sources(snapshot: dict) -> dict[str, dict[str, str]]:
                 if target == "coco-multicamera":
                     relative = f"images/{link.role}/{task_id}/{os.path.basename(item.file_path)}"
                 else:
-                    relative = f"images/{_camera_name(link)}/{_lidar_media_path(item)}"
+                    cam = _camera_name(link)
+                    relative = f"images/{cam}/{_lidar_media_path(item)}"
+                    generated_path(target, f"calib_raw/{cam}/{frame}.json")
                 add(target, relative, binding)
     return result

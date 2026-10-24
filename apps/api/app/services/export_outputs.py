@@ -246,7 +246,19 @@ async def create(
         created_at=started,
         expires_at=expires,
     )
-    row.storage_ref = await export_storage.allocate(db, row)
+    if bundle is None:
+        row.storage_ref = await export_storage.allocate(db, row)
+    else:
+        # Allocation happened with the HTTP Job. The reserved ZIP must use the
+        # same saved owner as its media, even if today's purpose defaults move.
+        saved = deepcopy(bundle.storage_ref)
+        saved.pop("key_prefix")
+        saved["object_key"] = export_storage.key_for(
+            media, project_id, job_id, identifier
+        )
+        row.storage_ref = export_storage.resolve_ref(
+            saved, expected_key=saved["object_key"]
+        ).ref
     _creation_valid(bundle, **facts)
     db.add(row)
     await db.flush()

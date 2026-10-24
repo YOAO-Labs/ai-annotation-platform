@@ -622,7 +622,7 @@ def test_logical_coco_has_no_primary_requirement_and_task_original_support_has_b
 
 
 @pytest.mark.parametrize("same_source", [True, False])
-def test_logical_path_collision_is_allowed_only_for_the_exact_same_source(
+def test_duplicate_frame_labels_are_rejected_even_for_the_exact_same_source(
     world, same_source
 ):
     frozen = snapshot(world, ["pointmask"])
@@ -633,11 +633,10 @@ def test_logical_path_collision_is_allowed_only_for_the_exact_same_source(
     second["source_key"] = first["source_key"] if same_source else "f" * 64
     frozen["tasks"].append({"id": second["task_id"], "file_path": world.task.file_path})
     frozen["media"] = [first, second]
-    if same_source:
-        assert len(logical_sources(frozen)["pointmask"]) == 1
-    else:
-        with pytest.raises(ValueError, match="lidar_media_path_collision"):
-            logical_sources(frozen)
+    # Media may share an exact copy, but two Task labels still cannot occupy
+    # one generated frame path. Their annotations could be different.
+    with pytest.raises(ValueError, match="lidar_media_path_collision"):
+        logical_sources(frozen)
 
 
 def test_logical_paths_reject_unsafe_camera_names_and_ambiguous_binding(world):

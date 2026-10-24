@@ -51,7 +51,7 @@ class CreationDB:
 
 def bundle(**changes):
     created = NOW - timedelta(minutes=20)
-    return ExportMediaBundle(
+    row = ExportMediaBundle(
         **{
             "id": uuid.uuid4(),
             "project_id": uuid.uuid4(),
@@ -65,6 +65,18 @@ def bundle(**changes):
             **changes,
         }
     )
+    saved = ref(
+        SimpleNamespace(
+            media="image",
+            id=row.zip_output_id,
+            project_id=row.project_id,
+            job_id=row.job_id,
+        )
+    )
+    saved.pop("object_key")
+    saved["key_prefix"] = f"lidar-export-media/objects/{row.id}/"
+    row.storage_ref = saved
+    return row
 
 
 def ref(row):
@@ -161,7 +173,7 @@ async def test_bundle_supplies_its_preallocated_id_and_common_deadline(creation)
         receipt.created_at == owner.created_at
         and receipt.expires_at == owner.expires_at
     )
-    assert db.events == ["lock", "allocate", "add", "flush", "commit"]
+    assert db.events == ["lock", "add", "flush", "commit"]
 
 
 async def test_explicit_matching_bundle_options_are_accepted(creation):
@@ -261,7 +273,7 @@ async def test_custom_delivery_window_is_bounded_and_timezone_aware(creation, ch
     assert not db.events
 
 
-@pytest.mark.parametrize("delay", ["allocate", "flush"])
+@pytest.mark.parametrize("delay", ["saved_owner", "flush"])
 async def test_time_is_rechecked_after_allocation_and_flush(
     creation, monkeypatch, delay
 ):
@@ -275,13 +287,14 @@ async def test_time_is_rechecked_after_allocation_and_flush(
     if delay == "flush":
         db.on_flush = expire
     else:
+        resolve = export_storage.resolve_ref
 
-        async def allocate(db, row):
-            db.events.append("allocate")
+        def saved_owner(*args, **kwargs):
+            result = resolve(*args, **kwargs)
             expire()
-            return ref(row)
+            return result
 
-        monkeypatch.setattr(export_storage, "allocate", allocate)
+        monkeypatch.setattr(export_storage, "resolve_ref", saved_owner)
     with pytest.raises(export_storage.ExportStorageError) as caught:
         await outputs.create(db, **linked(args, owner))
     assert caught.value.code == "export_storage_expired" and "commit" not in db.events
@@ -448,3 +461,29 @@ async def test_executor_submission_uncertainty_is_not_reported_settled(monkeypat
     with pytest.raises(SoftTimeLimitExceeded) as caught:
         await outputs._settled_thread(lambda: None)
     assert caught.value.storage_operation_unsettled
+
+
+async def test_bundle_candidate_uses_saved_owner_after_current_defaults_change(
+    creation, monkeypatch
+):
+    args, _ = creation
+    owner = bundle()
+    db = CreationDB(owner)
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("a preallocated bundle must not allocate against today's default")
+
+    monkeypatch.setattr(export_storage, "allocate", forbidden)
+    monkeypatch.setattr(
+        export_storage.storage_service, "export_bucket", "same-key-trap"
+    )
+    candidate = await outputs.create(db, **linked(args, owner))
+    assert (
+        candidate.storage_ref["bucket"]
+        == owner.storage_ref["bucket"]
+        == "saved-export-zip"
+    )
+    assert (
+        candidate.storage_ref["storage_identity"]
+        == owner.storage_ref["storage_identity"]
+    )
