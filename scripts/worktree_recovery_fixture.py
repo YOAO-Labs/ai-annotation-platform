@@ -33,6 +33,7 @@ MAPPED_COLUMNS = {
     "training_storage_deletions": {"bucket"},
     "managed_original_retirements": {"bucket", "storage_identity"},
     "task_originals": {"bucket", "storage_identity"},
+    "dataset_auxiliary_originals": {"bucket", "storage_identity"},
 }
 
 
@@ -388,6 +389,379 @@ async def verify_task_originals(db, *, storage, actor):
         "preserved_task_upload_staging_objects": len(source_rows),
         "unowned_legacy_task_originals": 1,
         "verified_task_original_content": 1,
+    }
+
+
+AUXILIARY_CASES = (
+    "current_raw",
+    "shared_map",
+    "deleted_map",
+    "unbound_raw",
+    "unfinished_raw",
+)
+
+
+def auxiliary_identifier(case):
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"aap:recovery-auxiliary-original:{case}")
+
+
+def auxiliary_content(kind):
+    """Small real five-channel LiDAR and PNG bytes; no execution claim."""
+    if kind == "map":
+        return task_original_content()
+    if kind != "raw_lidar":
+        raise ValueError("Unknown auxiliary fixture kind")
+    import struct
+
+    return struct.pack("<10f", 1, 2, 3, 0.25, 7, 4, 5, 6, 0.5, 8)
+
+
+def auxiliary_contract(kind):
+    if kind == "map":
+        return {
+            "token": "a" * 32,
+            "category": "semantic_prior",
+            "filename": "maps/recovery.png",
+            "log_tokens": ["b" * 32],
+        }
+    if kind != "raw_lidar":
+        raise ValueError("Unknown auxiliary fixture kind")
+    return {
+        "sample": {
+            "token": "c" * 32,
+            "timestamp": 1,
+            "scene_token": "d" * 32,
+            "prev": "",
+            "next": "",
+        },
+        "sample_data": {
+            "token": "e" * 32,
+            "sample_token": "c" * 32,
+            "calibrated_sensor_token": "f" * 32,
+            "ego_pose_token": "1" * 32,
+            "timestamp": 1,
+            "fileformat": "pcd",
+            "is_key_frame": True,
+            "height": 0,
+            "width": 0,
+            "filename": "samples/LIDAR_TOP/recovery.pcd.bin",
+            "prev": "",
+            "next": "",
+        },
+        "calibrated_sensor": {
+            "token": "f" * 32,
+            "sensor_token": "2" * 32,
+            "translation": [0, 0, 0],
+            "rotation": [1, 0, 0, 0],
+            "camera_intrinsic": [],
+        },
+        "sensor": {"token": "2" * 32, "channel": "LIDAR_TOP", "modality": "lidar"},
+        "ego_pose": {
+            "token": "1" * 32,
+            "timestamp": 1,
+            "translation": [0, 0, 0],
+            "rotation": [1, 0, 0, 0],
+        },
+    }
+
+
+def auxiliary_scene_metadata(owner=None):
+    metadata = {
+        "frame": "ego",
+        "nuscenes_export": {
+            "version": "v1.0-mini",
+            "scene": {
+                "token": "d" * 32,
+                "name": "recovery-scene",
+                "description": "",
+                "log_token": "b" * 32,
+                "nbr_samples": 1,
+                "first_sample_token": "c" * 32,
+                "last_sample_token": "c" * 32,
+            },
+            "log": {
+                "token": "b" * 32,
+                "logfile": "recovery.log",
+                "vehicle": "fixture",
+                "date_captured": "2020-01-01",
+                "location": "fixture",
+            },
+            "map": auxiliary_contract("map"),
+        },
+    }
+    if owner is not None:
+        metadata["nuscenes_export"].update(
+            map_storage_key=owner.object_key,
+            map_sha256=owner.sha256,
+            map_file_size=owner.size_bytes,
+        )
+    return metadata
+
+
+async def seed_auxiliary_originals(db, *, actor, project):
+    """Exercise real creation/publication; these rows qualify offline relocation only."""
+    from app.db.models.dataset import Dataset, DatasetItem, Scene
+    from app.db.models.task import Task
+    from app.services import auxiliary_originals, managed_original_creation as creations
+    from app.services.dataset_assets import register_item_asset
+
+    dataset = Dataset(
+        id=auxiliary_identifier("dataset"),
+        display_id="DS-REC-AUX",
+        name="Synthetic auxiliary originals",
+        created_by=actor.id,
+        data_type="point_cloud",
+        is_temporal=True,
+        metadata_={"axis_convention": "iso_8855"},
+    )
+    db.add(dataset)
+    scenes = []
+    for case in ("first", "second"):
+        scene = Scene(
+            id=auxiliary_identifier(case),
+            dataset_id=dataset.id,
+            display_id="S-REC-AUX-" + case.upper(),
+            name="Auxiliary " + case,
+            source_format="nuscenes",
+            source_metadata=auxiliary_scene_metadata(),
+            created_by=actor.id,
+        )
+        db.add(scene)
+        scenes.append(scene)
+    await db.flush()
+    pcd = (
+        b"VERSION 0.7\nFIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\n"
+        b"WIDTH 2\nHEIGHT 1\nPOINTS 2\nDATA ascii\n1 2 3\n4 5 6\n"
+    )
+    allocation = await creations.allocate(
+        db,
+        dataset_id=dataset.id,
+        logical_path="recovery.pcd",
+        origin="directory_copy",
+        max_bytes=len(pcd),
+        requested_by=actor.id,
+        authority={"operation": "offline-recovery-fixture"},
+    )
+    with io.BytesIO(pcd) as stream:
+        created = await creations.create_stream(
+            db, allocation, stream, content_type="application/octet-stream"
+        )
+    item = DatasetItem(
+        id=auxiliary_identifier("item"),
+        dataset_id=dataset.id,
+        file_name="recovery.pcd",
+        file_path=allocation["object_key"],
+        file_type="point_cloud",
+        file_size=len(pcd),
+        content_hash=created.sha256,
+        scene_id=scenes[0].id,
+        frame_index=0,
+        metadata_={"nuscenes_export": auxiliary_contract("raw_lidar")},
+    )
+    db.add(item)
+    await db.flush()
+    await register_item_asset(
+        db, item, sha256=created.sha256, size_bytes=len(pcd), etag=created.etag
+    )
+    await creations.attach(db, item, created.creation_id)
+    db.add(
+        Task(
+            id=auxiliary_identifier("task"),
+            project_id=project.id,
+            dataset_item_id=item.id,
+            display_id="T-REC-AUX",
+            file_name=item.file_name,
+            file_path=item.file_path,
+            file_type="point_cloud",
+            status="pending",
+        )
+    )
+    await db.flush()
+    for case in AUXILIARY_CASES:
+        kind = "map" if case.endswith("map") else "raw_lidar"
+        contract, raw = auxiliary_contract(kind), auxiliary_content(kind)
+        target_dataset = dataset
+        if case == "deleted_map":
+            target_dataset = Dataset(
+                id=auxiliary_identifier("deleted-dataset"),
+                display_id="DS-REC-AUX-DEL",
+                name="Deleted auxiliary source",
+                created_by=actor.id,
+            )
+            db.add(target_dataset)
+            await db.flush()
+        allocation = await creations.allocate_auxiliary(
+            db,
+            dataset_id=target_dataset.id,
+            kind=kind,
+            source_contract=contract,
+            logical_path=contract["filename"]
+            if kind == "map"
+            else contract["sample_data"]["filename"],
+            max_bytes=len(raw),
+            requested_by=actor.id,
+            authority={"operation": "offline-recovery-fixture", "recovery_case": case},
+            content_type="image/png" if kind == "map" else "application/octet-stream",
+        )
+        if case == "unfinished_raw":
+            continue
+        with io.BytesIO(raw) as stream:
+            created = await creations.create_stream(
+                db, allocation, stream, content_type=allocation["content_type"]
+            )
+        if case == "unbound_raw":
+            continue
+        owner = await auxiliary_originals.publish(
+            db, allocation, created, kind=kind, source_contract=contract
+        )
+        if case == "current_raw":
+            item.metadata_ = {
+                "nuscenes_export": {
+                    **contract,
+                    "source_storage_key": owner.object_key,
+                    "source_sha256": owner.sha256,
+                    "source_file_size": owner.size_bytes,
+                }
+            }
+            await auxiliary_originals.bind_raw(db, item, owner)
+        elif case == "shared_map":
+            for scene in scenes:
+                scene.source_metadata = auxiliary_scene_metadata(owner)
+                await auxiliary_originals.bind_map(db, scene, owner)
+        else:
+            scene = Scene(
+                id=auxiliary_identifier("deleted-scene"),
+                dataset_id=target_dataset.id,
+                display_id="S-REC-AUX-DEL",
+                name="Deleted auxiliary scene",
+                source_format="nuscenes",
+                source_metadata=auxiliary_scene_metadata(owner),
+                created_by=actor.id,
+            )
+            db.add(scene)
+            await db.flush()
+            await auxiliary_originals.bind_map(db, scene, owner)
+            await db.delete(target_dataset)
+        await db.flush()
+
+
+async def verify_auxiliary_originals(db, *, storage):
+    from sqlalchemy import select
+    from app.db.models.dataset import Dataset, DatasetItem, Scene
+    from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+    from app.services import auxiliary_originals, managed_original_creation as creations
+    from app.services.content_snapshot import ContentError
+    from worktree_recovery_export import _read_exact
+
+    creations_by_case = {
+        row.authority["recovery_case"]: row
+        for row in await db.scalars(
+            select(ManagedOriginalCreation).where(
+                ManagedOriginalCreation.owner_kind == "dataset_auxiliary"
+            )
+        )
+    }
+    assert set(creations_by_case) == set(AUXILIARY_CASES)
+    owners = list(await db.scalars(select(DatasetAuxiliaryOriginal)))
+    assert len(owners) == 3
+    by_id = {row.id: row for row in owners}
+    for case, creation in creations_by_case.items():
+        assert creation.owner_kind == "dataset_auxiliary"
+        assert creation.bucket != storage.datasets_bucket
+        assert creation.project_id is None and creation.task_id is None
+        assert creation.status == (
+            "allocated" if case == "unfinished_raw" else "verified"
+        )
+        current = by_id.get(creation.id)
+        if case in {"unbound_raw", "unfinished_raw"}:
+            assert current is None
+        else:
+            kind = "map" if case.endswith("map") else "raw_lidar"
+            locator = auxiliary_originals.resolve(
+                current, endpoint_url=storage.client.meta.endpoint_url
+            )
+            assert locator.bucket == storage.datasets_bucket
+            assert (
+                current.creation_id == creation.id
+                and current.dataset_id == creation.dataset_id
+            )
+            assert current.object_key == creation.object_key
+            assert (
+                current.sha256 == creation.sha256
+                and current.size_bytes == creation.size_bytes
+            )
+            assert (
+                current.etag == creation.etag
+                and current.version_id == creation.version_id
+            )
+            assert current.created_at == creation.completed_at
+            assert current.source_contract == auxiliary_contract(kind)
+        if case == "unfinished_raw":
+            assert creation.receipt is None and creation.verification is None
+            assert creation.claimed_at is None and creation.operation_id is None
+        else:
+            kind = "map" if case.endswith("map") else "raw_lidar"
+            raw = auxiliary_content(kind)
+            assert (
+                _read_exact(
+                    storage,
+                    storage.datasets_bucket,
+                    creation.object_key,
+                    creation.sha256,
+                    creation.size_bytes,
+                )
+                == raw
+            )
+        # The immutable source attempt is not executable in the target context.
+        saved = await creations._read(db, creation.id)
+        try:
+            await creations._validate(db, saved)
+        except ContentError as exc:
+            assert exc.code == "managed_original_configuration_changed"
+        else:
+            raise AssertionError(
+                "Restoration cannot adopt an auxiliary source creation"
+            )
+    shared = by_id[creations_by_case["shared_map"].id]
+    for case in ("first", "second"):
+        scene = await db.get(Scene, auxiliary_identifier(case))
+        assert scene.nuscenes_map_original_id == shared.id
+        assert scene.source_metadata["nuscenes_export"]["map"] == shared.source_contract
+    item = await db.get(DatasetItem, auxiliary_identifier("item"))
+    assert item.nuscenes_raw_original_id == creations_by_case["current_raw"].id
+    assert await db.get(Dataset, auxiliary_identifier("deleted-dataset")) is None
+    assert await db.get(Scene, auxiliary_identifier("deleted-scene")) is None
+    original_bucket = storage.datasets_bucket
+    storage.datasets_bucket = storage.import_bucket
+    try:
+        sources = [
+            await auxiliary_originals.resolve_task_raw(db, auxiliary_identifier("task"))
+        ]
+        sources.append(
+            await auxiliary_originals.resolve_scene_map(
+                db, auxiliary_identifier("task")
+            )
+        )
+    finally:
+        storage.datasets_bucket = original_bucket
+    for source in sources:
+        assert (
+            source.bucket == original_bucket
+            and source.owner_kind == "dataset_auxiliary"
+        )
+        assert _read_exact(
+            storage, source.bucket, source.object_key, source.sha256, source.size_bytes
+        ) == auxiliary_content(source.ownership_facts.kind)
+    assert sources[1].content_id == shared.id
+    return {
+        "pinned_auxiliary_originals": 3,
+        "verified_auxiliary_objects": 4,
+        "shared_auxiliary_map_references": 2,
+        "deleted_business_auxiliary_owners": 1,
+        "unbound_verified_auxiliary_creations": 1,
+        "unfinished_auxiliary_creations": 1,
+        "auxiliary_recovery_qualification": "offline-retained-bytes-only",
     }
 
 
@@ -866,6 +1240,7 @@ async def seed(db, external: Path):
             db, actor=actor, project=project, storage=storage, now=now
         )
         await seed_task_originals(db, actor=actor, project=project, storage=storage)
+        await seed_auxiliary_originals(db, actor=actor, project=project)
         from worktree_recovery_audit_archives import seed_audit_archives
 
         await seed_audit_archives(db, storage=storage, now=now)
@@ -969,7 +1344,7 @@ async def verify_application(db, external: Path):
     assert len(retirements) == 2
     creation_rows = list(await db.scalars(select(ManagedOriginalCreation)))
     dataset_creations = [row for row in creation_rows if row.owner_kind == "dataset"]
-    assert len(dataset_creations) == 2
+    assert len(dataset_creations) == 3
     assert all(row.status == "verified" for row in dataset_creations)
     # Restoration maps physical locations, never historical successful writes.
     assert all(row.bucket != storage.datasets_bucket for row in dataset_creations)
@@ -989,6 +1364,7 @@ async def verify_application(db, external: Path):
     actor = await db.scalar(select(User).where(User.role == "super_admin"))
     assert actor is not None
     task_originals = await verify_task_originals(db, storage=storage, actor=actor)
+    auxiliary_originals = await verify_auxiliary_originals(db, storage=storage)
     managed_task = await db.scalar(
         select(Task)
         .join(DatasetItem, Task.dataset_item_id == DatasetItem.id)
@@ -1282,6 +1658,7 @@ async def verify_application(db, external: Path):
         **guide_assets,
         **raster_objects,
         **task_originals,
+        **auxiliary_originals,
         **audit_archives,
         "pinned_training_versions": ready_count + partial_count,
         "pinned_training_deletions": deletion_count,

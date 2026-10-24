@@ -10,12 +10,18 @@ from unittest.mock import AsyncMock, Mock, patch
 import uuid
 
 from worktree_recovery_fixture import (
+    AUXILIARY_CASES,
     TASK_ORIGINAL_CASES,
+    auxiliary_content,
+    auxiliary_contract,
+    auxiliary_identifier,
+    seed_auxiliary_originals,
     seed_task_originals,
     task_original_content,
     task_original_identifier,
     verify_fixed_task_image,
     verify_task_originals,
+    verify_auxiliary_originals,
 )
 from worktree_recovery_mapping import identity
 
@@ -95,6 +101,312 @@ class ExportMediaProtectedFacts(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(WorktreeError):
                 await database_facts(db, protected=True)
+
+
+class AuxiliaryOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):
+    def test_fixture_raw_is_five_channel_data_distinct_from_platform_pcd(self):
+        import struct
+        from PIL import Image
+
+        raw = auxiliary_content("raw_lidar")
+        self.assertEqual(len(raw), 40)
+        self.assertEqual(
+            struct.unpack("<10f", raw), (1, 2, 3, 0.25, 7, 4, 5, 6, 0.5, 8)
+        )
+        with Image.open(io.BytesIO(auxiliary_content("map"))) as image:
+            self.assertEqual(image.format, "PNG")
+        self.assertNotEqual(auxiliary_content("map"), raw)
+        raw_contract = auxiliary_contract("raw_lidar")
+        self.assertEqual(
+            set(raw_contract),
+            {"sample", "sample_data", "calibrated_sensor", "sensor", "ego_pose"},
+        )
+        self.assertNotIn("source_storage_key", raw_contract)
+
+    async def test_seed_uses_real_creation_and_binding_boundaries(self):
+        from app.db.models.dataset import Dataset, DatasetItem, Scene
+        from app.services import (
+            auxiliary_originals,
+            managed_original_creation as creations,
+        )
+        from app.services import dataset_assets
+
+        db = SimpleNamespace(
+            add=Mock(), flush=AsyncMock(), delete=AsyncMock(), commit=AsyncMock()
+        )
+        actor, project = (
+            SimpleNamespace(id=uuid.uuid4()),
+            SimpleNamespace(id=uuid.uuid4()),
+        )
+        allocations, streams, publications = {}, [], {}
+
+        async def allocate(_db, **options):
+            case = options["authority"].get("recovery_case", "platform_pcd")
+            identifier = uuid.uuid5(uuid.NAMESPACE_URL, "fixture-allocation:" + case)
+            result = {
+                **options,
+                "id": identifier,
+                "object_key": f"reserved/{identifier}/payload",
+                "content_type": options.get("content_type", "application/octet-stream"),
+            }
+            allocations[case] = result
+            return result
+
+        async def create(_db, allocation, stream, **options):
+            self.assertFalse(stream.closed)
+            data = stream.read()
+            streams.append(stream)
+            self.assertEqual(len(data), allocation["max_bytes"])
+            self.assertEqual(options["content_type"], allocation["content_type"])
+            return SimpleNamespace(
+                creation_id=allocation["id"],
+                sha256=hashlib.sha256(data).hexdigest(),
+                etag='"receipt"',
+            )
+
+        async def publish(_db, allocation, created, *, kind, source_contract):
+            self.assertEqual(created.creation_id, allocation["id"])
+            self.assertEqual(source_contract, auxiliary_contract(kind))
+            case = allocation["authority"]["recovery_case"]
+            owner = SimpleNamespace(
+                id=created.creation_id,
+                object_key=allocation["object_key"],
+                sha256=created.sha256,
+                size_bytes=allocation["max_bytes"],
+            )
+            publications[case] = owner
+            return owner
+
+        with (
+            patch.object(
+                creations, "allocate", side_effect=allocate
+            ) as primary_allocate,
+            patch.object(
+                creations, "allocate_auxiliary", side_effect=allocate
+            ) as auxiliary_allocate,
+            patch.object(creations, "create_stream", side_effect=create) as write,
+            patch.object(creations, "attach", new_callable=AsyncMock) as attach,
+            patch.object(
+                dataset_assets, "register_item_asset", new_callable=AsyncMock
+            ) as register,
+            patch.object(auxiliary_originals, "publish", side_effect=publish),
+            patch.object(
+                auxiliary_originals, "bind_raw", new_callable=AsyncMock
+            ) as bind_raw,
+            patch.object(
+                auxiliary_originals, "bind_map", new_callable=AsyncMock
+            ) as bind_map,
+        ):
+            await seed_auxiliary_originals(db, actor=actor, project=project)
+        primary_allocate.assert_awaited_once()
+        self.assertEqual(auxiliary_allocate.await_count, 5)
+        self.assertEqual(write.await_count, 5)
+        self.assertEqual(set(allocations), {*AUXILIARY_CASES, "platform_pcd"})
+        self.assertEqual(
+            set(publications), {"current_raw", "shared_map", "deleted_map"}
+        )
+        self.assertTrue(all(stream.closed for stream in streams))
+        register.assert_awaited_once()
+        attach.assert_awaited_once()
+        bind_raw.assert_awaited_once()
+        self.assertEqual(bind_map.await_count, 3)
+        self.assertIs(
+            bind_map.await_args_list[0].args[2], bind_map.await_args_list[1].args[2]
+        )
+        for call in bind_map.await_args_list:
+            scene, owner = call.args[1:]
+            source = scene.source_metadata["nuscenes_export"]
+            self.assertEqual(source["map_storage_key"], owner.object_key)
+            self.assertEqual(source["map_sha256"], owner.sha256)
+            self.assertEqual(source["map_file_size"], owner.size_bytes)
+        db.delete.assert_awaited_once()
+        self.assertIsInstance(db.delete.await_args.args[0], Dataset)
+        self.assertEqual(
+            len(
+                [
+                    call.args[0]
+                    for call in db.add.call_args_list
+                    if isinstance(call.args[0], DatasetItem)
+                ]
+            ),
+            1,
+        )
+        self.assertEqual(
+            len(
+                [
+                    call.args[0]
+                    for call in db.add.call_args_list
+                    if isinstance(call.args[0], Scene)
+                ]
+            ),
+            3,
+        )
+        db.commit.assert_not_awaited()
+
+    async def test_verify_keeps_histories_and_reads_exact_saved_auxiliary_sources(self):
+        from app.db.models.dataset import Dataset, DatasetItem, Scene
+        from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
+        from app.db.models.managed_original_creation import ManagedOriginalCreation
+        from app.services import (
+            auxiliary_originals,
+            managed_original_creation as creations,
+        )
+        from app.services.content_snapshot import ContentError
+        from app.services.dataset_assets import LEGACY_LOCATION_ID
+
+        stamp = datetime(2026, 10, 24, tzinfo=timezone.utc)
+        endpoint, target = "http://recovery.invalid:9000", "target-datasets"
+        dataset_id = auxiliary_identifier("dataset")
+        histories, owners, cases = [], [], {}
+        for case in AUXILIARY_CASES:
+            kind = "map" if case.endswith("map") else "raw_lidar"
+            identifier = uuid.uuid5(uuid.NAMESPACE_URL, "fixture-creation:" + case)
+            raw = auxiliary_content(kind)
+            row = SimpleNamespace(
+                id=identifier,
+                owner_kind="dataset_auxiliary",
+                dataset_id=dataset_id,
+                project_id=None,
+                task_id=None,
+                bucket="historical-datasets",
+                authority={"recovery_case": case},
+                object_key=f"__aap_auxiliary_originals__/{dataset_id}/{identifier}/payload",
+                status="allocated" if case == "unfinished_raw" else "verified",
+                sha256=hashlib.sha256(raw).hexdigest(),
+                size_bytes=len(raw),
+                etag='"source-etag"',
+                version_id="source-version",
+                completed_at=stamp,
+                receipt=None
+                if case == "unfinished_raw"
+                else {"sha256": hashlib.sha256(raw).hexdigest()},
+                verification=None if case == "unfinished_raw" else {"matched": True},
+                claimed_at=None,
+                operation_id=None,
+            )
+            histories.append(row)
+            cases[case] = row
+            if case not in {"unbound_raw", "unfinished_raw"}:
+                owners.append(
+                    SimpleNamespace(
+                        id=identifier,
+                        creation_id=identifier,
+                        dataset_id=dataset_id,
+                        kind=kind,
+                        location_id=LEGACY_LOCATION_ID,
+                        bucket=target,
+                        storage_identity=identity(endpoint, target),
+                        object_key=row.object_key,
+                        sha256=row.sha256,
+                        size_bytes=len(raw),
+                        etag=row.etag,
+                        version_id=row.version_id,
+                        created_at=stamp,
+                        source_contract=auxiliary_contract(kind),
+                    )
+                )
+        shared_id = cases["shared_map"].id
+        item = SimpleNamespace(nuscenes_raw_original_id=cases["current_raw"].id)
+        scene = SimpleNamespace(
+            nuscenes_map_original_id=shared_id,
+            source_metadata={"nuscenes_export": {"map": auxiliary_contract("map")}},
+        )
+
+        async def get(model, identifier):
+            if model is DatasetItem and identifier == auxiliary_identifier("item"):
+                return item
+            if model is Scene and identifier in {
+                auxiliary_identifier("first"),
+                auxiliary_identifier("second"),
+            }:
+                return scene
+            self.assertIn(model, {Dataset, Scene})
+            return None
+
+        db = SimpleNamespace(
+            scalars=AsyncMock(
+                side_effect=lambda stmt: (
+                    histories
+                    if stmt.column_descriptions[0]["entity"] is ManagedOriginalCreation
+                    else owners
+                )
+            ),
+            get=AsyncMock(side_effect=get),
+        )
+        storage = SimpleNamespace(
+            datasets_bucket=target,
+            import_bucket="trap-import",
+            client=SimpleNamespace(meta=SimpleNamespace(endpoint_url=endpoint)),
+        )
+        before = deepcopy((histories, owners))
+        by_id = {row.id: row for row in owners}
+
+        async def source(_db, identifier, *, kind):
+            self.assertEqual(storage.datasets_bucket, storage.import_bucket)
+            self.assertEqual(identifier, auxiliary_identifier("task"))
+            owner = (
+                by_id[cases["current_raw"].id]
+                if kind == "raw_lidar"
+                else by_id[shared_id]
+            )
+            return SimpleNamespace(
+                **{
+                    field: getattr(owner, field)
+                    for field in ("bucket", "object_key", "sha256", "size_bytes")
+                },
+                content_id=owner.id,
+                owner_kind="dataset_auxiliary",
+                ownership_facts=owner,
+            )
+
+        async def raw_source(db, identifier):
+            return await source(db, identifier, kind="raw_lidar")
+
+        async def map_source(db, identifier):
+            return await source(db, identifier, kind="map")
+
+        def read(_storage, bucket, key, sha, size):
+            self.assertEqual(bucket, target)
+            row = next(row for row in histories if row.object_key == key)
+            case = row.authority["recovery_case"]
+            raw = auxiliary_content("map" if case.endswith("map") else "raw_lidar")
+            self.assertEqual((hashlib.sha256(raw).hexdigest(), len(raw)), (sha, size))
+            return raw
+
+        with (
+            patch.object(
+                creations, "_read", AsyncMock(return_value={"historical": True})
+            ),
+            patch.object(
+                creations,
+                "_validate",
+                AsyncMock(
+                    side_effect=ContentError("managed_original_configuration_changed")
+                ),
+            ),
+            patch.object(
+                auxiliary_originals, "resolve_task_raw", side_effect=raw_source
+            ),
+            patch.object(
+                auxiliary_originals, "resolve_scene_map", side_effect=map_source
+            ),
+            patch(
+                "worktree_recovery_export._read_exact", side_effect=read
+            ) as physical_read,
+        ):
+            result = await verify_auxiliary_originals(db, storage=storage)
+        self.assertEqual(result["pinned_auxiliary_originals"], 3)
+        self.assertEqual(result["shared_auxiliary_map_references"], 2)
+        self.assertEqual(
+            result["auxiliary_recovery_qualification"], "offline-retained-bytes-only"
+        )
+        self.assertEqual(physical_read.call_count, 6)
+        self.assertEqual(storage.datasets_bucket, target)
+        self.assertEqual((histories, owners), before)
+        self.assertIs(
+            db.scalars.await_args_list[-1].args[0].column_descriptions[0]["entity"],
+            DatasetAuxiliaryOriginal,
+        )
 
 
 class TaskOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):

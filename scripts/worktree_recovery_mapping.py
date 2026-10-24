@@ -73,6 +73,7 @@ async def remap_storage(
     from app.db.models.guide_asset_upload import GuideAssetUpload
     from app.db.models.raster_mask_object import RasterMaskObject
     from app.db.models.task_original import TaskOriginal
+    from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
     from app.services import avatar_storage
     from app.services import export_storage
     from app.services import export_media_bundles
@@ -82,6 +83,7 @@ async def remap_storage(
     from app.services import guide_asset_storage
     from app.services import raster_object_storage
     from app.services import task_originals
+    from app.services import auxiliary_originals
     from app.services import (
         training_dataset_storage,
         training_run_storage,
@@ -432,6 +434,26 @@ async def remap_storage(
             identity(endpoint_url, target["MINIO_BUCKET"]),
             "task_originals",
             str(row.id),
+        )
+    for row in await db.scalars(select(DatasetAuxiliaryOriginal)):
+        try:
+            owner = auxiliary_originals.resolve(row, endpoint_url=endpoint_url)
+        except (TypeError, ValueError):
+            raise WorktreeError("辅助原件含未知归属、来源合同或内容回执") from None
+        if (
+            owner.location_id != LEGACY_LOCATION_ID
+            or owner.bucket != source["MINIO_DATASETS_BUCKET"]
+            or owner.storage_identity
+            != identity(endpoint_url, source["MINIO_DATASETS_BUCKET"])
+        ):
+            raise WorktreeError("辅助原件归属与备份datasets用途不一致")
+        # Creation is historical write evidence. Only this current locator is
+        # relocated; source contracts, pointers and unbound attempts stay fixed.
+        table = "dataset_auxiliary_originals"
+        bucket = target["MINIO_DATASETS_BUCKET"]
+        change(row, "bucket", bucket, table, str(row.id))
+        change(
+            row, "storage_identity", identity(endpoint_url, bucket), table, str(row.id)
         )
     for row in await db.scalars(select(ManagedOriginalRetirement)):
         if (

@@ -165,6 +165,43 @@ class ExportMediaRecovery(unittest.IsolatedAsyncioTestCase):
         for row in self.caches:
             self.db.rows.pop(row.id)
 
+    async def test_nuscenes_contract_indexes_are_typed_without_rewriting_frozen_facts(
+        self,
+    ):
+        """A metadata-shape probe, not a fabricated successful G2 execution."""
+        row = next(row for row in self.owners if row.state == "ready")
+        row.input_snapshot = {
+            **row.input_snapshot,
+            "schema": 2,
+            "targets": ["nuscenes"],
+            "auxiliary": {
+                "raw_owner": "historical",
+                "map_contract": {"token": "fixed"},
+            },
+        }
+        frozen = deepcopy(row.input_snapshot)
+        inventory, paths = deepcopy(row.inventory), deepcopy(row.logical_paths)
+        deadline, published = row.expires_at, row.published_at
+        output = next(
+            output for output in self.outputs if output.id == row.zip_output_id
+        )
+        raw_zip = self.client.current(export_storage.resolve(output).object_key)["data"]
+        self.assertEqual(
+            await typed_media_cache_indexes(self.db, self.owners, self.outputs),
+            self.caches,
+        )
+        self.relocate()
+        self.assertEqual(
+            await typed_media_cache_indexes(self.db, self.owners, self.outputs), []
+        )
+        self.assertEqual(row.input_snapshot, frozen)
+        self.assertEqual((row.inventory, row.logical_paths), (inventory, paths))
+        self.assertEqual((row.expires_at, row.published_at), (deadline, published))
+        self.assertEqual(
+            self.client.current(export_storage.resolve(output).object_key)["data"],
+            raw_zip,
+        )
+
     async def test_seed_claims_explicit_owners_publishes_pair_and_preserves_real_bytes(
         self,
     ):
