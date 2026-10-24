@@ -40,7 +40,13 @@ _FIELDS = frozenset(
         "evidence",
     }
 )
-_NAMESPACES = {"training-dataset": "datasets", "training-run": "runs"}
+_NAMESPACES = {
+    "training-dataset": "datasets",
+    "training-run": "runs",
+    "training-preview": "previews",
+    "sample-evaluation": "sample-evaluations",
+    "active-learning": "active-learning",
+}
 _PREFIXES = {
     purpose: re.compile(
         r"projects/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/"
@@ -53,13 +59,13 @@ _PREFIXES = {
 
 def _reject(code="training_storage_identity_changed"):
     messages = {
-        "training_storage_unpinned": "训练版本尚未固定存储归属，请先显式核验保留副本",
-        "training_storage_invalid_key": "对象不属于该训练版本的固定前缀",
+        "training_storage_unpinned": "训练对象尚未固定存储归属，请先显式核验保留副本",
+        "training_storage_invalid_key": "对象不属于该训练对象的固定前缀",
         "training_storage_binding_unproven": "训练存储绑定尚未登记或无法核实",
     }
     raise TrainingDatasetError(
         code,
-        messages.get(code, "训练版本存储身份与当前端点不匹配"),
+        messages.get(code, "训练对象存储身份与当前端点不匹配"),
         status_code=409,
     )
 

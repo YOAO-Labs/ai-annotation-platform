@@ -17,6 +17,11 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.training_dataset import TRAINING_STORAGE_REF_CHECK
+
+_STORAGE_REF_CHECK = TRAINING_STORAGE_REF_CHECK.replace(
+    "'training-dataset'", "'sample-evaluation'"
+).replace("/datasets/", "/sample-evaluations/")
 
 STATUSES = "'queued','running','cancelling','lost','succeeded','failed','cancelled'"
 
@@ -24,6 +29,12 @@ STATUSES = "'queued','running','cancelling','lost','succeeded','failed','cancell
 class SampleEvaluationRun(Base):
     __tablename__ = "sample_evaluation_runs"
     __table_args__ = (
+        CheckConstraint(_STORAGE_REF_CHECK, name="ck_sample_evaluation_storage_ref"),
+        CheckConstraint(
+            "storage_ref IS NULL OR storage_ref->>'prefix' = "
+            "'projects/' || project_id::text || '/sample-evaluations/' || id::text || '/'",
+            name="ck_sample_evaluation_storage_prefix",
+        ),
         UniqueConstraint(
             "project_id", "request_id", name="uq_sample_evaluation_request"
         ),
@@ -63,6 +74,7 @@ class SampleEvaluationRun(Base):
     status: Mapped[str] = mapped_column(String(24), default="queued", nullable=False)
     spec: Mapped[dict] = mapped_column(JSONB, nullable=False)
     spec_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     authorization: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_attempt_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
