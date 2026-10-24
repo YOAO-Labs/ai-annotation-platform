@@ -1265,6 +1265,19 @@ async def seed(db, external: Path):
             )
         )
         await db.commit()
+        from worktree_recovery_image_export import seed_image_exports
+
+        image_task = next(row for row in tasks if row.dataset_item_id == managed.id)
+        await seed_image_exports(
+            db,
+            project=project,
+            actor=actor,
+            storage=storage,
+            raw_by_task={
+                image_task.id: green,
+                task_original_identifier("current"): task_original_content(),
+            },
+        )
         # Keep both positive and negative immutable observations, plus an
         # undispatched pending attempt. Restoring bytes must not rewrite these
         # source facts or automatically resume an old queue.
@@ -1556,6 +1569,16 @@ async def verify_application(db, external: Path):
     from worktree_recovery_export import verify_export_outputs
 
     exports = await verify_export_outputs(db, storage=storage)
+    from worktree_recovery_image_export import verify_image_exports
+
+    image_exports = await verify_image_exports(
+        db,
+        storage=storage,
+        raw_by_task={
+            managed_task.id: picture("green"),
+            task_original_identifier("current"): task_original_content(),
+        },
+    )
     from worktree_recovery_bug_attachments import verify_bug_attachments
 
     bug_attachments = await verify_bug_attachments(db, storage=storage)
@@ -1659,6 +1682,7 @@ async def verify_application(db, external: Path):
         **auxiliary,
         **avatars,
         **exports,
+        **image_exports,
         **bug_attachments,
         **comment_attachments,
         **guide_assets,
