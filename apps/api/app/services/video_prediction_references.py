@@ -14,14 +14,14 @@ from types import SimpleNamespace
 import uuid
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
 from app.services import prediction_inputs, prediction_originals as authority
-from app.services import storage_access, video_prediction_originals as originals
+from app.services import video_prediction_originals as originals
+from app.services import video_sync_inference as transport_authority
 from app.services.content_snapshot import ContentError
 from app.services.ml_capabilities import extract_capabilities
 from app.services.prediction_execution import load_snapshot, validate_task_scope
@@ -119,6 +119,25 @@ def bounded(value):
 def _same(left, right):
     # Python equality considers True == 1; frozen JSON contracts do not.
     return authority.encoded(left) == authority.encoded(right)
+
+
+def _copied_transport(transport, revision):
+    """Read construction copies only; the retained ORM row may be expired."""
+    try:
+        extra = transport._extra_params
+        if (
+            not isinstance(extra, dict)
+            or len(authority.encoded(extra).encode())
+            > transport_authority._MAX_BACKEND_JSON
+        ):
+            reject("prediction_video_backend_changed")
+        return {
+            "auth_revision": revision,
+            "wire_digest": transport_authority._wire(transport),
+            "extra_digest": authority.digest(extra),
+        }
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        reject("prediction_video_backend_changed")
 
 
 def _uuid(value):
@@ -578,6 +597,7 @@ class VideoPredictionJob:
         self.bindings = bindings
         self.deliveries, self.sources, self.probes, self.input_receipts = {}, {}, {}, {}
         self.finished, self.unsettled, self.executions = set(), set(), {}
+        self.selected_transports = {}
 
     async def authorize(self, db=None):
         db = self.db if db is None else db
@@ -650,10 +670,19 @@ class VideoPredictionJob:
         return task
 
     async def _fresh(self, task_id):
-        async with AsyncSession(
-            bind=storage_access.engine(self.db), expire_on_commit=False, autoflush=False
-        ) as owned:
+        async with originals._session(self.db) as owned:
             await self._task(owned, task_id)
+
+    async def _transport_config(self, db, selected, transport, copied):
+        actual_id = _uuid(str(transport.backend_id))
+        current = await transport_authority._backend(db, actual_id)
+        if current["pool_id"] != selected["pool_id"] or any(
+            current[key] != value for key, value in copied.items()
+        ):
+            reject("prediction_video_backend_changed")
+        if not _same(_copied_transport(transport, copied["auth_revision"]), copied):
+            reject("prediction_video_backend_changed")
+        return bounded(current)
 
     async def open_inputs(self, task, factory):
         identifier = task.id
@@ -743,8 +772,20 @@ class VideoPredictionJob:
             reject("prediction_video_model_changed")
         if not isinstance(raw_id, (str, uuid.UUID)) or str(raw_id) != str(actual_id):
             reject("prediction_video_model_changed")
+        # Capture the hydrated revision before any caller await can expire ORM.
+        copied = _copied_transport(
+            transport, transport_authority._transport_revision(transport)
+        )
         await self._fresh(task.id)
         await self.deliveries[task.id][0].check_live()
+        async with originals._session(self.db) as owned:
+            await self._task(owned, task.id)
+            configuration = await self._transport_config(
+                owned, selected, transport, copied
+            )
+            prior = self.selected_transports.get((task.id, stage_id))
+            if prior is not None and not _same(prior[1], configuration):
+                reject("prediction_video_backend_changed")
         # Every short SQL transaction is closed before actual setup I/O.
         setup = await transport.setup()
         declaration = model_declaration(
@@ -756,10 +797,13 @@ class VideoPredictionJob:
         )
         if not _same(declaration, selected["declaration"]):
             reject("prediction_video_model_changed")
-        async with AsyncSession(
-            bind=storage_access.engine(self.db), expire_on_commit=False, autoflush=False
-        ) as owned:
+        async with originals._session(self.db) as owned:
             await self._task(owned, task.id)
+            if not _same(
+                await self._transport_config(owned, selected, transport, copied),
+                configuration,
+            ):
+                reject("prediction_video_backend_changed")
             backend = await _backend(owned, actual_id)
             if (
                 backend is None
@@ -775,6 +819,11 @@ class VideoPredictionJob:
                 reject("prediction_video_model_changed")
             await _pool(owned, self.project_id, actual_id, selected["pool_id"])
         self.executions[(task.id, stage_id)] = str(actual_id)
+        self.selected_transports[(task.id, stage_id)] = (
+            transport,
+            deepcopy(configuration),
+            deepcopy(copied),
+        )
         self.resolve_url(task)
 
     async def finish_source(self, task_id):
@@ -885,6 +934,15 @@ class VideoPredictionJob:
             if row["parent_stage"] is None and actual is None:
                 reject("prediction_video_dispatch_unrecorded")
             if actual is not None:
+                transport_record = self.selected_transports.get((task_id, row["stage"]))
+                if transport_record is None:
+                    reject("prediction_video_dispatch_unrecorded")
+                transport, configuration, copied = transport_record
+                if configuration["backend_id"] != actual or not _same(
+                    await self._transport_config(self.db, row, transport, copied),
+                    configuration,
+                ):
+                    reject("prediction_video_backend_changed")
                 backend = await _backend(self.db, _uuid(actual))
                 if (
                     backend is None

@@ -5,6 +5,7 @@ suite. They isolate closed proof shapes and asynchronous ownership boundaries.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -21,6 +22,7 @@ from app.services import storage_access
 from app.services import video_prediction_originals as originals
 from app.services import video_prediction_references as video
 from app.services.content_snapshot import ContentError
+from app.services.ml_client import MLBackendClient
 from app.services.reference_bindings import task_binding
 
 
@@ -583,6 +585,32 @@ def live_inputs(world):
     return inputs
 
 
+def actual_transport(identifier=None):
+    backend = SimpleNamespace(
+        id=identifier or uuid.uuid4(),
+        url="http://controlled.invalid/",
+        auth_method="token",
+        auth_token="private-transport-token",
+        auth_revision=3,
+        extra_params={"max_concurrency": 4, "timeout": 5},
+        gpu_resource_id=None,
+        vram_budget_mb=None,
+        state="connected",
+        health_meta={"capabilities": caps()},
+    )
+    return MLBackendClient(backend)
+
+
+def wire_config(transport, pool_id):
+    return {
+        "backend_id": transport.backend_id,
+        "pool_id": pool_id,
+        "auth_revision": video.transport_authority._transport_revision(transport),
+        "wire_digest": video.transport_authority._wire(transport),
+        "extra_digest": authority.digest(transport._extra_params),
+    }
+
+
 @pytest.mark.parametrize("transport_kind", ["stub", "actual"])
 async def test_actual_transport_setup_has_no_open_owned_sql_session_and_rechecks_after(
     monkeypatch,
@@ -593,12 +621,11 @@ async def test_actual_transport_setup_has_no_open_owned_sql_session_and_rechecks
     active, events = set(), []
 
     class Session:
-        async def __aenter__(self):
+        def __init__(self):
             active.add(self)
             events.append("sql-open")
-            return self
 
-        async def __aexit__(self, *_):
+        async def close(self):
             active.remove(self)
             events.append("sql-close")
 
@@ -615,12 +642,12 @@ async def test_actual_transport_setup_has_no_open_owned_sql_session_and_rechecks
 
     async def task_guard(db, task_id):
         assert db in active and task_id == world.task.id
-        events.append("post-setup-guard")
+        events.append("task-guard")
 
     monkeypatch.setattr(world.owner, "_fresh", fresh)
     monkeypatch.setattr(world.owner, "_task", task_guard)
-    monkeypatch.setattr(video, "AsyncSession", lambda **_: Session())
-    monkeypatch.setattr(video.storage_access, "engine", lambda _: object())
+    monkeypatch.setattr(originals, "AsyncSession", lambda **_: Session())
+    monkeypatch.setattr(storage_access, "engine", lambda _: object())
     monkeypatch.setattr(
         video,
         "_backend",
@@ -633,27 +660,25 @@ async def test_actual_transport_setup_has_no_open_owned_sql_session_and_rechecks
     pool = AsyncMock()
     monkeypatch.setattr(video, "_pool", pool)
     if transport_kind == "actual":
-        from app.services.ml_client import MLBackendClient
-
-        transport = MLBackendClient(
-            SimpleNamespace(
-                id=actual_id,
-                url="http://controlled.invalid",
-                auth_method="none",
-                auth_token=None,
-                extra_params={},
-            )
-        )
+        transport = actual_transport(actual_id)
         transport.setup = setup
         assert transport.backend_id == str(actual_id)
     else:
-        transport = SimpleNamespace(backend_id=actual_id, setup=setup)
+        actual = actual_transport(actual_id)
+        transport = SimpleNamespace(**vars(actual), setup=setup)
+    configuration = wire_config(transport, world.proof["models"][0]["pool_id"])
+    monkeypatch.setattr(
+        video.transport_authority, "_backend", AsyncMock(return_value=configuration)
+    )
     await world.owner.before_dispatch(world.task, transport, stage_id=7)
     assert events == [
         "initial-guard",
+        "sql-open",
+        "task-guard",
+        "sql-close",
         "setup",
         "sql-open",
-        "post-setup-guard",
+        "task-guard",
         "sql-close",
     ]
     assert world.owner.executions == {(world.task.id, 7): str(actual_id)}
@@ -670,10 +695,20 @@ async def test_actual_transport_changed_declaration_never_records_dispatch(monke
     world = setup_job()
     live_inputs(world)
     monkeypatch.setattr(world.owner, "_fresh", AsyncMock())
+    monkeypatch.setattr(world.owner, "_task", AsyncMock())
+
+    @asynccontextmanager
+    async def session(db):
+        yield object()
+
+    monkeypatch.setattr(originals, "_session", session)
     changed = caps()
     changed["models"][0]["params"]["properties"]["persist"]["default"] = False
-    transport = SimpleNamespace(
-        backend_id=uuid.uuid4(), setup=AsyncMock(return_value=changed)
+    transport = actual_transport()
+    transport.setup = AsyncMock(return_value=changed)
+    configuration = wire_config(transport, world.proof["models"][0]["pool_id"])
+    monkeypatch.setattr(
+        video.transport_authority, "_backend", AsyncMock(return_value=configuration)
     )
     with pytest.raises(ContentError, match="model_changed"):
         await world.owner.before_dispatch(world.task, transport, stage_id=7)
@@ -896,6 +931,17 @@ async def test_final_sql_metadata_fences_closed_source_owned_copy_and_exact_task
     world.owner.finished.add(world.task.id)
     actual_id = uuid.uuid4()
     world.owner.executions[(world.task.id, 7)] = str(actual_id)
+    transport = actual_transport(actual_id)
+    configuration = wire_config(transport, world.proof["models"][0]["pool_id"])
+    copied = video._copied_transport(transport, configuration["auth_revision"])
+    world.owner.selected_transports[(world.task.id, 7)] = (
+        transport,
+        deepcopy(configuration),
+        copied,
+    )
+    monkeypatch.setattr(
+        video.transport_authority, "_backend", AsyncMock(return_value=configuration)
+    )
     monkeypatch.setattr(world.owner, "_task", AsyncMock(return_value=world.task))
     metadata = AsyncMock()
     monkeypatch.setattr(video.prediction_inputs, "check_metadata", metadata)
@@ -910,7 +956,7 @@ async def test_final_sql_metadata_fences_closed_source_owned_copy_and_exact_task
     )
     monkeypatch.setattr(video, "_pool", AsyncMock())
     monkeypatch.setattr(
-        video, "AsyncSession", lambda **_: pytest.fail("final must not open a session")
+        originals, "_session", lambda _: pytest.fail("final must not open a session")
     )
     evidence = await world.owner._final_check(world.task.id)
     assert evidence["input_version_id"] == "immutable-version"
@@ -934,3 +980,202 @@ async def test_final_sql_metadata_fences_closed_source_owned_copy_and_exact_task
             world.owner.executions[(uuid.uuid4(), 7)] = str(actual_id)
     with pytest.raises(ContentError):
         await world.owner._final_check(world.task.id)
+
+
+def routed_world(monkeypatch):
+    world = setup_job()
+    live_inputs(world)
+    transport = actual_transport()
+    live_backend = SimpleNamespace(**deepcopy(vars(transport._backend)))
+    events = []
+
+    @asynccontextmanager
+    async def session(db):
+        events.append("sql-open")
+        try:
+            yield object()
+        finally:
+            events.append("sql-close")
+
+    async def configuration(db, identifier):
+        assert identifier == live_backend.id
+        return wire_config(
+            MLBackendClient(live_backend), world.proof["models"][0]["pool_id"]
+        )
+
+    async def setup():
+        assert not events or events[-1] == "sql-close"
+        events.append("setup")
+        return caps()
+
+    monkeypatch.setattr(world.owner, "_fresh", AsyncMock())
+    monkeypatch.setattr(world.owner, "_task", AsyncMock(return_value=world.task))
+    monkeypatch.setattr(originals, "_session", session)
+    monkeypatch.setattr(video.transport_authority, "_backend", configuration)
+    monkeypatch.setattr(video, "_backend", AsyncMock(return_value=live_backend))
+    monkeypatch.setattr(video, "_pool", AsyncMock())
+    monkeypatch.setattr(video.prediction_inputs, "check_metadata", AsyncMock())
+    transport.setup = AsyncMock(side_effect=setup)
+    world.owner.sources[world.task.id] = SimpleNamespace(
+        closed=True, settled=True, unsettled=False
+    )
+    world.owner.finished.add(world.task.id)
+    return SimpleNamespace(
+        world=world, transport=transport, backend=live_backend, events=events
+    )
+
+
+def change_backend(backend, field):
+    if field == "url":
+        backend.url = "http://other-controlled.invalid"
+    elif field == "auth_token":
+        backend.auth_token = "rotated-secret"
+    elif field == "auth_method":
+        backend.auth_method = "none"
+    elif field == "auth_revision":
+        backend.auth_revision += 1
+    elif field == "extra":
+        backend.extra_params = {
+            **backend.extra_params,
+            "extra_context": {"changed": True},
+        }
+    elif field == "concurrency":
+        backend.extra_params = {**backend.extra_params, "max_concurrency": 8}
+    else:
+        backend.gpu_resource_id, backend.vram_budget_mb = "owned/gpu0", 1024
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "url",
+        "auth_token",
+        "auth_method",
+        "auth_revision",
+        "extra",
+        "concurrency",
+        "gpu",
+    ],
+)
+@pytest.mark.parametrize("when", ["before_setup", "during_setup", "before_final"])
+async def test_actual_transport_config_is_fixed_before_setup_after_setup_and_final(
+    monkeypatch, field, when
+):
+    current = routed_world(monkeypatch)
+    owner, task = current.world.owner, current.world.task
+    if when == "before_setup":
+        change_backend(current.backend, field)
+    elif when == "during_setup":
+
+        async def setup():
+            change_backend(current.backend, field)
+            return caps()
+
+        current.transport.setup.side_effect = setup
+    if when != "before_final":
+        with pytest.raises(ContentError, match="backend_changed"):
+            await owner.before_dispatch(task, current.transport, stage_id=7)
+        assert not owner.executions and not owner.selected_transports
+        assert current.transport.setup.await_count == (when == "during_setup")
+    else:
+        await owner.before_dispatch(task, current.transport, stage_id=7)
+        change_backend(current.backend, field)
+        monkeypatch.setattr(
+            originals,
+            "_session",
+            lambda _: pytest.fail("final SQL must not open another session"),
+        )
+        with pytest.raises(ContentError, match="backend_changed"):
+            await owner._final_check(task.id)
+
+
+@pytest.mark.parametrize(
+    "field", ["base_url", "auth_token", "gpu_resource_id", "extra"]
+)
+async def test_copied_transport_mutation_cannot_publish_against_unchanged_database(
+    monkeypatch, field
+):
+    current = routed_world(monkeypatch)
+    owner, task = current.world.owner, current.world.task
+    await owner.before_dispatch(task, current.transport, stage_id=7)
+    if field == "extra":
+        current.transport._extra_params["timeout"] = 99
+    else:
+        setattr(current.transport, field, "mutated-transport-copy")
+    with pytest.raises(ContentError, match="backend_changed"):
+        await owner._final_check(task.id)
+
+
+async def test_final_uses_hydrated_dispatch_revision_after_retained_backend_orm_expires(
+    monkeypatch,
+):
+    current = routed_world(monkeypatch)
+    owner, task = current.world.owner, current.world.task
+    await owner.before_dispatch(task, current.transport, stage_id=7)
+    assert (
+        current.transport.backend_id
+        != current.world.proof["models"][0]["requested_registry_id"]
+    )
+    # SQL rollback expires the retained registry. No final helper may ask it for
+    # auth_revision, extra_params or endpoint again; copied transport fields live.
+    vars(current.transport._backend).clear()
+    evidence = await owner._final_check(task.id)
+    assert evidence["models"][0]["executed_registry_id"] == str(current.backend.id)
+    assert "rotated-secret" not in authority.encoded(evidence)
+
+
+async def test_same_task_stage_cannot_silently_switch_physical_instance_after_dispatch(
+    monkeypatch,
+):
+    current = routed_world(monkeypatch)
+    owner, task = current.world.owner, current.world.task
+    await owner.before_dispatch(task, current.transport, stage_id=7)
+    new_id = uuid.uuid4()
+    current.backend.id = new_id
+    replacement = actual_transport(new_id)
+    replacement.setup = AsyncMock(return_value=caps())
+    with pytest.raises(ContentError, match="backend_changed"):
+        await owner.before_dispatch(task, replacement, stage_id=7)
+    replacement.setup.assert_not_awaited()
+
+
+@pytest.mark.parametrize("phase", ["fresh", "pre_setup"])
+async def test_repeated_cancel_waits_for_real_independent_sql_close(monkeypatch, phase):
+    world = setup_job()
+    live_inputs(world)
+    entered, release = asyncio.Event(), asyncio.Event()
+    closed = []
+
+    class Session:
+        async def close(self):
+            entered.set()
+            await release.wait()
+            closed.append(True)
+
+    monkeypatch.setattr(originals, "AsyncSession", lambda **_: Session())
+    monkeypatch.setattr(storage_access, "engine", lambda _: object())
+    monkeypatch.setattr(world.owner, "_task", AsyncMock())
+    transport = actual_transport()
+    transport.setup = AsyncMock(return_value=caps())
+    configuration = wire_config(transport, world.proof["models"][0]["pool_id"])
+    monkeypatch.setattr(
+        video.transport_authority, "_backend", AsyncMock(return_value=configuration)
+    )
+    if phase == "pre_setup":
+        monkeypatch.setattr(world.owner, "_fresh", AsyncMock())
+        work = world.owner.before_dispatch(world.task, transport, stage_id=7)
+    else:
+        work = world.owner._fresh(world.task.id)
+    pending = asyncio.create_task(work)
+    await entered.wait()
+    pending.cancel()
+    await asyncio.sleep(0)
+    pending.cancel()
+    await asyncio.sleep(0)
+    assert not pending.done() and not closed
+    transport.setup.assert_not_awaited()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await pending
+    assert closed == [True]
+    assert not world.owner.executions and not world.owner.selected_transports
