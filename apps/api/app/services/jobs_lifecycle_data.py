@@ -11,8 +11,23 @@ from sqlalchemy.orm.bulk_persistence import (
     BulkUDCompileState,
 )
 
+from aap_jobs.row_lock_contract import JOBS_ROW_LOCK_FUNCTIONS
+
 from app.db.jobs_lifecycle import encode_jobs_json, observe_job_changes
 from app.db.models.async_job import AsyncJob, AsyncJobKind
+
+
+def job_lock_statement(job_id, *, mode, populate_existing=False):
+    """Keep the caller's ORM result, refresh flag and autoflush around a fixed lock."""
+    function = JOBS_ROW_LOCK_FUNCTIONS[mode]
+    return (
+        select(AsyncJob)
+        .from_statement(
+            text(f"SELECT * FROM {function}(CAST(:job_id AS pg_catalog.uuid))")
+        )
+        .params(job_id=job_id)
+        .execution_options(populate_existing=populate_existing)
+    )
 
 
 class JobsLifecyclePostgresData:

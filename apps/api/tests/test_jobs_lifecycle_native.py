@@ -15,7 +15,7 @@ import uuid
 import pytest
 from sqlalchemy import event, func, inspect as sa_inspect, select, text, update
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, InvalidRequestError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.jobs_lifecycle import _TRACE
@@ -472,3 +472,84 @@ async def test_partial_progress_error_and_rollback_clear_lifecycle_trace(
     )
     assert restored.retained_project_id is None
     assert restored.progress_pct == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the verifier-owned strict Jobs lifecycle LOGIN",
+)
+async def test_expired_refresh_keeps_concurrent_timestamp_and_partial_dirty_cache(
+    test_engine,
+):
+    strict_engine = create_async_engine(_jobs_lifecycle_url(test_engine))
+    strict_sessions = async_sessionmaker(strict_engine, expire_on_commit=False)
+    owner_sessions = async_sessionmaker(test_engine, expire_on_commit=False)
+    statements = []
+    job_id = uuid.uuid4()
+
+    def capture(_connection, _cursor, statement, _params, _context, _many):
+        statements.append(statement.lower())
+
+    event.listen(strict_engine.sync_engine, "before_cursor_execute", capture)
+    try:
+        async with owner_sessions() as setup:
+            setup.add(_job(id=job_id))
+            await setup.commit()
+        async with strict_sessions() as reader:
+            job = await async_job_svc.get_job(reader, job_id)
+            assert job is not None and job.progress_pct == 0
+            original_time = job.updated_at
+            job.payload = {"local": "still dirty"}
+            reader.expire(job, ["updated_at"])
+            assert "updated_at" in sa_inspect(job).expired_attributes
+            changed_time = datetime(2040, 1, 1, tzinfo=timezone.utc)
+            async with owner_sessions() as change:
+                await change.execute(
+                    text(
+                        "UPDATE public.async_jobs SET updated_at=:value, "
+                        "progress_pct=71 WHERE id=:job_id"
+                    ),
+                    {"value": changed_time, "job_id": job_id},
+                )
+                await change.commit()
+            with reader.no_autoflush:
+                await reader.refresh(job, attribute_names=["updated_at"])
+            assert job.updated_at == changed_time and job.updated_at != original_time
+            assert job.progress_pct == 0
+            assert job.payload == {"local": "still dirty"}
+            assert sa_inspect(job).attrs.payload.history.has_changes()
+            async with owner_sessions() as check:
+                stored = await async_job_svc.get_job(check, job_id)
+                assert stored is not None and stored.payload == {}
+            await reader.rollback()
+            assert sa_inspect(job).expired
+            await reader.refresh(job)
+            assert job.updated_at == changed_time and job.progress_pct == 71
+            assert job.payload == {}
+            async with owner_sessions() as delete_row:
+                await delete_row.execute(
+                    text("DELETE FROM public.async_jobs WHERE id=:job_id"),
+                    {"job_id": job_id},
+                )
+                await delete_row.commit()
+            reader.expire(job)
+            with pytest.raises(InvalidRequestError):
+                await reader.refresh(job)
+            assert job in reader and sa_inspect(job).expired
+            assert await async_job_svc.get_job(reader, job_id) is None
+            assert job not in reader
+        assert any("aap_jobs_v1.read_job(" in item for item in statements)
+        assert not any(
+            "from async_jobs" in item or "from public.async_jobs" in item
+            for item in statements
+        )
+    finally:
+        event.remove(strict_engine.sync_engine, "before_cursor_execute", capture)
+        await strict_engine.dispose()
+        async with owner_sessions() as cleanup:
+            await cleanup.execute(
+                text("DELETE FROM public.async_jobs WHERE id=:job_id"),
+                {"job_id": job_id},
+            )
+            await cleanup.commit()

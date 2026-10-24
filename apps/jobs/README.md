@@ -26,6 +26,24 @@ These checks resolve the actual PostgreSQL invoker, never a client JSON field.
 The API retains private Jobs access for consumers not yet migrated. This is a
 capability slice, not complete Jobs credential closure or runtime recovery.
 
+## Transactional row locks and refreshes
+
+`aap-jobs-row-locks/v1` defines the same fifteen native row columns for
+`read_job_for_update(uuid)` and `read_job_for_share_nowait(uuid)`. They retain
+the original waiting `FOR UPDATE` and immediate `FOR SHARE NOWAIT` locks in
+the caller's transaction. Missing rows return no rows; PostgreSQL errors pass
+through without retries or transaction changes. Domain authorization remains
+with each caller. The ordinary API/worker profiles receive these two functions;
+the strict lifecycle LOGIN keeps its existing eight capabilities.
+
+The API routes ordinary domain reads and supported unlocked ORM column refreshes
+through `read_job`. Partial refreshes retain their selected fields, dirty cache,
+autoflush and concurrent database timestamp behavior. Explicit locked refreshes
+and unsupported ORM query shapes retain their original path. Remaining filtered
+queries, domain readers and legacy edits still prevent blanket private ACL removal.
+See [the operation ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-row-access)
+for the bounded native and packaging evidence.
+
 ## Public notification scope facts
 
 `aap-jobs` publishes the fixed, read-only `aap_jobs_v1.notification_scope_facts`

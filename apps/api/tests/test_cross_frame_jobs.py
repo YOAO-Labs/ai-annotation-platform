@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import sys
 import uuid
-from types import ModuleType
 
 import pytest
 from sqlalchemy import func, select
@@ -27,8 +25,9 @@ from tests.factory import create_project, create_user
 
 
 def _install_jobs_queue(monkeypatch, callback=None):
+    from app.services import jobs_queue
+
     requests = []
-    module = ModuleType("app.services.jobs_queue")
 
     async def dispatch_job(**request):
         requests.append(request)
@@ -39,8 +38,7 @@ def _install_jobs_queue(monkeypatch, callback=None):
             result = await result
         return result
 
-    module.dispatch_job = dispatch_job
-    monkeypatch.setitem(sys.modules, "app.services.jobs_queue", module)
+    monkeypatch.setattr(jobs_queue, "dispatch_job", dispatch_job)
     return requests
 
 

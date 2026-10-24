@@ -39,6 +39,8 @@ packages = ["src/aap_jobs"]
 "src/aap_jobs/queue_routes.json" = "aap_jobs/queue_routes.json"
 "src/aap_jobs/lifecycle.schema.json" = "aap_jobs/lifecycle.schema.json"
 "src/aap_jobs/sql/0327_jobs_lifecycle.sql" = "aap_jobs/sql/0327_jobs_lifecycle.sql"
+"src/aap_jobs/row_locks.schema.json" = "aap_jobs/row_locks.schema.json"
+"src/aap_jobs/sql/0328_jobs_row_locks.sql" = "aap_jobs/sql/0328_jobs_row_locks.sql"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -53,6 +53,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.async_job import AsyncJob
+from app.services.jobs_lifecycle_data import job_lock_statement
 from app.schemas.project import (
     ProjectOut,
     ProjectPage,
@@ -2184,10 +2185,9 @@ async def trigger_preannotation(
         digest = preannotation_request_digest(batch_request)
         locked_job = (
             await db.execute(
-                select(AsyncJob)
-                .where(AsyncJob.id == precreated_job.id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
+                job_lock_statement(
+                    precreated_job.id, mode="update", populate_existing=True
+                )
             )
         ).scalar_one()
         previous_digest = (locked_job.payload or {}).get("preannotation_request_digest")

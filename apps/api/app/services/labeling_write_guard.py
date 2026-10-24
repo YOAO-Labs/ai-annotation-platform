@@ -20,7 +20,8 @@ from aap_assets_video_inputs.values import VIDEO_INPUT_SCHEMA
 
 from app.db.enums import WORKBENCH_AI_EDITABLE_TASK_STATUSES
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob, AsyncJobKind
+from app.db.models.async_job import AsyncJobKind
+from app.services.jobs_lifecycle_data import job_lock_statement
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
@@ -203,10 +204,7 @@ async def _assert_execution_current(
         return
     job = await _locked_row(
         db,
-        select(AsyncJob)
-        .where(AsyncJob.id == scope.job_id)
-        .with_for_update(read=True, nowait=True)
-        .execution_options(populate_existing=True),
+        job_lock_statement(scope.job_id, mode="share_nowait", populate_existing=True),
         reason="job_busy",
     )
     if (

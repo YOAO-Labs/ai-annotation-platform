@@ -301,6 +301,7 @@ async def test_update_lock_waits_and_returns_the_committed_current_row(test_engi
             await asyncio.wait_for(lock_query_sent.wait(), timeout=3)
             deadline = asyncio.get_running_loop().time() + 3
             while asyncio.get_running_loop().time() < deadline:
+                await holder.execute(text("SELECT pg_stat_clear_snapshot()"))
                 wait_event_type = await holder.scalar(
                     text(
                         "SELECT wait_event_type FROM pg_catalog.pg_stat_activity "
@@ -410,7 +411,7 @@ async def test_lock_query_preserves_autoflush_and_read_only_transaction_rules(
     insert_index = next(
         index
         for index, statement in enumerate(normalized)
-        if re.search(r"\binsert\s+into\s+(?:public\.)?async_jobs\b", statement)
+        if "insert into aap_jobs_v1.async_job_creation " in statement
     )
     lock_index = next(
         index
@@ -431,7 +432,7 @@ async def test_lock_query_preserves_autoflush_and_read_only_transaction_rules(
     assert row is not None and row.id == target_id
     assert inspect(no_autoflush_pending).pending
     assert not any(
-        re.search(r"\binsert\s+into\s+(?:public\.)?async_jobs\b", statement.lower())
+        statement.lstrip().lower().startswith("insert into ")
         for statement in statements
     )
     _assert_uses_only_lock_function(statements, "read_job_for_share_nowait")

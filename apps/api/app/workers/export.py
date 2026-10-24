@@ -24,12 +24,12 @@ from sqlalchemy.pool import NullPool
 
 from app.config import settings
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.services import async_job as async_job_svc
+from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.exporting import cache as export_cache
 from app.services.exporting.packaging import (
@@ -641,11 +641,7 @@ async def _run_export(
             await execution.acquire(f"job:{job_uuid}")
             try:
                 job_row = (
-                    await db.execute(
-                        select(AsyncJob)
-                        .where(AsyncJob.id == job_uuid)
-                        .with_for_update()
-                    )
+                    await db.execute(job_lock_statement(job_uuid, mode="update"))
                 ).scalar_one_or_none()
                 if job_row is None:
                     raise ValueError("export async job not found")

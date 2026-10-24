@@ -45,6 +45,10 @@ NOTIFICATION_INBOX_ROLE = "notification_inbox_query_client"
 NOTIFICATION_DELIVERY_READ_ROLE = "notification_delivery_read_client"
 JOBS_LIST_QUERY_ROLE = "jobs_list_query_client"
 JOBS_LIFECYCLE_ROLE = "jobs_lifecycle_client"
+JOBS_ROW_LOCK_FUNCTIONS = (
+    "aap_jobs_v1.read_job_for_update(uuid)",
+    "aap_jobs_v1.read_job_for_share_nowait(uuid)",
+)
 JOBS_LIFECYCLE_FUNCTIONS = (
     "aap_jobs_v1.read_job(uuid)",
     "aap_jobs_v1.jobs_by_execution_id(text)",
@@ -77,6 +81,7 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    **{signature: "0328_jobs_row_locks.sql" for signature in JOBS_ROW_LOCK_FUNCTIONS},
     **{
         signature: "0327_jobs_lifecycle.sql"
         for signature in (
@@ -443,6 +448,7 @@ SQL_ARTIFACTS = (
     "0325_notifications_delivery_read.sql",
     "0326_jobs_list_query.sql",
     "0327_jobs_lifecycle.sql",
+    "0328_jobs_row_locks.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -582,6 +588,7 @@ SCHEMA_ARTIFACTS = (
     "0325_notifications_delivery_read.schema.json",
     "0326_jobs_list_query.schema.json",
     "0327_jobs_lifecycle.schema.json",
+    "0328_jobs_row_locks.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -4264,8 +4271,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0327"]:
-            raise RuntimeError("module-data acceptance requires migration head 0327")
+        if heads != ["0328"]:
+            raise RuntimeError("module-data acceptance requires migration head 0328")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes

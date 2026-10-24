@@ -26,6 +26,7 @@ from worktree_resources import (
     NOTIFICATION_RUNTIME_CAPABILITIES,
     JOBS_LIST_RUNTIME_CAPABILITIES,
     JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
+    JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
     VIDEO_RUNTIME_CAPABILITIES,
 )
 
@@ -445,6 +446,7 @@ class BucketUpgradeTests(unittest.TestCase):
         for signature in (
             *JOBS_LIST_RUNTIME_CAPABILITIES,
             *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
+            *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
         ):
             self.assertIn(signature, normalized)
         self.assertNotIn(
@@ -677,7 +679,11 @@ class BucketUpgradeTests(unittest.TestCase):
         self.assertIn(
             "GRANT EXECUTE ON FUNCTION "
             + ", ".join(
-                (*JOBS_LIST_RUNTIME_CAPABILITIES, *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES)
+                (
+                    *JOBS_LIST_RUNTIME_CAPABILITIES,
+                    *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
+                    *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
+                )
             )
             + ' TO "app"',
             statements,

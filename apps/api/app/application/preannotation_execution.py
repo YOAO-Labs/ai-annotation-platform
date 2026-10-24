@@ -19,6 +19,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.services import prediction_retry
+from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultError,
     ApplyPredictionResultPort,
@@ -1715,11 +1716,7 @@ async def _execute_preannotation(
             except (TypeError, ValueError) as exc:
                 raise ValueError("preannotation async job id is invalid") from exc
             precreated_job = (
-                await db.execute(
-                    select(AsyncJob)
-                    .where(AsyncJob.id == precreated_job_id)
-                    .with_for_update()
-                )
+                await db.execute(job_lock_statement(precreated_job_id, mode="update"))
             ).scalar_one_or_none()
             if (
                 precreated_job is None
@@ -2329,10 +2326,9 @@ async def _execute_preannotation(
             if precreated_job is None:
                 raise ValueError("retained video execution requires a durable Job")
             locked_job = await db.scalar(
-                select(AsyncJob)
-                .where(AsyncJob.id == precreated_job.id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
+                job_lock_statement(
+                    precreated_job.id, mode="update", populate_existing=True
+                )
             )
             if locked_job is None or locked_job.status != AsyncJobStatus.PENDING.value:
                 await db.rollback()

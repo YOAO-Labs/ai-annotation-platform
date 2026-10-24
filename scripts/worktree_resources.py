@@ -154,6 +154,10 @@ JOBS_LIST_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)",
     "aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)",
 )
+JOBS_ROW_LOCK_RUNTIME_CAPABILITIES = (
+    "aap_jobs_v1.read_job_for_update(uuid)",
+    "aap_jobs_v1.read_job_for_share_nowait(uuid)",
+)
 _IDENTITY_PRIVATE_RUNTIME_ACL = """
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
@@ -968,7 +972,11 @@ class LocalResources:
             )
             notification_function_grant = ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
             jobs_function_grant = ", ".join(
-                (*JOBS_LIST_RUNTIME_CAPABILITIES, *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES)
+                (
+                    *JOBS_LIST_RUNTIME_CAPABILITIES,
+                    *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
+                    *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
+                )
             )
             notification_delivery_read_check = " AND ".join(
                 f"pg_catalog.has_function_privilege(:role, '{signature}', 'EXECUTE')"
