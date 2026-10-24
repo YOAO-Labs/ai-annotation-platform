@@ -493,6 +493,7 @@ class PredictionService:
         background_native_reference_receipt=None,
         original_receipt=None,
         native_original_receipt=None,
+        repair_original_receipt=None,
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
         from app.services.reference_access import reject_reference_scope
@@ -500,7 +501,38 @@ class PredictionService:
         reference_evidence = None
         original_evidence = None
         native_qualification = None
-        if native_original_receipt is not None:
+        if repair_original_receipt is not None:
+            from app.services.managed_mask_repair import validate_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                any(
+                    value is not None
+                    for value in (
+                        reference_receipt,
+                        native_reference_receipt,
+                        repair_reference_receipt,
+                        background_native_reference_receipt,
+                        original_receipt,
+                        native_original_receipt,
+                    )
+                )
+                or source != "mask_repair"
+                or (token_meta or {}).get("mask_objects") is not None
+                or len(result) != 1
+                or (result[0].get("geometry") or {}).get("type") != "raster_mask"
+            ):
+                raise ContentError("repair_original_receipt_invalid")
+            original_evidence = await validate_receipt(
+                self.db,
+                task_id,
+                None,
+                repair_original_receipt,
+                "prediction",
+                result,
+                project_id=project_id,
+            )
+        elif native_original_receipt is not None:
             from app.services.managed_native_inference import validate_native_receipt
             from app.services.content_snapshot import ContentError
 
@@ -642,6 +674,12 @@ class PredictionService:
 
             if not is_reference(task.file_path):
                 raise ContentError("prediction_requires_original_provenance")
+        if task is not None and task.file_type == "image" and source == "mask_repair":
+            from app.services.reference_keys import is_reference
+            from app.services.content_snapshot import ContentError
+
+            if not is_reference(task.file_path) and repair_original_receipt is None:
+                raise ContentError("repair_original_requires_new_plan")
         await prepare_mask_payload_for_write(
             self.db,
             task,
@@ -650,6 +688,7 @@ class PredictionService:
             if (token_meta or {}).get("mask_objects") is not None
             else None,
             native_original_receipt=native_original_receipt,
+            repair_original_receipt=repair_original_receipt,
         )
         prediction = Prediction(
             id=uuid.uuid4(),
@@ -734,6 +773,10 @@ class PredictionService:
             task.total_predictions = (task.total_predictions or 0) + 1
 
         await self.db.flush()
+        if repair_original_receipt is not None:
+            from app.services.managed_mask_repair import recheck_credentials
+
+            await recheck_credentials(self.db, repair_original_receipt)
         return prediction
 
     async def create_failed(

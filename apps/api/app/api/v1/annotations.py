@@ -84,6 +84,7 @@ from app.utils.raster_mask_rle import (
 )
 
 from app.services.reference_access import reference_task_guard
+from app.services.content_snapshot import ContentError
 
 router = APIRouter(
     dependencies=[Depends(require_active_task_actor), Depends(reference_task_guard)]
@@ -118,6 +119,7 @@ async def _load_visible_mask_annotation(
     annotation_id: uuid.UUID,
     db: AsyncSession,
     user: User,
+    request: Request | None = None,
 ) -> tuple[Annotation, Task, dict]:
     annotation = await db.get(Annotation, annotation_id)
     if annotation is None or not annotation.is_active:
@@ -132,7 +134,54 @@ async def _load_visible_mask_annotation(
             status_code=404, detail={"reason": "raster_mask_read_disabled"}
         )
     try:
-        await validate_mask_geometry_for_task(db, task, geometry)
+        repair_read_receipt = None
+        from app.services.reference_keys import is_reference
+
+        qualified_read = task.dataset_item_id is None
+        if annotation.parent_prediction_id and task.file_type == "image":
+            from app.db.models.prediction import Prediction, PredictionMeta
+
+            parent_prediction = await db.scalar(
+                select(Prediction).where(
+                    Prediction.id == annotation.parent_prediction_id,
+                    Prediction.task_id == task.id,
+                )
+            )
+            parent_meta = await db.scalar(
+                select(PredictionMeta).where(
+                    PredictionMeta.prediction_id == annotation.parent_prediction_id
+                )
+            )
+            qualified_read = qualified_read or (
+                parent_prediction is not None
+                and (
+                    parent_prediction.source == "mask_repair"
+                    or (
+                        parent_meta is not None
+                        and (parent_meta.extra or {}).get("original_input") is not None
+                    )
+                )
+            )
+        if (
+            qualified_read
+            and task.file_type == "image"
+            and geometry.get("type") == "raster_mask"
+            and not is_reference(task.file_path)
+        ):
+            from app.services.managed_repair_acceptance import qualify_annotation_read
+
+            if request is None:
+                raise ContentError("repair_original_receipt_invalid")
+            repair_read_receipt = await qualify_annotation_read(
+                db, task, user, request, annotation
+            )
+        await validate_mask_geometry_for_task(
+            db, task, geometry, repair_read_receipt=repair_read_receipt
+        )
+    except ContentError as exc:
+        from app.services.dataset_content import content_http_error
+
+        raise content_http_error(exc) from None
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
@@ -172,7 +221,7 @@ async def get_annotation_mask_content(
     返回标准 COCO RLE 格式，带 ETag 支持条件请求。
     """
     annotation, _task, geometry = await _load_visible_mask_annotation(
-        annotation_id, db, user
+        annotation_id, db, user, request
     )
     geom_type = geometry.get("type")
 
@@ -204,7 +253,7 @@ async def get_annotation_mask_content_frame(
     user: User = Depends(get_current_user),
 ) -> Response:
     annotation, _task, geometry = await _load_visible_mask_annotation(
-        annotation_id, db, user
+        annotation_id, db, user, request
     )
     if geometry.get("type") in {"raster_mask", "video_mask"}:
         if (

@@ -128,6 +128,42 @@ async def reference_task_guard(
             raise content_http_error(exc) from None
         return
     if not is_reference(task.file_path):
+        # Only the owned repair-candidate write enters this managed dispatcher.
+        # Ordinary managed predictions and non-image operations keep their path.
+        if (
+            task.file_type == "image"
+            and request.method == "POST"
+            and re.fullmatch(
+                r"/api/v1/tasks/[^/]+/predictions/[^/]+/accept", request.url.path
+            )
+        ):
+            from app.db.models.prediction import Prediction
+            from app.services.managed_repair_acceptance import qualify_acceptance
+
+            try:
+                prediction_id = uuid.UUID(str(request.path_params["prediction_id"]))
+            except (ValueError, TypeError):
+                return
+            prediction = await db.scalar(
+                select(Prediction).where(
+                    Prediction.id == prediction_id, Prediction.task_id == task.id
+                )
+            )
+            if prediction is not None and prediction.source == "mask_repair":
+                try:
+                    request.state.repair_original_acceptance = await qualify_acceptance(
+                        db, task, actor, request, prediction_id
+                    )
+                except Exception as exc:
+                    from sqlalchemy.exc import DBAPIError
+                    from app.services.project_write_guard import _busy_lock_error
+
+                    if isinstance(exc, DBAPIError) and _busy_lock_error(exc):
+                        await db.rollback()
+                        raise HTTPException(
+                            409, detail={"code": "prediction_acceptance_busy"}
+                        ) from None
+                    raise content_http_error(exc) from None
         return
     if request.method == "POST" and re.fullmatch(
         r"/api/v1/tasks/[^/]+/predictions/[^/]+/accept", request.url.path

@@ -336,6 +336,7 @@ class AnnotationService:
         attribute_overrides: dict | None = None,
         video_segment_id: uuid.UUID | None = None,
         reference_receipt=None,
+        repair_original_receipt=None,
     ) -> list[Annotation] | None:
         """采纳预测 → 转 annotation。
 
@@ -360,7 +361,27 @@ class AnnotationService:
             return None
         from app.services.reference_access import reject_reference_scope
 
-        if reference_receipt is None:
+        selection = None
+        if repair_original_receipt is not None:
+            from app.services.managed_repair_acceptance import (
+                selection_value,
+                validate_acceptance,
+            )
+            from app.services.content_snapshot import ContentError
+
+            if reference_receipt is not None:
+                raise ContentError("repair_original_receipt_invalid")
+            selection = selection_value(
+                shape_index, override_class_name, attribute_overrides, video_segment_id
+            )
+            await validate_acceptance(
+                self.db,
+                prediction,
+                user_id,
+                repair_original_receipt,
+                selection=selection,
+            )
+        elif reference_receipt is None:
             await reject_reference_scope(self.db, task_ids=[prediction.task_id])
         else:
             from app.services.prediction_acceptance import validate_acceptance
@@ -391,6 +412,16 @@ class AnnotationService:
             if raw_shapes and not indexed:
                 raise HTTPException(409, detail="Prediction has no available shapes")
         task = await self.db.get(Task, prediction.task_id)
+        if (
+            task is not None
+            and task.file_type == "image"
+            and prediction.source == "mask_repair"
+        ):
+            from app.services.reference_keys import is_reference
+            from app.services.content_snapshot import ContentError
+
+            if not is_reference(task.file_path) and repair_original_receipt is None:
+                raise ContentError("repair_original_requires_new_plan")
         if task is not None:
             # A2 · task row lock before the accepted annotations are written.
             await record_annotation_actor(self.db, task, user_id)
@@ -398,7 +429,18 @@ class AnnotationService:
             self.db,
             task,
             [shape.get("geometry", {}) for _, shape in indexed],
+            repair_original_receipt=repair_original_receipt,
         )
+        if repair_original_receipt is not None:
+            # Owned RLE I/O may outlive credentials; recheck before constructing
+            # any accepted rows so our own writes never look like a prior adopt.
+            await validate_acceptance(
+                self.db,
+                prediction,
+                user_id,
+                repair_original_receipt,
+                selection=selection,
+            )
 
         # v0.20.10 · 属性级溯源: 从 PredictionMeta.extra.pipeline 建「AI 富集属性键 → model_ref」
         # 映射。pipeline 是 stage 级 (非 per-key), 但 enriched key = f"{label}_{k}" if label else k
@@ -611,6 +653,10 @@ class AnnotationService:
 
         await self.db.flush()
         await self._update_task_stats(prediction.task_id)
+        if repair_original_receipt is not None:
+            from app.services.managed_mask_repair import recheck_credentials
+
+            await recheck_credentials(self.db, repair_original_receipt)
         return anns
 
     async def list_by_task(

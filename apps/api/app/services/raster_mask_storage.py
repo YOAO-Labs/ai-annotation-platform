@@ -412,12 +412,32 @@ async def validate_mask_geometry_for_task(
     geometry: dict[str, Any],
     *,
     native_original_receipt=None,
+    repair_original_receipt=None,
+    repair_read_receipt=None,
 ) -> None:
     """验证掩码几何是否与任务数据集项匹配。
 
     支持 video_mask / video_track_mask（视频）和 raster_mask（图片）。
     """
     geom_type = geometry.get("type")
+
+    if repair_original_receipt is not None or repair_read_receipt is not None:
+        from app.services.managed_repair_acceptance import validate_geometry_receipt
+
+        if native_original_receipt is not None or (
+            repair_original_receipt is not None and repair_read_receipt is not None
+        ):
+            raise ContentError("repair_original_receipt_invalid")
+        await validate_geometry_receipt(
+            db,
+            task,
+            repair_original_receipt
+            if repair_original_receipt is not None
+            else repair_read_receipt,
+            geometry,
+            write=repair_original_receipt is not None,
+        )
+        return
 
     if native_original_receipt is not None:
         from app.services.managed_native_inference import validate_native_receipt
@@ -515,6 +535,7 @@ async def prepare_mask_payload_for_write(
     required_upload_keys: set[str] | None = None,
     portable_mask_meta: dict[str, Any] | None = None,
     native_original_receipt=None,
+    repair_original_receipt=None,
 ) -> None:
     """Gate, validate and claim every mask in a nested persistence payload.
 
@@ -525,7 +546,7 @@ async def prepare_mask_payload_for_write(
     """
     geometries = collect_mask_geometries(value)
     if not geometries:
-        if native_original_receipt is not None:
+        if native_original_receipt is not None or repair_original_receipt is not None:
             raise ContentError("prediction_original_geometry_not_supported")
         if portable_mask_meta is not None:
             from app.services.controlled_segmentation import validate_portable_masks
@@ -567,7 +588,11 @@ async def prepare_mask_payload_for_write(
     for geometry in geometries:
         try:
             await validate_mask_geometry_for_task(
-                db, task, geometry, native_original_receipt=native_original_receipt
+                db,
+                task,
+                geometry,
+                native_original_receipt=native_original_receipt,
+                repair_original_receipt=repair_original_receipt,
             )
         except RasterMaskContractError:
             raise
@@ -659,10 +684,15 @@ async def prepare_mask_geometry_for_annotation_write(
     geometry: dict[str, Any],
     *,
     native_original_receipt=None,
+    repair_original_receipt=None,
 ) -> None:
     """Backward-compatible direct-geometry wrapper for annotation writes."""
     await prepare_mask_payload_for_write(
-        db, task, geometry, native_original_receipt=native_original_receipt
+        db,
+        task,
+        geometry,
+        native_original_receipt=native_original_receipt,
+        repair_original_receipt=repair_original_receipt,
     )
 
 

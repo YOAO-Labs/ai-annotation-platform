@@ -1265,8 +1265,23 @@ class MaskMutationService:
         request: Any = None,
         access: Any = None,
         reference_repair_receipt=None,
+        repair_original_receipt=None,
     ) -> MaskMutationCommitResponse:
         digest = request_digest(payload)
+        if repair_original_receipt is not None:
+            from app.services.managed_mask_repair import validate_receipt
+            from app.services.content_snapshot import ContentError
+
+            if reference_repair_receipt is not None:
+                raise ContentError("repair_original_receipt_invalid")
+            await validate_receipt(
+                self.db,
+                task_id,
+                actor.id,
+                repair_original_receipt,
+                "mutation",
+                payload.model_dump(mode="json"),
+            )
         task = (
             await self._lock_task(task_id)
             if reference_repair_receipt is None
@@ -1574,6 +1589,7 @@ class MaskMutationService:
                 geometries,
                 reference_value=submitted_references,
                 required_upload_keys=submitted_keys - source_keys,
+                repair_original_receipt=repair_original_receipt,
             )
         except RasterMaskContractError as exc:
             reason = str(exc.detail.get("reason") or "invalid_geometry")
@@ -1913,4 +1929,8 @@ class MaskMutationService:
         )
         operation.response_json = response.model_dump(mode="json")
         await self.db.flush()
+        if repair_original_receipt is not None:
+            from app.services.managed_mask_repair import recheck_credentials
+
+            await recheck_credentials(self.db, repair_original_receipt)
         return response

@@ -31,6 +31,7 @@ from app.schemas.annotation import (
 from app.schemas._jsonb_types import CocoRleContent
 from app.schemas.prediction import PredictionOut
 from app.services.annotation import AnnotationService
+from app.services.content_snapshot import ContentError
 from app.services.prediction import PredictionService
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
@@ -214,7 +215,32 @@ async def get_prediction_raster_mask_content(
             },
         )
     try:
-        await validate_mask_geometry_for_task(db, task, geometry)
+        repair_read_receipt = None
+        from app.services.reference_keys import is_reference
+
+        if (
+            task.file_type == "image"
+            and not is_reference(task.file_path)
+            and prediction.source == "mask_repair"
+        ):
+            from app.db.models.prediction import PredictionMeta
+            from app.services.managed_repair_acceptance import qualify_candidate_read
+
+            metadata = await db.scalar(
+                select(PredictionMeta).where(
+                    PredictionMeta.prediction_id == prediction.id
+                )
+            )
+            repair_read_receipt = await qualify_candidate_read(
+                db, task, current_user, request, prediction, metadata
+            )
+        await validate_mask_geometry_for_task(
+            db, task, geometry, repair_read_receipt=repair_read_receipt
+        )
+    except ContentError as exc:
+        from app.services.dataset_content import content_http_error
+
+        raise content_http_error(exc) from None
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
@@ -354,7 +380,14 @@ async def accept_prediction(
             attribute_overrides=attribute_overrides,
             video_segment_id=video_segment_id,
             reference_receipt=getattr(request.state, "reference_acceptance", None),
+            repair_original_receipt=getattr(
+                request.state, "repair_original_acceptance", None
+            ),
         )
+    except ContentError as exc:
+        from app.services.dataset_content import content_http_error
+
+        raise content_http_error(exc) from None
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     # v0.20.22 · 契约: None → 404 (prediction 不存在 / shape_index 越界); 成功 →
@@ -374,6 +407,15 @@ async def accept_prediction(
             geometry=annotation.geometry,
         )
     await heartbeat_task_lock_for_legacy_video(db, task, current_user.id)
+    repair_receipt = getattr(request.state, "repair_original_acceptance", None)
+    if repair_receipt is not None:
+        from app.services.managed_mask_repair import recheck_credentials
+        from app.services.dataset_content import content_http_error
+
+        try:
+            await recheck_credentials(db, repair_receipt)
+        except ContentError as exc:
+            raise content_http_error(exc) from None
     await db.commit()
     return anns
 
