@@ -18,6 +18,7 @@ class PredictionInputMapping(unittest.TestCase):
         return SimpleNamespace(
             id=identifier,
             contract_version=2,
+            owner_kind="predict_test",
             bucket="source-import",
             storage_identity=identity("http://saved.test:9000", "source-import"),
             maintenance_revision=3,

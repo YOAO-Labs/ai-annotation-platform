@@ -534,3 +534,63 @@ async def verify_prediction_inputs(db):
         "prediction_input_queue_resumed": False,
         "prediction_input_versioned_recovery_qualified": False,
     }
+
+
+def verify_video_input_copy(storage, record):
+    """Verify a restored v3 owner without renewing proof, versions or deadlines.
+
+    The caller supplies a frozen detached row under its existing restore permit.
+    Content recovery does not recreate historical S3 versions or execution rights.
+    A planned member may be absent or contain the exact nonce-owned completed
+    write; neither case promotes its durable state to verified.
+    """
+    from botocore.exceptions import ClientError
+    from app.services import prediction_inputs
+    import time
+
+    if type(record.contract_version) is not int or record.contract_version != 3:
+        prediction_inputs.reject("video_contract_required")
+    prediction_inputs._resolve(record)
+    objects = prediction_inputs._inventory(record, record.inventory)
+    if len(objects) != 1:
+        prediction_inputs.reject("object_not_verified")
+    if record.expires_at != record.created_at + timedelta(
+        hours=2
+    ) or record.retain_until != record.expires_at + timedelta(days=7):
+        prediction_inputs.reject()
+    before = deepcopy(vars(record))
+    deadline = time.monotonic() + prediction_inputs.IO_SECONDS
+    verified = planned = present = 0
+    for relative, entry in objects.items():
+        key = record.storage_ref["key_prefix"] + relative
+        if entry["state"] == "verified":
+            _read_restored_content(storage.client, record, key, entry, deadline)
+            verified += 1
+            present += 1
+        else:
+            try:
+                _read_restored_content(storage.client, record, key, entry, deadline)
+                present += 1
+            except ClientError as exc:
+                if str(exc.response.get("Error", {}).get("Code")) not in {
+                    "404",
+                    "NoSuchKey",
+                    "NotFound",
+                    "NoSuchVersion",
+                }:
+                    raise
+            planned += 1
+    rejected, cleanup = (
+        _verify_historical_rejections(storage, record, objects) if present else (0, 0)
+    )
+    assert vars(record) == before, (
+        "Recovery must preserve v3 source/probe/nonce/receipts/deadlines"
+    )
+    return {
+        "verified_video_input_objects": verified,
+        "planned_video_input_objects": planned,
+        "historical_video_input_receipts_rejected": rejected,
+        "historical_video_input_cleanup_rejected": cleanup,
+        "video_input_receipts_rewritten": False,
+        "video_input_queue_resumed": False,
+    }

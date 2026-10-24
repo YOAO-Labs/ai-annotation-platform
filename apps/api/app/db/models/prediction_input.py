@@ -51,10 +51,10 @@ class PredictionInputLease(Base):
             name="ck_prediction_input_lease_state",
         ),
         CheckConstraint(
-            "contract_version IN (1,2)", name="ck_prediction_input_contract"
+            "contract_version IN (1,2,3)", name="ck_prediction_input_contract"
         ),
         CheckConstraint(
-            "object_count BETWEEN 0 AND 10000 AND size_bytes BETWEEN 0 AND 4294967296",
+            "(contract_version IN (1,2) AND object_count BETWEEN 0 AND 10000 AND size_bytes BETWEEN 0 AND 4294967296) OR (contract_version=3 AND object_count BETWEEN 0 AND 1 AND size_bytes BETWEEN 0 AND 5368709120)",
             name="ck_prediction_input_budget",
         ),
         CheckConstraint(
@@ -65,11 +65,11 @@ class PredictionInputLease(Base):
             name="ck_prediction_input_times",
         ),
         CheckConstraint(
-            "contract_version=1 OR owner_kind IN ('batch_predict','prediction_retry','interactive_predict','predict_test','mask_repair','secondary_inference')",
+            "(contract_version=1 AND owner_kind NOT IN ('video_batch_predict','video_prediction_retry','video_predict_test','video_interactive','video_tracker')) OR (contract_version=2 AND owner_kind IN ('batch_predict','prediction_retry','interactive_predict','predict_test','mask_repair','secondary_inference')) OR (contract_version=3 AND owner_kind IN ('video_batch_predict','video_prediction_retry','video_predict_test','video_interactive','video_tracker'))",
             name="ck_prediction_input_owner",
         ),
         CheckConstraint(
-            "(contract_version=1 AND storage_ref IS NULL AND maintenance_revision IS NULL AND inventory IS NULL AND source_ref IS NULL AND object_count=0 AND size_bytes=0 AND deleted_at IS NULL AND state<>'deleted') OR (contract_version=2 AND maintenance_revision>=1 AND maintenance_revision IS NOT NULL AND "
+            "(contract_version=1 AND storage_ref IS NULL AND maintenance_revision IS NULL AND inventory IS NULL AND source_ref IS NULL AND object_count=0 AND size_bytes=0 AND deleted_at IS NULL AND state<>'deleted') OR (contract_version IN (2,3) AND maintenance_revision>=1 AND maintenance_revision IS NOT NULL AND "
             + PREDICTION_INPUT_REF_CHECK
             + ")",
             name="ck_prediction_input_pin",

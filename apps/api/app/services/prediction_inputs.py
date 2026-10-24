@@ -11,6 +11,9 @@ import hashlib
 import io
 import json
 import logging
+import math
+import os
+import stat
 import re
 import time
 from urllib.parse import urlsplit
@@ -28,6 +31,7 @@ from app.db.models.prediction_input import PredictionInputLease as InputRecord
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import storage_access
 from app.services.content_snapshot import ContentError, MAX_BYTES, MAX_PIXELS, Snapshot
+from app.services.managed_original_reader import BinaryStage
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.storage import StorageService
 
@@ -35,6 +39,34 @@ log = logging.getLogger(__name__)
 ACTIVE_SECONDS = 2 * 60 * 60
 RECOVERY_DAYS = 7
 RETRY_SECONDS = 60
+MAX_VIDEO_BYTES = 5 * 1024**3
+VIDEO_KINDS = frozenset(
+    {
+        "video_batch_predict",
+        "video_prediction_retry",
+        "video_predict_test",
+        "video_interactive",
+        "video_tracker",
+    }
+)
+IMAGE_KINDS = frozenset(
+    {
+        "batch_predict",
+        "prediction_retry",
+        "interactive_predict",
+        "predict_test",
+        "mask_repair",
+        "secondary_inference",
+    }
+)
+_VIDEO_EXTENSIONS = {
+    "mov": "mov",
+    "matroska": "mkv",
+    "avi": "avi",
+    "asf": "asf",
+    "flv": "flv",
+}
+_VIDEO_RELATIVE = re.compile(r"video/[0-9a-f]{64}\.(?:mov|mkv|avi|asf|flv)")
 MAX_OBJECTS = 10_000
 MAX_TOTAL_BYTES = 4 * 1024**3
 MAX_INVENTORY_BYTES = 4 * 1024**2
@@ -190,8 +222,15 @@ def resolve_ref(ref, *, expected_prefix):
 
 
 def _resolve(record):
-    if record.contract_version != 2:
+    if type(record.contract_version) is not int or record.contract_version not in {
+        2,
+        3,
+    }:
         reject("legacy_unpinned")
+    if record.owner_kind not in (
+        VIDEO_KINDS if record.contract_version == 3 else IMAGE_KINDS
+    ):
+        reject("scope_invalid")
     ref = resolve_ref(record.storage_ref, expected_prefix=input_prefix(record.id))
     if (
         record.bucket != ref["bucket"]
@@ -359,13 +398,69 @@ async def check_metadata(db, inputs, *, lock=True):
     )
     if pending:
         reject("object_not_verified")
+    if inputs.record.contract_version == 3:
+        await inputs._check_video_inventory(db, row)
     return inputs.record
 
 
-def _entry(relative, entry):
-    if not isinstance(relative, str) or _RELATIVE.fullmatch(relative) is None:
+def _probe(value):
+    """Validate the exact H2 descriptor receipt without accepting legacy estimates."""
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"probe_contract", "video"}
+        or type(value["probe_contract"]) is not int
+        or value["probe_contract"] != 1
+        or not isinstance(value["video"], dict)
+        or set(value["video"])
+        != {"width", "height", "fps", "frame_count", "duration_ms", "codec"}
+    ):
+        reject("video_probe_invalid")
+    info = value["video"]
+    try:
+        finite_fps = type(info["fps"]) in (int, float) and math.isfinite(info["fps"])
+    except OverflowError:
+        finite_fps = False
+    if (
+        any(
+            type(info[key]) is not int or not 0 < info[key] <= 2**31 - 1
+            for key in ("width", "height")
+        )
+        or type(info["frame_count"]) is not int
+        or not 0 < info["frame_count"] <= 1_000_000
+        or type(info["fps"]) not in (int, float)
+        or not finite_fps
+        or info["fps"] <= 0
+        or (
+            info["duration_ms"] is not None
+            and (
+                type(info["duration_ms"]) is not int
+                or not 0 <= info["duration_ms"] <= 2**63 - 1
+            )
+        )
+        or not isinstance(info["codec"], str)
+        or not 0 < len(info["codec"]) <= 128
+    ):
+        reject("video_probe_invalid")
+    return _document(value, 4096)
+
+
+def _limits(record):
+    _resolve(record)
+    return (
+        (1, MAX_VIDEO_BYTES)
+        if record.contract_version == 3
+        else (MAX_OBJECTS, MAX_TOTAL_BYTES)
+    )
+
+
+def _entry(relative, entry, *, contract_version=2):
+    video = type(contract_version) is int and contract_version == 3
+    if type(contract_version) is not int or contract_version not in {2, 3}:
+        reject()
+    pattern = _VIDEO_RELATIVE if video else _RELATIVE
+    if not isinstance(relative, str) or pattern.fullmatch(relative) is None:
         reject("scope_invalid")
-    if not isinstance(entry, dict) or set(entry) != {
+    fields = {
         "sha256",
         "size_bytes",
         "media_type",
@@ -373,8 +468,26 @@ def _entry(relative, entry):
         "etag",
         "version_id",
         "write_nonce",
-    }:
+    }
+    if video:
+        fields |= {"container", "probe"}
+    if not isinstance(entry, dict) or set(entry) != fields:
         reject()
+    if video:
+        _probe(entry["probe"])
+        if (
+            not isinstance(entry["container"], str)
+            or entry["container"] not in _VIDEO_EXTENSIONS
+            or entry["media_type"] != "application/octet-stream"
+        ):
+            reject()
+        extension = _VIDEO_EXTENSIONS[entry["container"]]
+    else:
+        extension = (
+            _TYPES.get(entry["media_type"])
+            if isinstance(entry["media_type"], str)
+            else None
+        )
     try:
         nonce = uuid.UUID(entry["write_nonce"])
         nonce_valid = str(nonce) == entry["write_nonce"] and nonce.version == 4
@@ -385,17 +498,19 @@ def _entry(relative, entry):
         or not isinstance(entry["sha256"], str)
         or _SHA.fullmatch(entry["sha256"]) is None
         or type(entry["size_bytes"]) is not int
-        or not 0 < entry["size_bytes"] <= MAX_BYTES
-        or entry["media_type"] not in _TYPES
+        or not 0 < entry["size_bytes"] <= (MAX_VIDEO_BYTES if video else MAX_BYTES)
+        or extension is None
         or entry["state"] not in {"planned", "verified"}
-        or not relative.endswith(entry["sha256"] + "." + _TYPES[entry["media_type"]])
+        or not relative.endswith(entry["sha256"] + "." + extension)
     ):
         reject()
     if entry["state"] == "planned":
         if entry["etag"] is not None or entry["version_id"] is not None:
             reject()
-    elif not _header(entry["etag"]) or (
-        entry["version_id"] is not None and not _header(entry["version_id"])
+    elif (
+        (video and entry["version_id"] in (None, "null"))
+        or not _header(entry["etag"])
+        or (entry["version_id"] is not None and not _header(entry["version_id"]))
     ):
         reject()
     return deepcopy(entry)
@@ -467,6 +582,7 @@ def _read(client, bucket, key, entry, deadline, *, lease_id, written=None):
         not _header(etag)
         or type(head.get("ContentLength")) is not int
         or head["ContentLength"] != entry["size_bytes"]
+        or ("container" in entry and head.get("ContentType") != entry["media_type"])
     ):
         reject("integrity_mismatch")
     if expected is not None and (
@@ -488,6 +604,10 @@ def _read(client, bucket, key, entry, deadline, *, lease_id, written=None):
             or _version(response) != version
             or type(response.get("ContentLength")) is not int
             or response["ContentLength"] != entry["size_bytes"]
+            or (
+                "container" in entry
+                and response.get("ContentType") != entry["media_type"]
+            )
         ):
             reject("integrity_mismatch")
         digest, size = hashlib.sha256(), 0
@@ -513,6 +633,7 @@ def _read(client, bucket, key, entry, deadline, *, lease_id, written=None):
         or _version(after) != version
         or type(after.get("ContentLength")) is not int
         or after["ContentLength"] != entry["size_bytes"]
+        or ("container" in entry and after.get("ContentType") != entry["media_type"])
     ):
         reject("integrity_mismatch")
     return {**entry, "state": "verified", "etag": etag, "version_id": version}
@@ -549,6 +670,7 @@ class PredictionInputs:
         self.guard = guard
         self.prefix = input_prefix(record.id)
         self._objects, self._uploaded = {}, set()
+        self._video_receipt = None
         self._snapshot, self._images = None, []
         self._closed = self._uncertain_write = self._unsettled = False
         self._lock = asyncio.Lock()
@@ -565,14 +687,7 @@ class PredictionInputs:
         guard=None,
         source_ref=None,
     ):
-        if owner_kind not in {
-            "batch_predict",
-            "prediction_retry",
-            "interactive_predict",
-            "predict_test",
-            "mask_repair",
-            "secondary_inference",
-        }:
+        if owner_kind not in IMAGE_KINDS | VIDEO_KINDS:
             raise ValueError("unsupported prediction input owner")
         if guard is not None and not callable(guard):
             raise TypeError("guard must be an asynchronous authority callback")
@@ -594,7 +709,7 @@ class PredictionInputs:
                     owner_id=uuid.UUID(str(owner_id)),
                     owner_kind=owner_kind,
                     task_id=uuid.UUID(str(task_id)),
-                    contract_version=2,
+                    contract_version=3 if owner_kind in VIDEO_KINDS else 2,
                     storage_ref=ref,
                     bucket=ref["bucket"],
                     storage_identity=ref["storage_identity"],
@@ -656,11 +771,42 @@ class PredictionInputs:
                 )
                 if pending:
                     reject("object_not_verified")
+                if self.record.contract_version == 3:
+                    await self._check_video_inventory(db)
 
         await _async(check())
 
+    @property
+    def video_receipt(self):
+        if self.record.contract_version != 3 or self._video_receipt is None:
+            reject("object_not_verified")
+        return deepcopy(self._video_receipt)
+
+    async def _check_video_inventory(self, db, row=None):
+        row = row or await _row(db, self.record.id)
+        size = await db.scalar(
+            select(func.octet_length(cast(InputRecord.inventory, Text))).where(
+                InputRecord.id == self.record.id
+            )
+        )
+        if size is None or size > MAX_INVENTORY_BYTES:
+            reject("budget_exceeded", 413)
+        value = await db.scalar(
+            select(InputRecord.inventory).where(InputRecord.id == self.record.id)
+        )
+        objects = _inventory(row, value)
+        if len(objects) != 1:
+            reject("object_not_verified")
+        relative, entry = next(iter(objects.items()))
+        if entry["state"] != "verified" or entry["version_id"] in {None, "null"}:
+            reject("object_not_verified")
+        if {"relative": relative, **entry} != self._video_receipt:
+            reject("invalid_receipt")
+
     async def _reserve(self, relative, expected):
-        expected = _entry(relative, expected)
+        expected = _entry(
+            relative, expected, contract_version=self.record.contract_version
+        )
 
         async def reserve():
             async with self.factory() as db:
@@ -671,16 +817,22 @@ class PredictionInputs:
                     )
                 )
                 if old is not None:
-                    old = _entry(relative, old)
+                    old = _entry(
+                        relative, old, contract_version=self.record.contract_version
+                    )
                     if any(
                         old[k] != expected[k]
-                        for k in ("sha256", "size_bytes", "media_type")
+                        for k in (
+                            set(expected)
+                            - {"state", "etag", "version_id", "write_nonce"}
+                        )
                     ):
                         reject()
                     return old
+                max_objects, max_bytes = _limits(self.record)
                 if (
-                    row.object_count >= MAX_OBJECTS
-                    or row.size_bytes + expected["size_bytes"] > MAX_TOTAL_BYTES
+                    row.object_count >= max_objects
+                    or row.size_bytes + expected["size_bytes"] > max_bytes
                 ):
                     reject("budget_exceeded", 413)
                 await db.execute(
@@ -748,6 +900,7 @@ class PredictionInputs:
         await _async(check())
 
     def _url(self, storage, relative, verified):
+        _entry(relative, verified, contract_version=self.record.contract_version)
         seconds = min(
             URL_SECONDS, int((self.record.expires_at - now()).total_seconds())
         )
@@ -794,7 +947,7 @@ class PredictionInputs:
 
         await _async(publish())
 
-    async def _upload(self, relative, content, *, sha256, size, media_type):
+    async def _upload(self, relative, content, *, sha256, size, media_type, video=None):
         expected = await self._reserve(
             relative,
             dict(
@@ -805,6 +958,7 @@ class PredictionInputs:
                 etag=None,
                 version_id=None,
                 write_nonce=str(uuid.uuid4()),
+                **(video or {}),
             ),
         )
 
@@ -880,12 +1034,16 @@ class PredictionInputs:
 
             async def publish(result):
                 verified, _ = result
-                _entry(relative, verified)
+                _entry(
+                    relative, verified, contract_version=self.record.contract_version
+                )
                 if expected != verified:
                     await self._publish(relative, expected, verified)
 
             verified, url = await self._io(physical, publish=publish)
             self._uploaded.add(relative)
+            if self.record.contract_version == 3:
+                self._video_receipt = {"relative": relative, **deepcopy(verified)}
             return url
         except BaseException as exc:
             self._uncertain_write = True
@@ -896,7 +1054,50 @@ class PredictionInputs:
                 raise failure from None
             raise
 
+    async def upload_video(self, stage: BinaryStage, *, probe):
+        """Borrow one verified descriptor; the source owner retains its real close."""
+        if (
+            self.record.contract_version != 3
+            or self.record.owner_kind not in VIDEO_KINDS
+        ):
+            reject("video_contract_required")
+        probe = _probe(probe)
+        if (
+            type(stage) is not BinaryStage
+            or stage._closed
+            or type(stage.size) is not int
+            or not 0 < stage.size <= MAX_VIDEO_BYTES
+            or not isinstance(stage.sha256, str)
+            or _SHA.fullmatch(stage.sha256) is None
+        ):
+            reject("video_stage_invalid")
+        async with self._lock:
+            # The caller retains the source permit during this borrowed FD check.
+            # Hashing and transport also drain before this method releases it.
+            def inspect_stage():
+                from app.workers.media_process import _demuxer, decoder_input
+
+                try:
+                    _, descriptors = decoder_input(stage)
+                    facts = os.fstat(descriptors[0])
+                    if not stat.S_ISREG(facts.st_mode) or facts.st_size != stage.size:
+                        reject("video_stage_invalid")
+                    return _demuxer(descriptors[0])
+                except (ValueError, OSError, AttributeError):
+                    reject("video_stage_invalid")
+
+            container = await settled_io(inspect_stage)
+            return await self._upload(
+                f"video/{stage.sha256}.{_VIDEO_EXTENSIONS[container]}",
+                stage.file,
+                sha256=stage.sha256,
+                size=stage.size,
+                media_type="application/octet-stream",
+                video={"container": container, "probe": probe},
+            )
+
     async def upload_crop(self, task, box_index, content):
+        self._image_only()
         if (
             uuid.UUID(str(task.id)) != self.record.task_id
             or type(box_index) is not int
@@ -916,7 +1117,12 @@ class PredictionInputs:
                 media_type="image/jpeg",
             )
 
+    def _image_only(self):
+        if self.record.contract_version != 2:
+            reject("image_contract_required")
+
     def _adopt_snapshot(self, snapshot):
+        self._image_only()
         if (
             self._closed
             or self._unsettled
@@ -957,6 +1163,7 @@ class PredictionInputs:
             )
 
     def load_image(self, task):
+        self._image_only()
         if (
             self._closed
             or self._unsettled
@@ -1070,17 +1277,17 @@ def _inventory(record, value):
         or type(value["schema"]) is not int
         or value["schema"] != 1
         or not isinstance(value["objects"], dict)
-        or len(value["objects"]) > MAX_OBJECTS
+        or len(value["objects"]) > _limits(record)[0]
     ):
         reject()
     objects = {
-        relative: _entry(relative, entry)
+        relative: _entry(relative, entry, contract_version=record.contract_version)
         for relative, entry in value["objects"].items()
     }
     if (
         record.object_count != len(objects)
         or record.size_bytes != sum(entry["size_bytes"] for entry in objects.values())
-        or record.size_bytes > MAX_TOTAL_BYTES
+        or record.size_bytes > _limits(record)[1]
     ):
         reject()
     return objects
@@ -1224,7 +1431,7 @@ async def purge_input(factory, input_id, *, storage=None):
                 return None
             row.next_cleanup_at = checked + timedelta(seconds=RETRY_SECONDS)
             row.last_cleanup_at = checked
-            if row.contract_version != 2 or row.storage_ref is None:
+            if row.contract_version not in {2, 3} or row.storage_ref is None:
                 row.error_code = "legacy_unpinned"
                 await db.commit()
                 return "deferred"
