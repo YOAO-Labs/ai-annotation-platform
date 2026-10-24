@@ -81,7 +81,7 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
 
     try:
         import pyvips
-    except ImportError as exc:
+    except (ImportError, OSError) as exc:
         raise ImagePyramidError("generator_unavailable") from exc
 
     image, dimensions, failure = None, None, None

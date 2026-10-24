@@ -20,6 +20,7 @@ from app.db.models.image_pyramid import (
 )
 from app.db.models.task import Task
 from app.services.storage import StorageService, storage_service
+from app.services import image_pyramid_originals as originals
 from app.schemas.image_pyramid import ImagePyramidSummary
 
 PYRAMID_SCHEMA = "aap-image-pyramid/v1"
@@ -47,6 +48,7 @@ class ImagePyramidOwner:
     height: int | None
     file_type: str
     file_size: int | None
+    source: object = None
 
 
 def utcnow() -> datetime:
@@ -177,91 +179,58 @@ def sha256_digest(data: bytes) -> str:
 
 
 async def owner_for_task(db: AsyncSession, task: Task) -> ImagePyramidOwner:
-    if task.dataset_item_id:
-        from app.services.directory_policy import owns_media
+    source = await originals.pin(db, "task", task.id)
+    if source.item_id is not None:
+        item = await db.get(DatasetItem, source.item_id, populate_existing=True)
+        return _owner("dataset_item", item.id, source, item.width, item.height)
+    return _owner("task", task.id, source, None, None)
 
-        if await owns_media(db, task.dataset_item_id):
-            raise ImagePyramidError("directory_cache_not_supported")
-        item = await db.get(DatasetItem, task.dataset_item_id)
-        if item is None:
-            raise ImagePyramidError("source_missing")
-        return owner_for_dataset_item(item)
+
+def _owner(kind, identifier, source, width, height):
     return ImagePyramidOwner(
-        kind="task",
-        id=task.id,
-        file_path=task.file_path,
-        bucket=storage_service.bucket,
-        width=None,
-        height=None,
-        file_type=task.file_type,
-        file_size=None,
+        kind=kind,
+        id=identifier,
+        file_path=source.object_key,
+        bucket=source.bucket,
+        width=width,
+        height=height,
+        file_type=source.media_type,
+        file_size=source.size_bytes,
+        source=source,
     )
 
 
-def owner_for_dataset_item(item: DatasetItem) -> ImagePyramidOwner:
-    from app.services.reference_keys import is_reference
-
-    if is_reference(item.file_path):
-        raise ImagePyramidError("reference_operation_not_supported")
-    return ImagePyramidOwner(
-        kind="dataset_item",
-        id=item.id,
-        file_path=item.file_path,
-        bucket=storage_service.datasets_bucket,
-        width=item.width,
-        height=item.height,
-        file_type=item.file_type,
-        file_size=item.file_size,
-    )
+async def owner_for_dataset_item(
+    db: AsyncSession, item: DatasetItem
+) -> ImagePyramidOwner:
+    source = await originals.pin(db, "dataset_item", item.id)
+    return _owner("dataset_item", item.id, source, item.width, item.height)
 
 
 async def load_owner(
     db: AsyncSession, owner_kind: OwnerKind, owner_id: uuid.UUID
 ) -> ImagePyramidOwner:
     if owner_kind == "dataset_item":
-        from app.services.directory_policy import owns_media
-
-        if await owns_media(db, owner_id):
-            raise ImagePyramidError("directory_cache_not_supported")
-        item = await db.get(DatasetItem, owner_id)
+        item = await db.get(DatasetItem, owner_id, populate_existing=True)
         if item is None:
             raise ImagePyramidError("source_missing")
-        return owner_for_dataset_item(item)
-    task = await db.get(Task, owner_id)
+        return await owner_for_dataset_item(db, item)
+    if owner_kind != "task":
+        raise ImagePyramidError("owner_changed")
+    task = await db.get(Task, owner_id, populate_existing=True)
     if task is None:
         raise ImagePyramidError("source_missing")
-    if task.dataset_item_id is not None:
-        raise ImagePyramidError("owner_changed")
-    return ImagePyramidOwner(
-        kind="task",
-        id=task.id,
-        file_path=task.file_path,
-        bucket=storage_service.bucket,
-        width=None,
-        height=None,
-        file_type=task.file_type,
-        file_size=None,
-    )
+    return await owner_for_task(db, task)
 
 
 def source_identity(
     owner: ImagePyramidOwner, storage: StorageService = storage_service
 ) -> tuple[str, int]:
-    try:
-        metadata = storage.client.head_object(Bucket=owner.bucket, Key=owner.file_path)
-    except Exception as exc:  # noqa: BLE001 - storage adapters surface varied errors
-        raise ImagePyramidError("source_missing") from exc
-    size = int(metadata.get("ContentLength") or 0)
-    if size <= 0:
-        raise ImagePyramidError("source_missing")
-    if size > settings.image_pyramid_max_source_bytes:
-        raise ImagePyramidError("resource_limit")
-    etag = str(metadata.get("ETag") or "").strip('"')
-    version_id = str(metadata.get("VersionId") or "")
-    identity = f"etag:{etag}:bytes:{size}"
-    if version_id:
-        identity += f":version:{version_id}"
-    return identity, size
+    """The registered identity is metadata; no provider I/O in business locks."""
+    ref = originals.receipt(owner.source)
+    return "managed:" + hashlib.sha256(canonical_manifest_bytes(ref)).hexdigest(), ref[
+        "size_bytes"
+    ]
 
 
 def _asset_owner_values(owner: ImagePyramidOwner) -> dict[str, Any]:
@@ -289,7 +258,9 @@ async def get_asset_for_owner(
         ImagePyramidAsset.profile_version == settings.image_pyramid_profile_version,
     )
     if for_update:
-        statement = statement.with_for_update()
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True
+        )
     return (await db.execute(statement)).scalar_one_or_none()
 
 
@@ -298,6 +269,7 @@ async def prepare_generation(
     owner: ImagePyramidOwner,
     *,
     force: bool,
+    delegation: dict,
 ) -> ImagePyramidGeneration | None:
     from app.services.directory_policy import owns_media
 
@@ -308,6 +280,10 @@ async def prepare_generation(
     if not force and not pyramid_eligible(owner.width, owner.height):
         return None
 
+    authority = await originals.delegated(db, delegation)
+    await originals.check(db, authority, lock=True)
+    if originals.receipt(owner.source) != authority.original:
+        raise ImagePyramidError("source_changed")
     identity, source_size = source_identity(owner)
     if source_size > settings.image_pyramid_max_source_bytes:
         raise ImagePyramidError("resource_limit")
@@ -329,6 +305,7 @@ async def prepare_generation(
                 ImagePyramidGeneration.status.in_(("pending", "building")),
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     now = utcnow()
@@ -375,6 +352,8 @@ async def prepare_generation(
         asset_id=asset.id,
         generation=generation_number,
         source_identity=identity,
+        original_ref=originals.receipt(owner.source),
+        auth_ref=delegation,
         status="pending",
         normalization_version=settings.image_pyramid_normalization_version,
         tile_size=PYRAMID_TILE_SIZE,
@@ -389,6 +368,14 @@ async def prepare_generation(
 async def acquire_generation_lease(
     db: AsyncSession, asset_id: uuid.UUID, generation_number: int
 ) -> uuid.UUID | None:
+    asset = await db.scalar(
+        select(ImagePyramidAsset)
+        .where(ImagePyramidAsset.id == asset_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if asset is None:
+        return None
     generation = (
         await db.execute(
             select(ImagePyramidGeneration)
@@ -397,6 +384,7 @@ async def acquire_generation_lease(
                 ImagePyramidGeneration.generation == generation_number,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if generation is None or generation.status in {"ready", "failed"}:
@@ -416,6 +404,9 @@ async def acquire_generation_lease(
         seconds=settings.image_pyramid_lease_seconds
     )
     generation.attempts += 1
+    from app.services import image_pyramid_objects as objects
+
+    await objects.allocate(db, asset, generation, token)
     await db.flush()
     return token
 
@@ -438,12 +429,16 @@ async def publish_generation(
     overview_digest: str,
     tile_count: int,
     retained_bytes: int,
+    output_id: uuid.UUID,
+    inventory: dict,
+    gate_revision: int,
 ) -> bool:
     asset = (
         await db.execute(
             select(ImagePyramidAsset)
             .where(ImagePyramidAsset.id == asset_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     generation = (
@@ -454,6 +449,7 @@ async def publish_generation(
                 ImagePyramidGeneration.generation == generation_number,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if (
@@ -461,12 +457,27 @@ async def publish_generation(
         or generation is None
         or generation.status != "building"
         or generation.lease_token != lease_token
+        or generation.lease_expires_at is None
+        or generation.lease_expires_at <= utcnow()
+        or generation.output_id != output_id
+        or asset.building_generation != generation_number
     ):
         return False
-    from app.services.directory_policy import owns_media
+    from app.services import image_pyramid_objects as objects
 
-    if await owns_media(db, asset.dataset_item_id):
-        return False
+    authority = await originals.delegated(db, generation.auth_ref)
+    await originals.check(db, authority, lock=True)
+    owner = await load_owner(
+        db,
+        "dataset_item" if asset.dataset_item_id else "task",
+        asset.dataset_item_id or asset.task_id,
+    )
+    if (
+        generation.original_ref != originals.receipt(owner.source)
+        or generation.original_ref != authority.original
+        or source_fingerprint != "sha256:" + owner.source.sha256
+    ):
+        raise ImagePyramidError("source_changed")
     generation.source_fingerprint = source_fingerprint
     generation.status = "ready"
     generation.lease_token = None
@@ -484,6 +495,9 @@ async def publish_generation(
     generation.tile_count = tile_count
     generation.retained_bytes = retained_bytes
     generation.error_code = None
+    await objects.publish(
+        db, asset, generation, output_id, lease_token, inventory, gate_revision
+    )
     asset.active_generation = generation_number
     if asset.building_generation == generation_number:
         asset.building_generation = None
@@ -512,6 +526,7 @@ async def fail_generation(
             select(ImagePyramidAsset)
             .where(ImagePyramidAsset.id == asset_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     generation = (
@@ -522,11 +537,22 @@ async def fail_generation(
                 ImagePyramidGeneration.generation == generation_number,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if generation is None:
         return
-    if lease_token is not None and generation.lease_token not in {None, lease_token}:
+    if (
+        lease_token is None
+        and error_code == "lease_expired"
+        and (
+            generation.status != "building"
+            or generation.lease_expires_at is None
+            or generation.lease_expires_at > utcnow()
+        )
+    ):
+        return
+    if lease_token is not None and generation.lease_token != lease_token:
         return
     if generation.status != "ready":
         generation.status = "failed"
@@ -543,8 +569,30 @@ async def task_pyramid_assets(
 ) -> dict[uuid.UUID, tuple[ImagePyramidAsset, ImagePyramidGeneration | None]]:
     if not tasks:
         return {}
-    item_ids = {task.dataset_item_id for task in tasks if task.dataset_item_id}
-    direct_task_ids = {task.id for task in tasks if task.dataset_item_id is None}
+    from app.services.original_sources import resolve_task_relation
+    from app.services.content_snapshot import ContentError
+
+    owners = {}
+    for task in tasks:
+        try:
+            relation = await resolve_task_relation(db, task.id)
+            owners[task.id] = (
+                ("dataset_item", relation.item_id)
+                if relation.item_id
+                else ("task", task.id)
+            )
+        except ContentError:
+            owners[task.id] = (
+                ("dataset_item", task.dataset_item_id)
+                if task.dataset_item_id
+                else ("task", task.id)
+            )
+    item_ids = {
+        identifier for kind, identifier in owners.values() if kind == "dataset_item"
+    }
+    direct_task_ids = {
+        identifier for kind, identifier in owners.values() if kind == "task"
+    }
     owner_filters = []
     if item_ids:
         owner_filters.append(ImagePyramidAsset.dataset_item_id.in_(item_ids))
@@ -596,11 +644,7 @@ async def task_pyramid_assets(
         uuid.UUID, tuple[ImagePyramidAsset, ImagePyramidGeneration | None]
     ] = {}
     for task in tasks:
-        owner_key = (
-            ("dataset_item", task.dataset_item_id)
-            if task.dataset_item_id
-            else ("task", task.id)
-        )
+        owner_key = owners[task.id]
         asset = owner_assets.get(owner_key)
         if asset is None:
             continue
@@ -645,36 +689,6 @@ async def get_active_generation_for_task(
     return owner, asset, generation
 
 
-def generation_manifest(
-    generation: ImagePyramidGeneration,
-    storage: StorageService = storage_service,
-) -> dict[str, Any]:
-    if not generation.manifest_key or not generation.manifest_digest:
-        raise ImagePyramidError("inconsistent_ready")
-    try:
-        response = storage.client.get_object(
-            Bucket=storage.media_cache_bucket,
-            Key=generation.manifest_key,
-        )
-        body = response["Body"].read(1024 * 1024 + 1)
-    except Exception as exc:  # noqa: BLE001
-        raise ImagePyramidError("object_missing") from exc
-    if len(body) > 1024 * 1024:
-        raise ImagePyramidError("inconsistent_ready")
-    if sha256_digest(body) != generation.manifest_digest:
-        raise ImagePyramidError("inconsistent_ready")
-    try:
-        manifest = json.loads(body)
-    except (TypeError, ValueError) as exc:
-        raise ImagePyramidError("inconsistent_ready") from exc
-    if (
-        manifest.get("schema") != PYRAMID_SCHEMA
-        or manifest.get("generation") != generation.generation
-    ):
-        raise ImagePyramidError("inconsistent_ready")
-    return manifest
-
-
 def manifest_etag(generation: ImagePyramidGeneration) -> str:
     digest = (generation.manifest_digest or "missing").replace("sha256:", "")
     return f'"pyramid-{generation.generation}-{digest}"'
@@ -685,11 +699,12 @@ def source_matches_generation(
     generation: ImagePyramidGeneration,
     storage: StorageService = storage_service,
 ) -> bool:
-    try:
-        identity, _ = source_identity(owner, storage)
-    except ImagePyramidError:
-        return False
-    return identity == generation.source_identity
+    return (
+        generation.original_ref is not None
+        and generation.original_ref == originals.receipt(owner.source)
+        and generation.source_identity == source_identity(owner)[0]
+        and generation.source_fingerprint == "sha256:" + owner.source.sha256
+    )
 
 
 def pyramid_summary(
@@ -703,7 +718,12 @@ def pyramid_summary(
     logical_width = generation.width or width
     logical_height = generation.height or height
     return ImagePyramidSummary(
-        status=generation.status,  # type: ignore[arg-type]
+        status=(
+            "failed"
+            if generation.status == "ready"
+            and (generation.original_ref is None or generation.output_id is None)
+            else generation.status
+        ),  # type: ignore[arg-type]
         generation=generation.generation,
         width=logical_width,
         height=logical_height,

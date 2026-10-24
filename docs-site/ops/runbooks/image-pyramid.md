@@ -3,7 +3,7 @@ title: 图片金字塔运行手册
 audience: [ops]
 type: how-to
 status: stable
-last_reviewed: 2026-07-31
+last_reviewed: 2026-10-24
 ---
 
 # 图片金字塔运行手册
@@ -13,8 +13,7 @@ last_reviewed: 2026-07-31
 
 ## 部署检查
 
-应用镜像必须包含 libvips、pyvips 和可用的 sRGB ICC profile。代码、Python 依赖或 Dockerfile 有变化时
-需要重建：
+运行环境必须包含 libvips、pyvips 和可用的 sRGB ICC profile。先检查实际挂载：挂载 Python 源码变更只需刷新对应 Worker；依赖、Dockerfile 或镜像内源码变化才需要重建。需要重建时：
 
 ```bash
 docker compose build celery-worker-image-pyramid
@@ -81,7 +80,7 @@ PYTHONPATH=. uv run python scripts/backfill_image_pyramids.py \
   --owner-kind dataset_item --cursor <uuid> --limit 100
 ```
 
-legacy direct Task 没有持久化尺寸，必须显式选择；Worker 会先 probe，再应用硬上限：
+独立 Task 必须先有已登记 TaskOriginal，缺少原件归属的历史 Task 不按当前 annotations 桶猜读。CLI 显式选择，Worker 完整核验原件后应用硬上限：
 
 ```bash
 PYTHONPATH=. uv run python scripts/backfill_image_pyramids.py \
@@ -177,8 +176,11 @@ history 不变，可缩小可见区域或先保存再重试。
 
 ## GC 与回滚
 
-Celery beat 每日触发 reconciliation，分批处理过期 lease、失败/旧 ready generation 和孤儿对象前缀；
-已清理对象前缀的失败 generation 会同步删除数据库记录，使后续批次能够继续推进。
+Celery beat 每日触发 reconciliation，按 Asset→Generation→Output 锁序复验过期 lease、移除非 active 旧代引用，再退役无引用且无在用操作的独立 output。物理清理在 Gate 准入下只删除保存桶中的该 UUID 前缀，核对为空后保留 deleted 记录；失败留待重试。业务删除只解除引用，不在请求事务里猜当前缓存桶清理。
+
+准备阶段不读取对象，输出分配只使用已登记 media-cache 绑定。现有 owner 不跟随当前用途桶变化；所有 tile、overview、manifest 写入后完整 GET 回读 SHA／长度。发布还需有效 lease、准确原件和委派、输出 owner 与维护修订一致，原生处理、Body、文件和临时目录先真实收尾。取消、超时或 Worker 丢失不能仅靠租约到期解除未知 StorageOperation；未确认的操作会阻止对应 owner 退休，需要先定位实际进程和句柄，不能直接删账本。
+
+旧无 output owner 的代不自动采纳、签名或物理删除；先完成原件登记，再显式重试生成新代，旧未知文件保留待单独核验。reconciliation 不裸扫默认缓存桶，也不按目录年龄删除其他任务临时文件。0232 迁移新增独立责任表和输入／授权回执；存在责任记录时不做破坏性降级。
 不要给 `image-pyramids/` 单独配置固定天数 lifecycle，否则会留下 ready 数据库行指向缺失对象。
 
 紧急回滚时：
@@ -190,3 +192,5 @@ Celery beat 每日触发 reconciliation，分批处理过期 lease、失败/旧 
 5. 不通过批量删除 ready 对象回滚。
 
 保留状态后可以修复 Worker 并显式 retry，无需重新上传 source。
+
+常见新增拒绝包括 `no_readable_original`／`content_unverified`（先登记并核验原件）、`pyramid_authority_unrecorded`（旧队列缺准确委派，重新发起）、`image_pyramid_storage_unpinned`（未知旧输出，显式重建）、`image_pyramid_storage_integrity_mismatch`／`image_pyramid_storage_invalid_receipt`（核对对象与内容清单）以及 `storage_operation_unsettled`（物理工作尚未确认结束）。维护或撤权拒绝不代表文件丢失，也不应通过更换当前用途桶绕过。

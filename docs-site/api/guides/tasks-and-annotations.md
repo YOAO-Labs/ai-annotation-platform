@@ -631,6 +631,16 @@ GET /api/v1/tasks/:id/comments         # 标注评论
 
 锁过期后由后台清理任务自动归还。详见 [ADR 0005](../../dev/adr/archive/0005-task-lock-and-review-matrix)。
 
+## 图片金字塔
+
+`GET /tasks/{id}/image-pyramid`、`POST /tasks/{id}/image-pyramid/asset-urls` 和 `POST /tasks/{id}/image-pyramid/retry` 都沿用 `annotations:read` 与当前 Task 可见性；重试不要求数据集管理权限，读取已归档数据集不额外受限。GET 非图片仍返回 `not_available`；ready manifest 沿用 `aap-image-pyramid/v1`、ETag 和短期 URL，批签最多 128 项并按首次出现顺序去重。
+
+图片原件必须有已登记的 DatasetAsset 或独立 TaskOriginal；准备和执行固定同一原件及准确请求授权，后台完整核对 SHA／长度，持续复验凭据、Task 关系和维护门禁。目录与原地引用仍拒绝。缺少登记事实会明确拒绝，不按文件名或当前桶回源。
+
+每次尝试保存独立输出位置和逐文件内容清单，URL 只指向该 owner。读取与签名前完整核验 manifest、overview 或所请求 tile；源变化或损坏输出停止返回地址并使当前代失效。维护、凭据或存储不可用不会当作成功读取。旧未保存归属的 ready 代视为陈旧，可在原件已登记后显式重试新代；既有 pending/building 重试幂等，失败重试沿用冷却与频率限制。内部归属与清单不加入公开 manifest。
+
+Task／Dataset／Dashboard 的金字塔缩略图也只沿用 active 输出的保存位置。删除业务对象保留独立输出责任，由后台在无引用、无在用操作后清理；未知历史文件不按当前缓存桶猜删。详见[派生资产合同](../../dev/concepts/image-pyramid-assets)。
+
 ## 相关
 
 - [审核](./predictions)

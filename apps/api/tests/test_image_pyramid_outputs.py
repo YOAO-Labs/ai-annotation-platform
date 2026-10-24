@@ -648,6 +648,7 @@ async def test_gc_keeps_unsettled_attempt_owner_and_its_objects(
     )
     db_session.add(operation)
     await db_session.flush()
+    operation_id = operation.id
     provider = Provider()
     provider.objects[
         (row.storage_ref["bucket"], physical.resolve(row).key("overview.webp"))
@@ -657,7 +658,29 @@ async def test_gc_keeps_unsettled_attempt_owner_and_its_objects(
     assert row.state == "building"
     assert provider.calls == []
     assert same_transaction_gc == []
-    assert await db_session.get(StorageOperation, operation.id) is not None
+    assert await db_session.get(StorageOperation, operation_id) is not None
+
+
+async def test_gc_starts_published_orphan_grace_before_deleting_signed_assets(
+    db_session, registered, same_transaction_gc
+):
+    row = await _new_output(db_session, old=True)
+    inventory, payloads = _inventory(row)
+    row.inventory = inventory
+    row.state = "ready"
+    await db_session.flush()
+    row.updated_at = service.utcnow() - timedelta(days=2)
+    await db_session.flush()
+    provider = Provider()
+    provider.objects.update(
+        {(row.storage_ref["bucket"], key): raw for key, raw in payloads.items()}
+    )
+    assert await objects.reconcile(db_session, SimpleNamespace(client=provider)) == 0
+    await db_session.refresh(row)
+    assert row.state == "retiring"
+    assert row.updated_at > service.utcnow() - timedelta(minutes=1)
+    assert same_transaction_gc == []
+    assert len(provider.objects) == len(payloads)
 
 
 async def test_gc_deletes_only_the_saved_bucket_and_uuid_prefix(

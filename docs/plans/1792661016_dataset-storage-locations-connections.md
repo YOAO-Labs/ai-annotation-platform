@@ -1113,3 +1113,13 @@ test／e2e操作账本均为零；两个一次性数据库、两个Redis和18桶
 ## 下一片范围 — 图像金字塔原件与派生产物归属
 
 只读盘点确认：image_pyramid的owner_for_task／owner_for_dataset_item仍按现行annotations／datasets用途桶组装ImagePyramidOwner，下载仅在本次读取后生成指纹；金字塔manifest／tile写入和清理沿现行media_cache_bucket。下一片先定稿canonical原件身份、固定派生输出owner、lease／取消与真实生成收尾、旧manifest兼容及最终发布事务，再实施。不能仅替换下载GET，也不能把现行缓存桶当旧产物归属或将派生指纹当已登记原件证据；现有目录／引用输入限制与渲染资格边界先保持。该消费者尚未迁移，其他LiDAR导出与视频派生链继续独立推进。
+
+### E02-B13-B3-E — Design
+
+图像金字塔使用统一原件 resolver 的已登记 SHA、长度、位置和 Task／Item 关系。准备阶段仅冻结元数据；下载使用条件请求和全量 SHA／长度核验，保留金字塔现有资源预算。HTTP 入口保持 annotations:read 与现行 Task 可见性，保存不可逆凭据指纹及准确原件委派；后台重新检查当前授权。内部上传、导入和维护入口必须显式委派，不将缺失 HTTP 凭据视为系统授权，不对已归档数据集额外限制读取。目录和原地引用仍拒绝。
+
+新增独立 ImagePyramidOutput 持久责任，不随业务对象级联删除。每次租约分配独立 UUID 输出前缀，保存分配时的 media-cache 位置和端点；后续读取、签名、删除不选择当前用途桶。完整回读每个 tile、overview 和 manifest 的 SHA／长度后发布私有清单；公开 manifest 继续既有 schema。统一 Asset→Generation→Output 锁序，发布重新检查原件、准确委派、未到期租约、输出 owner 与 Gate，原子切 active。旧尝试不得删除新尝试的独立前缀。
+
+源读取、原生生成、输出回读和关闭均持有 durable StorageOperation；取消和超时等待真实工作及文件关闭，未知收尾保留责任。GC 先在短事务退役已知 owner，再在 Gate 准入下按保存前缀删除；业务删除只移除业务引用，独立 owner 留待 GC。停止裸扫现行缓存桶和按时限删除其他任务临时目录。旧无 owner 的代不静默采纳、签名或删除，用户可在原件已登记后显式重试新代；旧未知文件保留待单独核验。
+
+专用 API、Task／Dataset／Dashboard 缩略图、列表摘要、自动分流、CLI 和删除入口一起迁移。HTTP 缩略图回填不隐式升级成系统金字塔委派。验证使用独立 test／e2e 环境，覆盖真实原件与输出篡改、凭据／关系变化、租约并发、物理 drain、旧数据拒绝、GC 和业务级联；保留人工验收 3100／8100、两 worker、Beat 及原业务数据，结束清理本片产物。实施和验证完成前不宣称本片、整个 B13 或完整用途切换完成。

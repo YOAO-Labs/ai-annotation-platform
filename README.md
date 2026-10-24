@@ -42,6 +42,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 兼容的[独立 Task 上传接口](./docs-site/api/guides/tasks-and-annotations.md#独立任务原件上传)同样先暂存、再完整核验封存，单文件最多5GiB，要求当前项目管理权限与原上传发起者。Task与原件责任分开保留；数据集导入继续沿用已有DatasetItem归属。[严格图片读取](./docs-site/api/guides/verified-content.md#图片任务)与数据集质量检查使用原件记录保存的位置，完整核对字节；独立Task图片也支持该认证读取接口。[认证通用原件下载](./docs-site/api/guides/verified-content.md#认证通用原件下载)支持Task、相机关联及DatasetItem的完整二进制，单文件最多512MiB，身份查询不代表对象在线。图片工作台、审核与数据管理预览、点云和相机已使用认证原件读取，托管原件 DTO 不再签发原件地址；另有[视频原件准备与范围读取 API](./docs-site/api/guides/verified-content.md#视频原件准备与范围读取)，完整核验后以短租约复用临时文件处理HEAD和Range。视频工作台已接入原件准备、租约更新和失效恢复；转码/精确帧派生及其余下游消费者仍独立推进，完整用途切换保持关闭。
 
+[图片金字塔](./docs-site/dev/concepts/image-pyramid-assets.md)使用已登记原件的保存位置和完整 SHA 核验，每次租约固定独立派生输出。读取、缩略图与清理沿用该归属；旧无归属代需要在原件登记后重新生成，未知旧文件保留待核对。后台生成继续检查发起者的 Task 可见性与凭据，不增加数据集管理权限要求；目录与原地引用限制保持。
+
 删除托管数据集或样本时，平台在同一事务保留已登记原件的位置证据。超级管理员可在“平台对象占用”展开[托管原件保留与回收预演](./docs-site/user-guide/datasets/storage-connections.md#托管原件保留与回收预演)，查看保留记录和当前引用，并在居中详情中预览确认期限设置、备份/迁移保留要求及显式解除。未指定期限按无限期保护，相关记录共同保护；详情还可显式启动[原件完整核验](./docs-site/user-guide/datasets/storage-connections.md#核验原件完整内容)，保存与历史摘要比较的观测，不提供物理删除许可。
 
 存储位置详情的[来源诊断](./docs-site/user-guide/datasets/storage-connections.md#位置内的来源诊断)将原地引用样本的原件观测、预览生成记录、扫描及预检进展分开显示，可定位到对应来源、轮次和后台任务；刷新只读已有记录，不进行实时存储探测。

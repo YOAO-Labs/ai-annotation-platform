@@ -3,7 +3,7 @@ title: 超大图金字塔派生资产
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-24
 ---
 
 # 超大图金字塔派生资产
@@ -40,7 +40,7 @@ display ID 已被其它数据占用，脚本不会自动接管或覆盖。
 `image_pyramid_assets` 表示稳定 owner：
 
 - DatasetItem 来源以 DatasetItem 为 owner，多个 Task 共用一份资产；
-- 未关联 DatasetItem 的 direct Task 以 Task 为 owner；
+- direct／primary 关联解析到 DatasetItem 时共享该 Item；独立 TaskOriginal 以 Task 为 owner；
 - owner 与 `profile_version` 唯一，数据库约束保证两种 owner 恰有一个非空。
 
 `image_pyramid_generations` 表示一次不可变生成：
@@ -54,10 +54,12 @@ pending → building → ready
 更新 `active_generation`。同源重建时旧 active 可继续提供服务；源被替换后旧 active 立即失效，避免旧像素
 与新坐标叠加。
 
-对象布局是服务端实现细节：
+`image_pyramid_outputs` 独立保存每次租约的物理责任，不随 Task、Item 或 Asset 级联删除。分配时保存已登记位置、端点身份、桶和独立 UUID 前缀；用途绑定只选择新输出。公开 manifest 不暴露这些字段。输出从 building 进入 ready 或 retiring，删除成功后进入 deleted；已发布内容清单不可改写。
+
+每次租约使用不同的输出目录，旧任务失败不会删除新租约的结果。对象布局是服务端实现细节：
 
 ```text
-image-pyramids/{asset_id}/g{generation}/
+image-pyramids/objects/{output_id}/
   manifest.json
   overview.webp
   tiles/{level}/{x}/{y}.webp
@@ -65,8 +67,9 @@ image-pyramids/{asset_id}/g{generation}/
 
 ## 源身份与规范化
 
-快速 source fence 由对象 ETag、字节数和可用的 version ID 组成。Worker 同时在流式下载时计算 SHA-256，
-作为 manifest 的内容 fingerprint。生成前和发布前都会再次验证快速身份，覆盖生成期间源对象被替换的竞态。
+原件由 canonical resolver 解析已登记 DatasetAsset／TaskOriginal 的 SHA-256、长度、保存位置与准确关联，不按当前用途桶猜读。准备只冻结元数据；Worker 用当前观测设置条件请求，完整核对原件 SHA 与长度，再交给 libvips。manifest fingerprint 必须等于登记 SHA，下载后自行计算一个摘要不构成原件登记证据。
+
+HTTP 委派绑定发起 Task、实际凭据指纹与现行 annotations:read／Task 可见性，后台持续检查当前身份、API Key、关系和 Gate。内部上传、导入与维护使用显式系统委派，缺失凭据不隐式升级为系统。读取已归档数据集中的可见 Task 不要求数据集管理权限；目录与原地引用仍不进入此派生链。
 
 规范化 profile 的合同为：
 
@@ -130,7 +133,7 @@ POST /api/v1/tasks/{task_id}/image-pyramid/retry
 
 GET 返回状态 envelope；ready 时返回 manifest 和短期 overview URL，并支持 `ETag`/`If-None-Match`。
 `asset-urls` 最多接受 128 个 overview/tile 逻辑请求，去重后按首次出现顺序返回。服务端验证 Task 可见性、
-generation、level/grid 坐标和对象存在性，再统一签发到期时间。
+generation、level/grid 坐标和保存清单中的完整 SHA／长度，再统一签发到期时间。读取、签名与最终响应前复验权限、原件关联、active generation、独立输出 owner 与维护门禁。
 
 对象缺失或 source fence 不匹配时，不返回 URL，并把 active generation 标记为不一致或陈旧。retry 对
 pending/building 是幂等的，对失败请求有冷却和频率限制。
@@ -143,18 +146,19 @@ Minimap、评论画布和相邻任务预取只消费 thumbnail/overview；审核
 专用 Celery Worker 订阅 `image-pyramid` 队列，初始并发为 1。生成流程按以下顺序执行：
 
 ```text
-取得 DB lease
-  → 流式下载到有界临时文件
+固定原件与显式委派，取得 DB lease 和独立输出 owner
+  → durable Permit 下完整核验原件临时文件
   → libvips 规范化并生成
   → 校验完整网格、edge 尺寸和摘要
   → 上传 tile 与 overview
-  → 最后上传 manifest
-  → 事务发布 active generation
+  → 最后上传 manifest，逐文件完整读回 SHA／长度
+  → 原生工作、文件和临时目录真实收尾
+  → 短事务复验授权／原件／有效 lease／owner／Gate 并发布
 ```
 
-像素、单边尺寸、source/derived/temp bytes、tile 数和 wall time 都有硬限制。每日 reconciliation 回收过期
-lease、非 active 旧代次和孤儿前缀。source 或 owner 删除时同步清理对应派生对象；`image-pyramids/`
-不使用普通媒体缓存的固定期限 lifecycle。
+像素、单边尺寸、source/derived/temp bytes、tile 数和 wall time 保留现有硬限制；源读取另有两槽 admission。取消、超时和软时限等到真实 I/O、原生生成与注册句柄关闭，未知收尾保留 durable StorageOperation。统一 Asset→Generation→Output 锁序，metadata 锁不跨物理读取。
+
+每日 reconciliation 复验过期租约、移除非 active 旧代的引用，再将无引用且无在用操作的已知输出退役，提交后按保存前缀删除；删除失败保留责任重试。业务删除不执行当前缓存桶前缀清理，独立 output 留待 GC。不裸扫默认桶，不按时间删除其他任务临时目录，`image-pyramids/` 不使用固定期限 lifecycle。旧无归属代不自动签名、采纳或删除；原件已登记后可以显式重试新代，旧未知文件留待单独核验。该消费者迁移不开放整个 media-cache 用途切换。
 
 相关运维步骤见[图片金字塔运行手册](/ops/runbooks/image-pyramid)。
 客户端背景选择见 [ADR 0063](../adr/archive/0063-konva-viewport-image-tiles)，联合资源决策见 [ADR 0064](../adr/archive/0064-task-scoped-raster-resource-coordination)。
