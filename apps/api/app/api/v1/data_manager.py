@@ -246,6 +246,11 @@ async def export_data_manager_tasks(
         )
         if authority:
             job_payload["export_authority"] = authority
+        from app.services.exporting import output_authority
+
+        job_payload["output_authority"] = await output_authority.capture(
+            db, project, actor, request
+        )
         job = await async_job_service.create_job(
             db,
             kind=AsyncJobKind.EXPORT.value,

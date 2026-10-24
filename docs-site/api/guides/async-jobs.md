@@ -25,7 +25,7 @@ last_reviewed: 2026-10-23
 | `predictions_import` | 外部 prediction 上传（[Import guide](./import)）                                         | ✅                                  |
 | `dataset_import`     | 数据集连接器导入文件                                                                     | ✅                                  |
 | `create_tasks`       | 数据集关联项目且 item 数 > `TASK_CREATE_SYNC_THRESHOLD`（默认 2000）时，建 task 转入后台 | ❌                                  |
-| `export`             | 项目 / 批次导出                                                                          | ❌                                  |
+| `export`             | 项目 / 批次 / 选中任务导出                                                               | ✅（协作取消）                      |
 
 ## 端点
 
@@ -186,3 +186,5 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 ## 目录观测扫描任务
 
 `dataset_scan` 复用全局任务入口，但只限当前超级管理员读取和取消。进行中百分比保持未知，使用累计 `processed_count / file_count / directory_count / skipped_count` 与阶段呈现进度；`complete` 单独表示枚举完整性。取消保留已提交目录观测，恢复通过[扫描专属接口](./dataset-sources)，不使用 prediction 的 retry-failed。任务清理不会删除长期扫描账本。
+
+导出Job的私有输入/输出授权证明不在payload中返回。结果中的下载URL按固定产物期限签发，缓存复用不延期；已完成结果只透传已保存URL，不从当前桶猜测重签。升级前缺少输出授权证明的未完成导出需要重新发起，详见[导出归属与期限](export.md#产物归属与固定期限)。

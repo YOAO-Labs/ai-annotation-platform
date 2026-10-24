@@ -1975,6 +1975,9 @@ async def export_project(
     from app.services.exporting.reference_media import capture_export_authority
 
     export_authority = await capture_export_authority(db, project, actor, request)
+    from app.services.exporting import output_authority
+
+    output_proof = await output_authority.capture(db, project, actor, request)
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.EXPORT.value,
@@ -1982,6 +1985,7 @@ async def export_project(
         project_id=project.id,
         payload={
             **({"export_authority": export_authority} if export_authority else {}),
+            "output_authority": output_proof,
             "targets": targets,
             "format": ",".join(targets),
             "include_attributes": include_attributes,

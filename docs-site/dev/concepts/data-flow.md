@@ -63,7 +63,7 @@ API 成功派发时返回 HTTP 200，`job_id` 是 Celery task ID；worker 后续
 
 <ExcalidrawDiagram
   src="/diagrams/shared/workflow/async-export-delivery.svg"
-  alt="项目和批次导出从可选 Mask 预检、持久化派发、Worker 缓存与 Redis single-flight，到临时 ZIP、MinIO 工件、预签名下载和失败补偿的完整边界"
+  alt="项目和批次导出从可选 Mask 预检、持久化派发、Worker 缓存与 Redis single-flight，到临时 ZIP、固定归属工件、有期限下载和失败保留的完整边界"
   caption="异步导出交付链：先提交作业与审计，再派发；缓存未命中时单飞构建可下载工件"
 />
 
@@ -71,9 +71,9 @@ Mask export preflight 是项目范围的可选、只读计划步骤：adapter �
 
 项目与批次导出先校验 targets / options。VOC 仅允许单选，在记录审计后同步返回 ZIP；其他目标创建 `AsyncJob(kind=export)` 并写导出审计，两者成功 `commit` 后才调用 `run_export.delay()`，然后返回 HTTP 202 与 `job_id`。因此 broker 不会拿到尚未提交的作业 ID。
 
-Worker 将 active annotation 的 `max(updated_at) + count` 与 scope、targets、options、adapter contract 版本合成 cache key。未过期且 MinIO 对象仍存在时，缓存命中路径会生成新的 7 天预签名 URL，直接完成作业并发 `export.ready`。未命中时，Worker 用 Redis `SET NX EX 6h` 对 cache key 做 single-flight；竞争失败会每 5 秒重试，最多 120 次，持锁后还会重查一次缓存。
+Worker 将 active annotation 的 `max(updated_at) + count` 与 scope、targets、options、adapter contract 版本合成 cache key。命中时先核对缓存与独立ExportOutput的项目、键、大小及期限，再从保存桶完整验证SHA。最终授权/取消和维护围栏通过后，只签固定保存期限的剩余窗口，完成作业并发 `export.ready`；不会为旧对象重新延长七天。未命中时，Worker 用 Redis `SET NX EX 6h` 对 cache key 做 single-flight；竞争失败会每 5 秒重试，最多 120 次，持锁后还会重查一次缓存。
 
-真正构建时按块读取任务与标注，ZIP 写磁盘 tempfile，再流式多段上传到 export bucket。`ExportArtifact` 记录提交后，Worker 才生成友好文件名与预签名 URL、写入 `AsyncJob.result` 并发送完成通知；客户端也可轮询 `/async-jobs/{job_id}` 读终态。异常路径会回滚、删除已上传但未记录的孤儿对象、写 `failed` 与 `export.failed`；tempfile 和已获取的 Redis 锁在 `finally` 中清理。
+真正构建时按块读取任务与标注，ZIP写磁盘tempfile，先取得独立SHA/大小并提交ExportOutput pending归属、随机候选键和固定七天截止，再在durable permit中上传并完整回读。最终短事务复核原请求Key证明、账号/项目/任务/引用来源、取消、候选快照和维护代次，共同发布ready、缓存索引、Job结果与通知。异常/取消或commit应答未知保留pending及字节，不猜测删除；等真实线程收尾后才清tempfile并释放所属Redis锁。到期后无读取permit的ready对象先提交retired和缓存移除，再沿保存桶重试精确清理。项目或Job清理不会丢失独立Output责任。
 
 代码索引：
 

@@ -39,6 +39,7 @@ class AsyncJobOut(BaseModel):
             not in {
                 "directory_authority",
                 "export_authority",
+                "output_authority",
                 "prediction_authority",
                 "repair_authority",
             }
