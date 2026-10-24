@@ -45,7 +45,6 @@ class _MediaBoundIdentityModuleStack(IdentityModuleStack):
             {
                 "ASSETS_MEDIA_URL": self._tracker_media_url,
                 "ASSETS_MEDIA_TOKEN": self._tracker_media_token,
-                "ASSETS_MEDIA_TOKEN_FILE": "",
             }
         )
         return values
@@ -192,6 +191,80 @@ async def _seed_tracker_api_world(
             "registry_id": registry.id,
             "backend_token": backend_token,
         }
+
+
+async def _prepare_tracker_metadata(media, directory: Path, world: dict) -> dict:
+    """Materialize the owner generation required by the tracker HTTP entry point."""
+    from aap_assets_media import contract as media_contract
+    from aap_assets_media.client import MediaClient
+    from tests.test_assets_media_live import (
+        _process_log,
+        _runtime_database_url,
+        _runtime_environment,
+        _start_process,
+        _wait_process_exit,
+    )
+    import sys
+
+    directory.mkdir(parents=True, exist_ok=True)
+    client = MediaClient(media.origin, media.token)
+    request = media_contract.ReadSourceRequest(
+        actor_id=world["actor_id"],
+        task_id=world["task_id"],
+        dataset_item_id=world["dataset_item_id"],
+    )
+    before = (await client.source_reference(request)).source
+    accepted = await client.call(
+        "schedule_video_media",
+        media_contract.ScheduleWorkRequest(
+            operation_id=None,
+            dataset_item_id=world["dataset_item_id"],
+            spec=media_contract.MetadataSpec(
+                expected_source_snapshot=before.source_snapshot
+            ),
+        ),
+    )
+    assert accepted.work.kind == "video_metadata"
+    environment = _runtime_environment(
+        tmp_path=directory,
+        role="worker",
+        database_url=_runtime_database_url(media.worker_url),
+        endpoint=media.endpoint,
+        public_endpoint=media.endpoint,
+        datasets_bucket=media.buckets["MINIO_DATASETS_BUCKET"],
+        cache_bucket=media.buckets["MINIO_MEDIA_CACHE_BUCKET"],
+        access_key=media.worker_access,
+        secret_key=media.worker_secret,
+    )
+    log = directory / "metadata-worker.log"
+    process, stream = _start_process(
+        [
+            sys.executable,
+            "-m",
+            "aap_assets_media_runtime.worker",
+            "--once",
+            "--job-id",
+            str(accepted.work.job_id),
+        ],
+        environment,
+        log,
+    )
+    media.processes.append(process)
+    media.streams.append(stream)
+    await _wait_process_exit(
+        process, timeout=60, message="tracker fixture metadata worker did not finish"
+    )
+    assert process.returncode == 0, _process_log(log)
+    ready = (await client.source_reference(request)).source
+    assert not ready.source_drifted
+    assert ready.materialized_generation == ready.source_generation
+    assert ready.video_metadata["frame_count"] == 6
+    return {
+        "metadata_job_id": str(accepted.work.job_id),
+        "source_generation": ready.source_generation,
+        "materialized_generation": ready.materialized_generation,
+        "frame_count": ready.video_metadata["frame_count"],
+    }
 
 
 async def _video_tracker_job(engine, job_id: str) -> dict:
@@ -826,6 +899,12 @@ async def exercise_video_tracker_queue_and_restore(
                     backend_token=backend_token,
                     label="source",
                 )
+                record_property(
+                    "video_tracker_metadata_source",
+                    await _prepare_tracker_metadata(
+                        media, Path(tmp_path) / "metadata-source", world
+                    ),
+                )
                 async with _checkpoint_cpu_backend(
                     listener,
                     registry_id=world["registry_id"],
@@ -926,6 +1005,14 @@ async def exercise_video_tracker_queue_and_restore(
                             backend_url=host_forward_url(backend_origin),
                             backend_token=backend_token,
                             label="restored",
+                        )
+                        record_property(
+                            "video_tracker_metadata_restored",
+                            await _prepare_tracker_metadata(
+                                clone_media,
+                                Path(tmp_path) / "metadata-restored",
+                                restored_world,
+                            ),
                         )
                         async with _checkpoint_cpu_backend(
                             listener,
