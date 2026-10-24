@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import os
 import subprocess
@@ -23,10 +24,12 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.exporting.packaging import (
     _FETCH_FRAMES_TEMPLATE,
+    _FETCH_VIDEOS_TEMPLATE,
     _build_video_export_zip,
     clean_export_targets,
     relative_path_from_file_path,
 )
+from app.services.exporting.service import ExportService
 
 
 def test_fetch_frames_script_extracts_only_selected_frames(tmp_path):
@@ -44,12 +47,15 @@ def test_fetch_frames_script_extracts_only_selected_frames(tmp_path):
                         "rel_path": "clip.mp4",
                         "sequence": "clip",
                         "grid_source_frames": [0, 5, 11],
+                        "sha256": hashlib.sha256(fixture["mp4_bytes"]).hexdigest(),
+                        "size_bytes": len(fixture["mp4_bytes"]),
                     }
                 ]
             }
         )
     )
     script = tmp_path / "fetch_frames.py"
+    (tmp_path / "fetch_videos.py").write_text(_FETCH_VIDEOS_TEMPLATE)
     script.write_text(_FETCH_FRAMES_TEMPLATE)
     result = subprocess.run(
         [sys.executable, str(script)], capture_output=True, text=True
@@ -220,7 +226,7 @@ async def test_video_yolo_frames_zip_writes_grid_labels_and_manifest(monkeypatch
     os.close(fd)
     try:
         ret_path, file_count, size_bytes = await _build_video_export_zip(
-            None,
+            ExportService(None),
             project,
             _chunks(),
             tmp_path=tmp_path,
@@ -354,7 +360,7 @@ async def _run_video_zip(project, chunks, targets):
     os.close(fd)
     try:
         _ret, file_count, _size = await _build_video_export_zip(
-            None,
+            ExportService(None),
             project,
             chunks,
             tmp_path=tmp_path,

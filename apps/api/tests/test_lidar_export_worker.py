@@ -22,6 +22,7 @@ from app.services import export_outputs, export_storage, storage_access
 from app.services.content_snapshot import ContentError
 from app.services.exporting import lidar_delivery, lidar_jobs, output_authority
 from app.services.exporting.lidar_frozen import FrozenLidar
+from app.services.exporting.reference_media import ExportCancelled
 from app.workers import export as legacy
 from app.workers import lidar_export as worker
 from tests.test_export_media_bundle_models import _migration
@@ -267,7 +268,7 @@ async def test_late_attempt_is_fenced_before_zip_or_ready_publication(
             await db.commit()
 
     harness.during_zip = interrupt
-    with pytest.raises(ContentError):
+    with pytest.raises(ExportCancelled if change == "cancelled" else ContentError):
         await worker.run_owned(db, **args)
     row = await state(db, AsyncJob, job_id)
     assert row.status == (

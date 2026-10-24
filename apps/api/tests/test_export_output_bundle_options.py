@@ -49,7 +49,7 @@ class CreationDB:
         self.events.append("commit")
 
 
-def bundle(**changes):
+def bundle(*, schema=1, **changes):
     created = NOW - timedelta(minutes=20)
     row = ExportMediaBundle(
         **{
@@ -62,12 +62,14 @@ def bundle(**changes):
             "expires_at": created + timedelta(hours=168),
             "lease_token": uuid.uuid4(),
             "lease_expires_at": NOW + timedelta(seconds=3600),
+            "input_snapshot": {"schema": schema},
+            "input_schema": schema,
             **changes,
         }
     )
     saved = ref(
         SimpleNamespace(
-            media="image",
+            media="video" if row.input_schema == 4 else "image",
             id=row.zip_output_id,
             project_id=row.project_id,
             job_id=row.job_id,
@@ -190,6 +192,29 @@ async def test_explicit_matching_bundle_options_are_accepted(creation):
         ),
     )
     assert receipt.media_bundle_id == owner.id
+
+
+@pytest.mark.parametrize("schema,media", [(1, "image"), (3, "image"), (4, "video")])
+async def test_bundle_schema_selects_its_exact_zip_media(creation, schema, media):
+    args, _ = creation
+    owner = bundle(schema=schema)
+    receipt = await outputs.create(
+        CreationDB(owner), **linked(args, owner, media=media)
+    )
+    assert receipt.media == media and receipt.media_bundle_id == owner.id
+    assert receipt.id == owner.zip_output_id
+    assert receipt.expires_at == owner.expires_at
+    assert receipt.storage_ref["object_key"].startswith(media + "/")
+
+
+@pytest.mark.parametrize("schema,media", [(1, "video"), (3, "video"), (4, "image")])
+async def test_bundle_schema_rejects_cross_media_pair(creation, schema, media):
+    args, _ = creation
+    owner = bundle(schema=schema)
+    db = CreationDB(owner)
+    with pytest.raises(export_storage.ExportStorageError):
+        await outputs.create(db, **linked(args, owner, media=media))
+    assert db.events == ["lock"] and not db.added
 
 
 @pytest.mark.parametrize(

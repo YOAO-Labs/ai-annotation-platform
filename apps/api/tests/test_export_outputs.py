@@ -17,6 +17,7 @@ from sqlalchemy import delete, select
 from app.config import settings
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
+from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.db.models.project import Project
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
@@ -24,6 +25,8 @@ from app.services import export_outputs, export_storage, storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.exporting import cache
 from tests.factory import create_project
+from tests.test_lidar_export_inputs import input_db as input_db
+from tests.test_lidar_export_worker import worker_db as worker_db
 
 
 class ExportObjects:
@@ -731,124 +734,66 @@ async def test_write_drains_repeated_cancellation_before_zip_unlink(
 
 @pytest.mark.parametrize("committed", [False, True])
 async def test_worker_unknown_final_commit_never_deletes_candidate(
-    committed,
-    db_session,
-    export_project,
-    annotator,
-    export_objects,
-    tmp_path,
-    monkeypatch,
+    committed, worker_db, monkeypatch
 ):
-    from contextlib import nullcontext
-    from unittest.mock import AsyncMock
+    from unittest.mock import Mock
 
-    from app.workers import export as worker
+    from app.workers import lidar_export as worker
+    from tests.test_lidar_export_inputs import setup
+    from tests.test_lidar_export_worker import Harness, request, state
 
-    actor, project = annotator[0], export_project
-    # This regression remains on the legacy video branch; image attempts are
-    # covered by test_image_export_worker with their Bundle publication fence.
-    project.data_type = "video"
-    job = AsyncJob(
-        id=uuid.uuid4(),
-        kind="export",
-        project_id=project.id,
-        user_id=actor.id,
-        status="pending",
-        result={},
-        payload={
-            "output_authority": {
-                "schema": 1,
-                "actor_id": str(actor.id),
-                "project_id": str(project.id),
-                "api_key_id": None,
-                "key_proof": None,
-            }
-        },
-    )
-    db_session.add(job)
-    await db_session.commit()
-    project_id, job_id = project.id, job.id
-    path = tmp_path / "candidate.zip"
-    path.write_bytes(b"zip")
-
-    class Context:
-        async def __aenter__(self):
-            return db_session
-
-        async def __aexit__(self, *_args):
-            return False
-
-    monkeypatch.setattr(
-        worker,
-        "create_async_engine",
-        lambda *a, **kw: SimpleNamespace(dispose=AsyncMock()),
-    )
-    monkeypatch.setattr(
-        worker, "async_sessionmaker", lambda *a, **kw: lambda: Context()
-    )
-    monkeypatch.setattr(
-        worker.aioredis,
-        "from_url",
-        lambda *a, **kw: SimpleNamespace(
-            set=AsyncMock(return_value=True),
-            eval=AsyncMock(),
-            aclose=AsyncMock(),
-        ),
-    )
-    monkeypatch.setattr(worker, "_assert_export_task_scope", AsyncMock())
-    monkeypatch.setattr(worker, "_scope_fingerprint", AsyncMock(return_value=(None, 0)))
-    monkeypatch.setattr(
-        worker, "_scope_naming", AsyncMock(return_value=("video", None, "P-1"))
-    )
-    monkeypatch.setattr(
-        worker, "_emit_export_notification", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        worker, "build_export_zip", AsyncMock(return_value=(str(path), 1, 3))
-    )
-    original_commit = db_session.commit
+    # All supported media now share this publication transaction. Keep the
+    # original uncertainty test on real Bundle/ZIP rows, not a legacy bypass.
+    db = worker_db
+    project, *_ = await setup(db)
+    harness = Harness(db, monkeypatch)
+    job_id, receipt, args = await request(db, project)
+    delete = Mock()
+    monkeypatch.setattr(export_storage, "delete", delete)
+    original_commit = db.commit
     fired = False
 
     async def unknown_commit():
         nonlocal fired
-        if not fired and job.status == "completed":
+        status = await db.scalar(select(AsyncJob.status).where(AsyncJob.id == job_id))
+        if not fired and status == "completed":
             fired = True
             if committed:
                 await original_commit()
             raise OSError("commit acknowledgement unknown")
         await original_commit()
 
-    monkeypatch.setattr(db_session, "commit", unknown_commit)
-    with (
-        nullcontext()
-        if committed
-        else pytest.raises(OSError, match="acknowledgement unknown")
-    ):
-        await worker._run_export(
-            project_id=str(project_id),
-            batch_id=None,
-            targets=["aap_json"],
-            opts={},
-            async_job_id=str(job_id),
-            celery_task_id="unknown-commit-test",
-        )
-    monkeypatch.setattr(db_session, "commit", original_commit)
-    assert fired and not path.exists()
-    output = await db_session.scalar(
-        select(ExportOutput).where(ExportOutput.job_id == job_id)
-    )
+    monkeypatch.setattr(db, "commit", unknown_commit)
+    with pytest.raises(OSError, match="acknowledgement unknown"):
+        await worker.run_owned(db, **args)
+    monkeypatch.setattr(db, "commit", original_commit)
+    assert fired
+    output = await state(db, ExportOutput, receipt.zip_output_id)
     assert output.state == ("ready" if committed else "pending")
-    current_job = await db_session.get(AsyncJob, job_id, populate_existing=True)
+    assert output.media_bundle_id == receipt.id
+    saved_output = export_outputs.snapshot(output)
+    current_job = await state(db, AsyncJob, job_id)
     assert current_job.status == ("completed" if committed else "failed")
+    bundle = await state(db, ExportMediaBundle, receipt.id)
+    assert bundle.state == ("ready" if committed else "building")
+    assert (bundle.published_at is not None) is committed
     assert (
         bool(
-            await db_session.scalar(
-                select(ExportArtifact.id).where(ExportArtifact.output_id == output.id)
+            await db.scalar(
+                select(ExportArtifact.id).where(
+                    ExportArtifact.output_id == saved_output.id
+                )
             )
         )
         is committed
     )
-    assert export_objects.objects and not export_objects.deleted
+    physical_bytes = harness.objects[saved_output.id]
+    assert hashlib.sha256(physical_bytes).hexdigest() == saved_output.sha256
+    assert len(physical_bytes) == saved_output.size_bytes
+    assert harness.built_paths and all(
+        not path.exists() for path in harness.built_paths
+    )
+    delete.assert_not_called()
 
 
 @pytest.mark.parametrize("path", ["fresh", "cached"])
