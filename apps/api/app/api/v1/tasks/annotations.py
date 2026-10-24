@@ -1,5 +1,6 @@
 import base64
 import uuid
+from contextlib import nullcontext
 from datetime import datetime
 from typing import NoReturn
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
@@ -11,6 +12,7 @@ from app.deps import (
     get_current_user,
     get_gpu_dispatch_context_factory,
     get_gpu_shadow_session_factory,
+    get_prediction_input_session_factory,
     require_scopes,
 )
 from app.db.models.user import User
@@ -65,7 +67,10 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     prepare_mask_geometry_for_annotation_write,
 )
-from app.services.secondary_inference import run_secondary_inference
+from app.services.secondary_inference import (
+    prepare_secondary_request,
+    run_secondary_inference,
+)
 from app.services.task_lock import TaskLockService
 from app.db.models.project import Project
 from app.services.video_collaboration import (
@@ -469,6 +474,7 @@ async def secondary_inference(
     data: SecondaryInferenceRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    input_session_factory=Depends(get_prediction_input_session_factory),
     shadow_session_factory: GPUShadowSessionFactory = Depends(
         get_gpu_shadow_session_factory
     ),
@@ -533,60 +539,87 @@ async def secondary_inference(
     if violations:
         raise HTTPException(status_code=422, detail=violations[0].detail)
 
-    # 释放当前只读事务再进入 10-30s 的远程 predict, 避免 async 连接池在高并发下饥饿
-    # (expire_on_commit=False, annotation / task / backend 对象保持 attached 可继续使用)。
-    await db.commit()
-
-    updated, children = await run_secondary_inference(
-        db,
-        annotation=annotation,
-        task=task,
-        backend=backend,
-        write_target=data.write_target,
-        write_keys=data.write_keys,
-        label=data.label,
+    prepare_secondary_request(
+        annotation,
+        backend,
         model_id=data.model_id,
         model_variants=data.model_variants,
         params=data.params,
-        visual_task=data.task,
-        prompt_type=data.prompt_type,
         prompt=data.prompt,
         class_filter=data.class_filter,
-        pad=data.pad,
-        user_id=current_user.id,
-        shadow_session_factory=shadow_session_factory,
-        dispatch_context_factory=dispatch_context_factory,
+        visual_task=data.task,
+        prompt_type=data.prompt_type,
     )
-    await heartbeat_task_lock_for_legacy_video(db, task, current_user.id)
-    await record_annotation_actor(db, task, current_user.id)
-    await AuditService.log(
-        db,
-        actor=current_user,
-        action=AuditAction.ANNOTATION_UPDATE,
-        target_type="annotation",
-        target_id=str(annotation_id),
-        request=request,
-        status_code=201,
-        detail={
-            "task_id": str(task_id),
-            "secondary_inference": True,
-            "ml_backend_id": str(data.ml_backend_id),
-            # v0.23.3 ADR-0050 §5.4 · audit 记 pool + instance 双 ID。
-            "ml_backend_pool_id": str(
-                await ml_svc.pool_id_for_registry(data.ml_backend_id)
-            ),
-            "write_target": data.write_target,
-            "created_children": len(children),
-        },
-    )
+    # Release initial membership locks before source capture and remote inference.
     await db.commit()
-    await db.refresh(updated)
-    for c in children:
-        await db.refresh(c)
-    return SecondaryInferenceResponse(
-        annotation=AnnotationOut.model_validate(updated),
-        created_children=[AnnotationOut.model_validate(c) for c in children],
-    )
+
+    if task.file_type == "image":
+        from app.services.managed_secondary_inference import managed_secondary_operation
+
+        operation = managed_secondary_operation(
+            db, task, current_user, request, annotation, input_session_factory
+        )
+    else:
+        # This slice does not qualify legacy non-image inputs.
+        operation = nullcontext(None)
+    async with operation as original_operation:
+        updated, children = await run_secondary_inference(
+            db,
+            annotation=annotation,
+            task=task,
+            backend=backend,
+            write_target=data.write_target,
+            write_keys=data.write_keys,
+            label=data.label,
+            model_id=data.model_id,
+            model_variants=data.model_variants,
+            params=data.params,
+            visual_task=data.task,
+            prompt_type=data.prompt_type,
+            prompt=data.prompt,
+            class_filter=data.class_filter,
+            pad=data.pad,
+            user_id=current_user.id,
+            shadow_session_factory=shadow_session_factory,
+            dispatch_context_factory=dispatch_context_factory,
+            original_operation=original_operation,
+        )
+        if original_operation is not None:
+            task = await db.get(Task, task_id, populate_existing=True)
+        await heartbeat_task_lock_for_legacy_video(db, task, current_user.id)
+        await record_annotation_actor(db, task, current_user.id)
+        await AuditService.log(
+            db,
+            actor=current_user,
+            action=AuditAction.ANNOTATION_UPDATE,
+            target_type="annotation",
+            target_id=str(annotation_id),
+            request=request,
+            status_code=201,
+            detail={
+                "task_id": str(task_id),
+                "secondary_inference": True,
+                "ml_backend_id": str(data.ml_backend_id),
+                "ml_backend_pool_id": str(
+                    await ml_svc.pool_id_for_registry(data.ml_backend_id)
+                ),
+                "write_target": data.write_target,
+                "created_children": len(children),
+            },
+        )
+        if original_operation is not None:
+            await original_operation.recheck_credentials()
+        # Commit the complete business result before rollback-before-close cleanup.
+        await db.commit()
+        await db.refresh(updated)
+        for child in children:
+            await db.refresh(child)
+        return SecondaryInferenceResponse(
+            annotation=AnnotationOut.model_validate(updated),
+            created_children=[
+                AnnotationOut.model_validate(child) for child in children
+            ],
+        )
 
 
 @router.post(
