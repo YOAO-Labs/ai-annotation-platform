@@ -63,6 +63,7 @@ _TABLES = (
     "ml_backend_pool_members",
     "project_ml_backend_pool",
     "audit_logs",
+    "notifications",
     "raster_mask_objects",
     "raster_mask_publications",
     "mask_annotation_revisions",
