@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import time
 import uuid
 from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
+from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.db.models.active_learning import (
@@ -29,6 +29,7 @@ from app.services import (
     active_learning_engine as engine,
     active_learning_pool as pool,
     active_learning_storage as owners,
+    active_learning_originals as originals,
     async_job as jobs,
     managed_inference as managed,
     sample_evaluation_engine as detection,
@@ -37,7 +38,11 @@ from app.services import (
 from app.services.async_job_notify import notify_job_terminal
 from app.services.batch import BatchService
 from app.services.storage import storage_service as storage
-from app.services.training_dataset_bridge import content_digest, sample_identities
+from app.services.training_dataset_bridge import (
+    TrainingDatasetError,
+    content_digest,
+    sample_identities,
+)
 from app.services.training_datasets import assert_training_authority
 
 ACTIVE = {"queued", "running", "cancelling", "lost"}
@@ -50,6 +55,21 @@ def now():
 
 
 async def authority(db, round):
+    if round.spec.get("original_contract") == 1:
+        try:
+            await originals.delegated(db, round, commit=False)
+        except HTTPException as exc:
+            if exc.status_code not in {401, 403}:
+                raise
+            code = (
+                exc.detail.get("code", "authority_revoked")
+                if isinstance(exc.detail, dict)
+                else "authority_revoked"
+            )
+            raise TrainingDatasetError(
+                code, "选样创建者或原密钥权限已撤销", status_code=exc.status_code
+            ) from None
+        return
     await assert_training_authority(
         db,
         project_id=round.project_id,
@@ -165,6 +185,18 @@ def validate_spec(round):
         ):
             raise ValueError("Frozen round differs")
         for sample in spec["pool"]:
+            if "original_contract" in spec:
+                if (
+                    type(spec["original_contract"]) is not int
+                    or spec["original_contract"] != 1
+                ):
+                    raise ValueError("Unknown original input contract")
+                frozen = originals.validate_receipt(sample["snapshot"].get("original"))
+                if (
+                    frozen["sha256"] != sample["sha256"]
+                    or frozen["size_bytes"] != sample["size_bytes"]
+                ):
+                    raise ValueError("Frozen original identity differs")
             if (
                 not 0 < sample["size_bytes"] <= detection.MAX_RAW_BYTES
                 or sample["width"] * sample["height"] > detection.MAX_PIXELS
@@ -216,6 +248,7 @@ async def retain_references(db, round, references):
 
 
 async def create_round(db, project, user, body, prepared, api_key_id=None):
+    context = prepared["_authority"]
     digest = content_digest(body.model_dump(mode="json"))
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
@@ -273,8 +306,10 @@ async def create_round(db, project, user, body, prepared, api_key_id=None):
     ):
         raise reject("pool_stale", "创建前候选资格或历史排除成员已变化，请重新预览")
     identity, issued = uuid.uuid4(), int(time.time())
+    for source in prepared["_live_sources"]:
+        await originals.recheck(db, context, source, commit=False)
     spec = {
-        **prepared,
+        **{key: value for key, value in prepared.items() if not key.startswith("_")},
         "round_id": str(identity),
         "issued_at": issued,
         "expires_at": issued + 86400,
@@ -290,7 +325,11 @@ async def create_round(db, project, user, body, prepared, api_key_id=None):
         name=body.name.strip(),
         spec=spec,
         spec_digest=content_digest(spec),
-        authorization={"api_key_id": api_key_id},
+        authorization={
+            "api_key_id": api_key_id,
+            "original_contract": 1,
+            "api_key_fingerprint": originals.key_fingerprint(context.key),
+        },
         generation=0,
         inference_dispatches=0,
         accepted_tasks=0,
@@ -323,6 +362,7 @@ async def create_round(db, project, user, body, prepared, api_key_id=None):
         )
     await retain_references(db, round, spec["exclusions"]["references"])
     await new_attempt(db, round)
+    await originals.check(db, context, commit=False)
     return round
 
 
@@ -377,7 +417,7 @@ def read_retained_png(round, sample):
     try:
         png = response["Body"].read(size + 1)
     finally:
-        response["Body"].close()
+        originals.storage_access.close_registered(response["Body"])
     if (
         len(png) != size
         or hashlib.sha256(png).hexdigest() != artifact["sha256"]
@@ -393,30 +433,55 @@ def read_retained_png(round, sample):
     return png
 
 
-def prepare_image(round, sample):
+async def prepare_image(db, round, sample, *, guard=None):
     owner = owners.resolve(round)
-    try:
-        return read_retained_png(round, sample)
-    except ClientError as exc:
-        if exc.response.get("Error", {}).get("Code") not in {
-            "404",
-            "NoSuchKey",
-            "NotFound",
-        }:
-            raise
-    png, media = pool.read_input(sample["snapshot"])
-    if any(
-        media[key] != sample[key]
-        for key in (
-            "sha256",
-            "width",
-            "height",
-            "size_bytes",
-            "derived_sha256",
-            "preprocessing",
+    context = await originals.delegated(db, round)
+    location_id = uuid.UUID(owner.ref["location_id"])
+    permit = await originals.storage_access.acquire(
+        db, location_id, "active_learning_media"
+    )
+    async with permit:
+        await originals.check(db, context, guard=guard)
+        try:
+            png = await originals.bounded_thread(read_retained_png, round, sample)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") not in {
+                "404",
+                "NoSuchKey",
+                "NotFound",
+            }:
+                raise
+            if round.spec.get("original_contract") != 1:
+                raise originals.ContentError("original_input_unrecorded") from None
+            async with originals.input_image(
+                db, context, sample["snapshot"], guard=guard
+            ) as (png, media, _source):
+                if any(
+                    media[key] != sample[key]
+                    for key in (
+                        "sha256",
+                        "width",
+                        "height",
+                        "size_bytes",
+                        "derived_sha256",
+                        "preprocessing",
+                    )
+                ):
+                    raise ValueError("Current source differs from the frozen round")
+                await originals.check(db, context, guard=guard)
+                await originals.bounded_thread(_store_png, round, sample, owner, png)
+        await originals.check(db, context, commit=False, guard=guard)
+        if owners.resolve(round) != owner:
+            raise originals.ContentError("content_binding_changed")
+        await originals.storage_access.check(
+            db, location_id, expected_revision=permit.revision, lock=True
         )
-    ):
-        raise ValueError("Current source differs from the frozen round")
+        await db.commit()
+        originals.access.check_clock(context.proof, context.key)
+    return png
+
+
+def _store_png(round, sample, owner, png):
     artifact = media_descriptor(round, sample)
     owners.expect_media(owner, sample["ordinal"], artifact["key"])
     storage.client.put_object(
@@ -431,7 +496,8 @@ def prepare_image(round, sample):
             "sha256": artifact["sha256"],
         },
     )
-    return png
+    if read_retained_png(round, sample) != png:
+        raise ValueError("Published PNG differs from the frozen input")
 
 
 def successful_evidence(round, attempt, row, result):
@@ -704,7 +770,8 @@ def decision_output(decision):
     }
 
 
-async def decide(db, project, user, round_id, body, api_key_id=None):
+async def decide(db, project, user, round_id, body, api_key_id=None, *, request):
+    context = await originals.authorize(db, project.id, user.id, request, api_key_id)
     digest = content_digest(body.model_dump(mode="json"))
     round = await load_round(db, project.id, round_id)
     existing = await db.scalar(
@@ -731,6 +798,8 @@ async def decide(db, project, user, round_id, body, api_key_id=None):
             "invalid_selection", "只能接纳本轮建议或随机对照中计划内的候选", 422
         )
     selected = [round.spec["samples"][ordinal] for ordinal in sorted(body.ordinals)]
+    if body.action == "accept" and round.spec.get("original_contract") != 1:
+        raise originals.ContentError("original_input_unrecorded")
     ids = [uuid.UUID(sample["task_id"]) for sample in selected]
     group_ids = sorted(
         {
@@ -753,11 +822,21 @@ async def decide(db, project, user, round_id, body, api_key_id=None):
         else None
     )
     await db.commit()
+    live_sources = []
     if before:
         for sample, snapshot in zip(group_sources, before, strict=True):
+            if snapshot != sample["snapshot"]:
+                raise reject(
+                    "source_stale", "当前任务、分派或原件身份已变化，请重新选样"
+                )
             try:
-                _png, media = await asyncio.to_thread(pool.read_input, snapshot)
-            except Exception as exc:
+                _png, media, source = await originals.read_input(db, context, snapshot)
+                live_sources.append(source)
+            except originals.ContentError:
+                raise
+            except (ValueError, OSError) as exc:
+                if getattr(exc, "storage_operation_unsettled", False):
+                    raise
                 raise reject("source_stale", "当前来源无法核验，请重新选样") from exc
             if (
                 snapshot != sample["snapshot"]
@@ -827,6 +906,8 @@ async def decide(db, project, user, round_id, body, api_key_id=None):
         await pool.lock_unedited(db, group_ids, user.id)
         if before != await pool.snapshots(db, project.id, group_ids):
             raise reject("source_stale", "接纳前任务资格、分派或编辑锁已变化")
+        for source in live_sources:
+            await originals.recheck(db, context, source, commit=False)
         history = await pool.exclusions(db, project.id, lock=True)
         excluded = set(history["identities"])
         for sample in selected:
@@ -899,4 +980,5 @@ async def decide(db, project, user, round_id, body, api_key_id=None):
             "accepted" if body.action == "accept" else "rejected"
         )
         rows[ordinal].decision_id = decision.id
+    await originals.check(db, context, commit=False)
     return decision

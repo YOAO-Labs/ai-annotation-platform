@@ -179,6 +179,14 @@ POST /api/v1/projects/{project_id}/training-datasets/{version_id}/storage-pin
 
 预览选择体包含 UUID `model_version_id`、`deployment_id`、2–32 个不重复 `sample_task_ids`、整数 `seed`（0–2147483647）、`batch_size`（1–16）、`max_inference_dispatches`（1–96）与 `max_review_tasks`（2–32）。`confidence` 默认 0.1、`nms_iou` 默认 0.7，均大于零且不超过一。审核预算至少 `2 * batch_size`；推理预算至少覆盖去重／排除后的所有候选，独立候选至少 `2 * batch_size`。来源单图 16 MiB／1600 万像素，总原图 128 MiB；保留历史最多 256 项和 16 MiB JSON，超限明确拒绝，不静默省略。
 
+新轮次声明 `original_contract=1`，内部来源快照固定原件 `owner_kind`、内容 UUID、SHA、大小及逻辑位置 ID。预览／创建、Worker 缺失 PNG 的重建和接纳前整个组的复核，都从该原件的已保存位置完整读取；不使用现行用途桶，也不将同 SHA 的另一归属视为同一原件。桶、端点、凭据及后台 Key 指纹不加入公开来源快照。维护修订按本次物理操作固定，正常维护恢复不改写历史内容身份。
+
+HTTP 请求持续复核原 JWT／Key 和原三个 scope；新后台轮次保存原 Key proof 的指纹，Key 同 ID 轮换、scope 或期限变化均失效。后台沿创建者的持续授权执行，不保存 Bearer 或依赖请求 JWT 的短期寿命。物理复制、归一化、PNG 写回／读回及关闭等待真实线程收尾；未知关闭保留访问责任。读取期间原件或门禁变化返回 `409`，失权返回 `403`，正常内容无法解码仍明确失败，不能继续生成评分或批次。
+
+后台原 Key 复核遇到访问记录更新造成的短暂锁冲突时有限重试；仍忙则保留可恢复状态，不把锁占用视为撤权或损坏输入。真实撤权不重试，最终业务事务不会被重试中的辅助检查提前提交。
+
+旧规格保持原样，已有合格 PNG、报告和拒绝决策可继续使用；没有原件事实时，缺失 PNG 重建与新增接纳返回 `409 original_input_unrecorded`，不能用当前 owner 补造冻结记录。既有 PNG 沿自身输出归属核验，损坏时不静默回源修复。创建和接纳的末端复核位于原业务事务中，不提前提交 Job 或人工批次。
+
 创建、决策与反馈均使用 UUID `request_id` 加完整请求摘要幂等：同一内容返回原结果，改变内容返回 `409`。创建重复请求先读取既有轮次，无需重新访问已变化的候选。预览与创建变化返回 `preview_changed`；接纳前整个组变化或新增历史成员返回 `pool_stale`／`source_stale`。轮次状态为 `queued`、`running`、`cancelling`、`lost`、`succeeded`、`failed`、`cancelled`。仅完整成功报告允许决策；取消、封存与到期不得重建旧请求。
 
 决策体为 `request_id`、`action=accept|reject`、1–32 个不重复 `ordinals` 和可选 `batch_name`。接纳仅允许两组计划内候选，创建普通草稿批次并返回固定 `snapshot`、`snapshot_digest` 与可空 `accepted_batch_id`。批次删除不删除决策快照。读取决策或反馈的 `limit` 1–100、默认 20，`offset` 默认 0，返回 `items` 和同权限、同轮次范围的 `total`。

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -25,8 +24,7 @@ from app.services import active_learning_engine as strategy
 from app.services import sample_evaluation_engine as detection
 from app.services.managed_inference import qualification, reject
 from app.services.project_write_guard import _busy_lock_error
-from app.services.sample_evaluation_sources import read_current_media
-from app.services.storage import storage_service as storage
+from app.services import active_learning_originals as originals
 from app.services.task_lock import TaskLockConflictError, TaskLockService
 from app.services.training_dataset_bridge import (
     content_digest,
@@ -38,7 +36,7 @@ from app.services.training_datasets import assert_training_authority
 MAX_TOTAL_RAW = 128 * 1024 * 1024
 MAX_HISTORICAL_BYTES = 16 * 1024 * 1024
 MAX_HISTORICAL_SOURCES = 256
-SCOPES = frozenset({"datasets:read", "datasets:write", "annotations:read"})
+SCOPES = originals.SCOPES
 
 
 def eligibility():
@@ -134,7 +132,6 @@ def source_snapshot(task, item, batch):
         "project_id": str(task.project_id),
         "dataset_item_id": str(item.id) if item else None,
         "scene_id": str(item.scene_id) if item and item.scene_id else None,
-        "source_bucket": storage.datasets_bucket if item else storage.bucket,
         "source_key": task.file_path,
         "file_type": task.file_type,
         "expected_width": item.width if item else None,
@@ -194,7 +191,7 @@ async def snapshots(db, project_id, task_ids):
         for row in result
     ):
         raise reject("source_changed", "任务与素材图片引用不一致")
-    return result
+    return [await originals.pin(db, snapshot) for snapshot in result]
 
 
 async def lock_unedited(db, task_ids, actor_id):
@@ -396,21 +393,8 @@ async def exclusions(db, project_id, *, lock=False):
     return {**result, "digest": content_digest(result)}
 
 
-def read_input(snapshot):
-    media = read_current_media(snapshot, include_raw=True)
-    png, preprocessing = detection.normalize_image(
-        media.pop("raw"), width=media["width"], height=media["height"]
-    )
-    if preprocessing["raw_sha256"] != media["sha256"]:
-        raise ValueError("Conditional source digest differs")
-    return png, {
-        **media,
-        "derived_sha256": preprocessing["derived_sha256"],
-        "preprocessing": preprocessing,
-    }
-
-
-async def prepare(db, project, body, actor_id, api_key_id=None):
+async def prepare(db, project, body, actor_id, api_key_id=None, *, request):
+    context = await originals.authorize(db, project.id, actor_id, request, api_key_id)
     # External qualification and media IO precede final domain locks.
     ref, profile = await qualification(
         db, project, body.model_version_id, body.deployment_id
@@ -425,11 +409,16 @@ async def prepare(db, project, body, actor_id, api_key_id=None):
     before = await snapshots(db, project.id, body.sample_task_ids)
     history = await exclusions(db, project.id)
     await db.commit()
-    verified, total = [], 0
+    verified, live_sources, total = [], [], 0
     for snapshot in before:
         try:
-            _png, media = await asyncio.to_thread(read_input, snapshot)
-        except Exception as exc:
+            _png, media, source = await originals.read_input(db, context, snapshot)
+            live_sources.append(source)
+        except originals.ContentError:
+            raise
+        except (ValueError, OSError) as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise reject(
                 "source_unavailable",
                 "候选图片未通过条件读取、解码、大小或身份检查",
@@ -465,12 +454,15 @@ async def prepare(db, project, body, actor_id, api_key_id=None):
         db, project.id, body.sample_task_ids
     ) or history != await exclusions(db, project.id):
         raise reject("pool_stale", "核验期间候选来源或历史成员已变化，请重新预览")
+    for source in live_sources:
+        await originals.recheck(db, context, source, commit=False)
     samples, omitted = strategy.grouped_pool(verified, history["identities"])
     samples = strategy.partition(samples, body.seed, body.batch_size)
     if body.max_inference_dispatches < len(samples):
         raise reject("inference_budget", "推理预算至少须覆盖去重后的全部独立候选", 422)
     result = {
         "schema": 1,
+        "original_contract": 1,
         "pool": verified,
         "pool_digest": content_digest(verified),
         "samples": samples,
@@ -496,7 +488,13 @@ async def prepare(db, project, body, actor_id, api_key_id=None):
     if strategy.strategy_for(ref) == strategy.MASK_STRATEGY:
         result.update(schema=2, schema_version=2, task="segment")
     await db.commit()
-    return {**result, "preview_digest": content_digest(result)}
+    originals.access.check_clock(context.proof, context.key)
+    return {
+        **result,
+        "preview_digest": content_digest(result),
+        "_authority": context,
+        "_live_sources": live_sources,
+    }
 
 
 async def guard_source(

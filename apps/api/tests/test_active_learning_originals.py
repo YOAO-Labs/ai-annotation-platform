@@ -698,8 +698,8 @@ async def test_delegated_new_round_rejects_same_id_rotated_key_before_original_l
         },
     )
     monkeypatch.setattr(
-        service.access,
-        "actor_and_key",
+        service,
+        "current_actor_key",
         AsyncMock(return_value=(object(), ("rotated-hash", ("*",), None))),
     )
     check = AsyncMock()

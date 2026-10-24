@@ -1,10 +1,8 @@
 """Resolve current source identity without mutating frozen evaluation truth."""
 
 import hashlib
-import io
 import uuid
 
-from PIL import Image
 from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import String, cast, func, select
 
@@ -80,9 +78,6 @@ async def current_snapshot(db, project_id, task_id, *, task="detect"):
         "project_id": str(task.project_id),
         "batch_id": str(task.batch_id) if task.batch_id else None,
         "dataset_item_id": str(task.dataset_item_id) if task.dataset_item_id else None,
-        "source_bucket": service.storage.datasets_bucket
-        if task.dataset_item_id
-        else service.storage.bucket,
         "source_key": task.file_path,
         "file_type": task.file_type,
         "version": task.version,
@@ -94,56 +89,6 @@ async def current_snapshot(db, project_id, task_id, *, task="detect"):
         "expected_width": item.width if item else None,
         "expected_height": item.height if item else None,
         "annotations": sorted(labels or [], key=lambda a: a["id"]),
-    }
-
-
-def read_current_media(snapshot, *, include_raw=False):
-    if snapshot["file_type"] != "image":
-        raise ValueError("Current task is no longer an image")
-    client = service.storage.client
-    params = {"Bucket": snapshot["source_bucket"], "Key": snapshot["source_key"]}
-    head = client.head_object(**params)
-    size = head.get("ContentLength")
-    if type(size) is not int or not 0 < size <= service.engine.MAX_RAW_BYTES:
-        raise ValueError("Current source exceeds byte budget")
-    response = client.get_object(**params, IfMatch=head["ETag"])
-    try:
-        raw = response["Body"].read(size + 1)
-    finally:
-        response["Body"].close()
-    if len(raw) != size or response.get("ETag") != head["ETag"]:
-        raise ValueError("Current source changed during read")
-    with Image.open(io.BytesIO(raw)) as image:
-        if (
-            image.width * image.height > service.engine.MAX_PIXELS
-            or getattr(image, "n_frames", 1) != 1
-        ):
-            raise ValueError("Current source exceeds pixel/frame budget")
-        image.load()
-        orientation = image.getexif().get(274, 1)
-        if type(orientation) is not int or not 1 <= orientation <= 8:
-            raise ValueError("Current source orientation is invalid")
-        width, height = (
-            (image.height, image.width) if orientation in {5, 6, 7, 8} else image.size
-        )
-    if (
-        snapshot["expected_width"]
-        and snapshot["expected_height"]
-        and (width, height) != (snapshot["expected_width"], snapshot["expected_height"])
-    ):
-        raise ValueError("Current source logical dimensions differ from its item")
-    after = client.head_object(**params)
-    if (
-        after.get("ETag") != head["ETag"]
-        or after.get("ContentLength") != size
-        or after.get("VersionId") != head.get("VersionId")
-    ):
-        raise ValueError("Current source changed during verification")
-    return {
-        "sha256": hashlib.sha256(raw).hexdigest(),
-        "width": width,
-        "height": height,
-        **({"raw": raw, "size_bytes": size} if include_raw else {}),
     }
 
 

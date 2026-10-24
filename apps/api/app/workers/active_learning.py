@@ -285,15 +285,34 @@ async def execute(factory, attempt_id, celery_task_id=None):
                     service.verified_evidence(round, row)
                     continue
                 await db.commit()
-            try:
-                png = await asyncio.to_thread(service.prepare_image, round, sample)
-            except TrainingDatasetError:
-                raise
-            except Exception as exc:
-                raise RoundFailure(
-                    "frozen_input_unavailable",
-                    "冻结图片未通过来源、字节或解码核验；未生成评分",
-                ) from exc
+                expected_spec = round.spec_digest
+
+                async def input_guard():
+                    current, _ = await fenced(db, attempt_id, claim_id)
+                    if (
+                        current.status != "running"
+                        or current.spec_digest != expected_spec
+                    ):
+                        raise FencedOut
+
+                try:
+                    png = await service.prepare_image(
+                        db, round, sample, guard=input_guard
+                    )
+                except (TrainingDatasetError, FencedOut):
+                    raise
+                except HTTPException as exc:
+                    if exc.status_code == 409:
+                        raise
+                    raise RoundFailure(
+                        "frozen_input_unavailable",
+                        "冻结图片未通过来源、字节或解码核验；未生成评分",
+                    ) from exc
+                except Exception as exc:
+                    raise RoundFailure(
+                        "frozen_input_unavailable",
+                        "冻结图片未通过来源、字节或解码核验；未生成评分",
+                    ) from exc
             async with factory() as db:
                 round, _attempt = await fenced(
                     db, attempt_id, claim_id, check_authority=True

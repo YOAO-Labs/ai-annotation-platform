@@ -1016,3 +1016,13 @@ README、CHANGELOG Unreleased、评估用户指南、API合同和存储架构文
 只读盘点已确认共享同步read_current_media仍被active_learning_pool.read_input使用，实际物理调用包括pool.prepare的预览/创建、active_learning.prepare_image的后台PNG补建，以及decide的接纳前原图复核。只替换预览会遗漏后两条路径，不能宣称主动学习已迁移。
 
 下一片先统一这三条调用的冻结内容、保存位置、当前权限及原凭证边界，再定实施切片。保留32成员/128MiB总量及检测/分割独立解码预算、候选去重、历史排除、preview_digest/冻结spec与既有报告兼容性；旧spec不能按现行桶或文件名补造原件归属。后台补建和接纳须以冻结内容核对当前真实归属，已有合格PNG仍沿自身输出owner，不把派生SHA当原件证明。明确API断连与Worker取消的真实收尾责任，不能将await asyncio.to_thread直接视为物理取消。完成调用链和兼容策略定案后实施，不在本片修改AL协议；冻结评估媒体、训练版本构建、其他ML/Worker、金字塔、导出及视频派生链继续各自推进。
+
+## E02-B13-B3-B Design — 主动学习三处原件输入
+
+基线 `2b3d9c541` 的两路只读盘点确认：pool.prepare负责预览/创建，prepare_image在Worker缺失冻结PNG时回源，decide在接纳前复核完整去重/Scene组。三处共同迁移至窄AL原件适配，删除共享猜桶raw读取，不能只修预览。新snapshot.original固定修订1、owner_kind、内容UUID/SHA/大小和逻辑location_id；不暴露桶、端点或凭据。每次沿canonical owner的保存位置解析完整OriginalSource，读取许可后、归一化后及真实关闭后全量比较。维护Gate代次只冻结于本次操作，不把合法stop/resume或受控恢复桶映射永久固化进跨轮次规格；同SHA换owner/逻辑位置仍拒绝。
+
+新规格声明original_contract=1，全部pool成员须有一致原件事实。旧规格、报告和已有合格PNG保持，缺少原件事实的历史轮次不能回源补图或新增接纳；不能据当前owner回填旧证据。合格派生PNG继续沿自己的输出owner，坏PNG不回源静默修复。候选分组/历史排除、preview_digest、32成员/128MiB及检测/分割预算保持。
+
+API捕获准确JWT/Key并维持原datasets:read/write、annotations:read；创建和接纳的最终事务在既有业务锁下复核原请求、完整原件与Gate，辅助检查不得提交Job/Batch事务。新轮次authorization只保存原Key proof的不可逆指纹，后台持续核对创建者、当前权限和原Key；不持久保存Bearer或把JWT短寿命套到24小时后台窗口。Worker异步拥有准备流程，复制、归一化、PNG写回和关闭均等待真实线程收尾，发布前复核attempt/claim/generation/status及原件。未知关闭保留额度与耐久许可，取消后不能生成可用输入或迟到发布。
+
+主树负责AL适配、三个业务入口、Worker调用、跨入口回归、文档与真实验收；隔离树升级AL自有原件夹具和相关现有用例，不修改共享key-only报告替身。使用已验证新test/e2e命名空间、真实MinIO/HTTP与当前checkout Celery；合成completed收据只验证输入执行链，不宣称真实模型推理。刷新受影响人工Worker通过原监督服务进行，不重建镜像；保留人工3100/8100、Beat、业务/24对象/12文件。正常hooks提交后核对精确资源清理，完整E02/B13和用途切换继续未完成。

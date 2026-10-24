@@ -43,7 +43,13 @@ ManagedOriginalCreation显式区分dataset/task作用域。Task分配保存proje
 
 `sample_evaluation_originals` 为既有 source API 提供窄适配：沿 `original_sources.resolve_task` 固定当前 TaskOriginal 或 DatasetAsset，取得同一位置的耐久许可后调用 `managed_original_reader`，独立两槽、每图最多 16 MiB。先验证当前已登记 SHA，再比较冻结评估 SHA；未知归属零原件 I/O，不从当前用途桶、旧路径或冻结 SHA 猜测当前对象。Pillow 在同一临时文件上执行既有 1,600 万像素、单帧及 EXIF 检查，不扩大格式或尺寸预算。
 
-适配保持评估的项目管理权限与两个读取 scope，捕获并复核原 JWT／Key，不借用要求 `tasks:read` 的通用下载授权。复制、解码、标签分类、临时文件关闭都在同一责任范围；取消和超时等待真实线程退出，未知 Body、client 或本地文件关闭保留显式准入额度与维护许可。关闭后再比较当前任务及标注，阻止慢关闭期间的变化成为成功回执。共享同步 `read_current_media` 的主动学习调用尚未迁移，冻结图片、报告、训练及其他 Worker 消费者分别推进。
+适配保持评估的项目管理权限与两个读取 scope，捕获并复核原 JWT／Key，不借用要求 `tasks:read` 的通用下载授权。复制、解码、标签分类、临时文件关闭都在同一责任范围；取消和超时等待真实线程退出，未知 Body、client 或本地文件关闭保留显式准入额度与维护许可。关闭后再比较当前任务及标注，阻止慢关闭期间的变化成为成功回执。主动学习原件输入见下节，冻结评估图片、报告、训练及其他 Worker 消费者分别推进。
+
+### 主动学习原件输入
+
+`active_learning_originals` 收口预览／创建、Worker 缺失 PNG 重建及接纳前整组复核，移除按现行桶自行 HEAD／GET 的共享同步读取。新内部快照仅冻结原件身份、SHA／大小及逻辑位置 ID，实际 locator 始终取 canonical owner 的保存位置；每次物理操作固定完整关系和维护代次。单图 16 MiB、独立两槽及既有归一化预算保持，正常维护恢复与受控恢复桶映射不改写跨轮次内容身份。
+
+HTTP 权限证明与后台持续授权分开：原请求复核准确 JWT／Key，后台保存并核对原 Key proof 指纹，范围仍为原三个 scope。最终创建与接纳检查复用已取得的业务锁，不在辅助复核中提交 Job／Batch。Worker 准备输入时保持异步会话，以 claim／generation／status guard 限制读回与交付；源读取、PNG 写回／完整读回及真实关闭都先 drain，未知关闭保留许可。已有 PNG 只核对自身输出 owner，旧无原件事实的规格不能回源重建或新增接纳，历史报告和拒绝仍保持。
 
 ### 认证通用原件交付
 

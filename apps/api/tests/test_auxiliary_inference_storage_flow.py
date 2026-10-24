@@ -435,37 +435,72 @@ async def test_unknown_owner_does_not_block_confirmed_evaluation_stop(
     assert not world.client.calls
 
 
-def test_active_learning_prepares_and_reuses_png_in_saved_bucket(world, monkeypatch):
-    source = Mock(return_value=(world.png, deepcopy(world.sample)))
-    monkeypatch.setattr(rounds.pool, "read_input", source)
+def png_context(world, monkeypatch):
+    db = SimpleNamespace(commit=AsyncMock())
+    context = SimpleNamespace(proof=None, key=None)
+    world.round.spec = {"original_contract": 1}
+    monkeypatch.setattr(rounds.originals, "delegated", AsyncMock(return_value=context))
+    monkeypatch.setattr(rounds.originals, "check", AsyncMock())
+    monkeypatch.setattr(rounds.originals.access, "check_clock", Mock())
+
+    class Permit:
+        revision = 1
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            pass
+
+    monkeypatch.setattr(
+        rounds.originals.storage_access,
+        "acquire",
+        AsyncMock(side_effect=lambda *_a, **_k: Permit()),
+    )
+    monkeypatch.setattr(rounds.originals.storage_access, "check", AsyncMock())
+
+    @asynccontextmanager
+    async def source(*_a, **_k):
+        yield world.png, deepcopy(world.sample), None
+
+    read = Mock(side_effect=source)
+    monkeypatch.setattr(rounds.originals, "input_image", read)
+    return db, context, read
+
+
+async def test_active_learning_prepares_and_reuses_png_in_saved_bucket(
+    world, monkeypatch
+):
+    db, context, source = png_context(world, monkeypatch)
     descriptor = rounds.media_descriptor(world.round, world.sample)
-    assert rounds.prepare_image(world.round, world.sample) == world.png
+    assert await rounds.prepare_image(db, world.round, world.sample) == world.png
     world.client.objects["new-current-bucket", descriptor["key"]] = b"current trap"
-    assert rounds.prepare_image(world.round, world.sample) == world.png
-    source.assert_called_once_with(world.sample["snapshot"])
+    assert await rounds.prepare_image(db, world.round, world.sample) == world.png
+    source.assert_called_once_with(db, context, world.sample["snapshot"], guard=None)
     assert all(bucket == world.bucket for _op, bucket, _key in world.client.calls)
     assert len([call for call in world.client.calls if call[0] == "put"]) == 1
     assert rounds.media_descriptor(world.round, world.sample) == descriptor
 
 
 @pytest.mark.parametrize("operation", [rounds.read_retained_png, rounds.prepare_image])
-def test_unknown_round_owner_never_reads_current_source_or_storage(
+async def test_unknown_round_owner_never_reads_current_source_or_storage(
     world, monkeypatch, operation
 ):
     world.round.storage_ref = None
     source = Mock(side_effect=AssertionError("NULL output cannot repair from source"))
-    monkeypatch.setattr(rounds.pool, "read_input", source)
+    monkeypatch.setattr(rounds.originals, "input_image", source)
     with pytest.raises(TrainingDatasetError):
-        operation(world.round, world.sample)
+        if operation is rounds.prepare_image:
+            await operation(None, world.round, world.sample)
+        else:
+            operation(world.round, world.sample)
     source.assert_not_called()
     assert not world.client.calls
 
 
-def test_active_learning_reuse_verifies_full_png_digest(world, monkeypatch):
-    monkeypatch.setattr(
-        rounds.pool, "read_input", Mock(return_value=(world.png, world.sample))
-    )
-    rounds.prepare_image(world.round, world.sample)
+async def test_active_learning_reuse_verifies_full_png_digest(world, monkeypatch):
+    db, _context, _source = png_context(world, monkeypatch)
+    await rounds.prepare_image(db, world.round, world.sample)
     descriptor = rounds.media_descriptor(world.round, world.sample)
     world.client.objects[world.bucket, descriptor["key"]] = b"changed bytes"
     with pytest.raises(ValueError, match="identity differs"):

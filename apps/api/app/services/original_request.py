@@ -9,8 +9,9 @@ from app.services.storage_access import mark_unsettled
 async def connected_snapshot(request, operation, *, close_result=True):
     """Cancel and drain capture on disconnect; a late stage still has an owner.
 
-    GET request bodies are unused here. The watcher owns the receive channel only
-    until capture settles, before StreamingResponse starts its own lifecycle.
+    GET bodies are unused; JSON route bodies must already have been consumed.
+    The watcher owns the receive channel only until capture settles, before
+    StreamingResponse starts its own lifecycle.
     Materialized JSON operations may own all cleanup internally and explicitly
     set close_result=False; they still drain their work before returning.
     """

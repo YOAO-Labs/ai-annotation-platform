@@ -290,7 +290,7 @@ def test_learning_unpublished_frozen_png_is_accepted_but_no_source_repair_occurs
     if state["purpose"] != "active-learning":
         pytest.skip("Learning retained PNG")
     monkeypatch.setattr(
-        active_learning.pool,
+        active_learning.originals,
         "read_input",
         Mock(side_effect=AssertionError("No sources during adoption")),
     )

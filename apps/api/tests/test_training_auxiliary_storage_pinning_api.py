@@ -153,7 +153,10 @@ async def legacy(
         await db_session.flush()
         row.current_attempt_id = attempt.id
         sample = row.spec["samples"][0]
-        raw, _ = active_learning.pool.read_input(sample["snapshot"])
+        from app.services import active_learning_originals as originals
+
+        context = await originals.delegated(db_session, row)
+        raw, _, _ = await originals.read_input(db_session, context, sample["snapshot"])
         descriptor = active_learning.media_descriptor(row, sample)
         member = await db_session.get(
             ActiveLearningCandidate, (row.id, sample["ordinal"])
