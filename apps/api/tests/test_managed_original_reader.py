@@ -532,6 +532,196 @@ async def test_cancelled_late_unknown_close_preserves_unsettled(provider):
     assert caught.value.storage_operation_unsettled and service._slots._value == 4
 
 
+@pytest.mark.parametrize(
+    "phase",
+    ["constructor", "missing_client", "body", "client", "probe", "missing_body"],
+)
+async def test_explicit_capacity_retains_unknown_provider_responsibility(
+    provider, monkeypatch, phase
+):
+    admission = threading.BoundedSemaphore(1)
+    if phase == "constructor":
+
+        def unknown(**_):
+            raise OSError("private constructor detail")
+
+        monkeypatch.setattr(service, "create_client", unknown)
+    elif phase == "missing_client":
+        monkeypatch.setattr(service, "create_client", lambda **_: None)
+    elif phase == "missing_body":
+        provider.get_changes = {"Body": None}
+    else:
+        where = "body" if phase == "probe" else phase
+        setattr(provider, where + "_close_error", OSError("private close detail"))
+        provider.ignore_conditions = phase == "probe"
+    try:
+        with pytest.raises(ContentError, match="storage_operation_unsettled") as caught:
+            await capture(admission=admission)
+        assert caught.value.storage_operation_unsettled
+        assert admission._value == 0 and service._slots._value == 4
+        calls = len(provider.calls)
+        with pytest.raises(ContentError, match="snapshot_capacity_exceeded") as denied:
+            await capture(admission=admission)
+        assert denied.value.status == 429 and len(provider.calls) == calls
+    finally:
+        # A malformed fake can hide a stream from the caller. Retiring the fake
+        # is test cleanup, not evidence that production may reclaim its slot.
+        for body in provider.bodies:
+            body.close()
+
+
+@pytest.mark.parametrize("transferred", [False, True])
+async def test_explicit_capacity_retains_unknown_temporary_close(
+    provider, monkeypatch, transferred
+):
+    admission = threading.BoundedSemaphore(1)
+    original = service.tempfile.TemporaryFile
+    files = []
+
+    def temporary(**kwargs):
+        real = original(**kwargs)
+
+        class UnknownClose:
+            def __getattr__(self, name):
+                return getattr(real, name)
+
+            def close(self):
+                real.close()
+                raise OSError("private temporary close detail")
+
+        files.append(real)
+        return UnknownClose()
+
+    monkeypatch.setattr(service.tempfile, "TemporaryFile", temporary)
+    if not transferred:
+        provider.actual = b"x" * len(RAW)
+    with pytest.raises(OSError if transferred else ContentError) as caught:
+        stage = await capture(admission=admission)
+        assert transferred and admission._value == 0
+        stage.close()
+    assert caught.value.storage_operation_unsettled
+    assert files and all(file.closed for file in files)
+    assert admission._value == 0 and service._slots._value == 4
+    if transferred:
+        stage.close()  # A second retirement cannot release the retained slot.
+        assert admission._value == 0
+
+
+@pytest.mark.parametrize("failure", ["mismatch", "missing", "conditions"])
+async def test_explicit_capacity_releases_after_known_failure(provider, failure):
+    admission = threading.BoundedSemaphore(1)
+    if failure == "mismatch":
+        provider.actual = b"x" * len(RAW)
+    elif failure == "missing":
+        provider.head_error = error("NoSuchKey", 404)
+    else:
+        provider.ignore_conditions = True
+    with pytest.raises(ContentError) as caught:
+        await capture(admission=admission)
+    assert not getattr(caught.value, "storage_operation_unsettled", False)
+    assert provider.closed == 1 and all(body.closed for body in provider.bodies)
+    assert admission._value == 1 and service._slots._value == 4
+
+
+@pytest.mark.parametrize("finish", ["cancel", "timeout"])
+@pytest.mark.parametrize("unsettled", [False, True])
+async def test_explicit_capacity_follows_real_close_after_repeated_interruption(
+    provider, finish, unsettled
+):
+    admission = threading.BoundedSemaphore(1)
+    entered, release = threading.Event(), threading.Event()
+
+    def blocked(*_):
+        entered.set()
+        assert release.wait(3)
+
+    provider.body_close_hook = blocked
+    if unsettled:
+        provider.body_close_error = OSError("private late close")
+    operation = asyncio.create_task(
+        capture(admission=admission, timeout_seconds=0.05 if finish == "timeout" else 3)
+    )
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        if finish == "cancel":
+            operation.cancel()
+        await asyncio.sleep(0.08)
+        assert not operation.done() and admission._value == 0
+        operation.cancel()
+        await asyncio.sleep(0)
+        assert not operation.done() and admission._value == 0
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError) as caught:
+            await operation
+    assert getattr(caught.value, "storage_operation_unsettled", False) is unsettled
+    assert provider.closed == 1 and all(body.closed for body in provider.bodies)
+    assert admission._value == (0 if unsettled else 1)
+    assert service._slots._value == 4
+
+
+@pytest.mark.parametrize("finish", ["cancel", "timeout"])
+async def test_explicit_late_stage_unknown_close_is_drained_before_interruption_returns(
+    provider, monkeypatch, finish
+):
+    admission = threading.BoundedSemaphore(1)
+    entered, release_capture = threading.Event(), threading.Event()
+    closing, release_close = threading.Event(), threading.Event()
+    files = []
+
+    def late(value, maximum, seconds, deadline, stop, release_slot, **options):
+        entered.set()
+        assert release_capture.wait(3)
+        real = io.BytesIO(RAW)
+        files.append(real)
+
+        class UnknownClose:
+            def close(self):
+                closing.set()
+                assert release_close.wait(3)
+                real.close()
+                raise OSError("private late temporary close detail")
+
+        return service.BinaryStage(
+            UnknownClose(),
+            value.sha256,
+            len(RAW),
+            {},
+            _release=release_slot,
+            _retain_on_close_error=options["retain_on_close_error"],
+        )
+
+    monkeypatch.setattr(service, "_capture", late)
+    operation = asyncio.create_task(
+        capture(admission=admission, timeout_seconds=0.03 if finish == "timeout" else 3)
+    )
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        if finish == "cancel":
+            operation.cancel()
+        else:
+            await asyncio.sleep(0.06)
+        release_capture.set()
+        assert await asyncio.to_thread(closing.wait, 1)
+        if finish == "cancel":
+            operation.cancel()
+        await asyncio.sleep(0)
+        assert not operation.done() and admission._value == 0 and not files[0].closed
+    finally:
+        release_capture.set()
+        release_close.set()
+        with pytest.raises(
+            asyncio.CancelledError if finish == "cancel" else ContentError
+        ) as caught:
+            await operation
+    assert caught.value.storage_operation_unsettled
+    if finish == "timeout":
+        assert (
+            caught.value.code == "content_read_timeout" and caught.value.status == 504
+        )
+    assert files[0].closed and admission._value == 0 and service._slots._value == 4
+
+
 async def test_late_success_is_closed_after_repeated_cancel(provider, monkeypatch):
     entered, release = threading.Event(), threading.Event()
     returned = []

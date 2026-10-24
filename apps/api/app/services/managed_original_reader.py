@@ -230,7 +230,7 @@ def _capture(
     transport_timeout_seconds=None,
     retain_on_close_error=False,
 ):
-    temporary, transferred = None, False
+    temporary, transferred, unsettled = None, False, False
 
     def check():
         if stop.is_set() or time.monotonic() >= deadline:
@@ -319,11 +319,17 @@ def _capture(
         )
         transferred = True
         return stage
-    except Exception as exc:
-        raise _failure(exc) from None
+    except BaseException as exc:
+        unsettled = getattr(exc, "storage_operation_unsettled", False)
+        if isinstance(exc, Exception):
+            raise _failure(exc) from None
+        raise
     finally:
         if not transferred:
-            settled = True
+            # Closing the local temporary file does not settle an unknown
+            # provider constructor or remote handle. Explicit pools retain that
+            # responsibility even when this last local close succeeds.
+            settled = not (retain_on_close_error and unsettled)
             try:
                 if temporary is not None:
                     try:
