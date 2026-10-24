@@ -63369,7 +63369,7 @@
     },
     "/api/v1/audit-logs/archives": {
       "get": {
-        "description": "列出已归档到 MinIO 冷存储的审计月份（合规回源前置查询）。\n\n无归档对象时返回空列表。",
+        "description": "列出已完成发布的独立审计归档，不扫描对象存储。",
         "operationId": "list_audit_archives_api_v1_audit_logs_archives_get",
         "responses": {
           "200": {
@@ -63400,7 +63400,7 @@
     },
     "/api/v1/audit-logs/archives/{year}/{month}": {
       "get": {
-        "description": "回源读取指定月份的归档 jsonl.gz，解压解析后分页返回归档行。\n\n对象不存在 → 404。",
+        "description": "完整核验已发布归档，返回指定范围的行。",
         "operationId": "read_audit_archive_api_v1_audit_logs_archives__year___month__get",
         "parameters": [
           {

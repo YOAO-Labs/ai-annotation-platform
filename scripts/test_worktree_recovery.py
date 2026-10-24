@@ -1,7 +1,7 @@
 """Guard irreversible recovery boundaries without connecting to infrastructure."""
 
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -191,6 +191,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         from app.db.models.avatar_upload import AvatarUpload
         from app.db.models.export_output import ExportOutput
         from app.db.models.bug_attachment_upload import BugAttachmentUpload
+        from app.db.models.audit_archive_output import AuditArchiveOutput
         from app.services.dataset_assets import LEGACY_LOCATION_ID
 
         self.models = SimpleNamespace(
@@ -210,6 +211,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             avatar=AvatarUpload,
             output=ExportOutput,
             bug_attachment=BugAttachmentUpload,
+            archive=AuditArchiveOutput,
         )
         self.source, self.target, self.endpoint = (
             roles("source"),
@@ -239,6 +241,12 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         )
         bug_endpoint.start()
         self.addCleanup(bug_endpoint.stop)
+        archive_endpoint = patch(
+            "app.services.audit_archive_storage._runtime_endpoint",
+            return_value=self.endpoint,
+        )
+        archive_endpoint.start()
+        self.addCleanup(archive_endpoint.stop)
         project_id, version_id = uuid.UUID(int=12), uuid.UUID(int=13)
         training_ref = {
             "schema": 1,
@@ -262,6 +270,42 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             "prefix": f"projects/{project_id}/runs/{run_id}/",
         }
         self.rows = {
+            AuditArchiveOutput: [
+                SimpleNamespace(
+                    id=uuid.UUID(int=26),
+                    job_id=uuid.UUID(int=27),
+                    year=2002,
+                    month=1,
+                    source_schema="public",
+                    source_table="audit_logs_y2002m01",
+                    parent_oid=123,
+                    source_oid=456,
+                    month_start=date(2002, 1, 1),
+                    month_end=date(2002, 2, 1),
+                    format_revision=1,
+                    row_count=2,
+                    source_size_bytes=456,
+                    source_sha256="e" * 64,
+                    sha256="f" * 64,
+                    size_bytes=345,
+                    state="ready",
+                    created_at=datetime(2026, 10, 24, tzinfo=timezone.utc),
+                    published_at=datetime(2026, 10, 24, tzinfo=timezone.utc),
+                    storage_ref={
+                        "schema": 1,
+                        "purpose": "audit-archive",
+                        "location_id": str(LEGACY_LOCATION_ID),
+                        "config_revision": 1,
+                        "binding_generation": 1,
+                        "endpoint_url": self.endpoint,
+                        "bucket": self.source["MINIO_AUDIT_ARCHIVE_BUCKET"],
+                        "object_key": f"2002/01/{uuid.UUID(int=26)}.jsonl.gz",
+                        "storage_identity": identity(
+                            self.endpoint, self.source["MINIO_AUDIT_ARCHIVE_BUCKET"]
+                        ),
+                    },
+                )
+            ],
             BugAttachmentUpload: [
                 SimpleNamespace(
                     id=uuid.UUID(int=23),
@@ -488,6 +532,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 "avatar_uploads",
                 "export_outputs",
                 "bug_attachment_uploads",
+                "audit_archive_outputs",
             },
         )
         target = storage_view(self.endpoint, self.target)
@@ -504,6 +549,17 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 if hasattr(row, "bucket"):
                     self.assertIn(row.bucket, self.target.values())
                 if getattr(row, "storage_ref", None) is not None:
+                    if row.storage_ref["purpose"] == "audit-archive":
+                        self.assertEqual(
+                            row.storage_ref["bucket"],
+                            self.target["MINIO_AUDIT_ARCHIVE_BUCKET"],
+                        )
+                        self.assertEqual(row.state, "ready")
+                        self.assertEqual(row.parent_oid, 123)
+                        self.assertEqual(row.source_oid, 456)
+                        self.assertEqual(row.source_sha256, "e" * 64)
+                        self.assertEqual(row.published_at, row.created_at)
+                        continue
                     if row.storage_ref["purpose"] == "bug-reports":
                         self.assertEqual(
                             row.storage_ref["bucket"],
@@ -754,6 +810,52 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             changed["storage_ref"][field] = "changed"
             self.assertNotEqual(
                 base, digest(protected_row("bug_attachment_uploads", changed))
+            )
+
+    async def test_unknown_audit_archive_refuses_without_partial_mapping(self):
+        original = deepcopy(self.rows)
+        for field, value in [
+            ("purpose", "export"),
+            ("bucket", self.source["MINIO_EXPORT_BUCKET"]),
+            ("object_key", "2002/01.jsonl.gz"),
+            ("storage_identity", "a" * 64),
+            ("endpoint_url", "https://elsewhere.invalid"),
+            ("extra", "unknown"),
+        ]:
+            self.rows = deepcopy(original)
+            self.rows[self.models.archive][0].storage_ref[field] = value
+            with self.subTest(field=field), self.assertRaises(WorktreeError):
+                await remap_storage(self.db, self.source, self.target, self.endpoint)
+            self.db.flush.assert_not_awaited()
+            self.assertEqual(
+                self.rows[self.models.binding][0].bucket,
+                original[self.models.binding][0].bucket,
+            )
+
+    def test_protected_archive_preserves_source_receipt_and_publication_facts(self):
+        from worktree_recovery_fixture import digest, protected_row
+
+        row = deepcopy(vars(self.rows[self.models.archive][0]))
+        base = digest(protected_row("audit_archive_outputs", row))
+        for field in ["bucket", "storage_identity"]:
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "mapped"
+            self.assertEqual(
+                base, digest(protected_row("audit_archive_outputs", changed))
+            )
+        for field in set(row) - {"storage_ref"}:
+            self.assertNotEqual(
+                base,
+                digest(
+                    protected_row("audit_archive_outputs", {**row, field: "changed"})
+                ),
+                field,
+            )
+        for field in set(row["storage_ref"]) - {"bucket", "storage_identity"}:
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "changed"
+            self.assertNotEqual(
+                base, digest(protected_row("audit_archive_outputs", changed)), field
             )
 
     def test_protected_training_ref_excludes_only_physical_subfields(self):

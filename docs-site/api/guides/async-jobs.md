@@ -92,6 +92,8 @@ owner-scoped；非 owner（且非 super_admin）→ `403`，记录不存在返�
 `batch_predict` 使用协作取消：API 对 `pending` job 直接写 `cancelled`；对 `running` job 写
 `payload.cancel_requested=true`，提交后再对 Celery task 尽力执行 `revoke(..., terminate=False)`。worker 不会强杀进程。
 
+`audit_archive` 取消需当前超级管理员权限，并重新核对原请求账号或 API Key。取消与每月归档发布共用作业行锁：取消先提交时保留源分区及未发布候选；月份发布先提交时保留该月已归档结果，随后停止未处理月份。接口返回 `{"status":"cancelled","id":"…"}`，不强杀物理上传，也不删除待确认对象。重复 Celery 投递只返回既有作业状态，不重新开始未收尾候选；失败原因使用固定分类，`result` 保留此前成功月份。
+
 图片预标的取消与单题结果提交使用同一作业行锁：取消先提交时丢弃当前在途结果；结果事务先获得锁时保留该题已提交结果，随后跳过未处理题目。已完成作业在锁下重新检查后返回 `409`，不会再被改成取消。图片覆盖模式的旧候选、已采纳 AI 标注与新结果同事务替换，写入失败或提交前取消时保留旧内容。视频逐帧由独立 owner 处理，保留原派发前清理和段边界取消规则。
 
 `mask_repair` 同样先持久化取消，再尽力 revoke；Worker 在下一分片边界或 SAM 返回后的提交前检查。

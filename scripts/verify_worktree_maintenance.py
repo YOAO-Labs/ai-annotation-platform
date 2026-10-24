@@ -46,12 +46,60 @@ async def probe_database():
         async with owner.begin() as connection:
             await connection.execute(
                 text(
-                    "CREATE TABLE audit_logs_1900_01 PARTITION OF audit_logs FOR VALUES FROM ('1900-01-01') TO ('1900-02-01')"
+                    "CREATE TABLE public.audit_logs_y2001m01 PARTITION OF public.audit_logs "
+                    "FOR VALUES FROM ('2001-01-01 00:00:00+00') TO ('2001-02-01 00:00:00+00')"
+                )
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO public.audit_logs_y2001m01 (id,action,created_at) VALUES "
+                    "(2001001,'maintenance.archive.first','2001-01-02 00:00:00+00'),"
+                    "(2001001,'maintenance.archive.second','2001-01-03 00:00:00+00')"
                 )
             )
     finally:
         await runtime.dispose()
         await owner.dispose()
+
+
+async def verify_archive(result):
+    from sqlalchemy import select, text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from app.db.models.async_job import AsyncJob
+    from app.db.models.audit_archive_output import AuditArchiveOutput
+    from app.services import audit_archive_storage
+
+    engine = create_async_engine(os.environ["MIGRATION_DATABASE_URL"])
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            row = await db.scalar(
+                select(AuditArchiveOutput).where(
+                    AuditArchiveOutput.year == 2001,
+                    AuditArchiveOutput.month == 1,
+                    AuditArchiveOutput.state == "ready",
+                )
+            )
+            assert row is not None and row.row_count == 2
+            assert str(row.id) in result["output_ids"]
+            job = await db.get(AsyncJob, row.job_id)
+            assert job is not None and job.status == "completed"
+            assert str(job.id) == result["job_id"]
+            assert job.result["archived_partitions"] == result["archived_partitions"]
+            assert (
+                await db.scalar(
+                    text("SELECT to_regclass('public.audit_logs_y2001m01')")
+                )
+                is None
+            )
+            page = await asyncio.to_thread(audit_archive_storage.read, row)
+            assert page["total"] == 3
+            assert [item["action"] for item in page["items"][:-1]] == [
+                "maintenance.archive.first",
+                "maintenance.archive.second",
+            ]
+            assert page["items"][-1] == audit_archive_storage.metadata(row)
+    finally:
+        await engine.dispose()
 
 
 def probe_tasks():
@@ -76,7 +124,8 @@ def probe_tasks():
         result = celery_app.send_task(
             "app.workers.audit_partition.archive_old_audit_partitions"
         ).get(timeout=60)
-        assert "audit_logs_1900_01" in result["archived_partitions"], result
+        assert "audit_logs_y2001m01" in result["archived_partitions"], result
+        asyncio.run(verify_archive(result))
         print(
             "PASS: runtime DDL denied; all 5 routed maintenance tasks completed, including real partition creation/drop and view refresh.",
             flush=True,
@@ -115,7 +164,16 @@ def main():
             )
             deadline = time.monotonic() + 30
             while subprocess.run(
-                ["docker", "exec", container, "pg_isready", "-U", "owner"],
+                [
+                    "docker",
+                    "exec",
+                    container,
+                    "pg_isready",
+                    "-h",
+                    "127.0.0.1",
+                    "-U",
+                    "owner",
+                ],
                 capture_output=True,
             ).returncode:
                 if time.monotonic() >= deadline:

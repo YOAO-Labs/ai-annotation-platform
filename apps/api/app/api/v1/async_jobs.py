@@ -368,6 +368,28 @@ async def cancel_async_job(
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
 
+    if job.kind == "audit_archive":
+        from app.services import audit_archive_reads
+
+        actor, authority = await audit_archive_reads.lock_authority(
+            db, current_user, request
+        )
+        job = await async_job_svc.lock_job(db, job_id)
+        if job is None or job.kind != "audit_archive":
+            raise HTTPException(404, detail="async_job not found")
+        if not await _can_access_job(db, job=job, user=actor):
+            raise HTTPException(403, detail="not your job")
+        if job.status not in {"pending", "running"}:
+            raise HTTPException(409, detail="audit archive is no longer cancellable")
+        await audit_archive_reads.reauthorize(db, authority)
+        # The source DROP/ready transaction holds this same job lock. Previously
+        # committed months remain in result; no physical attempt is deleted.
+        await async_job_svc.mark_cancelled(db, job.id)
+        await notify_job_terminal(db, job_id=job.id)
+        await audit_archive_reads.reauthorize(db, authority)
+        await db.commit()
+        return {"status": "cancelled", "id": str(job.id)}
+
     if job.kind == "export":
         # Match the worker's final publication lock: a cancelled job cannot publish.
         job = await db.scalar(
