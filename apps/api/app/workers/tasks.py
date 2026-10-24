@@ -1351,7 +1351,7 @@ async def _run_batch(
                 Task.status == "pending",
             ]
         sel = select(Task).where(*base_conds).order_by(Task.id)
-        if skip_predicted and reference_proof is None:
+        if skip_predicted and reference_proof is None and video_proof is None:
             sel = sel.where(Task.total_predictions == 0)
         result = await db.execute(sel)
         tasks = list(result.scalars().all())
@@ -1364,9 +1364,9 @@ async def _run_batch(
             from app.services.content_snapshot import ContentError
 
             raise ContentError("reference_requires_image_execution")
-        if reference_proof is not None and {row.id for row in tasks} != set(
-            requested_task_ids or []
-        ):
+        if (reference_proof is not None or video_proof is not None) and {
+            row.id for row in tasks
+        } != set(requested_task_ids or []):
             raise ValueError("Frozen prediction task scope changed")
 
         if controlled and any(task.file_type != "image" for task in tasks):
