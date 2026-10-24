@@ -15,12 +15,13 @@ from fastapi import FastAPI
 import pytest
 import redis.asyncio as redis
 from redis.exceptions import ResponseError
-from sqlalchemy import delete, text, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import websockets
 
+from aap_audit.read_relation_postgres import audit_events
 from app.api.v1 import ws
 from app.core.security import create_access_token
 from app.db.models.notification import Notification
@@ -44,6 +45,17 @@ pytestmark = [
         reason="requires the verifier-owned disposable PostgreSQL and Redis",
     ),
 ]
+
+
+def _socket_fixture_user_cleanup_statement(user_ids):
+    audited_user = (
+        select(1)
+        .select_from(audit_events)
+        .where(audit_events.c.actor_id == User.id)
+        .correlate(User)
+        .exists()
+    )
+    return delete(User).where(User.id.in_(user_ids), ~audited_user)
 
 
 @pytest.fixture
@@ -78,7 +90,8 @@ async def socket_world(test_engine):
             if project_id is not None:
                 await db.execute(delete(Project).where(Project.id == project_id))
             if user_ids:
-                await db.execute(delete(User).where(User.id.in_(user_ids)))
+                # Keep immutable Audit actors until disposable database teardown.
+                await db.execute(_socket_fixture_user_cleanup_statement(user_ids))
 
 
 async def test_notification_socket_real_frames_revocation_and_cleanup(
