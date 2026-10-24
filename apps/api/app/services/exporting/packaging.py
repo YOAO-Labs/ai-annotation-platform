@@ -64,6 +64,7 @@ from app.services.exporting.lidar import (
     count_lidar_points_in_boxes,
 )
 from app.services.exporting.lidar_preflight import calibration_is_valid
+from app.services.exporting import lidar_fetch
 from app.services.exporting.video import (
     FALLBACK_H,
     FALLBACK_W,
@@ -311,48 +312,8 @@ if __name__ == "__main__":
 '''
 
 
-_FETCH_POINTCLOUDS_TEMPLATE = '''#!/usr/bin/env python3
-"""按 pointclouds_manifest.json 的预签名 URL 把点云回源到 velodyne/<相对路径>。
-
-纯标准库，无需 MinIO 密钥（URL 已带 7 天签名）。label 索引对应这里回源的同一份点云。
-"""
-import json
-import os
-import sys
-import urllib.request
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def main() -> int:
-    with open(os.path.join(HERE, "pointclouds_manifest.json"), "r", encoding="utf-8") as f:
-        manifest = json.load(f)
-    ok = 0
-    fail = 0
-    for it in manifest.get("pointclouds", []):
-        rel = it.get("rel_path")
-        url = it.get("presigned_url")
-        if not rel or not url:
-            continue
-        dest = os.path.join(HERE, "velodyne", *rel.split("/"))
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        if os.path.exists(dest):
-            ok += 1
-            continue
-        try:
-            urllib.request.urlretrieve(url, dest)
-            ok += 1
-        except Exception as exc:  # noqa: BLE001
-            print("[x] 下载失败 %s: %s" % (rel, exc))
-            fail += 1
-    print("[done] 点云回源 成功 %d，失败 %d，输出目录 velodyne/" % (ok, fail))
-    return 0 if fail == 0 else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
-
+_FETCH_POINTCLOUDS_TEMPLATE = lidar_fetch.FETCH_POINTCLOUDS_TEMPLATE
+_FETCH_LIDAR_IMAGES_TEMPLATE = lidar_fetch.FETCH_LIDAR_IMAGES_TEMPLATE
 
 _FETCH_TRUSTED_MEDIA_TEMPLATE = '''#!/usr/bin/env python3
 """Materialize the exact trusted media tree from media_manifest.json."""
