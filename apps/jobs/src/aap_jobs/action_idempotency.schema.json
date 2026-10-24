@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-jobs-action-idempotency/v1",
+  "$defs": {
+    "ActionIdempotencyLockRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Action"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Key"
+        }
+      },
+      "required": ["action", "project_id", "actor_id", "key"],
+      "title": "ActionIdempotencyLockRequest",
+      "type": "object"
+    },
+    "ActionIdempotencyQueryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Kind"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Key"
+        }
+      },
+      "required": ["kind", "project_id", "actor_id", "key"],
+      "title": "ActionIdempotencyQueryRequest",
+      "type": "object"
+    },
+    "AsyncJobLifecycleRow": {
+      "additionalProperties": false,
+      "description": "Fixed public row used to refresh the existing API ORM identity.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 40,
+          "title": "Kind",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "retained_project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retained Project Id"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "status": {
+          "maxLength": 20,
+          "title": "Status",
+          "type": "string"
+        },
+        "progress_pct": {
+          "title": "Progress Pct",
+          "type": "integer"
+        },
+        "payload": {
+          "title": "Payload"
+        },
+        "result": {
+          "title": "Result"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Message"
+        },
+        "celery_task_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Celery Task Id"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started At"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "project_id",
+        "retained_project_id",
+        "user_id",
+        "status",
+        "progress_pct",
+        "payload",
+        "result",
+        "error_message",
+        "celery_task_id",
+        "started_at",
+        "completed_at",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "AsyncJobLifecycleRow",
+      "type": "object"
+    }
+  },
+  "x-postgresql-functions": {
+    "aap_jobs_v1.lock_action_idempotency": {
+      "arguments": "text, uuid, uuid, text",
+      "returns": "void",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    },
+    "aap_jobs_v1.find_action_idempotent_jobs": {
+      "arguments": "text, uuid, uuid, text",
+      "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    }
+  },
+  "x-row-columns": [
+    "id",
+    "kind",
+    "project_id",
+    "retained_project_id",
+    "user_id",
+    "status",
+    "progress_pct",
+    "payload",
+    "result",
+    "error_message",
+    "celery_task_id",
+    "started_at",
+    "completed_at",
+    "created_at",
+    "updated_at"
+  ],
+  "x-row-types": {
+    "id": "uuid",
+    "kind": "character varying",
+    "project_id": "uuid",
+    "retained_project_id": "uuid",
+    "user_id": "uuid",
+    "status": "character varying",
+    "progress_pct": "integer",
+    "payload": "jsonb",
+    "result": "jsonb",
+    "error_message": "text",
+    "celery_task_id": "character varying",
+    "started_at": "timestamp with time zone",
+    "completed_at": "timestamp with time zone",
+    "created_at": "timestamp with time zone",
+    "updated_at": "timestamp with time zone"
+  },
+  "x-lock": {
+    "key": "aap:data-manager:{action}:{project_id}:{actor_id}:{key}",
+    "hash": "pg_catalog.hashtextextended(key,0)",
+    "mode": "pg_advisory_xact_lock; wait until caller transaction ends",
+    "autoflush": false,
+    "nulls": "legacy Python None spelling"
+  },
+  "x-query": {
+    "scope": "kind, current project_id, user_id, payload ->> data_manager_idempotency_key",
+    "ordering": "created_at DESC, id DESC",
+    "lock": "FOR UPDATE, waiting; every matching row locked; no LIMIT",
+    "status": "all statuses; no additional business predicate",
+    "nulls": "legacy SQLAlchemy equality-to-None IS NULL predicates",
+    "binding": "mapped ORM select autoflush; scalar first row; cached identity retained without forced refresh"
+  },
+  "x-transactions": {
+    "commit": false,
+    "rollback": false,
+    "retry": false,
+    "errors": "original PostgreSQL SQLSTATE",
+    "authorization": "existing caller authority and digest checks retained"
+  },
+  "x-security": {
+    "functions": "security_definer; fixed pg_catalog,pg_temp/UTC/ISO; PUBLIC execute revoked",
+    "private_table_rights": "none required by consumer; ordinary global SELECT remains until other readers migrate"
+  }
+}

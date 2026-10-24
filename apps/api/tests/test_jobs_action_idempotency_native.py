@@ -100,7 +100,6 @@ def _job(
     *,
     job_id=None,
     kind=JOB_KIND,
-    status="pending",
     payload,
     created_at,
 ):
@@ -109,12 +108,11 @@ def _job(
         kind=kind,
         project_id=project_id,
         user_id=actor_id,
-        status=status,
+        status="pending",
         progress_pct=0,
         payload=payload,
-        result={"opaque_counter": 9007199254740993, "enabled": False},
+        result={},
         created_at=created_at,
-        updated_at=created_at,
     )
 
 
@@ -141,7 +139,6 @@ async def _committed_world(test_engine):
         older = _job(
             project.id,
             actor.id,
-            status="completed",
             payload={"data_manager_idempotency_key": KEY, "sequence": "older"},
             created_at=base + timedelta(seconds=1),
         )
@@ -149,7 +146,6 @@ async def _committed_world(test_engine):
             project.id,
             actor.id,
             job_id=tie_ids[0],
-            status="completed",
             payload={"data_manager_idempotency_key": KEY, "sequence": "tie-low"},
             created_at=base + timedelta(seconds=2, microseconds=123456),
         )
@@ -157,7 +153,6 @@ async def _committed_world(test_engine):
             project.id,
             actor.id,
             job_id=tie_ids[1],
-            status="failed",
             payload={
                 "data_manager_idempotency_key": KEY,
                 "data_manager_request_digest": "d" * 64,
@@ -223,6 +218,13 @@ async def _committed_world(test_engine):
             retained,
         ]
         setup.add_all(jobs)
+        await setup.flush()
+        older.status = "completed"
+        tie_low.status = "completed"
+        tie_high.status = "failed"
+        for job in jobs:
+            job.result = {"opaque_counter": 9007199254740993, "enabled": False}
+            job.updated_at = job.created_at
         await setup.flush()
         await setup.execute(
             text("UPDATE public.async_jobs SET project_id=NULL WHERE id=:id"),
@@ -475,42 +477,42 @@ async def test_action_idempotency_abi_api_login_node_and_orm_cache(
     api_sessions = async_sessionmaker(api_engine, expire_on_commit=False)
     try:
         async with _committed_world(test_engine) as world:
-            async with _without_api_private_job_select(test_engine):
-                async with api_engine.connect() as api:
-                    identity = (
-                        await api.execute(
-                            text(
-                                "SELECT session_user::text,current_user::text, "
-                                "pg_catalog.has_table_privilege(current_user, "
-                                "'public.async_jobs','SELECT'), "
-                                "pg_catalog.has_any_column_privilege(current_user, "
-                                "'public.async_jobs','SELECT'), "
-                                "pg_catalog.has_table_privilege(current_user, "
-                                "'public.async_jobs','UPDATE'), "
-                                "pg_catalog.has_any_column_privilege(current_user, "
-                                "'public.async_jobs','UPDATE')"
-                            )
+            async with api_engine.connect() as api:
+                identity = (
+                    await api.execute(
+                        text(
+                            "SELECT session_user::text,current_user::text, "
+                            "pg_catalog.has_table_privilege(current_user, "
+                            "'public.async_jobs','SELECT'), "
+                            "pg_catalog.has_any_column_privilege(current_user, "
+                            "'public.async_jobs','SELECT'), "
+                            "pg_catalog.has_table_privilege(current_user, "
+                            "'public.async_jobs','UPDATE'), "
+                            "pg_catalog.has_any_column_privilege(current_user, "
+                            "'public.async_jobs','UPDATE')"
                         )
-                    ).one()
-                    assert identity == (ROLE, ROLE, True, True, False, False)
-                    with pytest.raises(DBAPIError) as denied:
-                        await api.execute(
-                            text(
-                                "SELECT id FROM public.async_jobs WHERE kind=:kind "
-                                "AND project_id=:project_id AND user_id=:actor_id "
-                                "AND payload->>'data_manager_idempotency_key'=:key "
-                                "ORDER BY created_at DESC,id DESC FOR UPDATE"
-                            ),
-                            {
-                                "kind": JOB_KIND,
-                                "project_id": world["project_id"],
-                                "actor_id": world["actor_id"],
-                                "key": KEY,
-                            },
-                        )
-                    assert _sqlstate(denied.value) == "42501"
-                    await api.rollback()
+                    )
+                ).one()
+                assert identity == (ROLE, ROLE, True, True, False, False)
+                with pytest.raises(DBAPIError) as denied:
+                    await api.execute(
+                        text(
+                            "SELECT id FROM public.async_jobs WHERE kind=:kind "
+                            "AND project_id=:project_id AND user_id=:actor_id "
+                            "AND payload->>'data_manager_idempotency_key'=:key "
+                            "ORDER BY created_at DESC,id DESC FOR UPDATE"
+                        ),
+                        {
+                            "kind": JOB_KIND,
+                            "project_id": world["project_id"],
+                            "actor_id": world["actor_id"],
+                            "key": KEY,
+                        },
+                    )
+                assert _sqlstate(denied.value) == "42501"
+                await api.rollback()
 
+            async with _without_api_private_job_select(test_engine):
                 receipt = await _run_node_acceptance(test_engine, world, api_url)
                 record_property(
                     "jobs_action_idempotency_node_consumer", json.dumps(receipt)
@@ -660,6 +662,7 @@ async def test_action_idempotency_lookup_locks_every_duplicate_and_waits(
                             ),
                             {"id": world["first_id"]},
                         )
+                        waiter_pid = await api.scalar(text("SELECT pg_backend_pid()"))
                         waiting = asyncio.create_task(
                             api.execute(
                                 text(
@@ -675,12 +678,36 @@ async def test_action_idempotency_lookup_locks_every_duplicate_and_waits(
                                 },
                             )
                         )
-                        await asyncio.sleep(0.1)
-                        assert not waiting.done(), "row-locking query did not wait"
-                        await blocker.commit()
-                        result = await asyncio.wait_for(waiting, timeout=5)
-                        assert len(result.all()) == len(world["matching_ids"])
-                        await api.rollback()
+                        try:
+                            deadline = asyncio.get_running_loop().time() + 5
+                            while True:
+                                async with test_engine.connect() as observer:
+                                    event = await observer.scalar(
+                                        text(
+                                            "SELECT wait_event_type FROM pg_catalog.pg_stat_activity "
+                                            "WHERE pid=:pid AND state='active'"
+                                        ),
+                                        {"pid": waiter_pid},
+                                    )
+                                if event == "Lock":
+                                    break
+                                if (
+                                    waiting.done()
+                                    or asyncio.get_running_loop().time() >= deadline
+                                ):
+                                    raise AssertionError(
+                                        "lookup did not enter PostgreSQL lock wait"
+                                    )
+                                await asyncio.sleep(0.01)
+                            await blocker.commit()
+                            result = await asyncio.wait_for(waiting, timeout=5)
+                            assert len(result.all()) == len(world["matching_ids"])
+                        finally:
+                            await blocker.rollback()
+                            if not waiting.done():
+                                waiting.cancel()
+                            await asyncio.gather(waiting, return_exceptions=True)
+                            await api.rollback()
     finally:
         await api_engine.dispose()
 
@@ -690,7 +717,10 @@ async def test_action_idempotency_advisory_lock_skips_autoflush_and_lookup_keeps
     db_session,
 ):
     actor = await create_user(
-        db_session, "employee", f"jobs-action-flush-{uuid.uuid4().hex}@test.local"
+        db_session,
+        "employee",
+        f"jobs-action-flush-{uuid.uuid4().hex}@test.local",
+        "Action flush actor",
     )
     project = await create_project(db_session, owner_id=actor.id)
     pending = _job(

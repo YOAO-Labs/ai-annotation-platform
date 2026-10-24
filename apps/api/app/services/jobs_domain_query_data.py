@@ -70,3 +70,30 @@ class JobsDomainQueryPostgresData:
             {"project_ids": project_ids},
         )
         return result.all()
+
+    async def lock_action_idempotency(self, *, action, project_id, actor_id, key):
+        await self.db.execute(
+            text(
+                "SELECT aap_jobs_v1.lock_action_idempotency("
+                "CAST(:action AS pg_catalog.text), CAST(:project_id AS pg_catalog.uuid), "
+                "CAST(:actor_id AS pg_catalog.uuid), CAST(:key AS pg_catalog.text))"
+            ),
+            {
+                "action": action,
+                "project_id": project_id,
+                "actor_id": actor_id,
+                "key": key,
+            },
+        )
+
+    async def find_action_idempotent_job(self, *, kind, project_id, actor_id, key):
+        return await self.db.scalar(
+            select(AsyncJob).from_statement(
+                text(
+                    "SELECT * FROM aap_jobs_v1.find_action_idempotent_jobs("
+                    "CAST(:kind AS pg_catalog.text), CAST(:project_id AS pg_catalog.uuid), "
+                    "CAST(:actor_id AS pg_catalog.uuid), CAST(:key AS pg_catalog.text))"
+                )
+            ),
+            {"kind": kind, "project_id": project_id, "actor_id": actor_id, "key": key},
+        )

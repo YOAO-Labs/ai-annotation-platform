@@ -749,6 +749,21 @@ flush、最后完整 flush、审计及提交顺序保持。
 普通运行账号无私表表级／列级 UPDATE，生产更新继续通过既有生命周期能力完成。
 该函数限定筛选夹具，截图等多领域 owner 工具继续使用原自有测试库连接。
 
+## Jobs 动作幂等查找
+
+`aap-jobs-action-idempotency/v1` 提供两项固定能力：
+
+- `aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)` 使用原 `aap:data-manager` 前缀及 `hashtextextended(...,0)`，取得等待型事务 advisory 锁，不触发 ORM autoflush。
+- `aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)` 按 kind、当前 project_id、user_id 和原 JSONB 文本键查找，返回固定十五列作业行，按 created_at／id 倒序并执行等待型 FOR UPDATE。没有 LIMIT；全部匹配行保持锁定，原标量调用方取第一条。
+
+旧 SQLAlchemy 空值判断、缓存 identity、查询 autoflush 和调用方提交／回滚保持；没有
+新增状态筛选或业务授权。原调用方继续规范化请求键、校验当前权限并比较请求摘要，
+不一致仍返回原 409。SQL 仅选择闭合的谓词模板，参数通过绑定传递。
+
+普通运行账号无需私表 SELECT／UPDATE 即可调用；严格 lifecycle/list/domain 角色
+维持原能力集合。项目预标与所选任务导出共用这项绑定，避免撤销 UPDATE 后原锁读失败。
+全局私表 SELECT 仍因其他调用方保留，完整 Jobs 资格见[模块台账](/dev/concepts/module-deployment#jobs-action-idempotency)。
+
 ## Jobs 列表查询
 
 `aap-jobs-async-job-list-query/v1` 将现有 `GET /async-jobs` 的查询策略放入 Jobs owner，公开两个固定只读函数：

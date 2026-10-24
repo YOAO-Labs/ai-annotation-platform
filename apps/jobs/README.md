@@ -110,6 +110,32 @@ ownership. Ordinary runtime profiles receive these five functions; the strict
 lifecycle LOGIN retains its existing eight capabilities. Other private reads
 and legacy edits still prevent global Jobs credential retirement.
 
+## Action idempotency
+
+`aap-jobs-action-idempotency/v1` publishes two fixed native capabilities.
+`lock_action_idempotency(text,uuid,uuid,text)` keeps the exact legacy
+`aap:data-manager:{action}:{project_id}:{actor_id}:{key}` transaction lock and
+hash seed. It executes without ORM autoflush. `find_action_idempotent_jobs`
+filters current project, actor, kind and the original JSONB text key, returning
+all matching fifteen-column rows ordered by `created_at DESC, id DESC`, with a
+waiting `FOR UPDATE` and no limit. The existing scalar caller chooses the first
+row while every match stays locked until the caller transaction ends.
+
+The binding keeps mapped-select autoflush and cached ORM identity without
+forced refresh. NULL selectors preserve the original `IS NULL` predicates;
+NULL advisory values retain the original Python `None` spelling. The server
+chooses closed predicate templates and binds every value; callers continue to
+normalize keys, authorize current domain access and compare request digests.
+No capability commits, retries or adds a business status predicate.
+
+Ordinary roles receive these two functions while strict lifecycle/list/domain
+profiles retain their existing scopes. This removes the filtered locking read's
+private UPDATE dependency. Other private SELECT consumers remain tracked in
+[the operation ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-action-idempotency).
+Point-cloud quality cancellation uses only status/payload from existing
+`read_job`, preserving dirty cache state under `no_autoflush`; dispatch uses
+the existing cached getter without forced refresh.
+
 ## Public notification scope facts
 
 `aap-jobs` publishes the fixed, read-only `aap_jobs_v1.notification_scope_facts`

@@ -212,6 +212,7 @@ import json
 import re
 import sys
 import uuid
+from types import SimpleNamespace
 
 def _sqlstate(error):
     seen = set()
@@ -234,6 +235,7 @@ async def _run():
     from aap_jobs.domain_query_contract import JOBS_DOMAIN_QUERY_PROTOCOL
     from aap_jobs.fixture_cleanup_contract import JOBS_FIXTURE_CLEANUP_PROTOCOL
     from aap_jobs.fixture_filter_contract import JOBS_FILTER_FIXTURE_PROTOCOL
+    from aap_jobs.action_idempotency_contract import JOBS_ACTION_IDEMPOTENCY_PROTOCOL
     from aap_jobs.lifecycle_contract import JOBS_LIFECYCLE_PROTOCOL
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
     from aap_jobs.row_lock_contract import JOBS_ROW_LOCK_PROTOCOL
@@ -241,6 +243,11 @@ async def _run():
     from app.services.jobs_lifecycle_data import job_lock_statement
     from app.services import async_job as async_job_svc
     from app.api.v1._test_seed_filters import _set_filter_fixture_job_outcomes
+    from app.services.data_management.actions import (
+        lock_idempotency_key, find_idempotent_job, assert_idempotent_request_matches,
+    )
+    from app.services.point_cloud_quality.execution import _cancel_requested
+    from fastapi import HTTPException
 
     job_id = uuid.UUID(sys.argv[1])
     expected_database = sys.argv[2]
@@ -327,7 +334,8 @@ async def _run():
                 raise RuntimeError("creation_privileges")
             created = await async_job_svc.create_job(
                 db, kind="audit_archive", user_id=actor_id, project_id=row.project_id,
-                payload={"probe": "jobs-creation"},
+                payload={"probe": "jobs-creation", "data_manager_idempotency_key": "cold-action-probe",
+                         "data_manager_request_digest": "cold-action-digest"},
             )
             created_id = created.id
             pending_shape = (
@@ -338,6 +346,29 @@ async def _run():
             )
             if not pending_shape:
                 raise RuntimeError("creation_shape")
+            await lock_idempotency_key(
+                db, action="cold-probe", project_id=row.project_id,
+                actor_id=actor_id, key="cold-action-probe",
+            )
+            found = await find_idempotent_job(
+                db, kind="audit_archive", project_id=row.project_id,
+                actor_id=actor_id, key="cold-action-probe",
+            )
+            if found is not created:
+                raise RuntimeError("action_identity")
+            assert_idempotent_request_matches(found, digest="cold-action-digest")
+            try:
+                assert_idempotent_request_matches(found, digest="changed-digest")
+            except HTTPException as conflict:
+                if conflict.status_code != 409 or conflict.detail["job_id"] != str(created_id):
+                    raise
+            else:
+                raise RuntimeError("action_digest_conflict")
+            point_cloud_projection = await _cancel_requested(
+                db, SimpleNamespace(async_job_id=job_id)
+            ) is False
+            if not point_cloud_projection:
+                raise RuntimeError("point_cloud_projection")
             try:
                 async with db.begin_nested():
                     await db.execute(text(
@@ -478,12 +509,18 @@ async def _run():
         }
         if any(count != 1 for count in domain_function_calls.values()):
             raise RuntimeError("domain_sql_surface")
+        action_function_calls = {
+            name: _count(lowered, "aap_jobs_v1." + name + "(")
+            for name in ("lock_action_idempotency", "find_action_idempotent_jobs")
+        }
+        if any(count != 1 for count in action_function_calls.values()):
+            raise RuntimeError("action_sql_surface")
         private_table_from = sum(
             bool(re.search(r"\\bfrom\\s+(?:public\\.)?async_jobs\\b", statement))
             for statement in lowered
         )
         if function_calls != {
-            "read_job": 2,
+            "read_job": 3,
             "read_job_for_share_nowait": 1,
             "read_job_for_update": 1,
         } or private_table_from:
@@ -494,11 +531,15 @@ async def _run():
                 JOBS_LIFECYCLE_PROTOCOL, JOBS_ROW_LOCK_PROTOCOL, JOBS_DOMAIN_QUERY_PROTOCOL,
                 JOBS_FIXTURE_CLEANUP_PROTOCOL,
                 JOBS_FILTER_FIXTURE_PROTOCOL,
+                JOBS_ACTION_IDEMPOTENCY_PROTOCOL,
             ],
             "role_match": True,
             "database_match": True,
             "function_calls": function_calls,
             "domain_function_calls": domain_function_calls,
+            "action_function_calls": action_function_calls,
+            "action_identity_and_digest": True,
+            "point_cloud_projection": point_cloud_projection,
             "domain_subject_matches": domain_subject_matches,
             "creation_acl": creation_acl,
             "fixture_delete_acl": fixture_delete_acl,
@@ -572,11 +613,12 @@ def _assert_api_row_access_probe(
         "aap-jobs-domain-queries/v1",
         "aap-jobs-fixture-cleanup/v1",
         "aap-jobs-filter-fixtures/v1",
+        "aap-jobs-action-idempotency/v1",
     ]
     assert evidence["role_match"] is True
     assert evidence["database_match"] is True
     assert evidence["function_calls"] == {
-        "read_job": 2,
+        "read_job": 3,
         "read_job_for_share_nowait": 1,
         "read_job_for_update": 1,
     }
@@ -588,6 +630,12 @@ def _assert_api_row_access_probe(
         "latest_batch_prediction_times": 1,
     }
     assert evidence["domain_subject_matches"] is True
+    assert evidence["action_function_calls"] == {
+        "lock_action_idempotency": 1,
+        "find_action_idempotent_jobs": 1,
+    }
+    assert evidence["action_identity_and_digest"] is True
+    assert evidence["point_cloud_projection"] is True
     assert evidence["creation_acl"] == {
         "private_table_insert": False,
         "private_column_insert": False,
@@ -728,7 +776,10 @@ async def _exercise_export_dispatch(
                 await stack.start_service("jobs-queue")
 
             for label, path, body in requests:
-                response = await client.post(path, headers=headers, json=body)
+                request_headers = dict(headers)
+                if label == "selected":
+                    request_headers["Idempotency-Key"] = "jobs-owner-selected-export"
+                response = await client.post(path, headers=request_headers, json=body)
                 assert response.status_code == 202, stack.redact(response.text)
                 job_id = uuid.UUID(response.json()["job_id"])
                 row = await _job_by_id(test_engine, job_id)
@@ -739,6 +790,14 @@ async def _exercise_export_dispatch(
                         and str(uuid.UUID(row.celery_task_id)) == row.celery_task_id
                     )
                     assert row.payload["task_ids"] == [str(world["task_id"])]
+                    conflict = await client.post(
+                        path,
+                        headers=request_headers,
+                        json={**body, "targets": ["coco"]},
+                    )
+                    assert conflict.status_code == 409, stack.redact(conflict.text)
+                    assert conflict.json()["detail"]["code"] == "idempotency_conflict"
+                    assert conflict.json()["detail"]["job_id"] == str(job_id)
                 else:
                     assert row.celery_task_id is None
                 receipts.append({"route": label, "job_id": str(job_id)})
@@ -840,6 +899,29 @@ async def _exercise_export_dispatch(
                 assert len(task["annotations"]) == 1
                 assert task["annotations"][0]["class_name"] == "car"
                 item["download_http_status"] = download.status_code
+                if item["route"] == "selected":
+                    replay = await client.post(
+                        project_path + "/data-manager/tasks/export",
+                        headers={
+                            **headers,
+                            "Idempotency-Key": "jobs-owner-selected-export",
+                        },
+                        json={
+                            "task_ids": [str(world["task_id"])],
+                            "targets": ["aap_json"],
+                        },
+                    )
+                    assert replay.status_code == 202, stack.redact(replay.text)
+                    assert replay.json() == {
+                        "job_id": item["job_id"],
+                        "status": "completed",
+                    }
+                    assert _broker_state(sender, "export") == {
+                        "queue_size": 0,
+                        "unacknowledged": 0,
+                    }
+                    item["keyed_conflict_http_status"] = 409
+                    item["keyed_completed_replay_http_status"] = replay.status_code
         return {"owner_id": str(world["owner_id"]), "jobs": receipts, "outage": outages}
     finally:
         try:

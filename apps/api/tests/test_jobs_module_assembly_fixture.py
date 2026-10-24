@@ -153,11 +153,12 @@ def _row_access_probe_evidence(**changes):
             "aap-jobs-domain-queries/v1",
             "aap-jobs-fixture-cleanup/v1",
             "aap-jobs-filter-fixtures/v1",
+            "aap-jobs-action-idempotency/v1",
         ],
         "role_match": True,
         "database_match": True,
         "function_calls": {
-            "read_job": 2,
+            "read_job": 3,
             "read_job_for_share_nowait": 1,
             "read_job_for_update": 1,
         },
@@ -169,6 +170,12 @@ def _row_access_probe_evidence(**changes):
             "latest_batch_prediction_times": 1,
         },
         "domain_subject_matches": True,
+        "action_function_calls": {
+            "lock_action_idempotency": 1,
+            "find_action_idempotent_jobs": 1,
+        },
+        "action_identity_and_digest": True,
+        "point_cloud_projection": True,
         "creation_acl": {
             "private_table_insert": False,
             "private_column_insert": False,
@@ -304,6 +311,18 @@ def test_api_row_access_probe_rejects_private_job_update_privileges(field):
     with pytest.raises(AssertionError):
         _assert_api_row_access_probe(
             _RowAccessProbeStack(evidence),
+            job_id=uuid.uuid4(),
+            database="restored_test",
+        )
+
+
+@pytest.mark.parametrize(
+    "field", ["action_identity_and_digest", "point_cloud_projection"]
+)
+def test_api_row_access_probe_rejects_missing_action_or_projection_evidence(field):
+    with pytest.raises(AssertionError):
+        _assert_api_row_access_probe(
+            _RowAccessProbeStack(_row_access_probe_evidence(**{field: False})),
             job_id=uuid.uuid4(),
             database="restored_test",
         )

@@ -165,6 +165,10 @@ JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.cross_frame_job_count(uuid,text)",
     "aap_jobs_v1.latest_batch_prediction_times(uuid[])",
 )
+JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES = (
+    "aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)",
+    "aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)",
+)
 _JOBS_CREATION_RUNTIME_ACL = """
 DO $jobs_creation_acl$
 DECLARE
@@ -1070,6 +1074,7 @@ class LocalResources:
                     *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
                     *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
                     *JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
+                    *JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES,
                 )
             )
             notification_delivery_read_check = " AND ".join(

@@ -151,7 +151,7 @@ async def test_quality_reads_keep_jobs_owner_and_session_behavior(
         _assert_jobs_owner_read(statements)
 
         job = await async_job_svc.get_job(db_session, job_id)
-        job.status = AsyncJobStatus.CANCELLED.value
+        await async_job_svc.mark_cancelled(db_session, job_id)
         job.payload = {"cancel_requested": True}
         run_ref = SimpleNamespace(async_job_id=job_id)
         with db_session.no_autoflush:

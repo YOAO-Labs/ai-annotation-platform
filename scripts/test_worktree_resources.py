@@ -28,6 +28,7 @@ from worktree_resources import (
     JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
     JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
     JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
+    JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES,
     VIDEO_RUNTIME_CAPABILITIES,
 )
 
@@ -686,6 +687,7 @@ class BucketUpgradeTests(unittest.TestCase):
                     *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
                     *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
                     *JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
+                    *JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES,
                 )
             )
             + ' TO "app"',
