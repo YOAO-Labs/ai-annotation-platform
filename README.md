@@ -365,7 +365,7 @@ Data Manager 将未解决问题与普通评论分别计数，兼容旧反馈筛�
 
 问题回复、状态变化、任务留言和标注评论提及复用站内通知与按类型偏好，点击时重新核对权限并定位原对话。`GET/PUT /api/v1/notification-preferences` 按类型返回并更新「接收通知（in_app）」与「弹出提示（toast）」；PUT 至少提供其一，只原子合并请求出现的键，`toast` 读取为显式选择或类型默认计算出的有效值。讨论通知在业务提交成功后推送，网络推送失败不影响已保存内容，详见[讨论通知](./docs-site/api/guides/tasks-and-annotations.md#讨论通知)。
 
-通知偏好的读取、原子更新和静音判断，以及普通通知的同事务追加，由 `apps/notifications` 的语言无关合同与固定 owner 函数持有。原调用方继续控制提交、回滚及提交后推送；收件箱读取和完整投递仍按模块台账推进。切换受限凭据前须更新并排空旧 API／worker，详见 [Notifications 能力](./apps/notifications/README.md)和[开发运行说明](./DEV.md#notifications-偏好事务内能力)。
+通知偏好的读取、原子更新和静音判断，以及普通通知的同事务追加，由 `apps/notifications` 的语言无关合同与固定 owner 函数持有。普通即时推送可选择现有独立 publisher 的私网 HTTP 入口，配置与提交语义见 [Notifications 即时发布](./docs-site/api/guides/module-data.md#notifications-即时发布)。原调用方继续控制提交、回滚及提交后推送；收件箱读取和完整投递仍按模块台账推进。切换受限凭据前须更新并排空旧 API／worker，详见 [Notifications 能力](./apps/notifications/README.md)和[开发运行说明](./DEV.md#notifications-偏好事务内能力)。
 
 业务审计、HTTP 元数据及其 Celery 持久化现通过 `apps/audit` 的版本化追加能力写入，保留原事务、actor 快照及匿名重试。查询、归档及完整凭据边界仍在推进；现有 LAN 的分区所有权还不能直接采用严格追加配置，见 [Audit 能力](./apps/audit/README.md)与[模块台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 

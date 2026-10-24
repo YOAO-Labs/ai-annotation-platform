@@ -239,7 +239,15 @@ HTTP 查询端点 `GET /api/v1/audit` 面向运营与排障，严格执行基于
 
 单条读取、终态预查、批量投递与 WebSocket 的持久行检查通过七项固定 Notifications 读取能力，API 不再持有 `notification_facts` 的表／列读取权限。八个原生字段和 Session 缓存／过期 identity 保持；终态预查仍在原保存点中运行，最终去重继续由原子追加负责。
 
-Notifications 的纯投递策略先按需读取 Jobs 实际范围，再分别查询有效成员、reviewer、活跃管理账号所有权和活跃超级管理员权限。四项授权保持独立语句快照，逐帧认证、四次短暂缺行查询、Redis 发布时机和错误处理继续由原 API／WS 编排。批量快照保留字典键存在性及原 UUID 解析语义；它与收件箱 `->>` 的范围规则分别保留。当前资格及剩余独立运行边界见[投递读取台账](./module-deployment#notification-delivery-read-owner)。
+Notifications 的纯投递策略先按需读取 Jobs 实际范围，再分别查询有效成员、reviewer、活跃管理账号所有权和活跃超级管理员权限。四项授权保持独立语句快照；API 的 Session 适配保留缓存与读取次序，Notifications owner 持有发布策略、逐条错误处理和 WebSocket 生命周期。批量快照保留字典键存在性及原 UUID 解析语义；它与收件箱 `->>` 的范围规则分别保留。当前资格及剩余独立运行边界见[投递读取台账](./module-deployment#notification-delivery-read-owner)。
+
+### 即时发布与独立运行
+
+普通发布编排由 `aap_notifications.publication.NotificationPublicationManager` 持有，API 继续控制业务事务和调用时点。空 `NOTIFICATION_PUBLICATION_URL` 使用内嵌 Redis transport；配置私网地址后，经 `aap-notifications-immediate-publication/v1` 调用现有独立 publisher 的可选 HTTP 接口，故障不回退本地 Redis。
+
+API 在原借用 Session 中读取通知、Jobs 范围和四组授权事实，将事件及该次受信快照交给 publisher；publisher 不重新查询未提交的业务行，并再次执行同一授权策略。服务 bearer 只授予这项发布能力，不能作为用户 JWT 或 Identity 控制凭据。消息频道由收件人 UUID 生成，调用方不能指定任意 Redis channel。
+
+`notify()`／`notify_many()` 默认延后发布，调用方提交后逐条 best-effort 发布；终态通知及显式 `defer_publish=False` 保留提交前时序。`publish_by_id()` 的传输错误仍传播，使既有导入投递租约不被确认；偏好、已读和删除的同步提示仍在对应提交后 best-effort 发布。普通发布不新增 outbox 或自动重试，durable publisher 继续按原租约确认和重试。WebSocket 继续在短暂缺行时读取四次、等待三次 150ms，回滚后不可见的通知不会发送给客户端。配置见[环境变量参考](../reference/env-vars)，协议见[模块数据接口](../../api/guides/module-data#notifications-即时发布)。
 
 ### 已读状态命令
 

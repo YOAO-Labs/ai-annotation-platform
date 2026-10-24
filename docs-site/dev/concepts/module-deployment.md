@@ -73,7 +73,7 @@ last_reviewed: 2026-10-24
 | Audit／Insights：汇总与分析投影                     | 日聚合公开关系与固定并发刷新已集成，MV 由 Audit owner 持有                                    | 月报已迁移；尾段保留公开事件关系，维护保留原提交边界                                                       | [日聚合与 Jobs 事实](#support-daily-and-jobs-facts)：父线 27 项混合案例、真实 LOGIN／Node、固定刷新与完整 0323 往返通过                           | 本组操作的限定本地资格闭合；当前 API 离线工件通过，冷维护进程、独立凭据及完整生命周期仍待收口；Go 仅实验                                                                                                                                                                                                                                                         |
 | Audit：分区、保留与冷归档                           | 月分区、对象上传后删分区及归档读取已有实现                                                    | 维护任务和归档查询仍在主 API／Celery                                                                       | 独立维护工件、专用 DB／归档凭据及恢复未验收                                                                                                       | 证明上传／删分区中断、重启、孤儿对象和已删分区恢复；本轮不扩大归档或资产存储改造                                                                                                                                                                                                                                                                                 |
 | Audit：独立工件、凭据与恢复                         | audit_code 与固定 SQL 能力已有基础                                                            | 普通运行角色及完整操作尚未收口                                                                             | 整模块未验收；七组能力分别跟踪，案例数不替代模块门槛                                                                                              | 完成独立构建／启动／健康、消费者切换、受限凭据、故障恢复和回退                                                                                                                                                                                                                                                                                                   |
-| Notifications：独立工件、凭据与恢复                 | 独立 publisher 保留；新增独立 WebSocket 工件、ASGI／CLI 与私网 Compose                        | 偏好、追加、终态、已读、删除、收件箱和投递读取已迁移；API 原 WS 地址可转发独立 owner                       | 操作资格保持；[独立 WS](#notification-socket-owner)通过一个冷组合案例，含实际 Identity／Node／SDK、撤权、重启与清理                               | 独立 WS 的受限凭据与运行边界已验收；普通发布装配、全操作冷组合和完整数据库恢复仍待完成；主环境未切换                                                                                                                                                                                                                                                             |
+| Notifications：独立工件、凭据与恢复                 | 独立 publisher／socket 保留；普通发布编排及可选 HTTP 已集成                                   | 既有 SQL 操作与 WS 消费者保持；API 新增即时发布薄绑定                                                      | 既有操作及独立 WS 资格保持；[即时发布与模块组合](#notification-publication-owner)正在验收                                                         | 全操作冷组合、受限 API Redis 与完整数据库恢复待通过；主环境未切换                                                                                                                                                                                                                                                                                                |
 | Notifications：偏好读取／局部更新／静音             | 独立包与版本化合同、固定 SQL owner 及新行策略已实现                                           | GET／PUT 与通知静音消费者已迁移，保留 autoflush、事务及提交后同步                                          | [偏好 owner](#notification-preferences-owner)：36 项真实 API、受限角色与 Node 同合同检查、0311 迁移往返通过                                       | 偏好操作级与既有组合工件资格保持；同事务追加见下行，完整投递、重放及通道装配仍待验收，未切主环境                                                                                                                                                                                                                                                                 |
 | Notifications：普通同事务追加                       | `aap-notification-append/v1` 与固定 SQL owner 已实现                                          | notify／notify_many 已迁移，保留静音预检、去重顺序、ORM 缓存及完整 flush／原提交边界                       | [通知追加](#notification-append-owner)：55 项聚焦 API、11 项包检查及真实受限 API／单事务 Node 通过                                                | 操作级资格保持；历史组合运行和当前冷 API 文件／导入核验分别通过；完整投递与模块验收未完成                                                                                                                                                                                                                                                                        |
 | Notifications：单条／全部已读                       | 固定 `read_state_command(jsonb)` 与版本化合同已实现                                           | 两个服务入口迁移；保留用户隔离、404／数量、caller 时间、ORM 缓存及原提交后同步                             | [已读 owner](#notification-read-state-owner)：8 项不同受控数据库／API／缓存案例、受限 Node 和 0316 往返通过                                       | 操作级资格保持；收件箱与删除已有独立资格；冷进程真实消费、完整发布／重放及模块验收待完成                                                                                                                                                                                                                                                                         |
@@ -1748,3 +1748,25 @@ Identity admission 的纯合同逐字节移入无环共享包，旧路径导出�
 三次原始失败保留：夹具给 token helper 传 UUID 对象、误用普通数据账号作 Identity 认证，以及 Node 文本 ACL 探针在无 Identity schema USAGE 时提前报错。修正分别先通过最小实际调用、数据源选择和独占 PostgreSQL 复现；认证改用原有单独凭据，Node 保留全局 OID 检查和真实拒绝访问探针，未扩大权限。汇总 `.worktree/jobs-list-query-qualification.json` 绑定 33 项原始证据，SHA-256 为 `3bd897aaa24a0897710776267be73bdfe190e5e999b5d25cf0dd4e29c97816ee`；十四项资格由保留的十三项与修正后的一项组成，另保留三份原始失败收据。
 
 API 镜像源码检查点 `e888f17` 的非 editable 安装、资源与导入资格保留，2,068 项实际安装／应用／迁移／CLI 文件仍与当前源码一致；两项已修正的 QA 文件与原 COPY 清单有差异，不能称为当前全量 COPY 匹配。该镜像资格限离线安装、资源与导入，冷 API 业务请求仍待验收。列表操作的限定本地边界已闭合；其余操作、完整恢复、另一语言提供方、日常采用、远程 CI 与生产容量继续按台账跟踪。
+
+## Notifications 即时发布与模块组合 {#notification-publication-owner}
+
+现有 publisher 新增可选 `aap-notifications-immediate-publication/v1` 私网接口，普通
+`publish_committed`／`publish_by_id`／`publish_sync` 的策略和错误处理移入 Notifications。
+API 保留借用 Session、通知缓存／过期字段、Jobs 范围及四项授权语句顺序，只传事件和
+该次受信事实；owner 再执行同一策略，不读取另一事务中不可见的行。普通最佳努力、
+终态提交前发布和按 ID 失败传播分别保留，不新增普通 outbox 或自动重试。
+
+独立发布服务使用原有函数数据库与 publish-only Redis 凭据，另加专用发布 bearer；
+API 显式选择远程地址后不回退本地 Redis。发布端从收件人 UUID 生成频道，并在读取
+body 前验证 bearer。客户端限制回复为 4096 字节，超时、超限和取消关闭连接。
+版本化 Schema、实际 HTTPX 流测试及原 API 调用兼容纯检查已有证据；这些不替代真实
+运行资格。四份 lock 使用固定工具更新，既有 registry 版本保持，未增加 registry 包。
+
+一个完整冷组合案例正在准备：匹配当前源码的 API、Identity、publisher 与 socket
+工件，API 的受限 Redis 账号保留 cache／Celery 用途并拒绝通知频道发布，验证真实
+REST 与原 WS、普通失败及租约未确认、终态预提交与回滚、完整 PG dump／restore、
+待处理 outbox 接管和恢复后新通知。Node 仅消费即时发布 HTTP 合同，不据此声明完整
+替代语言提供方。当前尚未通过此组合，不将新纯检查计作模块闭合；既有操作矩阵继续
+复用。主工作树、日常拓扑、生产与 Go 实验保持原状态；训练、主动学习及资产的数据集／
+存储扩展继续暂缓。

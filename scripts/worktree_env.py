@@ -204,6 +204,9 @@ def isolated_environment(
         "IDENTITY_URL": "",
         "IDENTITY_TOKEN": "",
         "NOTIFICATION_SOCKET_URL": "",
+        "NOTIFICATION_PUBLICATION_URL": "",
+        "NOTIFICATION_PUBLICATION_TOKEN": "",
+        "NOTIFICATION_PUBLICATION_TOKEN_FILE": "",
         **{
             f"{capability}_DATABASE_URL{suffix}": ""
             for capability in (

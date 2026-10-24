@@ -262,6 +262,9 @@ class Settings(BaseSettings):
     identity_deactivation_operator_database_url: str = Field(default="", repr=False)
     identity_deactivation_operator_database_url_file: str = ""
     notification_socket_url: str = ""
+    notification_publication_url: str = ""
+    notification_publication_token: str = Field(default="", repr=False)
+    notification_publication_token_file: str = ""
     notification_publish_database_url: str = Field(default="", repr=False)
     notification_publish_database_url_file: str = ""
     identity_presence_database_url: str = Field(default="", repr=False)

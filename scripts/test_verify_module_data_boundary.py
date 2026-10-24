@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import ast
 import json
 import sys
 from pathlib import Path
@@ -17,6 +18,31 @@ from verify_module_data_boundary import (
     _installed_function_body_sha256,
 )
 import verify_module_data_boundary as verifier
+
+
+def test_notifications_module_cold_case_selects_api_bootstrap_credentials():
+    selected = {"tests/test_notifications_module_assembly_live.py"}
+    tree = ast.parse(inspect.getsource(verifier.main))
+    condition = next(
+        node.test
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.BinOp)
+        and isinstance(node.test.op, ast.BitAnd)
+        and isinstance(node.test.right, ast.Set)
+        and any(
+            isinstance(element, ast.Constant)
+            and element.value == "tests/test_notifications_socket_runtime_live.py"
+            for element in node.test.right.elts
+        )
+    )
+    assert (
+        eval(
+            compile(ast.Expression(condition), "<bootstrap selector>", "eval"),
+            {"selected_test_paths": selected},
+        )
+        == selected
+    )
 
 
 def test_jobs_list_query_login_has_only_fixed_reads_and_no_temporary_grant(monkeypatch):

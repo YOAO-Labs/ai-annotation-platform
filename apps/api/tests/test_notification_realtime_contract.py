@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from aap_notifications.publication_contract import PublicationAuthorization
 from app.services import notification as notification_module
 from app.services.notification import NotificationService
 
@@ -32,16 +33,26 @@ def _service(row):
         assert rows == [row]
         return [(False, None, False)]
 
-    async def allowed_delivery_indices(rows, _scopes):
+    async def authorization_facts(rows, _scopes):
         assert rows == [row]
-        return {0}
+        return [
+            PublicationAuthorization(
+                restricted=False,
+                project_id=None,
+                export_required=False,
+                member=False,
+                reviewer=False,
+                owner=False,
+                super_admin=False,
+            )
+        ]
 
     async def notification_by_id(notification_id):
         assert notification_id == row.id
         return row
 
     service._resolve_delivery_scopes = resolve_delivery_scopes
-    service._allowed_delivery_indices = allowed_delivery_indices
+    service._publication_authorizations = authorization_facts
     service.notification_by_id = notification_by_id
     return service
 

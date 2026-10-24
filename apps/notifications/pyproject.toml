@@ -16,7 +16,7 @@ runtime = [
     "pydantic-settings>=2.6.0",
     "redis>=5.2.0",
     "starlette>=1.0.0",
-    "uvicorn[standard]>=0.46.0",
+    "uvicorn>=0.46.0",
 ]
 publication-client = ["httpx>=0.28.1"]
 websocket = [

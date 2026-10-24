@@ -516,6 +516,13 @@ last_reviewed: 2026-10-24
 | `NOTIFICATION_PUBLISH_DATABASE_URL_FILE` | `—` | — |
 | `NOTIFICATION_PUBLISH_REDIS_URL` | `—` | 独立 notification publisher 的 Redis DSN；与可选 Notifications 数据库 DSN 成对配置。 |
 | `NOTIFICATION_PUBLISH_REDIS_URL_FILE` | `—` | — |
+| `NOTIFICATION_PUBLISH_API_TOKEN` | `—` | 同一独立 publisher 的可选即时发布 HTTP；没有 API token 时保持原 durable-only 循环。 |
+| `NOTIFICATION_PUBLISH_API_TOKEN_FILE` | `—` | — |
+| `NOTIFICATION_PUBLISH_HOST` | `127.0.0.1` | — |
+| `NOTIFICATION_PUBLISH_PORT` | `8181` | — |
+| `NOTIFICATION_PUBLICATION_URL` | `—` | API 的可选独立即时发布绑定；空 URL 使用内嵌 transport，显式地址故障不回退。 |
+| `NOTIFICATION_PUBLICATION_TOKEN` | `—` | — |
+| `NOTIFICATION_PUBLICATION_TOKEN_FILE` | `—` | — |
 | `NOTIFICATION_SOCKET_URL` | `—` | 独立 Notifications WebSocket 的可选 API 绑定；留空时使用同一 owner 的内嵌装配。 配置私网 ws://notifications-socket:8180 后，故障不会回退本地数据库／Redis。 |
 | `NOTIFICATION_SOCKET_DATABASE_URL` | `—` | 独立 socket 的七函数只读 DSN、subscribe-only Redis 和 Identity admission-only bearer。 直接启动可用值或文件（二选一）；Compose 只使用文件且不发布宿主机端口。 |
 | `NOTIFICATION_SOCKET_DATABASE_URL_FILE` | `—` | — |

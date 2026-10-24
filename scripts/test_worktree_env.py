@@ -144,6 +144,9 @@ class EnvironmentTests(unittest.TestCase):
                 "identity_url": "http://shared-identity.test",
                 "IDENTITY_TOKEN": "shared-identity-token",
                 "notification_socket_url": "ws://shared-notifications.test:8180",
+                "notification_publication_url": "http://shared-publisher.test:8181",
+                "notification_publication_token": "shared-publication-token",
+                "notification_publication_token_file": "/shared/publication-token",
                 "IDENTITY_AUTH_DATABASE_URL": "postgresql://shared/identity",
                 "IDENTITY_AUTH_DATABASE_URL_FILE": "/shared/identity-dsn",
                 "IDENTITY_KEY_DATABASE_URL": "postgresql://shared/key-commands",
@@ -200,6 +203,12 @@ class EnvironmentTests(unittest.TestCase):
             self.assertNotIn("identity_url", env)
             self.assertNotIn("notification_socket_url", env)
             for key in (
+                "notification_publication_url",
+                "notification_publication_token",
+                "notification_publication_token_file",
+            ):
+                self.assertNotIn(key, env)
+            for key in (
                 "ASSETS_MASK_CONTENT_URL",
                 "ASSETS_MASK_CONTENT_TOKEN",
                 "ASSETS_MASK_CLEANUP_URL",
@@ -209,6 +218,9 @@ class EnvironmentTests(unittest.TestCase):
                 "IDENTITY_URL",
                 "IDENTITY_TOKEN",
                 "NOTIFICATION_SOCKET_URL",
+                "NOTIFICATION_PUBLICATION_URL",
+                "NOTIFICATION_PUBLICATION_TOKEN",
+                "NOTIFICATION_PUBLICATION_TOKEN_FILE",
                 "IDENTITY_AUTH_DATABASE_URL",
                 "IDENTITY_AUTH_DATABASE_URL_FILE",
                 "IDENTITY_KEY_DATABASE_URL",

@@ -11,6 +11,7 @@ from aap_assets_source.import_delivery_contract import (
     DatasetImportDelivery,
     DatasetImportDeliveryCompletion,
 )
+from aap_notifications.publication_contract import PublicationAuthorization
 from app.services import dataset_import_delivery as delivery_data
 from app.services import notification as notification_module
 from app.services.notification import NotificationService
@@ -284,7 +285,19 @@ async def test_notification_publish_failure_propagates_for_retry(monkeypatch):
     service = NotificationService(SimpleNamespace())
     monkeypatch.setattr(service, "notification_by_id", AsyncMock(return_value=row))
     service._resolve_delivery_scopes = AsyncMock(return_value=[(False, None, False)])
-    service._allowed_delivery_indices = AsyncMock(return_value={0})
+    service._publication_authorizations = AsyncMock(
+        return_value=[
+            PublicationAuthorization(
+                restricted=False,
+                project_id=None,
+                export_required=False,
+                member=False,
+                reviewer=False,
+                owner=False,
+                super_admin=False,
+            )
+        ]
+    )
     monkeypatch.setattr(
         notification_module,
         "_publish",
@@ -311,7 +324,19 @@ async def test_revoked_notification_is_suppressed_and_ackable(monkeypatch):
     service = NotificationService(SimpleNamespace())
     monkeypatch.setattr(service, "notification_by_id", AsyncMock(return_value=row))
     service._resolve_delivery_scopes = AsyncMock(return_value=[(True, uuid4(), False)])
-    service._allowed_delivery_indices = AsyncMock(return_value=set())
+    service._publication_authorizations = AsyncMock(
+        return_value=[
+            PublicationAuthorization(
+                restricted=True,
+                project_id=uuid4(),
+                export_required=False,
+                member=False,
+                reviewer=False,
+                owner=False,
+                super_admin=False,
+            )
+        ]
+    )
     publish = AsyncMock()
     monkeypatch.setattr(notification_module, "_publish", publish)
 

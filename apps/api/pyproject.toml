@@ -19,7 +19,7 @@ dependencies = [
     "aap-audit-contract",
     "aap-audit[postgres]",
     "aap-jobs",
-    "aap-notifications[postgres]",
+    "aap-notifications[postgres,publication-client]",
     "aap-media-probe[client]",
     "aap-task-contract",
     "aap-training-contract",

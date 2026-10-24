@@ -725,3 +725,43 @@ Jobs 发布 `aap-jobs-notification-scope-facts/v1`：
 `jobs_list_query_client` 是仅持两项函数权限的独立 LOGIN，没有 Jobs 私表、内部 helper、Identity 表／函数、DDL、TEMP 或角色成员权限。普通 API 的其余 Jobs 操作仍需原有私表权限，本操作不提前撤销。迁移和普通 owner 授权后，使用 `infra/docker/jobs-list-query-grants.sql` 安装严格客户端权限；工作区与 LAN 的普通 API 授权也包含这两个公开函数。
 
 schema 与 SQL 随 `apps/jobs` 分发，独立 Node 消费者位于 `apps/jobs/conformance/node/`。实现、消费者及限定验收状态分别见[模块台账](/dev/concepts/module-deployment#jobs-list-query-owner)，这不代表完整 Jobs 已独立运行。
+
+## Notifications 即时发布
+
+现有独立 `aap-notifications-publisher` 可同时提供私网 `POST /v1/notifications/publish`，
+协议标识为 `aap-notifications-immediate-publication/v1`。这不是公开用户 API；使用独立
+service bearer，在读取请求体前鉴权。冻结 JSON Schema 位于
+`apps/notifications/src/aap_notifications/publication.schema.json`。
+
+请求恰好包含以下四项：
+
+| 字段            | 合同                                                                              |
+| --------------- | --------------------------------------------------------------------------------- |
+| `schema`        | 固定协议标识                                                                      |
+| `user_id`       | 收件人 UUID；owner 据此生成 `notify:{UUID}`，不接受任意频道                       |
+| `message`       | 原六字段通知事件，或开放字段的 `notifications.sync` 对象；不改变原生 JSON payload |
+| `authorization` | sync 提示为 null；业务事件为封闭授权快照对象                                      |
+
+授权对象包含 `restricted`、`project_id`、`export_required`、`member`、`reviewer`、
+`owner`、`super_admin`。除可空 UUID `project_id` 外均为严格 boolean。受限通知没有
+项目时拒绝；普通项目通知要求 member／owner／super，导出要求 reviewer／owner／super。
+快照由受信业务服务在原事务中读取，不能接受终端用户自行声明的权限，也不传 SQL、
+Session 或数据库凭据。业务 `type` 保持开放；是否为同步提示由 null 授权区分。
+
+成功响应恰好为 `schema` 和严格 boolean `published`。策略拒绝返回 200／false；
+Redis 接受后才返回 true，零订阅者也视为成功。未认证返回 401，非法请求返回 400，
+依赖失败返回 503；响应不包含传入 payload、凭据或依赖地址。调用方不自动重试、
+不跟随重定向、不使用环境代理，显式远程错误不回退本地 transport。
+
+API 保留通知的 identity-map／过期字段、autoflush、Jobs 范围与四项顺序授权读取，
+owner 使用该次事实，不另开事务读取尚未提交的行。普通提交后发布及同步提示仍为
+best-effort，终态发布保留提交前路径；按 ID 发布失败仍传播给既有投递租约。
+既有 durable outbox 的 lease／ack／重试单独保留，普通发布不转为耐久队列。
+
+API 配置 `NOTIFICATION_PUBLICATION_URL` 和 `NOTIFICATION_PUBLICATION_TOKEN(_FILE)`；
+publisher 使用 `NOTIFICATION_PUBLISH_API_TOKEN(_FILE)`、`NOTIFICATION_PUBLISH_HOST`、
+`NOTIFICATION_PUBLISH_PORT`。直接 token 与文件二选一，空 URL 保留内嵌装配；
+未给 publisher API token 时仍只运行原 durable 循环，`--once` 行为保持。
+独立 Compose 文件 `docker-compose.notifications-publisher.yml` 不发布宿主端口。
+`/health/live` 检查进程，`/health/ready` 检查 Redis、原投递策略及 publisher 循环。
+本地运行与完整模块资格按[唯一台账](../../dev/concepts/module-deployment#notification-publication-owner)分别记录。

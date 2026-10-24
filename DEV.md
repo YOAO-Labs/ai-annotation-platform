@@ -604,6 +604,24 @@ selector `IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE` 与
 
 ### Notifications 实时消息合同
 
+独立即时发布使用现有 `aap-notifications-publisher` 进程。配置
+`NOTIFICATION_PUBLISH_API_TOKEN(_FILE)` 后，同一进程在 `NOTIFICATION_PUBLISH_HOST`
+与 `NOTIFICATION_PUBLISH_PORT` 提供私网发布和健康接口；不配置 token 时保留原
+durable-only 循环，`--once` 仍只处理一页耐久消息后退出。
+`docker-compose.notifications-publisher.yml` 只装配这个已有工件，可与 socket 的
+Compose 放在同一私网；使用它替换兼容发布服务，保持同一 outbox 的服务装配明确。
+HTTP 端口不发布到宿主机，服务只接收独立发布 bearer、原有函数 DSN 和 publish-only
+Redis 凭据，不持有 Identity 控制或签名密钥。
+
+API 可设 `NOTIFICATION_PUBLICATION_URL=http://notifications-publisher:8181`，并通过
+`NOTIFICATION_PUBLICATION_TOKEN(_FILE)` 读取同一发布 bearer。两组 token 的直接值和
+文件均二选一，文件只挂载给对应 API／publisher。空 URL 使用原内嵌装配；显式选择
+远程 owner 后，错误不回退本地 Redis。工作树清空继承的 URL 和 token 选择器，验收
+夹具只注入自己拥有的地址。该 HTTP 入口使用版本化即时发布合同，不创建普通通知
+的 outbox 或自动重试；普通 best-effort、终态提交前发布与按 ID 发布的错误传播
+分别保留。事务内的查找、缓存与四次授权事实读取仍由调用方 Session 适配，publisher
+使用受信调用方提供的快照，不另开连接读取未提交行。
+
 `apps/notifications` 发布 `aap-notification-realtime/v1` 和 `realtime_event.schema.json`，API 与 durable publisher 共用六个业务事件字段的构造，保留各自的日期字符串和 JSON 编码。合同不向既有帧增加 schema 字段，业务 type 与 sync reason 保持开放；原生 JSONB 的对象、数组、标量与 null 均可保留。通用 ping 仍属于 WebSocket 层。
 
 普通通知仍由调用方提交后 best-effort 发布，终态 job 保留原提交前路径，durable publisher 保留 lease／重试／ack。WS 继续逐帧认证与当前投递权限检查，缺失行保留四次查询及三次 150ms 等待；公开消息合同不会收紧既有 WS gate。订阅被取消或退订失败时也会关闭 PubSub。

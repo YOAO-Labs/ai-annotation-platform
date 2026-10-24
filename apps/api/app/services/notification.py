@@ -39,10 +39,7 @@ from aap_notifications.read_state_postgres import NotificationReadStatePostgresD
 from aap_notifications.delete import NotificationDeleteManager
 from aap_notifications.delete_postgres import NotificationDeletePostgresData
 from aap_notifications.redis_pubsub import channel_for, publish_json as _publish_json
-from aap_notifications.realtime_event_contract import (
-    notification_event_message,
-    notification_sync_message,
-)
+from aap_notifications.publication import NotificationPublicationManager
 from aap_notifications.terminal_append import NotificationTerminalAppendManager
 from aap_notifications.terminal_append_contract import (
     TERMINAL_APPEND_PROTOCOL,
@@ -55,11 +52,11 @@ from aap_notifications.inbox_query_postgres import NotificationInboxQueryPostgre
 from aap_notifications.delivery_read import (
     NotificationDeliveryReadPolicy,
     notification_project_id,
-    unrestricted_delivery_indices,
 )
 from aap_notifications.delivery_read_postgres import (
     NotificationDeliveryReadPostgresData,
 )
+from app.services.notification_publication import publish_notification_request
 
 
 log = logging.getLogger(__name__)
@@ -280,6 +277,23 @@ class NotificationService:
             NotificationDeliveryReadPostgresData(self.db, Notification)
         ).allowed_indices(rows, scopes)
 
+    async def _publication_authorizations(self, rows, scopes):
+        return await NotificationDeliveryReadPolicy(
+            NotificationDeliveryReadPostgresData(self.db, Notification)
+        ).authorization_facts(rows, scopes)
+
+    def _publication_manager(self) -> NotificationPublicationManager:
+        data = SimpleNamespace(
+            notification_by_id=self.notification_by_id,
+            resolve_scopes=self._resolve_delivery_scopes,
+            authorization_facts=self._publication_authorizations,
+        )
+
+        async def transport(request):
+            return await publish_notification_request(request, embedded=_publish)
+
+        return NotificationPublicationManager(data, transport, logger=log)
+
     async def notification_deliverable(
         self, notification_id: uuid.UUID, user_id: uuid.UUID
     ) -> bool:
@@ -316,45 +330,7 @@ class NotificationService:
         while unrelated notifications still publish.  Export deliveries require
         the export capability, not mere membership.
         """
-        rows = list(notifications)
-        try:
-            scopes = await self._resolve_delivery_scopes(rows)
-            allowed = await self._allowed_delivery_indices(rows, scopes)
-        except Exception:
-            # Fail closed for project-scoped rows; never turn an already
-            # committed business write into a failed request.
-            log.exception("notification delivery authorization failed")
-            allowed = unrestricted_delivery_indices(rows)
-
-        for index, row in enumerate(rows):
-            if index not in allowed:
-                log.info(
-                    "notification suppressed for revoked project access user=%s type=%s",
-                    row.user_id,
-                    row.type,
-                )
-                continue
-            try:
-                await _publish(
-                    user_id=row.user_id,
-                    message=notification_event_message(
-                        id=str(row.id),
-                        type=row.type,
-                        target_type=row.target_type,
-                        target_id=str(row.target_id),
-                        payload=row.payload,
-                        created_at=(
-                            row.created_at or datetime.now(timezone.utc)
-                        ).isoformat(),
-                    ),
-                )
-            except Exception as e:
-                log.warning(
-                    "notification publish failed user=%s type=%s err=%s",
-                    row.user_id,
-                    row.type,
-                    e,
-                )
+        await self._publication_manager().publish_committed(notifications)
 
     async def publish_by_id(self, notification_id: uuid.UUID) -> bool:
         """Publish one committed row, propagating transport failures to its relay.
@@ -363,31 +339,7 @@ class NotificationService:
         :meth:`publish_committed`, a Redis error is raised so a durable delivery
         lease is not acknowledged before publication is accepted.
         """
-        row = await self.notification_by_id(notification_id)
-        if row is None:
-            return False
-        scopes = await self._resolve_delivery_scopes([row])
-        if 0 not in await self._allowed_delivery_indices([row], scopes):
-            log.info(
-                "notification delivery suppressed for revoked project access "
-                "notification=%s user=%s type=%s",
-                row.id,
-                row.user_id,
-                row.type,
-            )
-            return False
-        await _publish(
-            user_id=row.user_id,
-            message=notification_event_message(
-                id=str(row.id),
-                type=row.type,
-                target_type=row.target_type,
-                target_id=str(row.target_id),
-                payload=row.payload,
-                created_at=(row.created_at or datetime.now(timezone.utc)).isoformat(),
-            ),
-        )
-        return True
+        return await self._publication_manager().publish_by_id(notification_id)
 
     async def publish_sync(self, user_id: uuid.UUID, *, reason: str) -> None:
         """Best-effort ``notifications.sync`` publication for a committed change.
@@ -397,18 +349,7 @@ class NotificationService:
         the event always observes committed state. Publication failures are
         logged and never turn the already committed request into a failure.
         """
-        try:
-            await _publish(
-                user_id=user_id,
-                message=notification_sync_message(reason=reason),
-            )
-        except Exception as e:
-            log.warning(
-                "notification sync publish failed user=%s reason=%s err=%s",
-                user_id,
-                reason,
-                e,
-            )
+        await self._publication_manager().publish_sync(user_id, reason=reason)
 
     async def list_for_user(
         self,

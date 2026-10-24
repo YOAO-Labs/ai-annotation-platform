@@ -112,6 +112,7 @@ _SERVICES = (
 )
 _NOTIFICATIONS_SOCKET_SERVICE = "notifications-socket"
 _NOTIFICATIONS_SOCKET_IMAGE_ACCEPTANCE = "notifications-socket-runtime"
+_NOTIFICATIONS_PUBLISHER_IMAGE_ACCEPTANCE = "notifications-delivery-runtime"
 _IDENTITY_OPTIONAL_SECRETS = {
     "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE": "identity_admission_token",
     "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE": "identity_actor_status_database_url",
@@ -245,7 +246,9 @@ def _identity_optional_secret_selectors(
 
 
 def _expected_secret_mount_names(
-    service: str, notifications_socket_enabled: bool
+    service: str,
+    notifications_socket_enabled: bool,
+    notification_publication_enabled: bool = False,
 ) -> set[str] | None:
     expected = _SERVICE_SECRET_MOUNTS.get(service)
     if expected is None or (
@@ -255,6 +258,11 @@ def _expected_secret_mount_names(
     result = set(expected)
     if service == "identity-admission":
         result.update(_IDENTITY_OPTIONAL_SECRETS.values())
+    if notification_publication_enabled and service in {
+        "identity-api",
+        "identity-notification-publisher",
+    }:
+        result.add("notification_publication_token")
     return result
 
 
@@ -279,6 +287,10 @@ class IdentityModuleStack:
         identity_actor_status_database_url: str | None = None,
         notifications_socket_redis_url: str | None = None,
         admission_token: str | None = None,
+        notifications_publisher_image: str | None = None,
+        notifications_publisher_identity: str | None = None,
+        notification_publication_token: str | None = None,
+        notification_api_redis_url: str | None = None,
     ) -> None:
         self.test_engine = test_engine
         self.directory = Path(directory).resolve()
@@ -309,6 +321,28 @@ class IdentityModuleStack:
         self._notifications_socket_image = notifications_socket_image
         self._notifications_socket_identity = notifications_socket_identity
         self._admission_token = admission_token
+        publication_inputs = (
+            notifications_publisher_image,
+            notifications_publisher_identity,
+            notification_publication_token,
+            notification_api_redis_url,
+        )
+        if any(value is not None for value in publication_inputs) and not all(
+            isinstance(value, str) and value.strip() for value in publication_inputs
+        ):
+            raise ValueError("Notifications publication verifier inputs are incomplete")
+        self._notification_publication_enabled = all(
+            value is not None for value in publication_inputs
+        )
+        if (
+            notification_publication_token is not None
+            and notification_publication_token
+            in {secret, api_secret, control, admission_token}
+        ):
+            raise ValueError("Notifications publication credential must be distinct")
+        self._notifications_publisher_image = notifications_publisher_image
+        self._notifications_publisher_identity = notifications_publisher_identity
+        self._notification_publication_token = notification_publication_token
         _verify_postgres(test_engine.url)
         _verify_redis()
         self._postgres_name = self._required_environment(
@@ -322,6 +356,38 @@ class IdentityModuleStack:
         )
         self._login_redis_url = self._docker_url(login_redis_url)
         self._publisher_redis_url = self._docker_url(publisher_redis_url)
+        if notification_api_redis_url is not None:
+            api_redis = make_url(notification_api_redis_url)
+            reference_redis = make_url(self._required_environment("REDIS_URL"))
+            if (
+                (
+                    api_redis.drivername,
+                    api_redis.host,
+                    api_redis.port,
+                    api_redis.database,
+                )
+                != (
+                    reference_redis.drivername,
+                    reference_redis.host,
+                    reference_redis.port,
+                    reference_redis.database,
+                )
+                or not api_redis.username
+                or not api_redis.password
+                or api_redis.username
+                in {
+                    make_url(login_redis_url).username,
+                    make_url(publisher_redis_url).username,
+                }
+            ):
+                raise ValueError(
+                    "API Redis credential does not match the owned scoped endpoint"
+                )
+        self._notification_api_redis_url = (
+            self._docker_url(notification_api_redis_url)
+            if notification_api_redis_url is not None
+            else None
+        )
         self._notifications_socket_redis_url = (
             self._docker_url(notifications_socket_redis_url)
             if notifications_socket_redis_url is not None
@@ -402,6 +468,13 @@ class IdentityModuleStack:
         self._identity_origin = ""
         self._verify_image(self._identity_image, self._identity)
         self._verify_image(self._api_image, self._api_identity)
+        if getattr(self, "_notification_publication_enabled", False):
+            self._verify_image(
+                self._notifications_publisher_image or "",
+                self._notifications_publisher_identity or "",
+                acceptance=_NOTIFICATIONS_PUBLISHER_IMAGE_ACCEPTANCE,
+                expected_user="10004:10004",
+            )
         if self._notifications_socket_enabled:
             self._verify_image(
                 self._notifications_socket_image or "",
@@ -433,6 +506,7 @@ class IdentityModuleStack:
             self._control,
             self._mail_key,
             self._admission_token or "",
+            getattr(self, "_notification_publication_token", None) or "",
         ]
         urls = [self._api_database_url, *self._database_urls.values()]
         if self._notifications_socket_database_url is not None:
@@ -448,6 +522,7 @@ class IdentityModuleStack:
                 self._login_redis_url,
                 self._publisher_redis_url,
                 self._notifications_socket_redis_url or "",
+                getattr(self, "_notification_api_redis_url", None) or "",
                 os.environ.get("AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY", ""),
             ]
         )
@@ -675,6 +750,11 @@ class IdentityModuleStack:
             self._write_secret(
                 "notification_socket_identity_token", self._admission_token
             )
+        if getattr(self, "_notification_publication_enabled", False):
+            self._write_secret(
+                "notification_publication_token",
+                self._notification_publication_token,
+            )
 
         self._write_environment_file(self._api_env_file, self._api_environment())
         compose_values = {
@@ -692,6 +772,15 @@ class IdentityModuleStack:
             "IDENTITY_MAIL_SMTP_PASSWORD": "",
             "IDENTITY_MAIL_SMTP_FROM": "noreply@example.test",
         }
+        if getattr(self, "_notification_publication_enabled", False):
+            compose_values.update(
+                {
+                    "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE": self._notifications_publisher_image,
+                    "NOTIFICATION_PUBLICATION_TOKEN_SECRET_FILE": str(
+                        self._secret_directory / "notification_publication_token"
+                    ),
+                }
+            )
         compose_values.update(
             _identity_optional_secret_selectors(
                 self._secret_directory, self._notifications_socket_enabled
@@ -751,6 +840,9 @@ class IdentityModuleStack:
             "IDENTITY_URL": "http://identity-admission:8170",
             "IDENTITY_TOKEN": self._control,
             "NOTIFICATION_SOCKET_URL": "",
+            "NOTIFICATION_PUBLICATION_URL": "",
+            "NOTIFICATION_PUBLICATION_TOKEN": "",
+            "NOTIFICATION_PUBLICATION_TOKEN_FILE": "",
             "ALEMBIC_AUTO_UPGRADE": "false",
             "E2E_SEED_ENABLED": "false",
             "AUDIT_ASYNC": "true",
@@ -771,6 +863,16 @@ class IdentityModuleStack:
         }
         if self._notifications_socket_enabled:
             values["NOTIFICATION_SOCKET_URL"] = "ws://notifications-socket:8180"
+        if getattr(self, "_notification_publication_enabled", False):
+            values.pop("NOTIFICATION_PUBLICATION_TOKEN")
+            values.update(
+                {
+                    "NOTIFICATION_PUBLICATION_URL": "http://identity-notification-publisher:8181",
+                    "NOTIFICATION_PUBLICATION_TOKEN_FILE": "/run/secrets/notification_publication_token",
+                    "REDIS_URL": self._notification_api_redis_url,
+                    "CELERY_BROKER_URL": self._notification_api_redis_url,
+                }
+            )
         for env_name, default in (
             ("MINIO_BUCKET", "annotations"),
             ("MINIO_DATASETS_BUCKET", "datasets"),
@@ -799,6 +901,45 @@ class IdentityModuleStack:
 
     def _write_override_file(self) -> None:
         api_env_file = json.dumps(str(self._api_env_file))
+        publisher_image = "${AAP_IDENTITY_RUNTIME_IMAGE:?}"
+        publisher_overrides = ""
+        publication_api_secret = ""
+        publication_dependency = ""
+        publication_secrets = ""
+        if getattr(self, "_notification_publication_enabled", False):
+            publisher_image = "${AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE:?}"
+            publisher_overrides = """
+    command: ["aap-notifications-publisher"]
+    user: "10004:10004"
+    environment:
+      NOTIFICATION_PUBLISH_API_TOKEN_FILE: /run/secrets/notification_publication_token
+      NOTIFICATION_PUBLISH_HOST: 0.0.0.0
+      NOTIFICATION_PUBLISH_PORT: "8181"
+    secrets: !override
+      - notification_publish_database_url
+      - notification_publish_redis_url
+      - notification_publication_token
+    healthcheck:
+      disable: false
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8181/health/ready', timeout=2)"]
+      interval: 1s
+      timeout: 3s
+      start_period: 3s
+      retries: 30
+"""
+            publication_api_secret = """
+    secrets:
+      - notification_publication_token
+"""
+            publication_dependency = """
+      identity-notification-publisher:
+        condition: service_healthy
+"""
+            publication_secrets = """
+secrets:
+  notification_publication_token:
+    file: ${NOTIFICATION_PUBLICATION_TOKEN_SECRET_FILE:?}
+"""
         socket_service = ""
         socket_dependency = ""
         if self._notifications_socket_enabled:
@@ -834,9 +975,10 @@ class IdentityModuleStack:
     build: !reset null
     labels: *identity-module-owner-labels
   identity-notification-publisher:
-    image: ${{AAP_IDENTITY_RUNTIME_IMAGE:?}}
+    image: {publisher_image}
     build: !reset null
     labels: *identity-module-owner-labels
+{publisher_overrides.rstrip()}
   identity-api:
     image: ${{AAP_IDENTITY_API_RUNTIME_IMAGE:?}}
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--timeout-graceful-shutdown", "3"]
@@ -847,6 +989,7 @@ class IdentityModuleStack:
       identity-admission:
         condition: service_healthy
 {socket_dependency.rstrip()}
+{publication_dependency.rstrip()}
     ports: !override
       - "127.0.0.1::8000"
     read_only: true
@@ -857,7 +1000,9 @@ class IdentityModuleStack:
     cpus: 1
     tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     labels: *identity-module-owner-labels
+{publication_api_secret.rstrip()}
 {socket_service.rstrip()}
+{publication_secrets.rstrip()}
 """,
             encoding="utf-8",
         )
@@ -1077,8 +1222,13 @@ class IdentityModuleStack:
         while time.monotonic() < deadline:
             containers = self._verify_project_ownership()
             details = containers.get("identity-notification-publisher")
-            if details and (details.get("State") or {}).get("Running") is True:
-                return
+            if details:
+                state = details.get("State") or {}
+                if state.get("Running") is True and (
+                    not getattr(self, "_notification_publication_enabled", False)
+                    or (state.get("Health") or {}).get("Status") == "healthy"
+                ):
+                    return
             await asyncio.sleep(0.2)
         self._write_log("identity-notification-publisher: did not remain running")
         raise RuntimeError(
@@ -1171,7 +1321,15 @@ class IdentityModuleStack:
         env: dict,
     ) -> None:
         expected_user = (
-            "10004:10004" if service == _NOTIFICATIONS_SOCKET_SERVICE else "10003:10003"
+            "10004:10004"
+            if (
+                service == _NOTIFICATIONS_SOCKET_SERVICE
+                or (
+                    service == "identity-notification-publisher"
+                    and getattr(self, "_notification_publication_enabled", False)
+                )
+            )
+            else "10003:10003"
         )
         if config.get("User") != expected_user:
             raise RuntimeError(f"{service} does not run as UID/GID {expected_user}")
@@ -1201,7 +1359,9 @@ class IdentityModuleStack:
             if str(mount.get("Destination", "")).startswith("/run/secrets/")
         }
         expected = _expected_secret_mount_names(
-            service, self._notifications_socket_enabled
+            service,
+            self._notifications_socket_enabled,
+            getattr(self, "_notification_publication_enabled", False),
         )
         if expected is None or targets != {f"/run/secrets/{name}" for name in expected}:
             raise RuntimeError(f"{service} secret mounts cross service boundaries")
@@ -1261,6 +1421,48 @@ class IdentityModuleStack:
             )
             if env.get("NOTIFICATION_SOCKET_URL", "") != expected_socket_origin:
                 raise RuntimeError("API runtime socket owner binding does not match")
+            expected_publication_origin = (
+                "http://identity-notification-publisher:8181"
+                if getattr(self, "_notification_publication_enabled", False)
+                else ""
+            )
+            expected_publication_token_file = (
+                "/run/secrets/notification_publication_token"
+                if getattr(self, "_notification_publication_enabled", False)
+                else ""
+            )
+            if (
+                env.get("NOTIFICATION_PUBLICATION_URL", "")
+                != expected_publication_origin
+                or env.get("NOTIFICATION_PUBLICATION_TOKEN", "")
+                or env.get("NOTIFICATION_PUBLICATION_TOKEN_FILE", "")
+                != expected_publication_token_file
+                or (
+                    getattr(self, "_notification_publication_enabled", False)
+                    and any(
+                        env.get(name) != self._notification_api_redis_url
+                        for name in ("REDIS_URL", "CELERY_BROKER_URL")
+                    )
+                )
+            ):
+                raise RuntimeError(
+                    "API publication binding crosses credential boundaries"
+                )
+        elif service == "identity-notification-publisher" and getattr(
+            self, "_notification_publication_enabled", False
+        ):
+            if (
+                env.get("NOTIFICATION_PUBLISH_API_TOKEN_FILE")
+                != "/run/secrets/notification_publication_token"
+                or env.get("NOTIFICATION_PUBLISH_HOST") != "0.0.0.0"
+                or env.get("NOTIFICATION_PUBLISH_PORT") != "8181"
+                or self._notification_publication_token in env.values()
+            ):
+                raise RuntimeError("Publisher API credential binding differs")
+            if any(bindings for bindings in (host.get("PortBindings") or {}).values()):
+                raise RuntimeError(
+                    "Notifications publisher must not publish a host port"
+                )
         elif service == _NOTIFICATIONS_SOCKET_SERVICE:
             expected_environment = {
                 "NOTIFICATION_SOCKET_DATABASE_URL_FILE": (

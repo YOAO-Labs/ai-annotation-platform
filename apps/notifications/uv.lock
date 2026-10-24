@@ -34,15 +34,22 @@ dependencies = [
 postgres = [
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
+publication-client = [
+    { name = "httpx" },
+]
 runtime = [
     { name = "asyncpg" },
     { name = "pydantic-settings" },
     { name = "redis" },
+    { name = "starlette" },
+    { name = "uvicorn" },
 ]
 test = [
+    { name = "httpx" },
     { name = "pydantic-settings" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "starlette" },
 ]
 websocket = [
     { name = "aap-identity-admission", extra = ["http"] },
@@ -60,6 +67,8 @@ requires-dist = [
     { name = "aap-owner-data", marker = "extra == 'websocket'", editable = "../_shared/owner_data" },
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
     { name = "asyncpg", marker = "extra == 'websocket'", specifier = ">=0.30.0" },
+    { name = "httpx", marker = "extra == 'publication-client'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.6.0" },
     { name = "pydantic-settings", marker = "extra == 'test'", specifier = ">=2.6.0" },
@@ -69,10 +78,13 @@ requires-dist = [
     { name = "redis", marker = "extra == 'runtime'", specifier = ">=5.2.0" },
     { name = "redis", marker = "extra == 'websocket'", specifier = ">=5.2.0" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'postgres'", specifier = ">=2.0.0" },
+    { name = "starlette", marker = "extra == 'runtime'", specifier = ">=1.0.0" },
+    { name = "starlette", marker = "extra == 'test'", specifier = ">=1.0.0" },
     { name = "starlette", marker = "extra == 'websocket'", specifier = ">=1.0.0" },
+    { name = "uvicorn", marker = "extra == 'runtime'", specifier = ">=0.46.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'websocket'", specifier = ">=0.46.0" },
 ]
-provides-extras = ["postgres", "runtime", "websocket", "test"]
+provides-extras = ["postgres", "runtime", "publication-client", "websocket", "test"]
 
 [[package]]
 name = "aap-owner-data"
