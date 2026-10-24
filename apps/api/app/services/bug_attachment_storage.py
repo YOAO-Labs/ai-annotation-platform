@@ -148,6 +148,7 @@ def validate_image(data, mime_type) -> None:
         ValueError,
         OSError,
         SyntaxError,
+        EOFError,
         UnidentifiedImageError,
         Image.DecompressionBombError,
         Image.DecompressionBombWarning,

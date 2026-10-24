@@ -533,6 +533,21 @@ def test_image_budget_rejects_before_put(storage, monkeypatch):
     storage.client.put_object.assert_not_called()
 
 
+def test_webp_frame_decode_eof_is_a_safe_invalid_image(monkeypatch):
+    image = Mock()
+    image.__enter__ = Mock(return_value=image)
+    image.__exit__ = Mock(return_value=False)
+    image.size = (8, 8)
+    image.format = "WEBP"
+    image.load.side_effect = EOFError("private decoder details")
+    monkeypatch.setattr(owners.Image, "open", Mock(return_value=image))
+    with pytest.raises(owners.BugAttachmentStorageError) as caught:
+        owners.validate_image(image_bytes("WEBP"), "image/webp")
+    assert caught.value.code == "bug_attachment_storage_invalid_image"
+    assert caught.value.status_code == 422
+    assert "private" not in str(caught.value)
+
+
 def test_image_size_budget_is_applied_before_decode(monkeypatch):
     monkeypatch.setattr(owners, "MAX_BYTES", len(RAW) - 1)
     opened = Mock()
