@@ -481,7 +481,19 @@ async def _cleanup_e2e_fixtures(
         plan = await attachments.prepare(db, scope)
         await attachments.delete_objects(db, plan, resolve)
         await db.commit()
-        await asyncio.to_thread(_cleanup_fixture_storage, owned, plan.annotation_ids)
+        legacy_cleanup = asyncio.create_task(
+            asyncio.to_thread(_cleanup_fixture_storage, owned, plan.annotation_ids)
+        )
+        try:
+            await asyncio.shield(legacy_cleanup)
+        except asyncio.CancelledError:
+            # These deterministic keys may be reused by the next seed request.
+            # Keep the fixture anchor until this physical deletion has settled.
+            try:
+                await finish(legacy_cleanup)
+            except BaseException:
+                pass
+            raise
         await attachments.finalize(db, plan, resolve)
         # The audit exemption belongs to this final transaction, not retirement.
         await _cleanup_fixture_records(db, owned, scope)

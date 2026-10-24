@@ -11,7 +11,7 @@ import uuid
 from botocore.exceptions import ClientError
 import httpx
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, inspect, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import _test_seed as seed, _test_seed_attachments as cleanup
@@ -239,7 +239,8 @@ async def clean(ctx, world):
 
 
 async def present(ctx, row):
-    current = await ctx.db.get(Upload, row.id, populate_existing=True)
+    # A failed ASGI request rolls back this session and expires even primary keys.
+    current = await ctx.db.get(Upload, inspect(row).identity[0], populate_existing=True)
     await ctx.db.commit()
     return current
 
@@ -305,6 +306,38 @@ async def test_uploader_in_another_scope_is_not_selected(context):
     assert context.objects.data[
         foreign.storage_ref["bucket"], foreign.storage_ref["object_key"]
     ]
+
+
+async def test_bound_foreign_comment_keeps_original_namespace_as_retry_anchor(context):
+    ctx = context
+    # The fixture teardown also cleans B before A when an assertion fails.
+    a, b = await build(ctx), await build(ctx)
+    own, _, own_comment = await upload(ctx, a)
+    foreign, attachment, foreign_comment = await upload(ctx, b, actor=a)
+    own_receipt, foreign_receipt = storage.snapshot(own), storage.snapshot(foreign)
+    foreign_ref = foreign_receipt.storage_ref
+
+    response = await clean(ctx, a)
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert detail["code"] == "e2e_seed_cleanup_incomplete"
+    assert detail["residuals"]["users"] > 0
+    retained = await present(ctx, own)
+    assert retained.state == "retired" and storage.same(retained, own_receipt)
+    assert await ctx.db.get(Project, uuid.UUID(a["project_id"])) is not None
+    assert await ctx.db.get(AnnotationComment, uuid.UUID(own_comment)) is not None
+    current = await present(ctx, foreign)
+    assert current.state == "ready" and storage.same(current, foreign_receipt)
+    original = await ctx.db.get(AnnotationComment, uuid.UUID(foreign_comment))
+    assert original.attachments == [attachment]
+    assert (
+        ctx.objects.data[foreign_ref["bucket"], foreign_ref["object_key"]]
+        == b"generic\x00bytes"
+    )
+    assert await ctx.db.get(Project, uuid.UUID(b["project_id"])) is not None
+
+    assert (await clean(ctx, b)).status_code == 200
+    assert (await clean(ctx, a)).status_code == 200
 
 
 @pytest.mark.parametrize("has_bytes", [False, True])
@@ -432,6 +465,7 @@ async def test_new_owner_during_network_rejects_final_scope_instead_of_escaping(
     ctx = context
     world = await build(ctx)
     row, _, _ = await upload(ctx, world)
+    receipt = storage.snapshot(row)
     real_storage_cleanup = seed._cleanup_fixture_storage
 
     async def inject():
@@ -439,10 +473,10 @@ async def test_new_owner_during_network_rejects_final_scope_instead_of_escaping(
         async with async_sessionmaker(ctx.engine, expire_on_commit=False)() as other:
             new = Upload(
                 id=uuid.uuid4(),
-                owner_id=row.owner_id,
-                annotation_id=row.annotation_id,
-                task_id=row.task_id,
-                project_id=row.project_id,
+                owner_id=receipt.owner_id,
+                annotation_id=receipt.annotation_id,
+                task_id=receipt.task_id,
+                project_id=receipt.project_id,
                 sha256=hashlib.sha256(b"").hexdigest(),
                 size_bytes=0,
                 mime_type="application/octet-stream",
@@ -452,20 +486,25 @@ async def test_new_owner_during_network_rejects_final_scope_instead_of_escaping(
                 expires_at=created + timedelta(days=90),
             )
             new.storage_ref = {
-                **row.storage_ref,
+                **receipt.storage_ref,
                 "object_key": storage.key_for(new.annotation_id, new.id),
             }
             other.add(new)
             await other.commit()
 
     loop = asyncio.get_running_loop()
+    injected = False
 
     def storage_cleanup(*args):
+        nonlocal injected
         real_storage_cleanup(*args)
-        asyncio.run_coroutine_threadsafe(inject(), loop).result(timeout=10)
+        if not injected:
+            injected = True
+            asyncio.run_coroutine_threadsafe(inject(), loop).result(timeout=10)
 
-    monkeypatch.setattr(seed, "_cleanup_fixture_storage", storage_cleanup)
-    response = await clean(ctx, world)
+    with monkeypatch.context() as patch:
+        patch.setattr(seed, "_cleanup_fixture_storage", storage_cleanup)
+        response = await clean(ctx, world)
     assert response.status_code == 409
     assert (await present(ctx, row)).state == "retired"
     assert await ctx.db.get(Project, uuid.UUID(world["project_id"])) is not None
@@ -495,9 +534,8 @@ async def test_maintenance_refusal_preserves_retired_owner_and_fixture(context):
     ctx = context
     world = await build(ctx)
     row, _, _ = await upload(ctx, world)
-    gate = await ctx.db.get(
-        StorageMaintenanceGate, uuid.UUID(row.storage_ref["location_id"])
-    )
+    location_id = uuid.UUID(row.storage_ref["location_id"])
+    gate = await ctx.db.get(StorageMaintenanceGate, location_id)
     gate.state, gate.revision = "stopped", gate.revision + 1
     await ctx.db.commit()
     try:
@@ -507,9 +545,7 @@ async def test_maintenance_refusal_preserves_retired_owner_and_fixture(context):
         assert await ctx.db.get(Project, uuid.UUID(world["project_id"])) is not None
     finally:
         await ctx.db.rollback()
-        gate = await ctx.db.get(
-            StorageMaintenanceGate, uuid.UUID(row.storage_ref["location_id"])
-        )
+        gate = await ctx.db.get(StorageMaintenanceGate, location_id)
         gate.state, gate.revision = "active", gate.revision + 1
         await ctx.db.commit()
     assert (await clean(ctx, world)).status_code == 200
@@ -572,12 +608,84 @@ async def test_network_and_rebuild_never_hold_cleanup_business_locks(
     assert probes
 
 
+async def test_repeated_cancellation_drains_legacy_delete_before_retry_reuses_keys(
+    context, monkeypatch
+):
+    ctx = context
+    world = await build(ctx)
+    row, _, comment_id = await upload(ctx, world)
+    receipt = storage.snapshot(row)
+    project_id, comment_id = uuid.UUID(world["project_id"]), uuid.UUID(comment_id)
+    prefix = seed._parse_owned_namespace(world["namespace"]).image_key_prefix
+    media = {
+        (ctx.objects.datasets_bucket, f"{prefix}task-{index}.svg"): ctx.objects.data[
+            ctx.objects.datasets_bucket, f"{prefix}task-{index}.svg"
+        ]
+        for index in range(1, 6)
+    }
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+    real_delete = ctx.objects.delete_objects
+
+    def blocked_delete(*, Bucket, Delete):  # noqa: N803
+        blocked = Bucket == ctx.objects.datasets_bucket and any(
+            (Bucket, item["Key"]) in media for item in Delete["Objects"]
+        )
+        if blocked:
+            started.set()
+            assert release.wait(10)
+        try:
+            return real_delete(Bucket=Bucket, Delete=Delete)
+        finally:
+            if blocked:
+                finished.set()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(ctx.objects, "delete_objects", blocked_delete)
+        task = asyncio.create_task(clean(ctx, world))
+        try:
+            assert await asyncio.to_thread(started.wait, 10)
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            # A bare to_thread await returns cancellation while this delete is
+            # still blocked. Waiting also lets its real rollback finish.
+            _, pending = await asyncio.wait({task}, timeout=1)
+            assert task in pending and not finished.is_set()
+            async with async_sessionmaker(ctx.engine)() as observer:
+                assert await observer.get(Project, project_id) is not None
+                assert await observer.get(AnnotationComment, comment_id) is not None
+                retained = await observer.get(Upload, receipt.id)
+                assert retained.state == "retired" and storage.same(retained, receipt)
+            assert all(ctx.objects.data[key] == raw for key, raw in media.items())
+        finally:
+            release.set()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert finished.is_set()
+
+    # Reusing deterministic keys is safe only after the old physical delete
+    # completed; cancellation retained both the owner and original fixture.
+    assert (await present(ctx, row)).state == "retired"
+    assert (await clean(ctx, world)).status_code == 200
+    rebuilt = await ctx.http.post(
+        "/api/v1/__test/seed/owned", json={"namespace": world["namespace"]}
+    )
+    assert rebuilt.status_code == 200, rebuilt.text
+    deleted = list(ctx.objects.deleted)
+    await asyncio.sleep(0)
+    assert ctx.objects.deleted == deleted
+    assert all(ctx.objects.data[key] == raw for key, raw in media.items())
+
+
 async def test_real_open_body_and_unknown_close_keep_durable_read_responsibility(
     context,
 ):
     ctx = context
     world = await build(ctx)
     row, _, _ = await upload(ctx, world)
+    receipt = storage.snapshot(row)
+    location_id = uuid.UUID(receipt.storage_ref["location_id"])
     opened, release = threading.Event(), threading.Event()
 
     class Body(io.BytesIO):
@@ -590,15 +698,15 @@ async def test_real_open_body_and_unknown_close_keep_durable_read_responsibility
             raise OSError("unknown physical close")
 
     ctx.objects.body_factory = Body
-    purpose = uploads.read_purpose(row.id)
+    purpose = uploads.read_purpose(receipt.id)
     task = asyncio.create_task(
         storage_access.run(
             ctx.db,
-            uuid.UUID(row.storage_ref["location_id"]),
+            location_id,
             purpose,
             storage.read,
             ctx.objects.client,
-            storage.snapshot(row),
+            receipt,
         )
     )
     try:
@@ -620,8 +728,7 @@ async def test_real_open_body_and_unknown_close_keep_durable_read_responsibility
             identifiers = list(
                 await connection.scalars(
                     select(StorageOperation.id).where(
-                        StorageOperation.location_id
-                        == uuid.UUID(row.storage_ref["location_id"]),
+                        StorageOperation.location_id == location_id,
                         StorageOperation.purpose == purpose,
                     )
                 )
