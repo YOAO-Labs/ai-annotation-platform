@@ -283,7 +283,7 @@ async def test_restricted_api_and_node_consume_jobs_list_capabilities(
                 str(world["project_job_id"]),
                 str(world["global_job_id"]),
             }
-            token = create_access_token(world["actor_id"], "employee")
+            token = create_access_token(str(world["actor_id"]), "employee")
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
