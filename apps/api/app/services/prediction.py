@@ -491,13 +491,30 @@ class PredictionService:
         native_reference_receipt=None,
         repair_reference_receipt=None,
         background_native_reference_receipt=None,
+        original_receipt=None,
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
         from app.services.reference_access import reject_reference_scope
 
         reference_evidence = None
+        original_evidence = None
         native_qualification = None
-        if background_native_reference_receipt is not None:
+        if original_receipt is not None:
+            from app.services.prediction_originals import validate_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                reference_receipt is not None
+                or native_reference_receipt is not None
+                or repair_reference_receipt is not None
+                or background_native_reference_receipt is not None
+                or source != "ml_backend"
+            ):
+                raise ContentError("prediction_original_receipt_invalid")
+            original_evidence = await validate_receipt(
+                self.db, task_id, project_id, original_receipt
+            )
+        elif background_native_reference_receipt is not None:
             from app.services.reference_native_predictions import validate_receipt
             from app.services.content_snapshot import ContentError
 
@@ -640,6 +657,7 @@ class PredictionService:
                         "reference_input",
                         "reference_execution",
                         "reference_native",
+                        "original_input",
                     }
                 },
                 **(
@@ -647,6 +665,7 @@ class PredictionService:
                     if reference_evidence
                     else {}
                 ),
+                **({"original_input": original_evidence} if original_evidence else {}),
                 **({"trained_model": model_provenance} if model_provenance else {}),
                 **(
                     {"inference_runtime": meta_data["inference_runtime"]}

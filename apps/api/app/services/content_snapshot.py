@@ -325,25 +325,33 @@ async def adopt_stage(stage, *, inspect_quality=False):
         raise
     try:
         return await asyncio.wait_for(asyncio.shield(pending), WAIT_SECONDS)
-    except (TimeoutError, asyncio.CancelledError) as exc:
+    except BaseException as exc:
         stop.set()
-        cancelled = isinstance(exc, asyncio.CancelledError)
         while not pending.done():
             try:
                 await asyncio.shield(pending)
-            except asyncio.CancelledError:
-                cancelled = True
             except BaseException:
-                break
+                continue
         unsettled = False
         try:
-            pending.result().close()
+            result = pending.result()
         except BaseException as late:
             unsettled = getattr(late, "storage_operation_unsettled", False)
+        else:
+            try:
+                closing = asyncio.get_running_loop().run_in_executor(None, result.close)
+                while not closing.done():
+                    try:
+                        await asyncio.shield(closing)
+                    except BaseException:
+                        continue
+                closing.result()
+            except BaseException:
+                unsettled = True
         error = (
-            asyncio.CancelledError()
-            if cancelled
-            else ContentError("content_read_timeout", 504)
+            ContentError("content_read_timeout", 504)
+            if isinstance(exc, TimeoutError)
+            else exc
         )
         if unsettled:
             error.storage_operation_unsettled = True

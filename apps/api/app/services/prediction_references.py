@@ -7,6 +7,7 @@ import json
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
@@ -14,6 +15,11 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.content_snapshot import ContentError
+from app.services import (
+    prediction_originals as originals,
+    prediction_inputs,
+    storage_access,
+)
 from app.services.dataset_content import key_authority
 from app.services.dataset_references import reference_context, reference_snapshot
 from app.services.prediction_execution import load_snapshot, validate_task_scope
@@ -27,6 +33,9 @@ from app.services.reference_bindings import (
 )
 from app.services.reference_keys import is_reference, PREFIX
 from app.services.task_scope import ids_clause
+
+MAX_TASKS = originals.MAX_TASKS
+MAX_PROOF_BYTES = originals.MAX_PROOF_BYTES
 
 
 def selection_query(project_id, *, task_ids=None, batch_id=None, scope="bulk"):
@@ -68,8 +77,16 @@ async def capture_authority(
         raise ContentError("reference_requires_image_project")
     if execution_unit not in {None, "image"}:
         raise ContentError("reference_requires_image_execution")
+    if len(tasks) > originals.MAX_TASKS:
+        raise ContentError("prediction_task_budget_exceeded", 413)
+    if len({task.id for task in tasks}) != len(tasks):
+        raise ContentError("prediction_scope_changed")
+    credentials = await originals.capture_credentials(db, actor, request)
     key_id = getattr(request.state, "api_key_id", None)
-    key_proof = await key_authority(db, actor, key_id, "tasks:read")
+    has_references = any(is_reference(task.file_path) for task in tasks)
+    key_proof = (
+        await key_authority(db, actor, key_id, "tasks:read") if has_references else None
+    )
     bindings = []
     for task in tasks:
         await validate_task_scope(db, project, task, actor, scope)
@@ -78,22 +95,30 @@ async def capture_authority(
             if task.file_type != "image":
                 raise ContentError("reference_requires_image_task")
             binding["reference"] = await reference_binding(db, task)
+        else:
+            binding["original"] = await managed_binding(db, task, lock=True)
         bindings.append(binding)
-    return {
-        "schema": 1,
-        "job_kind": job_kind,
-        "actor_id": str(actor.id),
-        "project_id": str(project.id),
-        "batch_id": str(batch_id) if batch_id else None,
-        "execution_scope": scope,
-        "predict_mode": predict_mode,
-        "execution_unit": execution_unit,
-        "api_key_id": str(key_id) if key_id else None,
-        "key_proof": key_proof,
-        "snapshot_id": str(snapshot.id),
-        "snapshot_digest": snapshot.digest,
-        "tasks": bindings,
-    }
+    return originals.bounded_proof(
+        {
+            "schema": 2,
+            "job_kind": job_kind,
+            "actor_id": str(actor.id),
+            "project_id": str(project.id),
+            "batch_id": str(batch_id) if batch_id else None,
+            "execution_scope": scope,
+            "predict_mode": predict_mode,
+            "execution_unit": execution_unit,
+            "api_key_id": str(key_id) if key_id else None,
+            "key_proof": key_proof,
+            "credentials": credentials,
+            "snapshot_id": str(snapshot.id),
+            "snapshot_digest": snapshot.digest,
+            "tasks": bindings,
+        }
+    )
+
+
+managed_binding = originals.managed_binding
 
 
 _ISSUER = object()
@@ -160,11 +185,17 @@ class ReferencePredictionJob:
         )
         self.project_id, self.actor_id, self.scope = project_id, actor_id, scope
         self.job_kind = job_kind
-        self.bindings = {
-            uuid.UUID(row["task_id"]): normalize_binding(row) for row in proof["tasks"]
-        }
+        try:
+            originals.bounded_proof(proof)
+            self.bindings = {
+                uuid.UUID(row["task_id"]): normalize_binding(row)
+                for row in proof["tasks"]
+            }
+        except (TypeError, KeyError, ValueError, AttributeError):
+            raise ContentError("prediction_scope_changed") from None
         if (
-            proof.get("schema") != 1
+            type(proof.get("schema")) is not int
+            or proof.get("schema") not in {1, 2}
             or job_kind not in {"batch_predict", "prediction_retry"}
             or proof.get("job_kind", "batch_predict") != job_kind
             or not actor_id
@@ -179,16 +210,39 @@ class ReferencePredictionJob:
             or task_ids is None
             or set(self.bindings) != set(task_ids)
             or len(self.bindings) != len(proof["tasks"])
+            or len(self.bindings) > originals.MAX_TASKS
+            or any(
+                ("reference" in row) == ("original" in row)
+                or (proof["schema"] == 1 and "reference" not in row)
+                for row in self.bindings.values()
+            )
             or not node_id
         ):
             raise ContentError("prediction_scope_changed")
+        if proof["schema"] == 2:
+            originals.validate_credentials(
+                proof.get("credentials"), actor_id, proof.get("api_key_id")
+            )
         self.contexts = {}
         self.deliveries = {}
+        self.sources = {}
 
-    async def authorize(self):
-        job = await self.db.get(AsyncJob, self.job_id, populate_existing=True)
-        actor = await self.db.get(User, self.actor_id, populate_existing=True)
-        project = await self.db.get(Project, self.project_id, populate_existing=True)
+    async def authorize(self, db=None):
+        db = db if db is not None else self.db
+        job = await db.get(AsyncJob, self.job_id, populate_existing=True)
+        actor = (
+            await originals.reauthorize(
+                db,
+                self.proof["credentials"],
+                self.actor_id,
+                uuid.UUID(self.proof["api_key_id"])
+                if self.proof["api_key_id"]
+                else None,
+            )
+            if self.proof["schema"] == 2
+            else await db.get(User, self.actor_id, populate_existing=True)
+        )
+        project = await db.get(Project, self.project_id, populate_existing=True)
         if (
             job is None
             or job.kind != self.job_kind
@@ -197,33 +251,39 @@ class ReferencePredictionJob:
             or job.status != "running"
             or (job.payload or {}).get("cancel_requested")
             or str(job.execution_snapshot_id) != self.proof["snapshot_id"]
+            or (
+                self.proof["schema"] == 2
+                and (job.payload or {}).get("prediction_authority") != self.proof
+            )
             or actor is None
             or not actor.is_active
             or project is None
             or project.data_type != "image"
         ):
             raise ContentError("prediction_authority_revoked", 403)
-        access = await resolve_project_access(self.db, user=actor, project=project)
+        access = await resolve_project_access(db, user=actor, project=project)
         if not (
             access.has("annotation.write")
             if self.scope == "workbench"
             else access.is_manager
         ):
             raise ContentError("prediction_authority_revoked", 403)
-        if (
-            await key_authority(self.db, actor, self.proof["api_key_id"], "tasks:read")
+        if any("reference" in row for row in self.bindings.values()) and (
+            await key_authority(db, actor, self.proof["api_key_id"], "tasks:read")
             != self.proof["key_proof"]
         ):
             raise ContentError("api_key_authority_revoked", 403)
         return project, actor
 
     async def _authorize_task(self, db, task, actor):
-        project, fresh_actor = await self.authorize()
+        project, fresh_actor = await self.authorize(db)
+        if self.is_managed(task.id):
+            task = await originals.locked_task(db, task.id)
         binding = self.bindings.get(task.id)
         if is_reference(task.file_path) and task.file_type != "image":
             raise ContentError("reference_requires_image_task")
         if binding is None or task_binding(task) != {
-            k: v for k, v in binding.items() if k != "reference"
+            k: v for k, v in binding.items() if k not in {"reference", "original"}
         }:
             raise ContentError("prediction_scope_changed")
         await validate_task_scope(db, project, task, fresh_actor, self.scope)
@@ -231,8 +291,39 @@ class ReferencePredictionJob:
             db, task
         ) != binding.get("reference"):
             raise ContentError("content_binding_changed")
+        if not is_reference(task.file_path) and (
+            "original" not in binding
+            or await managed_binding(db, task, lock=True) != binding["original"]
+        ):
+            raise ContentError("content_binding_changed")
+
+    def is_managed(self, task_id):
+        return "original" in self.bindings.get(task_id, {})
+
+    def failure_binding(self, task_id):
+        binding = self.bindings.get(task_id)
+        if binding is None:
+            raise ContentError("prediction_scope_changed")
+        return deepcopy(binding)
+
+    async def _managed_guard(self, db, task_id):
+        task = await db.get(Task, task_id, populate_existing=True)
+        if task is None:
+            raise ContentError("prediction_scope_changed")
+        await self._authorize_task(db, task, None)
+
+    async def _fresh_managed(self, task_id):
+        async with AsyncSession(
+            bind=storage_access.engine(self.db),
+            expire_on_commit=False,
+            autoflush=False,
+        ) as owned:
+            await self._managed_guard(owned, task_id)
 
     async def validate(self, task):
+        if self.is_managed(task.id):
+            await self._fresh_managed(task.id)
+            return
         _, actor = await self.authorize()
         await self._authorize_task(self.db, task, actor)
         if not is_reference(task.file_path):
@@ -250,9 +341,13 @@ class ReferencePredictionJob:
         self.contexts[task.id] = context
 
     async def open_inputs(self, task, factory):
+        if task.id in self.deliveries or task.id in self.sources:
+            raise ContentError("prediction_input_already_open")
+        if self.is_managed(task.id):
+            return await self._open_managed(task, factory)
         await self.validate(task)
         if not is_reference(task.file_path):
-            return None
+            raise ContentError("prediction_original_requires_new_request")
         _, actor = await self.authorize()
         ref = self.bindings[task.id]["reference"]
         snapshot = await reference_snapshot(
@@ -290,7 +385,58 @@ class ReferencePredictionJob:
                 await inputs.close()
             raise
 
+    async def _open_managed(self, task, factory):
+        binding = self.bindings[task.id]
+
+        async def guard(db):
+            await self._managed_guard(db, task.id)
+
+        inputs = source = None
+        try:
+            await self._fresh_managed(task.id)
+            inputs = await originals.settled(
+                PredictionInputs.create(
+                    factory,
+                    owner_id=self.job_id,
+                    owner_kind=self.job_kind,
+                    task_id=task.id,
+                    guard=guard,
+                    source_ref=binding,
+                ),
+                late=lambda value: value.close(),
+            )
+            source = await originals.settled(
+                originals.open_snapshot(
+                    self.db,
+                    task.id,
+                    binding["original"],
+                    guard=guard,
+                    purpose="prediction_input_" + inputs.record.id.hex,
+                    node_id=self.node_id,
+                ),
+                late=lambda value: value.close(),
+            )
+            url = await inputs.upload_snapshot(source.snapshot)
+            await inputs.check_live()
+            await self._fresh_managed(task.id)
+            self.sources[task.id] = source
+            self.deliveries[task.id] = (inputs, url)
+            return inputs
+        except BaseException as failure:
+            try:
+                if inputs is not None:
+                    await originals.settled(inputs.close())
+            except BaseException as closing:
+                originals._uncertain(failure, closing)
+                raise
+            finally:
+                if source is not None:
+                    await originals.settled(source.close(failure))
+            raise
+
     def resolve_url(self, task):
+        if self.proof["schema"] == 2:
+            originals.check_clock(self.proof["credentials"])
         delivery = self.deliveries.get(task.id)
         if (
             delivery is None
@@ -303,15 +449,25 @@ class ReferencePredictionJob:
         return delivery[1]
 
     async def before_dispatch(self, task):
-        if is_reference(task.file_path):
-            self.resolve_url(task)
+        self.resolve_url(task)
+        if task.id in self.deliveries:
+            await self.deliveries[task.id][0].check_live()
         await self.validate(task)
 
     async def close_inputs(self, task_id):
         delivery = self.deliveries.pop(task_id, None)
+        source = self.sources.pop(task_id, None)
         self.contexts.pop(task_id, None)
-        if delivery is not None:
-            await delivery[0].close()
+        failure = None
+        try:
+            if delivery is not None:
+                await originals.settled(delivery[0].close())
+        except BaseException as exc:
+            failure = exc
+            raise
+        finally:
+            if source is not None:
+                await originals.settled(source.close(failure))
 
     async def lock_key(self):
         key_id = self.proof["api_key_id"]
@@ -323,6 +479,8 @@ class ReferencePredictionJob:
             )
 
     async def qualify_native_results(self, task, anchor, writes):
+        if self.is_managed(task.id):
+            return [None] * len(writes)
         from app.services.reference_native_predictions import qualify_results
 
         return await qualify_results(self, task, anchor, writes)
@@ -333,6 +491,25 @@ class ReferencePredictionJob:
             raise ContentError("prediction_reference_receipt_invalid")
         await self.lock_key()
         binding = self.bindings[task.id]
+        if self.is_managed(task.id):
+            await self._managed_guard(self.db, task.id)
+            _, digest = await load_snapshot(
+                self.db, self.proof["snapshot_id"], self.project_id
+            )
+            if digest != self.proof["snapshot_digest"]:
+                raise ContentError("prediction_scope_changed")
+            self.resolve_url(task)
+            await prediction_inputs.check_metadata(self.db, self.deliveries[task.id][0])
+            evidence = {
+                **deepcopy(binding),
+                "schema": 1,
+                "job_id": str(self.job_id),
+                "actor_id": str(self.actor_id),
+                "node_id": self.node_id,
+                "execution_snapshot_id": self.proof["snapshot_id"],
+                "execution_digest": digest,
+            }
+            return originals.issue_receipt(self.db, task.id, binding, evidence)
         await lock_reference_bindings(self.db, [binding], self.node_id)
         await self.validate(task)
         _, digest = await load_snapshot(
