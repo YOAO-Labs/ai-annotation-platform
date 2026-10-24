@@ -62,8 +62,13 @@ async def test_tracker_delivery_fixture_checks_cancellation_type(
     delivery = SimpleNamespace(state=state, get=lambda **_kwargs: result)
     sender = SimpleNamespace(AsyncResult=lambda _execution_id: delivery)
     ack = AsyncMock(return_value={"acknowledged": True})
+    failure_ack = AsyncMock(return_value={"acknowledged": True, "state": "FAILURE"})
     monkeypatch.setattr(
         "tests.test_workspace_worker_assembly_live._wait_broker_ack", ack
+    )
+    monkeypatch.setattr(
+        "tests.test_workspace_export_worker_live._wait_failure_delivery_ack",
+        failure_ack,
     )
     worker = object()
     if accepted:
@@ -72,10 +77,13 @@ async def test_tracker_delivery_fixture_checks_cancellation_type(
         )
         assert observed["state"] == state
         assert observed["result_type"] == type(result).__name__
-        ack.assert_awaited_once_with(sender, worker, "execution-id")
+        selected, other = (failure_ack, ack) if cancelled else (ack, failure_ack)
+        selected.assert_awaited_once_with(sender, worker, "execution-id")
+        other.assert_not_awaited()
     else:
         with pytest.raises(AssertionError):
             await _wait_task_delivery(
                 sender, worker, "execution-id", cancelled=cancelled
             )
         ack.assert_not_awaited()
+        failure_ack.assert_not_awaited()

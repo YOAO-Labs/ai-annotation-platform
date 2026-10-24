@@ -364,9 +364,14 @@ async def _wait_task_delivery(
         from app.services.video_tracking.execution import TrackerExecutionCancelled
 
         assert type(result) is TrackerExecutionCancelled, repr(result)
-    from tests.test_workspace_worker_assembly_live import _wait_broker_ack
+    if cancelled:
+        from tests.test_workspace_export_worker_live import _wait_failure_delivery_ack
 
-    ack = await _wait_broker_ack(sender, worker, execution_id)
+        ack = await _wait_failure_delivery_ack(sender, worker, execution_id)
+    else:
+        from tests.test_workspace_worker_assembly_live import _wait_broker_ack
+
+        ack = await _wait_broker_ack(sender, worker, execution_id)
     return {
         "task_id": execution_id,
         "state": delivery.state,
