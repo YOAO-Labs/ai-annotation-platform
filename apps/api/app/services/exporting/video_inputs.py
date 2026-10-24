@@ -2,10 +2,10 @@
 
 from copy import deepcopy
 from dataclasses import dataclass
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 import uuid
 
-from sqlalchemy import bindparam, cast, select
+from sqlalchemy import Text, and_, bindparam, cast, func, literal, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 
@@ -46,6 +46,17 @@ _PROJECT_FIELDS = (
     *image_inputs._PROJECT_FIELDS,
     "video_sampling",
     "video_collaboration",
+)
+_QUALITY_FIELDS = (
+    "id",
+    "task_id",
+    "left_segment_id",
+    "right_segment_id",
+    "created_at",
+    "status",
+    "input_digest",
+    "sampling_digest",
+    "pairs",
 )
 
 
@@ -234,19 +245,81 @@ def _mask_budget(annotations, predictions):
     return total
 
 
+async def _quality_rows(db, predicate, *, budget, lock=False):
+    """Guard only consumed Run facts, retaining the same SQL snapshot at hydration."""
+    if lock:
+        identities = list(
+            await db.scalars(
+                select(VideoTrackQualityRun.id)
+                .where(predicate)
+                .order_by(VideoTrackQualityRun.id)
+                .limit(MAX_QUALITY_RUNS + 1)
+                .with_for_update(read=True, nowait=True)
+            )
+        )
+        if len(identities) > MAX_QUALITY_RUNS:
+            reject("video_export_input_budget_exceeded", 422)
+    frames = func.coalesce(
+        VideoTrackQualityRun.metrics["sampling_frames"], literal([], type_=JSONB)
+    )
+    projection = (
+        select(
+            *(getattr(VideoTrackQualityRun, name) for name in _QUALITY_FIELDS),
+            frames.label("sampling_frames"),
+            func.jsonb_typeof(VideoTrackQualityRun.metrics).label("metrics_type"),
+        )
+        .where(predicate)
+        .subquery("video_export_quality_projection")
+    )
+    encoded = cast(func.to_jsonb(projection.table_valued()), Text)
+    measure = select(
+        func.count().label("count"),
+        func.coalesce(func.sum(func.octet_length(encoded)), 0).label("size"),
+    ).select_from(projection)
+    prior_size = budget.read_bytes
+    remaining = MAX_JSON_BYTES - prior_size - budget.media_bytes
+    count, size = (await db.execute(measure)).one()
+    if count > MAX_QUALITY_RUNS or size > remaining:
+        reject("video_export_input_budget_exceeded", 422)
+    aggregate = measure.correlate(None).cte("video_export_quality_budget")
+    # A concurrent update after measure cannot send a large sampling array or
+    # pair list to Python: both this guard and the projection use one MVCC view.
+    query = (
+        select(projection, aggregate.c.count, aggregate.c.size)
+        .select_from(aggregate)
+        .outerjoin(
+            projection,
+            and_(
+                aggregate.c.count <= MAX_QUALITY_RUNS,
+                aggregate.c.size <= remaining,
+            ),
+        )
+        .order_by(projection.c.created_at.desc(), projection.c.id.desc())
+    )
+    result = list((await db.execute(query)).mappings())
+    actual_count, actual_size = result[0]["count"], result[0]["size"]
+    budget.read_bytes = prior_size + int(actual_size)
+    if actual_count > MAX_QUALITY_RUNS or actual_size > remaining:
+        reject("video_export_input_budget_exceeded", 422)
+    rows = []
+    for facts in result:
+        if facts["id"] is None:
+            continue
+        if facts["metrics_type"] != "object":
+            reject("video_export_quality_invalid", 422)
+        rows.append(
+            SimpleNamespace(
+                **{name: facts[name] for name in _QUALITY_FIELDS},
+                metrics={"sampling_frames": facts["sampling_frames"]},
+            )
+        )
+    if len(rows) != count or len(rows) != actual_count:
+        reject()
+    return rows
+
+
 def _quality_facts(rows):
     result, pairs, samples = [], 0, 0
-    names = (
-        "id",
-        "task_id",
-        "left_segment_id",
-        "right_segment_id",
-        "created_at",
-        "status",
-        "input_digest",
-        "sampling_digest",
-        "pairs",
-    )
     for row in rows:
         if not isinstance(row.metrics, dict):
             reject("video_export_quality_invalid", 422)
@@ -265,7 +338,7 @@ def _quality_facts(rows):
             reject("video_export_input_budget_exceeded", 422)
         result.append(
             {
-                **lidar_inputs.row_value(row, fields=names),
+                **lidar_inputs.row_value(row, fields=_QUALITY_FIELDS),
                 "metrics": {"sampling_frames": deepcopy(frames)},
             }
         )
@@ -451,17 +524,11 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
         key=lambda row: (row.created_at, row.id),
     )
     runs = (
-        await _rows(
+        await _quality_rows(
             db,
-            VideoTrackQualityRun,
             ids_clause(VideoTrackQualityRun.task_id, identities),
             budget=budget,
-            max_rows=MAX_QUALITY_RUNS,
             lock=lock,
-            order=[
-                VideoTrackQualityRun.created_at.desc(),
-                VideoTrackQualityRun.id.desc(),
-            ],
         )
         if identities
         else []

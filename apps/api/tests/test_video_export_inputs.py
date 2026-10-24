@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import uuid
 
 import pytest
-from sqlalchemy import select, text, update
+from sqlalchemy import Text, cast, func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -413,3 +413,160 @@ async def test_database_restore_is_locked_and_raw_filtered_class_affects_freshne
     await db.commit()
     with pytest.raises(VideoBoundaryUnreconciledError):
         await inputs.collect(db, project_id, None, ["video_json"], {})
+
+
+async def test_quality_projection_ignores_large_unused_history(video_db, monkeypatch):
+    db = video_db
+    _, _, _, _, task, _ = await setup(db, collaboration=True)
+    identifier = task.id
+    run = await db.scalar(select(VideoTrackQualityRun))
+    run.input_snapshot = [{"unused_history": "x" * 65536}]
+    run.metrics = {"sampling_frames": [3, 6], "unused_history": "y" * 65536}
+    await db.commit()
+    stored_size = await db.scalar(
+        select(
+            func.octet_length(
+                cast(func.to_jsonb(VideoTrackQualityRun.__table__.table_valued()), Text)
+            )
+        ).where(VideoTrackQualityRun.id == run.id)
+    )
+    assert stored_size > 65536
+    db.expunge_all()
+    monkeypatch.setattr(inputs, "MAX_JSON_BYTES", 2048)
+    budget = inputs._Budget()
+    rows = await inputs._quality_rows(
+        db, VideoTrackQualityRun.task_id == identifier, budget=budget, lock=True
+    )
+    assert 0 < budget.read_bytes < 2048
+    assert len(rows) == 1 and not isinstance(rows[0], VideoTrackQualityRun)
+    assert not hasattr(rows[0], "input_snapshot")
+    assert rows[0].metrics == {"sampling_frames": [3, 6]}
+    facts = inputs._quality_facts(rows)
+    assert facts[0]["metrics"] == {"sampling_frames": [3, 6]}
+    assert "unused_history" not in str(facts)
+
+
+@pytest.mark.parametrize("metrics", [[], None, "history", 1])
+async def test_quality_projection_rejects_nonobject_metrics(video_db, metrics):
+    db = video_db
+    _, _, _, _, task, _ = await setup(db, collaboration=True)
+    await db.execute(update(VideoTrackQualityRun).values(metrics=metrics))
+    await db.commit()
+    with pytest.raises(ContentError, match="video_export_quality_invalid"):
+        await inputs._quality_rows(
+            db, VideoTrackQualityRun.task_id == task.id, budget=inputs._Budget()
+        )
+
+
+@pytest.mark.parametrize("frames", [None, True, [False], [-1], [1_000_000]])
+async def test_quality_projection_preserves_sampling_validation(video_db, frames):
+    db = video_db
+    _, _, _, _, task, _ = await setup(db, collaboration=True)
+    await db.execute(
+        update(VideoTrackQualityRun).values(metrics={"sampling_frames": frames})
+    )
+    await db.commit()
+    rows = await inputs._quality_rows(
+        db, VideoTrackQualityRun.task_id == task.id, budget=inputs._Budget()
+    )
+    with pytest.raises(ContentError, match="video_export_quality_invalid"):
+        inputs._quality_facts(rows)
+
+
+@pytest.mark.parametrize("maximum", ["MAX_QUALITY_PAIRS", "MAX_QUALITY_SAMPLE_FRAMES"])
+async def test_quality_projection_preserves_aggregate_fact_limits(
+    video_db, monkeypatch, maximum
+):
+    db = video_db
+    _, _, _, _, task, _ = await setup(db, collaboration=True)
+    rows = await inputs._quality_rows(
+        db, VideoTrackQualityRun.task_id == task.id, budget=inputs._Budget()
+    )
+    monkeypatch.setattr(inputs, maximum, 0)
+    with pytest.raises(ContentError, match="video_export_input_budget_exceeded"):
+        inputs._quality_facts(rows)
+
+
+async def test_quality_projection_same_statement_guard_blocks_enlarged_facts(
+    video_db, monkeypatch
+):
+    db = video_db
+    _, _, _, _, task, _ = await setup(db, collaboration=True)
+    identifier = task.id
+    run_id = await db.scalar(select(VideoTrackQualityRun.id))
+    await db.commit()
+    monkeypatch.setattr(inputs, "MAX_JSON_BYTES", 2048)
+    original_execute = db.execute
+    queries, hydrated = [], []
+    async with async_sessionmaker(db.bind, expire_on_commit=False)() as other:
+
+        async def execute(statement, *args, **kwargs):
+            result = await original_execute(statement, *args, **kwargs)
+            queries.append(statement)
+            if len(queries) == 1:
+                # Grow a consumed JSON field after the first aggregate's MVCC
+                # view, before the next statement's guarded hydration.
+                await other.execute(
+                    update(VideoTrackQualityRun)
+                    .where(VideoTrackQualityRun.id == run_id)
+                    .values(metrics={"sampling_frames": [3] * 20_000})
+                )
+                await other.commit()
+            else:
+                frozen = result.freeze()
+                hydrated.extend(frozen().mappings())
+                result = frozen()
+            return result
+
+        monkeypatch.setattr(db, "execute", execute)
+        with pytest.raises(ContentError, match="video_export_input_budget_exceeded"):
+            await inputs._quality_rows(
+                db, VideoTrackQualityRun.task_id == identifier, budget=inputs._Budget()
+            )
+    assert len(queries) == 2
+    assert len(hydrated) == 1
+    assert hydrated[0]["count"] == 1 and hydrated[0]["size"] > 2048
+    assert hydrated[0]["id"] is None
+    assert hydrated[0]["sampling_frames"] is None
+    assert hydrated[0]["pairs"] is None
+
+
+async def test_quality_projection_row_lock_blocks_existing_run_update(video_db):
+    db = video_db
+    _, _, _, _, task, _ = await setup(db, collaboration=True)
+    run_id = await db.scalar(select(VideoTrackQualityRun.id))
+    await inputs._quality_rows(
+        db, VideoTrackQualityRun.task_id == task.id, budget=inputs._Budget(), lock=True
+    )
+    async with async_sessionmaker(db.bind, expire_on_commit=False)() as other:
+        await other.execute(text("SET LOCAL lock_timeout = '100ms'"))
+        with pytest.raises(DBAPIError) as caught:
+            await other.execute(
+                update(VideoTrackQualityRun)
+                .where(VideoTrackQualityRun.id == run_id)
+                .values(metrics={"sampling_frames": []})
+            )
+        assert getattr(caught.value.orig, "sqlstate", None) == "55P03"
+        await other.rollback()
+    await db.rollback()
+
+
+async def test_quality_projection_row_count_guard_and_empty_result(
+    video_db, monkeypatch
+):
+    db = video_db
+    _, _, _, _, task, _ = await setup(db, collaboration=True)
+    assert (
+        await inputs._quality_rows(
+            db, VideoTrackQualityRun.task_id == uuid.uuid4(), budget=inputs._Budget()
+        )
+        == []
+    )
+    monkeypatch.setattr(inputs, "MAX_QUALITY_RUNS", 0)
+    with pytest.raises(ContentError, match="video_export_input_budget_exceeded"):
+        await inputs._quality_rows(
+            db,
+            VideoTrackQualityRun.task_id == task.id,
+            budget=inputs._Budget(),
+            lock=True,
+        )
