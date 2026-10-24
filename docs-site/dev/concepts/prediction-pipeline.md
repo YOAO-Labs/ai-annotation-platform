@@ -396,6 +396,16 @@ Mutation 与 Prediction 分别消费绑定 session、非嵌套事务、actor/Tas
 
 SAM Prediction、元信息、候选 ID 及生成时结果/元信息摘要与单元完成记录同事务提交。采纳核对完整计划与单元归属、源标注版本/几何摘要、当前原图和当前写权限；最终锁序为 Task/生命周期、Batch、RLE 内容、源 Annotation。Task 的历史版本不永久限制后续合法分派，父作业终态也不撤销已提交候选。重复/已驳回候选拒绝；驳回仅需要当前编辑权限，不读取原件。
 
+### 托管图片的批量修复
+
+`managed_mask_repair.ManagedRepairSource` 统一修复的 canonical 原件、请求凭据与真实尺寸，`ManagedRepairUnit` 负责每个确定性分片或 SAM 候选组。计划冻结完整原件关系、源 Annotation 事实与声明模型配置；Job 的托管授权与既有引用授权使用显式封套，旧引用计划保持原合同。公开计划从深拷贝中剥离内部证明，计划摘要仍对应完整持久内容。
+
+原图完整读取与真实关闭在最终业务锁之外完成。SAM 输入有独立 `mask_repair` 责任与精确版本；实际 transport 的 setup、模型配置及当前授权在发送 URL 前核对。最终仅在调用者事务中复核元信息，原件或模型 I/O 不在此事务进行；既有 RLE 内容读取、所有权与代数校验继续执行。未知关闭保持耐久保护，不以本地 closed 标记或超时猜测已结束。
+
+专属 `repair_original_receipt` 绑定 issuer、session、顶层事务、actor、Task、真实尺寸、精确 payload 及计划/单元/尝试。Prediction 仅允许单条修复候选，Mutation 在幂等返回前也验证 receipt；读 receipt 不能取得写资格。候选与 Meta 摘要保存在已提交单元内，确定性修复记录完整 after facts，后续分片、续做和严格回滚只从已提交检查点推进自身修改。
+
+`managed_repair_acceptance` 对候选预览、采纳和已接受 Mask 读取复核当前原件及持久来源。采纳使用当前调用者的编辑权限，不永久依赖生成者 JWT 或 reviewer 身份；驳回无原件 I/O。普通直接 Item 手工 Mask 沿用原读取合同；独立 Task、primary 及已有来源证明的 Mask 通过受限读资格取得实际尺寸，不扩大手工写入许可。恢复只映射运行时定位，不改写计划、候选和初始授权事实，恢复后的旧证明不能自动续跑。
+
 ## 代码索引
 
 - 模型：`apps/api/app/db/models/async_job.py`、`apps/api/app/db/models/prediction.py`

@@ -52,6 +52,12 @@ pending → in_progress → completed → review
 
 SAM 候选通过既有预测 accept/reject 端点审阅。采纳额外核对已提交单元、生成时结果与元信息摘要、原标注版本/内容和当前严格原图，重复采纳返回 `409`。父作业 partial/cancelled 不影响已提交候选的审阅；驳回使用当前写权限，不要求原图在线。详情见 [Mask 用户说明](../../user-guide/workbench/mask-brush.md)。
 
+托管图片支持相同端点，覆盖独立 Task 原件、直接 DatasetItem 和 primary 关联。计划保存完整 canonical 原件关系、源 Annotation 事实及 SAM 声明配置；内部证明不出现在公开计划或 Job 响应中。托管请求的 API Key 只需本端点原有的 `annotations:write`，仍须满足审核写入、任务阶段、编辑锁和 native mask 门禁。确定性修复不要求 AI 开关，SAM 重跑需要 AI 开关。
+
+每次 execute、resume、rollback 保存本次请求凭据；resume 可以采用当前合法 Task 版本，但不能重新选择原图、源标注或模型。Worker 在发送真实路由的模型请求前及最终保存前重核授权和来源。原图完整读取并确认关闭后才进入最终业务事务；SAM 临时输入独立登记为 `mask_repair` 并固定非 null 对象版本。候选、元信息与单元完成记录原子提交，确定性操作、谱系和检查点同事务保存。历史图片计划缺少可信证明时返回 `409 repair_original_requires_new_plan`，须重新 dry-run。
+
+托管 SAM 候选的 `GET /tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}` 按当前读权限核对已提交单元及当前原件；采纳使用当前调用者的写权限，不要求原生成 JWT 仍有效。源标注、候选内容、元信息或来源变化时拒绝预览和采纳。已采纳 Mask 的通用内容读取支持独立 Task 和 primary 形态；读取资格不授予普通手工写入权限。驳回仍不读取原图。
+
 ## 拉取下一个任务
 
 ```http

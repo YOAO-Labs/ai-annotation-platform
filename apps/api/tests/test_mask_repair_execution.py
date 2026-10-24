@@ -70,6 +70,7 @@ def _install_unit_owner(monkeypatch):
         def __init__(self, db, task_id, actor_id):
             self.db, self.task_id, self.actor_id = db, task_id, actor_id
             self.opened = self.closed = False
+            self._unsettled = False
 
         async def open(self):
             self.opened = True
@@ -91,6 +92,12 @@ def _install_unit_owner(monkeypatch):
 
         async def note_committed_mutation(self, payload, response):
             assert response.operation_id is not None
+            # Match the owner's async post-write refresh before the worker
+            # serializes server-managed Annotation columns into after facts.
+            for identifier in response.result_versions:
+                await self.db.get(
+                    Annotation, uuid.UUID(identifier), populate_existing=True
+                )
 
         async def recheck_credentials(self):
             # Account/phase/native checks still run in the actual caller session.

@@ -81,10 +81,11 @@ _TABLES = (
 )
 
 
-async def _clone_business_schema(db):
+async def _clone_business_schema(db, *, extra_tables=()):
     """Preserve production DDL while rebinding all selected FK targets locally."""
     schema = await db.scalar(text("SELECT current_schema()"))
     assert re.fullmatch(r"prediction_inputs_[0-9a-f]{32}", schema)
+    required = (*_TABLES, *extra_tables)
     tables = list(
         await db.scalars(
             text("""
@@ -97,10 +98,10 @@ async def _clone_business_schema(db):
         )
         SELECT c.relname FROM owned o JOIN pg_class c ON c.oid=o.oid ORDER BY c.relname
     """),
-            {"names": list(_TABLES)},
+            {"names": list(required)},
         )
     )
-    assert set(_TABLES) <= set(tables), "A required migrated fixture table is absent"
+    assert set(required) <= set(tables), "A required migrated fixture table is absent"
     assert len(tables) <= 200, "Unexpected fixture FK closure"
     existing = set(
         await db.scalars(

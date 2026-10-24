@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12 与 B13 各切片至 B3-K completed locally；B3-L 托管图片 Mask 修复完整资格链已定稿实施。完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A、B1–B12 与 B13 各切片至 B3-L completed locally；B3-L 已完成托管图片 Mask 修复完整原件资格链与实际 media Worker 验收。完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -1521,3 +1521,19 @@ Worker 修复继续使用 review.write、任务阶段／有效执行者、编辑
 历史 managed 计划、旧 delivery 或候选缺可信来源时明确拒绝执行／续做／回滚／采纳并提示重新预览建计划；不按当前桶或后端返回补造历史证明。历史查看、已提交结果和候选驳回继续可用。离线恢复只重映运行位置，完整计划／候选／输入来源和首次期限保持；旧证明无法核验时明确过期，不恢复执行队列或续授权。
 
 按当前本地 HEAD 的独立树分工原件 owner／计划授权／公开投影、Worker／Mutation、候选预览／采纳及专属 receipt；根树集成、文档并独占测试与真实运行。三来源夹具须真实登记非方形原图与同尺寸 RLE，包含 current-bucket 陷阱，覆盖实际 dry-run／execute／独立 media 队列 Worker／SAM native／候选内容 GET／普通 accept、确定性精确像素／lineage／checkpoint／严格 rollback、失败续做与旧 delivery、来源／Key／JWT／角色／阶段／锁／模型／父事实竞争、跨 session／嵌套事务／伪造 receipt、取消／软限时／未知 close 和公开脱敏。引用 live 回归保留；真实 HTTP／MinIO 固定版本和准确清理不得用纯模拟结果替代，受控 CPU 输出不授予真实模型／GPU／生产资格。同步正式用户／API／架构／CHANGELOG，刷新实际受影响 Worker，保留人工 3100／8100、两 Worker／Beat 与原业务／字节指纹；验收和所属资源清理后才记 L Outcome，完整 E02／B13、用途切换及整套 Epic 继续活动。
+
+## E02-B13-B3-L Outcome — 托管图片 Mask 修复完整资格链
+
+2026-10-25 完成本地验收。原件／计划 owner `ee5674437`、Worker `233b67c86`、候选资格与通用读取 `d2d7fabda`、请求校验及来源提示 `62da24540` 已合入；主树补齐并发编辑锁的可重试冲突及旧无证明计划的已完成单元续做保护。迁移头保持 0240，无新表、ML 协议或依赖，不重建镜像；完整 E02／B13、用途切换和整套 Epic 继续活动。
+
+完整覆盖 TaskOriginal、直接 Item 和 primary-only 的 dry-run、execute／resume、三种确定性修复、SAM 候选预览／采纳及严格 rollback。计划冻结原件、全部相关父标注和声明模型配置，公开深拷贝投影隐藏内部证明。每次执行／续做／回滚使用本次凭据，完成单元仅验证不可变证明而不重复执行；合法版本推进来自已提交 shard／rollback checkpoint。旧计划缺证明时明确要求重新预览，不按当前来源补造事实。
+
+原件完整读取与确切关闭先于最终业务锁；SAM 供图使用独立、固定非 null 版本输入。实际模型路由发送前及最终保存前复核当前授权、来源、模型和父标注。专属 receipt 绑定 issuer／session／顶层事务、操作种类和精确 payload，Mutation 幂等返回前仍检查；候选／Meta／checkpoint，以及确定性 operation／lineage／进度分别原子提交，写后再核真实凭据期限。只读预览与通用已采纳 Mask 读取支持三来源，不能借读资格扩张手工写入；当前合法调用者可在原生成 Key 撤销后采纳，来源离线仍可驳回。
+
+按 classname／参数化名称合并各轮最终结果，267 个不同 pytest 用例通过，无当前失败、错误或跳过。其中 69 个托管修复专项覆盖真实事务、三种像素代数及精确回滚、多单元与跨 shard 失败续做、候选／父／计划／实际 RLE 篡改、原 Key／JWT 末端过期、并发只生成一个标注、私有 receipt 伪造／跨事务、重复取消排空与未知关闭保护；还覆盖 J 原生接受后的真实内容读取。共享引用修复、既有执行／Mutation、原生 Mask 读写、存储合同及 Pipeline 回归通过。旧单测 owner 补齐生产后写刷新语义；填孔夹具先刷新数据库自动递增版本再生成质检事实，未放宽生产校验。恢复辅助 17 项纯测试通过，新增嵌套 repair 来源与首次期限不改写检查；本片不宣称新的全量备份恢复资格。
+
+真实 ASGI HTTP／鉴权／DB → 独立 media Celery → 受控 CPU HTTP 后端 → MinIO 完成 11 个 Job：10 次成功，1 次实际签名 GET 后撤 Key 按预期失败；换新写 Key 续做成功且计划不变。三来源均通过 AI 关闭时确定性修复及严格回滚、SAM 候选读取／普通采纳／通用已采纳读取。实际校验 128×96 原图字节／SHA／像素、五次固定版本 GET 与五条输入责任；等待真实 next_cleanup_at 后准确版本、历史版本及删除标记全部清理，canonical 原件仍完整。独立 Worker 空闲后正常退出。受控输出不授予真实模型精度、GPU、独立 TCP API／浏览器或生产部署资格。
+
+人工环境经原所属监督服务刷新，两 Worker 均注册 73 项任务并保持准确队列，绑定 Beat 已恢复；3100／8100 返回 200。十二表 155 行、24 个对象完整字节和十二源文件指纹与实施前一致。test 数据库、专属 Redis 和九桶由 launcher 销毁，独立 doctor 实际核对全部不存在；三棵干净且补丁等价的任务隔离树及四个分支已清理。任务日志、JUnit、测试缓存和文档构建产物按归属清理，保留人工环境、本地虚拟环境、生成类型与共享依赖。
+
+README、CHANGELOG Unreleased、Mask 用户指南、任务／预测 API 与预测架构已同步；OpenAPI 无漂移、codegen、最终 docs build、Ruff／格式及 diff 检查通过。下一片先定稿视频 Tracker 的整视频原件、临时供图责任、当前授权和候选回写完整合同；E08 项目标签统计／准确范围跳转、E10 真实训练消费回执和生产／外部部署门禁继续独立推进，不将本片等同于整项完成。

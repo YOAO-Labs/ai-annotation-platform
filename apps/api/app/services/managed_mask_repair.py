@@ -32,7 +32,7 @@ from app.services.project_write_guard import (
 from app.services.reference_bindings import task_binding
 from app.services.reference_keys import is_reference
 from app.services.storage_location import api_node_id
-from app.services.task_lock import TaskLockService
+from app.services.task_lock import TaskLockConflictError, TaskLockService
 from app.services.task_scope import lock_task_scope
 
 
@@ -300,6 +300,33 @@ async def capture_job_authority(
     from app.services.reference_mask_repair import pending_reference_items
 
     bindings = {}
+    # Completed units are skipped when resuming, but their immutable plan
+    # provenance must not be silently upgraded into a new delegation either.
+    for item in (batch.plan_json or {}).get("items") or []:
+        frozen = item.get("original_input")
+        if not frozen:
+            task = await db.get(
+                Task, uuid.UUID(item["task_id"]), populate_existing=True
+            )
+            if (
+                task is not None
+                and task.file_type == "image"
+                and not is_reference(task.file_path)
+            ):
+                raise ContentError("repair_original_requires_new_plan")
+            continue
+        normalize_binding(frozen)
+        parents = item.get("original_annotations")
+        if (
+            not isinstance(parents, dict)
+            or not isinstance(item.get("original_annotation"), dict)
+            or parents.get(item["annotation_id"]) != item["original_annotation"]
+            or (
+                item["kind"] == "rerun_local_sam"
+                and not isinstance(item.get("original_model"), dict)
+            )
+        ):
+            raise ContentError("repair_original_requires_new_plan")
     pending = pending_reference_items(batch, rollback=rollback)
     selected = []
     credentials = None
@@ -545,7 +572,10 @@ class ManagedRepairSource:
             or self.db.sync_session.in_nested_transaction()
         ):
             raise ContentError("repair_original_receipt_invalid")
-        task, _ = await self._check(self.db, final=True)
+        try:
+            task, _ = await self._check(self.db, final=True)
+        except TaskLockConflictError:
+            raise ContentError("prediction_acceptance_task_locked") from None
         self.transaction = self.db.sync_session.get_transaction()
         return task
 

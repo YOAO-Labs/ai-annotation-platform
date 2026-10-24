@@ -57,7 +57,7 @@ POST /api/v1/projects/:id/preannotate
 
 `POST /tasks/{task_id}/predictions/{prediction_id}/accept` 始终核对候选所属任务与 URL 一致，不一致返回 `404`。引用候选采纳要求 `tasks:read` 和 `annotations:write`，按当前可编辑权限严格核验原图，并与候选内容溯源匹配；不要求当前 Task 版本等于历史推理版本，因此支持预标后正常分派/激活。后台原生 Mask 额外核验服务端保存的候选、模型/运行时与阶段记录，最终读取 RLE 并复查当前编辑开关。历史作业清理或模型离线不撤销已生成结果的证明；缺失证明的旧原生候选需重新预标。内容证明、候选或权限变化时拒绝写入；忙冲突返回可重试 `409`。内部凭证不作为请求参数。
 
-引用图片的 `mask_repair` SAM 候选经[批量修复独立资格](./tasks-and-annotations.md#mask-质检批量修复)采纳：必须匹配已提交单元、生成时结果/元信息摘要、源标注及当前原图，其凭证不能代替后台分割资格。重复或已驳回候选返回 `409`。`POST /tasks/{task_id}/predictions/{prediction_id}/reject` 对引用候选按当前任务编辑和 Key 权限写入驳回状态；来源离线或 native mask 开关关闭不阻止驳回。
+引用图片与托管图片的 `mask_repair` SAM 候选经[批量修复独立资格](./tasks-and-annotations.md#mask-质检批量修复)采纳：必须匹配已提交单元、生成时结果/元信息摘要、源标注及当前原图，其凭证不能代替后台分割资格。重复或已驳回候选返回 `409`。`POST /tasks/{task_id}/predictions/{prediction_id}/reject` 按当前任务编辑和 Key 权限写入驳回状态；来源离线或 native mask 开关关闭不阻止驳回。
 
 ## 图片原生候选内容
 

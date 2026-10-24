@@ -101,6 +101,37 @@ class PredictionInputMapping(unittest.TestCase):
         self.assertIsNone(row.storage_ref)
         self.assertIsNone(row.inventory)
 
+    def test_mask_repair_mapping_preserves_frozen_plan_binding_and_authority(self):
+        row = self.row()
+        row.owner_kind = "mask_repair"
+        row.owner_id, row.task_id = uuid.uuid4(), uuid.uuid4()
+        row.initial_expires_at = "2026-10-25T01:00:00+00:00"
+        row.source_ref = {
+            "binding": {
+                "task_id": str(row.task_id),
+                "version": 7,
+                "original": {
+                    "bucket": "historical-originals",
+                    "sha256": "a" * 64,
+                    "facts_digest": "b" * 64,
+                    "facts": {"saved_bucket": "historical-originals"},
+                },
+            },
+            "batch_id": str(uuid.uuid4()),
+            "plan_digest": "c" * 64,
+            "unit_digest": "d" * 64,
+        }
+        before = deepcopy(vars(row))
+        values = self.mapping(row)
+        self.assertEqual(set(values), {"bucket", "storage_identity", "storage_ref"})
+        self.assertEqual(vars(row), before)
+        self.assertEqual(
+            row.source_ref["binding"]["original"]["bucket"], "historical-originals"
+        )
+        self.assertNotIn("source_ref", values)
+        self.assertNotIn("initial_expires_at", values)
+        self.assertNotIn("owner_id", values)
+
     def test_unknown_scope_prefix_and_receipt_refuse_before_mutation(self):
         for changed in ("prefix", "bucket", "sha", "version", "legacy_pin", "contract"):
             row = self.row()
