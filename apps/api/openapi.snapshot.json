@@ -80065,8 +80065,59 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/guide-assets/content": {
+      "get": {
+        "operationId": "guide_asset_content_api_v1_projects__project_id__guide_assets_content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Guide Asset Content",
+        "tags": [
+          "guide-assets"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/guide-assets/sign-url": {
       "get": {
+        "deprecated": true,
         "operationId": "guide_asset_sign_url_api_v1_projects__project_id__guide_assets_sign_url_get",
         "parameters": [
           {
@@ -80122,8 +80173,103 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/guide-assets/upload": {
+      "post": {
+        "operationId": "guide_asset_upload_api_v1_projects__project_id__guide_assets_upload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "file_name",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "File Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "image/gif": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/svg+xml": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuideAssetEntry"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Guide Asset Upload",
+        "tags": [
+          "guide-assets"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/guide-assets/upload-complete": {
       "post": {
+        "deprecated": true,
         "operationId": "guide_asset_upload_complete_api_v1_projects__project_id__guide_assets_upload_complete_post",
         "parameters": [
           {
@@ -80184,6 +80330,7 @@
     },
     "/api/v1/projects/{project_id}/guide-assets/upload-init": {
       "post": {
+        "deprecated": true,
         "operationId": "guide_asset_upload_init_api_v1_projects__project_id__guide_assets_upload_init_post",
         "parameters": [
           {

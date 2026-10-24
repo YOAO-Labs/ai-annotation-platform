@@ -1,157 +1,156 @@
-"""Annotation guide 图片资源端点 (v0.10.13 · E1).
+"""Authenticated guide-image bytes and independent project references."""
 
-挂载于 /projects/{project_id}/guide-assets/* 之下. 与 datasets items
-upload 链路同结构但 storage prefix 独立 (projects/{id}/guide/...), 不污染
-dataset_items 表. 读取沿用项目可见性；上传和删除仅限 project owner 或
-super_admin (与 ProjectSettings 入口对齐).
-"""
-
-from __future__ import annotations
-
-import re
+from urllib.parse import quote
 import uuid
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
-from app.deps import get_db, require_project_owner, require_project_visible
+from app.db.models.user import User
+from app.deps import (
+    get_current_user,
+    get_db,
+    require_project_owner,
+    require_project_visible,
+)
 from app.schemas.guide_asset import (
     ALLOWED_GUIDE_ASSET_TYPES,
-    MAX_GUIDE_ASSET_SIZE_BYTES,
     GuideAssetEntry,
-    GuideAssetSignedUrlResponse,
     GuideAssetUploadInitRequest,
     GuideAssetUploadInitResponse,
+    GuideAssetSignedUrlResponse,
 )
-from app.services.storage import storage_service
-
+from app.services import guide_asset_storage as storage, guide_asset_uploads as uploads
 
 router = APIRouter()
 
-# storage key 形如 projects/{project_id}/guide/{uuid}-{safe_filename}
-_GUIDE_KEY_RE = re.compile(r"^projects/[0-9a-f-]{36}/guide/[0-9a-f-]{36}-[^/]+$")
+
+def _upgrade(project_id):
+    raise HTTPException(
+        409,
+        {
+            "code": "guide_asset_authenticated_transfer_required",
+            "upload_path": f"/api/v1/projects/{project_id}/guide-assets/upload",
+            "content_path": f"/api/v1/projects/{project_id}/guide-assets/content",
+        },
+    )
 
 
-def _sanitize_filename(name: str) -> str:
-    """去掉路径分隔与控制字符, 保留 ASCII/UTF-8 文件名."""
-    name = name.replace("\\", "/").rsplit("/", 1)[-1]
-    name = "".join(ch for ch in name if ch.isprintable() and ch not in "\r\n\t")
-    return name[:200] or "image"
+@router.post(
+    "/{project_id}/guide-assets/upload",
+    response_model=GuideAssetEntry,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                mime: {"schema": {"type": "string", "format": "binary"}}
+                for mime in sorted(ALLOWED_GUIDE_ASSET_TYPES)
+            },
+        }
+    },
+)
+async def guide_asset_upload(
+    project_id: uuid.UUID,
+    request: Request,
+    file_name: str = Query(..., min_length=1, max_length=255),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    if request.headers.get("content-encoding", "identity").lower() not in {
+        "",
+        "identity",
+    }:
+        raise HTTPException(415, {"code": "guide_asset_content_encoding"})
+    try:
+        file_name = storage.safe_file_name(file_name)
+        mime_type = storage.normalize_mime_type(request.headers.get("content-type"))
+    except storage.GuideAssetStorageError as exc:
+        raise uploads.http_error(exc) from None
+    proof = await uploads.capture_upload(db, actor, request, project_id)
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > storage.MAX_BYTES:
+            raise HTTPException(413, {"code": "guide_asset_too_large"})
+        data.extend(chunk)
+    return await uploads.upload(
+        db, proof, project_id, bytes(data), mime_type, file_name
+    )
 
 
-def _build_key(project_id: uuid.UUID, filename: str) -> str:
-    safe = _sanitize_filename(filename)
-    return f"projects/{project_id}/guide/{uuid.uuid4()}-{safe}"
+@router.get("/{project_id}/guide-assets/content", response_class=Response)
+async def guide_asset_content(
+    project_id: uuid.UUID,
+    key: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    receipt, data = await uploads.read(db, actor, request, project_id, key)
+    return Response(
+        data,
+        media_type=receipt.mime_type,
+        headers={
+            "Content-Disposition": "attachment; filename*=UTF-8''"
+            + quote(receipt.file_name, safe=""),
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
-def _assert_key_belongs_to_project(key: str, project_id: uuid.UUID) -> None:
-    if not _GUIDE_KEY_RE.match(key) or not key.startswith(
-        f"projects/{project_id}/guide/"
-    ):
-        raise HTTPException(status_code=404, detail="Guide asset not found")
+@router.delete("/{project_id}/guide-assets")
+async def guide_asset_delete(
+    project_id: uuid.UUID,
+    key: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    return await uploads.unlink(db, actor, request, project_id, key)
 
 
 @router.post(
     "/{project_id}/guide-assets/upload-init",
     response_model=GuideAssetUploadInitResponse,
+    deprecated=True,
 )
 async def guide_asset_upload_init(
     data: GuideAssetUploadInitRequest,
     project: Project = Depends(require_project_owner),
-    _: AsyncSession = Depends(get_db),
 ):
     if data.content_type not in ALLOWED_GUIDE_ASSET_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported content type: {data.content_type}",
-        )
-    if data.size > MAX_GUIDE_ASSET_SIZE_BYTES:
-        raise HTTPException(status_code=400, detail="File too large")
-
-    key = _build_key(project.id, data.filename)
-    upload_url = storage_service.generate_upload_url(
-        key, content_type=data.content_type, expires_in=900
-    )
-    return GuideAssetUploadInitResponse(key=key, upload_url=upload_url, expires_in=900)
+        raise HTTPException(400, "Unsupported content type")
+    _upgrade(project.id)
 
 
 @router.post(
     "/{project_id}/guide-assets/upload-complete",
     response_model=GuideAssetEntry,
+    deprecated=True,
 )
 async def guide_asset_upload_complete(
     payload: dict,
     project: Project = Depends(require_project_owner),
-    db: AsyncSession = Depends(get_db),
 ):
-    key = payload.get("key")
-    original_name = payload.get("original_name")
-    content_type = payload.get("content_type")
-    if not key or not original_name or not content_type:
-        raise HTTPException(status_code=400, detail="Missing required fields")
-    _assert_key_belongs_to_project(key, project.id)
-    if content_type not in ALLOWED_GUIDE_ASSET_TYPES:
-        raise HTTPException(status_code=400, detail="Unsupported content type")
-
-    meta = storage_service.verify_upload(key)
-    if not meta:
-        raise HTTPException(status_code=400, detail="File not found in storage")
-    size = int(meta.get("ContentLength") or 0)
-    if size <= 0 or size > MAX_GUIDE_ASSET_SIZE_BYTES:
-        storage_service.delete_object(key)
-        raise HTTPException(status_code=400, detail="Invalid upload size")
-
-    entry = {
-        "key": key,
-        "original_name": _sanitize_filename(original_name),
-        "content_type": content_type,
-        "size": size,
-        "uploaded_at": datetime.now(timezone.utc).isoformat(),
-    }
-    # JSONB 列必须重新赋值才会触发 dirty (SQLAlchemy 默认不深检测可变 list).
-    assets = list(project.guide_assets or [])
-    assets.append(entry)
-    project.guide_assets = assets
-    await db.commit()
-    await db.refresh(project)
-    return GuideAssetEntry(**entry)
-
-
-@router.delete("/{project_id}/guide-assets")
-async def guide_asset_delete(
-    key: str,
-    project: Project = Depends(require_project_owner),
-    db: AsyncSession = Depends(get_db),
-):
-    _assert_key_belongs_to_project(key, project.id)
-    existing = list(project.guide_assets or [])
-    remaining = [e for e in existing if e.get("key") != key]
-    if len(remaining) == len(existing):
-        raise HTTPException(status_code=404, detail="Asset not found")
-    try:
-        storage_service.delete_object(key)
-    except Exception:  # noqa: BLE001 - 即使 storage 删失败也清 db 记录
-        pass
-    project.guide_assets = remaining
-    await db.commit()
-    await db.refresh(project)
-    return {"deleted": key}
+    if any(
+        not payload.get(field) for field in ("key", "original_name", "content_type")
+    ):
+        raise HTTPException(400, "Missing required fields")
+    if payload["content_type"] not in ALLOWED_GUIDE_ASSET_TYPES:
+        raise HTTPException(400, "Unsupported content type")
+    _upgrade(project.id)
 
 
 @router.get(
     "/{project_id}/guide-assets/sign-url",
     response_model=GuideAssetSignedUrlResponse,
+    deprecated=True,
 )
 async def guide_asset_sign_url(
     key: str,
     project: Project = Depends(require_project_visible),
-    _: AsyncSession = Depends(get_db),
 ):
-    _assert_key_belongs_to_project(key, project.id)
-    keys = {e.get("key") for e in (project.guide_assets or [])}
-    if key not in keys:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    url = storage_service.generate_download_url(key, expires_in=3600)
-    return GuideAssetSignedUrlResponse(url=url, expires_in=3600)
+    if key not in {entry.get("key") for entry in (project.guide_assets or [])}:
+        raise HTTPException(404, "Asset not found")
+    _upgrade(project.id)
