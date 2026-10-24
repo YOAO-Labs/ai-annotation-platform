@@ -54068,10 +54068,14 @@
         "properties": {
           "content_type": {
             "default": "image/jpeg",
+            "maxLength": 255,
+            "minLength": 1,
             "title": "Content Type",
             "type": "string"
           },
           "file_name": {
+            "maxLength": 500,
+            "minLength": 1,
             "title": "File Name",
             "type": "string"
           },

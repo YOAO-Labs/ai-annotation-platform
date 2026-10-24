@@ -28,11 +28,8 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindin
 from tests.test_managed_original_writer import MemoryS3
 
 
-def migration(connection):
-    path = (
-        Path(__file__).parents[1]
-        / "alembic/versions/0219_managed_original_creations.py"
-    )
+def migration(connection, filename="0219_managed_original_creations.py"):
+    path = Path(__file__).parents[1] / "alembic/versions" / filename
     spec = importlib.util.spec_from_file_location(
         "creation_migration_" + uuid.uuid4().hex, path
     )
@@ -80,6 +77,11 @@ async def creation_db(test_engine):
     try:
         async with engine.begin() as connection:
             await connection.run_sync(lambda sync: migration(sync).upgrade())
+            await connection.run_sync(
+                lambda sync: migration(
+                    sync, "0230_managed_original_task_scope.py"
+                ).upgrade()
+            )
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await ensure_legacy_bindings(db)
             await db.commit()

@@ -77,6 +77,8 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 
 数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本。内部用途绑定固定当前实际桶名；其他八用途继续由原 owner 读取，尚未固定历史位置前不支持独立切换目标。
 
+独立Task新上传的最终原件位于annotations用途的 `__aap_task_originals__/<Task UUID>/<Creation UUID>/payload`。浏览器只写import暂存区，完整核验封存后保存独立TaskOriginal；删除业务Task或测试fixture不会按前缀删除该原件。历史未知Task不补造归属，全部原件读取者的固定位置接入仍须独立完成。
+
 ## 平台对象占用快照
 
 `GET /api/v1/storage/buckets` 与 ML 集成 overview 读取 PostgreSQL `storage_usage_snapshots`，不执行 S3 HEAD/LIST。仅显式 `POST /api/v1/storage/usage-inventory` 开始盘点；当前有效超级管理员与全权 API Key 可读/启动/取消。九用途复用 `PURPOSE_BUCKET_ATTRIBUTES`，执行前和每页提交前核验现有 `StorageBinding` 部署映射。按 endpoint、TLS 和桶名固定统计身份，共用桶合并 `roles`，不将占用分摊为九份。

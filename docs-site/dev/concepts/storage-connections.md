@@ -27,6 +27,16 @@ last_reviewed: 2026-10-24
 
 ## 数据模型
 
+### 独立 Task 原件
+
+DatasetItem托管原件继续由DatasetAsset/AssetLocation和原创建记录承担。独立Task直传没有DatasetItem，使用TaskOriginal保存当前annotations位置、完整SHA/大小和源写入回执；Task.original_id引用它，原件记录不FK业务Task/Project/User。历史点云即使没有直接dataset_item_id，也可能通过primary_lidar关联DatasetItem，不能仅凭NULL直接认定独立原件。
+
+ManagedOriginalCreation显式区分dataset/task作用域。Task分配保存project_id/task_id、独立随机最终键和import暂存键；沿既有条件multipart writer执行完整回读、真实关闭和取消收尾。Creation的历史桶、版本及回执不可改，当前位置通过TaskOriginal表达。两个业务发布检查之间释放Task/凭证锁，末端短锁重核同一上下文才关联原件；失败或业务删除保留独立记录，不补偿删除。
+
+离线恢复只映射TaskOriginal当前bucket/storage_identity，保留源Creation和原ETag/VersionId事实。源写回执不是恢复目标的版本选择器；后续读取必须观察目标当前对象、条件读取并完整核对SHA。未固定的历史Task不自动认领。原件全调用者接入和回收仍有独立门禁，上传封存完成不开放完整用途切换。
+
+### 存储连接器
+
 `storage_connections` 表的核心字段：
 
 | 字段         | 类型          | 说明                                                                                   |

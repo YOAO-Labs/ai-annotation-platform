@@ -117,6 +117,14 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py --report /tmp/reco
 
 pending不按年龄清理，未知旧附件不猜当前桶、不清空JSON；读取409后需重新上传，人工对账须另证原位置、内容和旧写入确已结束。有owner时禁止破坏性降级；回退应保留表、固定回执、绑定和期限，不重新开放最终键PUT或匿名下载。升级前已签发的旧链接在原有效期内仍可能访问，部署等待不能只以新接口已拒绝为依据。
 
+## 独立 Task 原件的部署顺序
+
+暂停低层Task直传init/complete，核对旧实现签发的最终键PUT已经收尾或到期。应用增量迁移0230与0231，再更新API及读取Task模型的Worker；挂载源码无需重建镜像。历史Task.original_id保持空，旧uploading缺创建证明返回409，重新初始化上传；不扫描当前桶补造归属。两个写接口要求tasks:write及当前项目管理权限，完成要求原账号和对应凭证类型/API Key。
+
+新直传只开放import暂存键，最终UUID对象仅由服务端条件创建。TaskOriginal不随业务Task/Project删除，Creation历史和未绑定的已完成候选均保留，失败不按年龄自动清理。降级不得删除已存在的独立记录或重新开放最终键PUT；必要时暂停入口并保留新增表。
+
+受控离线恢复只映射TaskOriginal当前位置bucket/storage_identity；UUID键、Task/Project身份、SHA、大小、源写入ETag/VersionId、创建时间、Task关联及Creation全部历史事实保持。跨桶复制可能改变目标ETag/VersionId，源回执不能作为目标版本选择器。未知桶或非annotations用途拒绝映射；未绑定/未完成创建责任照原状态恢复，不重放作业。该恢复不声明原件全部消费者切换已交付。
+
 ## 项目指南图片归属的部署顺序
 
 增量迁移0228增加独立 `guide_asset_uploads`、权威引用表 `project_guide_assets` 和项目 `guide_assets_revision`，不接管旧图片。暂停指南图片上传、清单写入、复制和清理，等待旧直传实际收尾；应用迁移，同步更新 Web 与 API，刷新消费cleanup队列的Worker及Beat，确认 `app.workers.cleanup.purge_guide_assets` 与五分钟调度已注册，再恢复入口。挂载源码不要求重建镜像；旧 init/complete/sign-url 的合法请求返回409及新认证传输路径。升级前已签发链接仍可能在原有效期内可用，须独立核对旧写入是否结束。

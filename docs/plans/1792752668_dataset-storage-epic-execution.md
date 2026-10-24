@@ -48,7 +48,11 @@ E06 的真实隔离站点和 E07 的真实后端迁移目前没有部署目标�
 
 用户已明确后续无需处理 Orca，可自行选择子代理或串行执行。当前采用独立工作树并行后端/测试，主工作树负责UI/文档、集成及实际验收。只读审计已覆盖 E01/02/05、E08/09/10、E06/07/11/12；仅作为下一行动依据。
 
-E02-B10-A进一步完成隔离fixture的附件清理合同与训练种子归属修复，集成 `fe7c6be3a`、`4d87b5dcd`、`c14ebffc6`：118个不同本地用例及9组实际HTTP/MinIO检查通过，两条旧实现回归已明确复现；人工服务保持，独立test资源已销毁并核实不存在。详见[E02-B10-A Outcome](1792661016_dataset-storage-locations-connections.md#e02-b10-a-outcome--测试清理与训练种子归属收敛)。下一片B11指南图片设计已定稿，覆盖独立owner、跨项目共享引用、清单修订并发和认证内容；复制图404及SVG显示地址的源隔离一并纳入实施，尚不宣称交付。完整用途切换继续关闭。
+E02-B10-A进一步完成隔离fixture的附件清理合同与训练种子归属修复，集成 `fe7c6be3a`、`4d87b5dcd`、`c14ebffc6`：118个不同本地用例及9组实际HTTP/MinIO检查通过，两条旧实现回归已明确复现；人工服务保持，独立test资源已销毁并核实不存在。详见[E02-B10-A Outcome](1792661016_dataset-storage-locations-connections.md#e02-b10-a-outcome--测试清理与训练种子归属收敛)。后续B11指南图片、B12持久RLE均已交付，记录如下；完整用途切换继续关闭。
+
+E02-B11完成指南图片独立归属、共享引用和认证内容，迁移0228，集成 `7d3c60adb`；验收和清理见[E02-B11 Outcome](1792661016_dataset-storage-locations-connections.md#e02-b11-outcome--指南图片独立归属与项目共享引用)。B12-A进一步修复RLE条件写、完整核验和取消收尾；B12-B完成独立候选、耐久发布保护、所有writer接入及分轮退休/删除，迁移0229，集成 `ed40b31b3`。675项不重复API/服务/DB和37项恢复纯测试、真实TCP/MinIO/Celery及源销毁后的161表152行/九桶56对象恢复通过；人工业务、24对象/12源文件保持，三个一次性命名空间和五棵隔离树清理。见[E02-B12-B Outcome](1792661016_dataset-storage-locations-connections.md#e02-b12-b-outcome--持久-rle-归属、发布与分轮回收)。
+
+B13正在实施独立Task原件和已有Dataset位置消费者。三路审查确认Dataset原件已有AssetLocation，不重复建owner；独立Task直传缺创建回执及固定归属，历史点云还可能通过primary_lidar关联。先交付B13-A暂存封存、当前授权复核、独立Task原件和恢复；B13-B接通完整读取/冻结调用者及大文件合同。该分片不代表B13或完整用途切换完成，详见[E02-B13 Design](1792661016_dataset-storage-locations-connections.md#e02-b13-design--task-原件与既有-dataset-位置消费者)。
 
 ## Outcome
 

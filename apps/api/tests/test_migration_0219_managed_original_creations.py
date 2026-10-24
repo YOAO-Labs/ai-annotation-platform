@@ -31,6 +31,8 @@ async def test_empty_creation_schema_roundtrip_and_exact_columns(creation_db):
     async with engine.begin() as connection:
 
         def check(sync):
+            scope = migration(sync, "0230_managed_original_task_scope.py")
+            scope.downgrade()
             module = migration(sync)
             owned_schema = sync.scalar(text("SELECT current_schema()"))
             assert module.down_revision == "0218"
@@ -45,7 +47,11 @@ async def test_empty_creation_schema_roundtrip_and_exact_columns(creation_db):
                 for column in schema.get_columns(
                     "managed_original_creations", schema=owned_schema
                 )
-            } == set(Creation.__table__.columns.keys())
+            } == set(Creation.__table__.columns.keys()) - {
+                "owner_kind",
+                "project_id",
+                "task_id",
+            }
             assert not schema.get_foreign_keys(
                 "managed_original_creations", schema=owned_schema
             )
@@ -55,6 +61,13 @@ async def test_empty_creation_schema_roundtrip_and_exact_columns(creation_db):
                     and fk["options"]["ondelete"] == "RESTRICT"
                     for fk in schema.get_foreign_keys(table, schema=owned_schema)
                 )
+            scope.upgrade()
+            assert {
+                column["name"]
+                for column in inspect(sync).get_columns(
+                    "managed_original_creations", schema=owned_schema
+                )
+            } == set(Creation.__table__.columns.keys())
 
         await connection.run_sync(check)
 

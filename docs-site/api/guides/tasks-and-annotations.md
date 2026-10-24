@@ -20,6 +20,20 @@ pending → in_progress → completed → review
                  └────────────── pending
 ```
 
+## 独立任务原件上传
+
+既有低层集成可以继续使用两步接口；平台图像导入向导和Python SDK使用数据集导入接口。
+
+1. `POST /api/v1/files/upload-init` 提交 `project_id`、`file_name` 和 `content_type`（默认 `image/jpeg`），返回 `task_id`、`upload_url`、`expires_in=900`。文件名为非空相对路径，最多500字符；不得包含父目录跳转、绝对路径或控制字符。
+2. 客户端使用返回地址PUT原文件，Content-Type必须与初始化相同。该地址仅写暂存区，不能直接写最终原件。
+3. `POST /api/v1/files/upload-complete/{task_id}` 封存文件，成功返回 `status=ok`、`task_id`。单文件最多5GiB；服务端完整核对SHA-256和大小、条件创建最终对象、保存真实写入回执并完整回读后，才把任务从uploading改为pending。
+
+两个接口均要求当前项目管理权限；API Key需 `tasks:write`。完成上传必须由初始化的同一账号调用；初始化使用API Key时还需同一Key，JWT发起则继续使用JWT。每次请求在物理I/O前后复核原请求凭证、账号、项目和Task快照。权限撤销、任务被删除或归属变化拒绝最终发布，已经写入的候选保留独立责任。成功后重复完成不会再写最终对象，也不会重置后续业务状态。
+
+最终对象的UUID位置、SHA、大小和创建证据保存在独立记录，业务Task只保存关联。删除Task或项目不会删除这份记录或原件；发布回滚也保留已核验但未绑定的候选。此接口不提供原件物理回收许可。数据集关联及primary_lidar等中间表关联Task继续使用已有DatasetItem原件，不通过独立上传完成接口认领。
+
+典型错误为403（权限、凭证或上传发起者不匹配）、404（当前项目/任务不可访问）、409（上下文/配置/门禁变化、最终键冲突、旧未知上传缺创建证明）、413（超过5GiB）和503（存储不可用）。未知历史uploading不HEAD当前桶后直接接受；应重新初始化并上传。旧实现签发的最终键URL在到期前仍可能有效，升级时应单独核对其收尾。该上传闭环不代表全部原件下载、训练、媒体派生和导出消费者已经改用固定位置。
+
 ## 数据集筛选下的任务选择
 
 `GET /api/v1/tasks` 保留原查询参数，并可在 `dataset_id` 外提供 `dataset_filter`（最多2000字符的 JSON 对象），合同为数据集的 DatasetItemFilters。仅项目管理者使用此范围；API Key 还需 `datasets:read`。数据集必须关联当前项目，Scene/来源逐次校验归属与权限。无数据集、非法JSON、未知字段或不合法范围422，失效条件404；不忽略条件扩大选择。过滤在游标/offset分页和首页计数之前执行，与训练预检复用同一SQL。未传新参数保留原任务可见性和后续页 total=null 的合同。

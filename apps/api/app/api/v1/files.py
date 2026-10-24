@@ -11,58 +11,52 @@ from app.schemas.task import (
     TaskFileUrlResponse,
     TaskContentIdentity,
 )
-from app.services.display_id import next_display_id
 from app.services.storage import storage_service
 from app.services.content_snapshot import IMAGE_RESPONSES
 
 router = APIRouter()
 
 
-@router.post("/upload-init", response_model=UploadInitResponse)
+@router.post(
+    "/upload-init",
+    response_model=UploadInitResponse,
+    dependencies=[Depends(require_scopes("tasks:write"))],
+)
 async def upload_init(
     data: UploadInitRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task_id = uuid.uuid4()
-    storage_key = f"{data.project_id}/{task_id}/{data.file_name}"
+    from app.services import task_uploads
 
-    task = Task(
-        id=task_id,
-        project_id=data.project_id,
-        display_id=await next_display_id(db, "tasks"),
-        file_name=data.file_name,
-        file_path=storage_key,
-        file_type=_infer_file_type(data.content_type),
-        status="uploading",
-    )
-    db.add(task)
-    await db.commit()
-
-    upload_url = storage_service.generate_upload_url(storage_key, data.content_type)
+    try:
+        task_id, upload_url = await task_uploads.initialize(
+            db, current_user, request, data, _infer_file_type(data.content_type)
+        )
+    except Exception as exc:
+        raise task_uploads.http_error(exc) from None
     return UploadInitResponse(task_id=task_id, upload_url=upload_url, expires_in=900)
 
 
-@router.post("/upload-complete/{task_id}")
+@router.post(
+    "/upload-complete/{task_id}",
+    dependencies=[Depends(require_scopes("tasks:write"))],
+)
 async def upload_complete(
     task_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task = await db.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if task.status != "uploading":
-        raise HTTPException(status_code=400, detail="Task is not in uploading state")
+    from app.services import task_uploads
 
-    meta = storage_service.verify_upload(task.file_path)
-    if not meta:
-        raise HTTPException(status_code=400, detail="File not found in storage")
+    try:
+        file_type = await task_uploads.complete(db, current_user, request, task_id)
+    except Exception as exc:
+        raise task_uploads.http_error(exc) from None
 
-    task.status = "pending"
-    await db.commit()
-
-    if task.file_type == "image":
+    if file_type == "image":
         from app.workers.media import generate_task_thumbnail
 
         generate_task_thumbnail.delay(str(task_id))

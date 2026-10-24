@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from uuid import UUID
 from datetime import datetime
 from typing import Literal
@@ -192,8 +192,8 @@ class TaskListResponse(BaseModel):
 
 class UploadInitRequest(BaseModel):
     project_id: UUID
-    file_name: str
-    content_type: str = "image/jpeg"
+    file_name: str = Field(min_length=1, max_length=500)
+    content_type: str = Field(default="image/jpeg", min_length=1, max_length=255)
 
 
 class UploadInitResponse(BaseModel):
