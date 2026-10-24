@@ -159,6 +159,9 @@ async def test_engine(test_db_url: str, apply_migrations):
 @pytest.fixture
 async def db_session(test_engine):
     """Per-test 数据库 session（SAVEPOINT 隔离）。"""
+    from tests.raster_mask_isolation import owned_raster_ids, remove_test_raster_owners
+
+    raster_before = await owned_raster_ids(test_engine)
     conn = await test_engine.connect()
     trans = await conn.begin()
     maker = async_sessionmaker(conn, class_=AsyncSession, expire_on_commit=False)
@@ -171,6 +174,7 @@ async def db_session(test_engine):
         await session.close()
         await trans.rollback()
         await conn.close()
+        await remove_test_raster_owners(test_engine, raster_before)
         # 模块级进程缓存的服务（如 SystemSettingsService）需在每 test 清理，
         # 否则上一个测试的 PATCH 值会泄漏到下一个测试（DB SAVEPOINT 已回滚但缓存未失效）。
         # cleanup 失败必须可见，不能用静默 except 掩盖缓存污染。

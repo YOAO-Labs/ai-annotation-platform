@@ -374,6 +374,10 @@ GET /api/v1/tasks/:id/video/frame-timetable?from=0&to=120
 
 每个 task 最多保留 256 个尚未被 annotation POST/PATCH 认领的匿名上传；重复上传相同内容不重复占额度。达到上限返回 `422 mask_quota_exceeded`。图片和视频单帧 Mask 使用 `GET /api/v1/annotations/{annotation_id}/mask-content`；视频 Mask 轨迹的当前解析帧使用带 `{frame_index}` 的路径，兼容客户端也可以用带帧路径读取单态 Mask。对象或帧路径会随编辑及恢复指向新内容，因此返回 `Cache-Control: private, no-cache`，每次按当前摘要重新校验；`If-None-Match` 命中返回 304，摘要变化返回完整 RLE。对象损坏或尺寸失配返回 409，存储暂时不可用返回可重试 503。部署可以分别控制读取和创建；创建关闭时仍允许安全读取存量 geometry。
 
+引用中的 SHA 键是可移植内容身份，实际字节由独立存储记录定位到 UUID 对象。上传、导入、转换、Tracker 和质检先完整验证字节，再保存业务引用；业务提交前有持久发布记录保护，普通进度提交不会释放该保护。匿名上传的未认领额度在 24 小时后由清理任务释放。清理还会检查当前标注、候选、训练保留、修订和当前版本的区域审阅范围；已退休对象在后续轮次才会删除。
+
+历史 SHA 键缺少独立存储记录时返回 `409 raster_object_storage_unpinned`，保留原文件和元数据。即使提供命中的 ETag，也须先完成归属和完整内容核验，不能借 304 绕过。恢复原始 RLE 后可重新上传或随完整数据包导入；仅修改当前 annotations 桶不会接管旧对象。内容锁冲突返回 `409 mask_content_busy`，刷新后重试。
+
 图片 Prediction 候选使用 `GET /api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}` 读取，支持相同的 RLE、ETag 和结构化错误合同；`shape_index` 必须取原始候选下标。完整权限和审阅状态规则见[图片原生候选内容](./predictions.md#图片原生候选内容)。
 
 ## Mask 实例原子操作

@@ -78,6 +78,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 实例分割还可显式选择原生 RLE 桥接，保留画笔／SAM 修正、孔洞、断连和重叠实例。检测与分割各自维护发布及自动策略，原生掩码回流和像素评估见[实例分割链路](./docs-site/dev/concepts/instance-segmentation-learning.md)。
 
+持久 RLE 掩码以独立记录固定实际位置与完整内容回执，SHA 引用保持可移植；发布保护跨越后台进度提交，回收检查当前业务引用并分轮退休、删除。历史未知归属明确拒绝读取并保留待核对，详见 [Mask 内容合同](./docs-site/api/guides/tasks-and-annotations.md)。
+
 模型市场分为模型目录与协议能力。已发布的 Ultralytics 图片检测模型可在普通预标、工作台当前题 AI 和裁剪检测管线中选择，各阶段固定模型与类别来源，失败按原管线重试。操作见[模型回流](./docs-site/user-guide/online-learning/models.md)，接口见[项目模型目录](./docs-site/api/guides/projects.md#项目可用模型目录)。
 
 训练实验和数据版本列表支持在服务端按名称、状态、任务与 UTC 创建日期筛选；实验还可按框架筛选，并通过基础模型名称搜索。筛选后的总数与分页保持一致，接口参数见[在线学习与模型训练 API](./docs-site/api/guides/training-datasets.md)。

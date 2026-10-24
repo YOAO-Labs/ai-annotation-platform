@@ -7,48 +7,11 @@ import pytest
 
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from app.workers.cleanup import (
-    _eligible_raster_mask_objects,
     _expire_mask_annotation_revisions,
     _expire_stale_video_tracker_candidates,
     _referenced_raster_mask_keys,
 )
 from tests.test_video_tracker_jobs_list import _make_video_task
-
-
-def test_raster_mask_gc_keeps_referenced_and_grace_period_objects():
-    now = datetime.now(timezone.utc)
-    candidates = [
-        {
-            "key": "raster-masks/sha256/aa/aa/referenced.json",
-            "last_modified": now - timedelta(days=3),
-        },
-        {
-            "key": "raster-masks/sha256/bb/bb/recent.json",
-            "last_modified": now - timedelta(hours=2),
-        },
-        {
-            "key": "raster-masks/sha256/cc/cc/orphan.json",
-            "last_modified": now - timedelta(days=2),
-        },
-    ]
-    eligible = _eligible_raster_mask_objects(
-        candidates,
-        {"raster-masks/sha256/aa/aa/referenced.json"},
-        now - timedelta(hours=24),
-    )
-    assert [item["key"] for item in eligible] == [
-        "raster-masks/sha256/cc/cc/orphan.json"
-    ]
-
-
-def test_raster_mask_gc_caps_each_run_at_1000():
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-    old = cutoff - timedelta(days=1)
-    candidates = [
-        {"key": f"raster-masks/sha256/{index:04d}.json", "last_modified": old}
-        for index in range(1005)
-    ]
-    assert len(_eligible_raster_mask_objects(candidates, set(), cutoff)) == 1000
 
 
 @pytest.mark.asyncio
@@ -64,24 +27,17 @@ async def test_expire_mask_annotation_revisions_uses_database_retention_deadline
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("reference_checks", "upload_exists", "expected_deleted"),
-    [([True], None, 0), ([False, False], None, 1), ([False], "upload-id", 0)],
-)
-async def test_gc_rechecks_reference_under_object_lock_before_delete(
-    monkeypatch, reference_checks, upload_exists, expected_deleted
+@pytest.mark.parametrize("dry_run", [False, True])
+async def test_worker_expires_business_ttls_only_before_live_owner_collection(
+    monkeypatch, dry_run
 ):
     import app.workers.cleanup as cleanup
+    from app.services import raster_mask_objects
 
-    key = "raster-masks/sha256/aa/aa/live.json"
-    events: list[str] = []
-    execute_result = MagicMock()
-    execute_result.scalar_one_or_none.return_value = upload_exists
-    execute = AsyncMock(return_value=execute_result)
+    events = []
     db = SimpleNamespace(
-        execute=execute,
+        execute=AsyncMock(),
         commit=AsyncMock(side_effect=lambda: events.append("commit")),
-        rollback=AsyncMock(),
     )
 
     @asynccontextmanager
@@ -89,55 +45,43 @@ async def test_gc_rechecks_reference_under_object_lock_before_delete(
         yield db
 
     monkeypatch.setattr(cleanup, "task_session", session)
-    refresh_gauge = AsyncMock()
+    expire_tracker = AsyncMock(return_value=2)
+    expire_conversion = AsyncMock(return_value=3)
+    expire_revisions = AsyncMock(return_value=4)
+    refresh = AsyncMock()
     monkeypatch.setattr(
-        cleanup,
-        "refresh_raster_mask_active_geometries_safely",
-        refresh_gauge,
+        cleanup, "_expire_stale_video_tracker_candidates", expire_tracker
     )
     monkeypatch.setattr(
-        cleanup,
-        "_referenced_raster_mask_keys",
-        AsyncMock(return_value=set()),
+        cleanup, "_expire_annotation_conversion_plans", expire_conversion
     )
-    expire_candidates = AsyncMock(return_value=0)
+    monkeypatch.setattr(cleanup, "_expire_mask_annotation_revisions", expire_revisions)
     monkeypatch.setattr(
-        cleanup,
-        "_expire_stale_video_tracker_candidates",
-        expire_candidates,
+        cleanup, "refresh_raster_mask_active_geometries_safely", refresh
     )
-    monkeypatch.setattr(
-        cleanup,
-        "_is_raster_mask_key_referenced",
-        AsyncMock(side_effect=reference_checks),
+    collect = AsyncMock(
+        side_effect=lambda *args, **kwargs: events.append("collect") or {"deleted": 7}
     )
-    lock = AsyncMock()
-    monkeypatch.setattr(cleanup, "lock_raster_mask_references", lock)
-    monkeypatch.setattr(
-        cleanup.storage_service,
-        "list_objects",
-        MagicMock(
-            return_value=[
-                {
-                    "key": key,
-                    "last_modified": datetime.now(timezone.utc) - timedelta(days=2),
-                }
-            ]
-        ),
-    )
-    delete = MagicMock(side_effect=lambda _key: events.append("delete"))
-    monkeypatch.setattr(cleanup.storage_service, "delete_object", delete)
+    monkeypatch.setattr(raster_mask_objects, "cleanup", collect)
 
-    result = await cleanup._purge_unreferenced_raster_masks_async()
-
-    refresh_gauge.assert_awaited_once_with(db)
-    expire_candidates.assert_awaited_once_with(db)
-    assert lock.await_count == (2 if reference_checks[0] is False else 1)
-    lock.assert_any_await(db, {"object_key": key}, verify=False)
-    assert delete.call_count == expected_deleted
-    assert result["deleted"] == expected_deleted
-    if expected_deleted:
-        assert events[-3:] == ["commit", "delete", "commit"]
+    result = await cleanup._purge_unreferenced_raster_masks_async(dry_run=dry_run)
+    collect.assert_awaited_once_with(db, dry_run=dry_run, limit=1000)
+    assert result == {
+        "deleted": 7,
+        "expired_tracker_candidates": 0 if dry_run else 2,
+        "expired_conversion_plans": 0 if dry_run else 3,
+        "expired_mask_revisions": 0 if dry_run else 4,
+    }
+    if dry_run:
+        db.execute.assert_not_awaited()
+        db.commit.assert_not_awaited()
+        for operation in (expire_tracker, expire_conversion, expire_revisions, refresh):
+            operation.assert_not_awaited()
+        assert events == ["collect"]
+    else:
+        assert events == ["commit", "collect"]
+        for operation in (expire_tracker, expire_conversion, expire_revisions, refresh):
+            operation.assert_awaited_once_with(db)
 
 
 @pytest.mark.asyncio

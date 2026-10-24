@@ -104,7 +104,11 @@ async def create(db, **changes):
     if values["state"] == "retired":
         values.setdefault("retired_at", CREATED + timedelta(seconds=3))
     values.setdefault(
-        "storage_ref", locator(values["id"], encoding=values["storage_encoding"])
+        "storage_ref",
+        locator(
+            values["id"],
+            encoding="gzip" if values["storage_encoding"] == "gzip" else "identity",
+        ),
     )
     row = Object(**values)
     db.add(row)

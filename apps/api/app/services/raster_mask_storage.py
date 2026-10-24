@@ -18,7 +18,7 @@ from app.db.models.task import Task
 from app.observability.metrics import record_raster_mask_content_operation
 from app.services.raster_mask_capabilities import evaluate_raster_mask_capabilities
 from app.services.storage import StorageService, storage_service
-from app.services.storage_access import close_registered, finish, mark_unsettled
+from app.services.storage_access import finish, mark_unsettled
 from app.utils.raster_mask_gzip import (
     MAX_COMPRESSED_BYTES,
     MAX_EXPANSION_RATIO,
@@ -78,6 +78,14 @@ def classify_raster_mask_content_error(exc: Exception) -> str:
         current = current.__cause__ or current.__context__
 
     for item in chain:
+        code = getattr(item, "code", None)
+        if isinstance(code, str) and code.startswith("raster_object_storage_"):
+            return {
+                "raster_object_storage_missing": "missing_object",
+                "raster_object_storage_integrity_mismatch": "digest_mismatch",
+                "raster_object_storage_unavailable": "storage_unavailable",
+                "raster_object_storage_budget": "storage_unavailable",
+            }.get(code, "invalid_payload")
         if isinstance(item, ClientError):
             code = str(item.response.get("Error", {}).get("Code", ""))
             if code in {"NoSuchKey", "404", "NotFound"}:
@@ -209,7 +217,13 @@ async def _verify_mask_reference_content(
     value: Any,
     require_raster_foreground: bool,
 ) -> None:
-    payload = await load_coco_rle(reference)
+    from app.services.content_snapshot import ContentError
+    from app.services.raster_object_storage import RasterObjectStorageError
+
+    try:
+        payload = await load_coco_rle(reference)
+    except (RasterObjectStorageError, ContentError) as exc:
+        raise raster_mask_storage_contract_error(exc) from exc
     if require_raster_foreground and not _rle_has_foreground(payload):
         raise RasterMaskContractError(
             status_code=422,
@@ -249,10 +263,18 @@ async def lock_raster_mask_references(
         for reference in collect_mask_references(value)
     }
     for key in sorted(references):
-        await db.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": f"aap:raster-mask:{key}"},
-        )
+        acquired = (
+            await db.execute(
+                text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"aap:raster-mask:{key}"},
+            )
+        ).scalar_one()
+        if acquired is not True:
+            raise RasterMaskContractError(
+                status_code=409,
+                reason="mask_content_busy",
+                message="mask content is being changed; retry the operation",
+            )
         if verify:
             await _observe_content_operation(
                 "verify",
@@ -266,6 +288,15 @@ async def lock_raster_mask_references(
                     ),
                 ),
             )
+    if verify and references:
+        from app.services.content_snapshot import ContentError
+        from app.services.raster_mask_objects import bind_publications
+        from app.services.raster_object_storage import RasterObjectStorageError
+
+        try:
+            await bind_publications(db, value)
+        except (RasterObjectStorageError, ContentError) as exc:
+            raise raster_mask_storage_contract_error(exc) from exc
     if task_id is not None and references:
         await db.execute(
             update(RasterMaskUpload)
@@ -293,9 +324,9 @@ async def store_mask_reference_objects(
     await lock_raster_mask_references(db, value, verify=False)
     for reference, rle in resolved:
         if str(reference.get("object_key") or "").endswith(".json.gz"):
-            stored = await store_coco_rle_gzip(rle)
+            stored = await store_coco_rle_gzip(rle, db=db)
         else:
-            stored = await store_coco_rle(rle)
+            stored = await store_coco_rle(rle, db=db)
         if stored["object_key"] != reference.get("object_key"):
             raise ValueError("AAP mask object storage does not match reference")
     await lock_raster_mask_references(db, value, task_id=task_id)
@@ -687,122 +718,6 @@ def build_rle_gzip_reference(rle: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _put_object_sync(
-    storage: StorageService, *, key: str, body: bytes, content_type: str
-) -> None:
-    """Create without overwriting, then verify the complete canonical content."""
-    head = _head_object_sync(storage, key=key)
-    if head is None:
-        try:
-            storage.client.put_object(
-                Bucket=storage.bucket,
-                Key=key,
-                Body=body,
-                ContentType=content_type,
-                IfNoneMatch="*",
-            )
-        except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") not in (
-                "PreconditionFailed",
-                "412",
-            ):
-                raise
-    compressed = key.endswith(".json.gz")
-    actual = _get_object_sync(
-        storage,
-        key=key,
-        max_bytes=MAX_COMPRESSED_BYTES if compressed else MAX_RLE_OBJECT_BYTES,
-        head=head,
-    )
-    if compressed:
-        # Historical gzip headers carry mtime; canonical content is the identity.
-        actual = decompress_mask_gzip(actual)
-        body = decompress_mask_gzip(body)
-    if actual != body:
-        raise ValueError("stored mask RLE digest mismatch")
-
-
-def _head_object_sync(storage: StorageService, *, key: str) -> dict | None:
-    try:
-        return storage.client.head_object(Bucket=storage.bucket, Key=key)
-    except ClientError as exc:
-        code = str(exc.response.get("Error", {}).get("Code", ""))
-        if code in {"NoSuchKey", "404", "NotFound"}:
-            return None
-        raise
-
-
-def _object_identity(metadata: dict) -> tuple[str, int, str | None]:
-    etag = metadata.get("ETag")
-    length = metadata.get("ContentLength")
-    version = metadata.get("VersionId")
-    if (
-        not isinstance(etag, str)
-        or not etag.strip()
-        or type(length) is not int
-        or length < 0
-        or (version is not None and (not isinstance(version, str) or not version))
-    ):
-        raise ValueError("stored mask RLE object identity is invalid")
-    return etag, length, None if version == "null" else version
-
-
-def _get_object_sync(
-    storage: StorageService,
-    *,
-    key: str,
-    max_bytes: int,
-    head: dict | None = None,
-) -> bytes:
-    """Read one bounded identity and verify the current key after actual close."""
-    head = head if head is not None else _head_object_sync(storage, key=key)
-    if head is None:
-        raise ValueError("stored mask RLE object is missing")
-    identity = _object_identity(head)
-    etag, length, version = identity
-    if length > max_bytes:
-        raise ValueError("stored mask RLE exceeds its stored byte limit")
-    condition = {"IfMatch": etag}
-    if version is not None:
-        condition["VersionId"] = version
-    try:
-        response = storage.client.get_object(
-            Bucket=storage.bucket, Key=key, **condition
-        )
-    except ClientError as exc:
-        code = str(exc.response.get("Error", {}).get("Code", ""))
-        if code in {"NoSuchKey", "NoSuchVersion", "404", "NotFound"}:
-            raise ValueError("stored mask RLE object is missing") from exc
-        if code in {"PreconditionFailed", "412"}:
-            raise ValueError("stored mask RLE object changed during read") from exc
-        raise
-    stream = response["Body"]
-    try:
-        if _object_identity(response) != identity:
-            raise ValueError("stored mask RLE object changed during read")
-        chunks, consumed = [], 0
-        while True:
-            chunk = stream.read(max_bytes + 1 - consumed)
-            if not isinstance(chunk, bytes):
-                raise ValueError("stored mask RLE response must contain bytes")
-            if not chunk:
-                break
-            consumed += len(chunk)
-            if consumed > max_bytes:
-                raise ValueError("stored mask RLE exceeds its stored byte limit")
-            chunks.append(chunk)
-        if consumed != length:
-            raise ValueError("stored mask RLE byte count mismatch")
-    finally:
-        close_registered(stream)
-    after = _head_object_sync(storage, key=key)
-    if after is None:
-        raise ValueError("stored mask RLE object is missing")
-    if _object_identity(after) != identity:
-        raise ValueError("stored mask RLE object changed during read")
-    return b"".join(chunks)
-
-
 async def _run_content_io(call, *args, **kwargs):
     """A cancelled await must not release its caller's locks before thread exit."""
     task = asyncio.create_task(asyncio.to_thread(call, *args, **kwargs))
@@ -820,86 +735,86 @@ async def _run_content_io(call, *args, **kwargs):
 def store_coco_rle_sync(
     rle: dict[str, Any], *, storage: StorageService = storage_service
 ) -> dict[str, Any]:
-    """Sync storage path retained for non-async callers (workers / sync imports).
+    """Owned synchronous entry for worker threads without an active loop."""
+    _require_sync_thread()
+    return asyncio.run(store_coco_rle(rle, storage=storage))
 
-    Most call sites are async and should ``await store_coco_rle(...)`` instead;
-    the async wrapper delegates the heavy lifting here through ``to_thread``.
-    """
-    data = canonical_rle_bytes(rle)
-    reference = build_rle_reference(rle)
-    _put_object_sync(
-        storage,
-        key=reference["object_key"],
-        body=data,
-        content_type="application/json",
+
+def _require_sync_thread():
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    raise RuntimeError("Use asynchronous mask storage inside an active event loop")
+
+
+def _encode_rle(rle, *, compressed=False):
+    if compressed:
+        canonical, encoded = canonical_rle_bytes_gzip(rle)
+        if len(canonical) <= len(encoded) * MAX_EXPANSION_RATIO:
+            return build_rle_gzip_reference(rle), encoded
+    return build_rle_reference(rle), canonical_rle_bytes(rle)
+
+
+def raster_mask_storage_contract_error(exc):
+    """Keep owned storage and admission failures outside input-validation errors."""
+    status = getattr(exc, "status_code", getattr(exc, "status", 409))
+    return RasterMaskContractError(
+        status_code=503 if status >= 500 else 409,
+        reason=exc.code,
+        message="mask storage is unavailable"
+        if status >= 500
+        else "mask ownership or storage admission changed; retry the operation",
+        retryable=True,
     )
-    return reference
+
+
+async def _store_owned(rle, *, compressed=False, db=None, storage=storage_service):
+    from app.services import raster_mask_objects
+    from app.services.content_snapshot import ContentError
+    from app.services.raster_object_storage import RasterObjectStorageError
+
+    reference, data = await _run_content_io(_encode_rle, rle, compressed=compressed)
+    try:
+        return await raster_mask_objects.store(reference, data, db=db, storage=storage)
+    except (RasterObjectStorageError, ContentError) as exc:
+        raise raster_mask_storage_contract_error(exc) from exc
 
 
 async def store_coco_rle(
-    rle: dict[str, Any], *, storage: StorageService = storage_service
+    rle: dict[str, Any], *, storage: StorageService = storage_service, db=None
 ) -> dict[str, Any]:
-    """Async wrapper of :func:`store_coco_rle_sync` (boto3 I/O in ``to_thread``)."""
+    """Create or reuse independently owned content, preserving caller publication."""
     return await _observe_content_operation(
         "store",
-        _run_content_io(store_coco_rle_sync, rle, storage=storage),
+        _store_owned(rle, db=db, storage=storage),
     )
 
 
 def store_coco_rle_gzip_sync(
     rle: dict[str, Any], *, storage: StorageService = storage_service
 ) -> dict[str, Any]:
-    """Sync gzip storage path (see ``store_coco_rle_gzip`` for the async entry)."""
-    data, gzip_bytes = canonical_rle_bytes_gzip(rle)
-    # A reference written here must always be readable under the same bounded
-    # decompression contract. Highly compressible payloads fall back to JSON.
-    if len(data) > len(gzip_bytes) * MAX_EXPANSION_RATIO:
-        return store_coco_rle_sync(rle, storage=storage)
-    reference = build_rle_gzip_reference(rle)
-    _put_object_sync(
-        storage,
-        key=reference["object_key"],
-        body=gzip_bytes,
-        content_type="application/gzip",
-    )
-    # ``bytes`` must reflect uncompressed canonical length (ADR-0052 §D6); the
-    # reference is already built that way, so no override is needed here.
-    return reference
+    """Owned gzip entry for worker threads without an active loop."""
+    _require_sync_thread()
+    return asyncio.run(store_coco_rle_gzip(rle, storage=storage))
 
 
 async def store_coco_rle_gzip(
-    rle: dict[str, Any], *, storage: StorageService = storage_service
+    rle: dict[str, Any], *, storage: StorageService = storage_service, db=None
 ) -> dict[str, Any]:
-    """Async gzip storage entry (boto3 I/O in ``to_thread``).
-
-    Stores the ``.json.gz`` body and returns a reference with
-    ``encoding == "coco_rle_gzip"``; ``object_key`` / ``sha256`` / ``runs`` /
-    ``bytes`` / ``size`` are schema-identical to the uncompressed
-    ``coco_rle_ref`` (``bytes`` = uncompressed canonical length).
-    """
+    """Preserve canonical identity while independently owning compressed bytes."""
     return await _observe_content_operation(
         "store",
-        _run_content_io(store_coco_rle_gzip_sync, rle, storage=storage),
+        _store_owned(rle, compressed=True, db=db, storage=storage),
     )
 
 
 def load_coco_rle_sync(
     reference: dict[str, Any], *, storage: StorageService = storage_service
 ) -> dict[str, Any]:
-    """Sync load path: handles legacy ``.json`` and new ``.json.gz`` keys.
-
-    All digest / byte-count / run / size checks operate on the **decompressed
-    canonical bytes**, so behavior is identical regardless of transport.
-    """
-    key = str(reference["object_key"])
-    raw = _get_object_sync(
-        storage,
-        key=key,
-        max_bytes=(
-            MAX_COMPRESSED_BYTES if key.endswith(".json.gz") else MAX_RLE_OBJECT_BYTES
-        ),
-    )
-    return decode_rle_bytes(reference, raw)
+    """Owned read for training/evaluation threads; never guess a current bucket."""
+    _require_sync_thread()
+    return asyncio.run(load_coco_rle(reference, storage=storage))
 
 
 def decode_rle_bytes(reference: dict[str, Any], raw: bytes) -> dict[str, Any]:
@@ -950,12 +865,14 @@ def decode_rle_bytes(reference: dict[str, Any], raw: bytes) -> dict[str, Any]:
 
 
 async def load_coco_rle(
-    reference: dict[str, Any], *, storage: StorageService = storage_service
+    reference: dict[str, Any], *, storage: StorageService = storage_service, db=None
 ) -> dict[str, Any]:
-    """Async wrapper of :func:`load_coco_rle_sync` (boto3 I/O in ``to_thread``)."""
+    """Resolve a unique ready owner before reading and validating saved bytes."""
+    from app.services import raster_mask_objects
+
     return await _observe_content_operation(
         "load",
-        _run_content_io(load_coco_rle_sync, reference, storage=storage),
+        raster_mask_objects.load(reference, db=db, storage=storage),
     )
 
 

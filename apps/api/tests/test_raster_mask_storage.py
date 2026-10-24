@@ -208,9 +208,9 @@ async def test_store_rejects_corrupt_existing_object_without_overwrite(
     _, key = await ready_mask_owner(db_session, storage, rle, compressed=compressed)
     storage.objects[key] = b"corrupt"
     writer = store_coco_rle_gzip if compressed else store_coco_rle
-    with pytest.raises(raster_object_storage.RasterObjectStorageError) as rejected:
+    with pytest.raises(RasterMaskContractError) as rejected:
         await writer(rle, storage=storage, db=db_session)
-    assert rejected.value.code == "raster_object_storage_integrity_mismatch"
+    assert rejected.value.detail["reason"] == "raster_object_storage_integrity_mismatch"
     assert storage.objects[key] == b"corrupt"
     storage.client.put_object.assert_not_called()
     storage.client.delete_object.assert_not_called()
@@ -294,9 +294,12 @@ async def test_conditional_creation_race_verifies_winner(correct_winner, db_sess
     if correct_winner:
         await store_coco_rle(rle, storage=storage, db=db_session)
     else:
-        with pytest.raises(raster_object_storage.RasterObjectStorageError) as rejected:
+        with pytest.raises(RasterMaskContractError) as rejected:
             await store_coco_rle(rle, storage=storage, db=db_session)
-        assert rejected.value.code == "raster_object_storage_integrity_mismatch"
+        assert (
+            rejected.value.detail["reason"]
+            == "raster_object_storage_integrity_mismatch"
+        )
     storage.client.put_object.assert_called_once()
     storage.client.delete_object.assert_not_called()
 
@@ -318,7 +321,7 @@ async def test_store_does_not_treat_other_provider_errors_as_reusable(
         await ready_mask_owner(db_session, storage, rle)
     failure = ClientError({"Error": {"Code": code}}, operation)
     getattr(storage.client, operation).side_effect = failure
-    with pytest.raises(raster_object_storage.RasterObjectStorageError) as raised:
+    with pytest.raises(RasterMaskContractError) as raised:
         await store_coco_rle(
             rle,
             storage=storage,
@@ -327,7 +330,7 @@ async def test_store_does_not_treat_other_provider_errors_as_reusable(
     expected = (
         "integrity_mismatch" if code == "ConditionalRequestConflict" else "unavailable"
     )
-    assert raised.value.code == "raster_object_storage_" + expected
+    assert raised.value.detail["reason"] == "raster_object_storage_" + expected
     storage.client.get_object.assert_not_called()
     if operation == "head_object":
         storage.client.put_object.assert_not_called()
@@ -346,13 +349,13 @@ async def test_store_rejects_corrupt_bytes_after_successful_put(db_session):
     reference = build_rle_reference(
         {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
     )
-    with pytest.raises(raster_object_storage.RasterObjectStorageError) as rejected:
+    with pytest.raises(RasterMaskContractError) as rejected:
         await store_coco_rle(
             {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]},
             storage=storage,
             db=db_session,
         )
-    assert rejected.value.code == "raster_object_storage_integrity_mismatch"
+    assert rejected.value.detail["reason"] == "raster_object_storage_integrity_mismatch"
     pending = await mask_owner_for(db_session, reference, state="pending")
     assert pending.published_at is None
     assert pending.storage_ref["object_key"] in storage.objects

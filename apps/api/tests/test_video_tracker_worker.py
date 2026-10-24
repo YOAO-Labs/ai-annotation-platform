@@ -1513,11 +1513,9 @@ async def test_tracker_enforce_mode_acquires_and_finishes_route_lease(
     # enforce: job completes; the route lease was acquired + finished (no leak).
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
     # verify the lease was released: query the Redis ledger for residual inflight.
-    import os
     from app.services.ml_routing.ledger import RoutingLedger, _member_leases_key
 
-    redis_url = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/0")
-    ledger = RoutingLedger.from_url(redis_url)
+    ledger = RoutingLedger.from_url(settings.redis_url)
     try:
         # the tracker lease should be gone (finished); ZCARD of the member leases == 0.
         key = _member_leases_key(str(pool.id), str(backend.id))
