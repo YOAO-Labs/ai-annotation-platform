@@ -132,7 +132,7 @@ def test_malformed_bytes_ranges_fail_with_bounded_public_error(header):
         (10, "bytes=99-100"),
         (10, "bytes=-0"),
         (0, "bytes=0-"),
-        (0, "bytes=-1"),
+        (0, "bytes=-0"),
         (10, "bytes=" + "9" * 500 + "-"),
     ],
 )
@@ -156,6 +156,27 @@ def test_exact_strong_if_range_delivers_partial_representation():
     assert service.select_range(
         10, ETAG, range_header="bytes=2-3", if_range=ETAG
     ) == service.PlaybackRange(206, 2, 2, "bytes 2-3/10")
+
+
+@pytest.mark.parametrize("suffix", ["1", "1000", "9" * 500])
+def test_positive_suffix_on_empty_representation_is_satisfiable(suffix):
+    assert service.select_range(
+        0, ETAG, range_header=f"bytes=-{suffix}"
+    ) == service.PlaybackRange(200, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "header",
+    ["bytes=" + "9" * 512 + "-", "bytes=0-1\r\nprivate", "bytes=0-1,,2-3"],
+)
+async def test_if_range_mismatch_ignores_range_before_its_validation(pinned, header):
+    messages = await collect(
+        response(pinned, range_header=header, if_range='"different"')
+    )
+    assert messages[0]["status"] == 200
+    assert body(messages) == RAW
+    assert b"content-range" not in dict(messages[0]["headers"])
+    assert pinned.releases == 1 and not pinned.file.closed
 
 
 def test_head_ignores_even_malformed_or_overlong_range_and_if_range():
@@ -202,7 +223,10 @@ async def test_response_headers_body_and_pin_release(
     assert pinned.file.tell() == 13
 
 
-async def test_empty_verified_file_needs_no_descriptor_read(pinned, monkeypatch):
+@pytest.mark.parametrize("range_header", [None, "bytes=-1"])
+async def test_empty_verified_file_needs_no_descriptor_read(
+    pinned, monkeypatch, range_header
+):
     pinned.size = 0
     pinned.sha256 = hashlib.sha256(b"").hexdigest()
 
@@ -210,9 +234,11 @@ async def test_empty_verified_file_needs_no_descriptor_read(pinned, monkeypatch)
         raise AssertionError("No byte can be read from an empty representation")
 
     monkeypatch.setattr(service.os, "pread", unexpected)
-    messages = await collect(response(pinned))
+    messages = await collect(response(pinned, range_header=range_header))
     assert messages[0]["status"] == 200 and body(messages) == b""
-    assert dict(messages[0]["headers"])[b"content-length"] == b"0"
+    headers = dict(messages[0]["headers"])
+    assert headers[b"content-length"] == b"0"
+    assert b"content-range" not in headers
     assert pinned.releases == 1 and not pinned.file.closed
 
 

@@ -53,6 +53,9 @@ def select_range(
     full = PlaybackRange(200, 0, size)
     if method == "HEAD" or range_header is None:
         return full
+    # If-Range is a precondition to evaluating the entire Range field.
+    if if_range is not None and if_range != etag:
+        return full
     if (
         not isinstance(range_header, str)
         or len(range_header) > MAX_RANGE_HEADER
@@ -62,9 +65,6 @@ def select_range(
         )
     ):
         _invalid_range()
-    if if_range is not None and if_range != etag:
-        return full
-
     unit, separator, raw = range_header.strip().partition("=")
     if unit.strip().lower() != "bytes":
         return full
@@ -88,6 +88,10 @@ def select_range(
 
     start, end = parts[0]
     if start is None:
+        # RFC 9110 permits ignoring Range for an empty representation. A
+        # positive suffix is satisfiable, but has no valid 206 byte interval.
+        if size == 0 and end > 0:
+            return full
         start = max(0, size - end)
         end = size - 1
     else:
