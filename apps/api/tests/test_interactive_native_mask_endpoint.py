@@ -123,6 +123,7 @@ async def test_native_endpoint_rejects_when_only_tracker_supports_mask(
 ):
     user, token = super_admin
     project, backend, task = await _seed(db_session, user.id)
+    task_id = task.id
     await db_session.commit()
     called = False
 
@@ -141,7 +142,7 @@ async def test_native_endpoint_rejects_when_only_tracker_supports_mask(
     response = await httpx_client.post(
         _url(project, backend),
         json={
-            "task_id": str(task.id),
+            "task_id": str(task_id),
             "context": {
                 "type": "point",
                 "points": [[0.5, 0.5]],
@@ -161,6 +162,7 @@ async def test_mask_prompt_source_requires_annotations_read_scope(
 ):
     user, token = super_admin
     project, backend, task = await _seed(db_session, user.id)
+    task_id = task.id
     await db_session.commit()
     created = await httpx_client.post(
         "/api/v1/me/api-keys",
@@ -178,7 +180,7 @@ async def test_mask_prompt_source_requires_annotations_read_scope(
     response = await httpx_client.post(
         _url(project, backend),
         json={
-            "task_id": str(task.id),
+            "task_id": str(task_id),
             "context": {
                 "type": "point",
                 "points": [[0.5, 0.5]],
@@ -239,6 +241,7 @@ async def test_native_endpoint_normalizes_error_and_empty_contracts(
 ):
     user, token = super_admin
     project, backend, task = await _seed(db_session, user.id)
+    task_id = task.id
     await db_session.commit()
 
     async def fake_setup(self):
@@ -259,7 +262,7 @@ async def test_native_endpoint_normalizes_error_and_empty_contracts(
     response = await httpx_client.post(
         _url(project, backend),
         json={
-            "task_id": str(task.id),
+            "task_id": str(task_id),
             "context": {
                 "type": "point",
                 "points": [[0.5, 0.5]],
@@ -282,6 +285,7 @@ async def test_native_endpoint_returns_valid_candidate_with_route_lineage(
 ):
     user, token = super_admin
     project, backend, task = await _seed(db_session, user.id)
+    task_id, backend_id = task.id, backend.id
     await db_session.commit()
 
     async def fake_setup(self):
@@ -303,7 +307,7 @@ async def test_native_endpoint_returns_valid_candidate_with_route_lineage(
     response = await httpx_client.post(
         _url(project, backend),
         json={
-            "task_id": str(task.id),
+            "task_id": str(task_id),
             "context": {
                 "type": "point",
                 "points": [[0.5, 0.5]],
@@ -317,13 +321,13 @@ async def test_native_endpoint_returns_valid_candidate_with_route_lineage(
     payload = response.json()
     assert payload["result"][0]["value"]["rle"]["size"] == [2, 3]
     assert payload["model_version"] == "test-model"
-    assert payload["routing"]["requested_backend_id"] == str(backend.id)
-    assert payload["routing"]["backend_instance_id"] == str(backend.id)
+    assert payload["routing"]["requested_backend_id"] == str(backend_id)
+    assert payload["routing"]["backend_instance_id"] == str(backend_id)
     assert payload["routing"]["model_id"] == "native-interactive"
     claims = verify_ai_mask_session(payload["mask_input_next"])
-    assert claims["task_id"] == str(task.id)
+    assert claims["task_id"] == str(task_id)
     assert claims["frame_index"] is None
-    assert claims["requested_backend_id"] == str(backend.id)
+    assert claims["requested_backend_id"] == str(backend_id)
     assert claims["model_id"] == "native-interactive"
     assert claims["model_variants"] == {}
     receipt = verify_ai_mask_receipt(
@@ -345,6 +349,7 @@ async def test_native_endpoint_receipt_counts_positive_and_negative_scribbles(
 ):
     user, token = super_admin
     project, backend, task = await _seed(db_session, user.id)
+    task_id = task.id
     await db_session.commit()
 
     async def fake_setup(self):
@@ -364,7 +369,7 @@ async def test_native_endpoint_receipt_counts_positive_and_negative_scribbles(
     response = await httpx_client.post(
         _url(project, backend),
         json={
-            "task_id": str(task.id),
+            "task_id": str(task_id),
             "context": {
                 "type": "scribble",
                 "scribbles": [

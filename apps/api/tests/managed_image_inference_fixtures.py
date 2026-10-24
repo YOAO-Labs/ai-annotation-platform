@@ -63,6 +63,7 @@ _TABLES = (
     "audit_logs",
     "raster_mask_objects",
     "raster_mask_publications",
+    "mask_annotation_revisions",
     "dataset_sources",
     "dataset_scan_runs",
     "dataset_scan_entries",
