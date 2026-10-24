@@ -1,7 +1,7 @@
 """Stored observations for navigation; original reads always revalidate content."""
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, cast, func, literal, or_, select, String
+from sqlalchemy import and_, case, cast, func, literal, or_, select, String, union_all
 
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.dataset_asset import (
@@ -22,8 +22,13 @@ from app.db.models.dataset_source import (
     DatasetScanRun,
 )
 from app.db.models.project import Project
+from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
+from app.services.data_management.task_filters import (
+    apply_task_visibility,
+    compile_filter,
+)
 from app.services.dataset_source_access import source_scope_clause
 from app.services.directory_policy import preview_policy_clause
 from app.services.project_access import is_privileged_for_project
@@ -565,33 +570,65 @@ async def workbench(db, dataset_id, actor):
     )
     scope = project_scope_clause(actor, Project.id)
     projects_query = (
-        select(Project)
+        select(Project, ProjectMember.role)
         .join(ProjectDataset, ProjectDataset.project_id == Project.id)
+        .outerjoin(
+            ProjectMember,
+            and_(
+                ProjectMember.project_id == Project.id,
+                ProjectMember.user_id == actor.id,
+            ),
+        )
         .where(ProjectDataset.dataset_id == dataset_id)
+        .execution_options(populate_existing=True)
     )
     if scope is not None:
         projects_query = projects_query.where(scope)
-    projects = list(
-        await db.scalars(projects_query.order_by(Project.created_at, Project.id))
-    )
-    stats = (
-        await db.execute(
-            select(
-                Task.project_id,
-                func.count(Task.id),
-                func.count(Task.id).filter(Task.is_labeled.is_(True)),
-                func.count(Task.id).filter(Task.status == "completed"),
-                func.count(Task.id).filter(Task.status == "review"),
-            )
-            .join(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-            .where(
-                DatasetItem.dataset_id == dataset_id,
-                Task.project_id.in_([p.id for p in projects]),
-            )
-            .group_by(Task.project_id)
-        )
+    project_rows = (
+        await db.execute(projects_query.order_by(Project.created_at, Project.id))
     ).all()
-    stats = {row[0]: row[1:] for row in stats}
+    projects = [project for project, _ in project_rows]
+    groups = {}
+    for project, role in project_rows:
+        privileged = is_privileged_for_project(actor, project)
+        groups.setdefault((privileged, None if privileged else role), []).append(
+            project
+        )
+    dataset_filter = compile_filter(
+        {"field": "dataset.dataset_id", "op": "eq", "value": str(dataset_id)},
+        user=actor,
+    )
+    # Group equivalent access kinds so the canonical Data Manager predicates run
+    # in one aggregate query, with at most manager + three membership branches.
+    visible_queries = [
+        apply_task_visibility(
+            select(Task.id).where(
+                Task.project_id.in_([project.id for project in group]),
+                dataset_filter,
+            ),
+            actor,
+            group[0],
+            project_role=role,
+        )
+        for (_, role), group in groups.items()
+    ]
+    stats = {}
+    if visible_queries:
+        visible = union_all(*visible_queries).subquery("dataset_project_tasks")
+        rows = (
+            await db.execute(
+                select(
+                    Task.project_id,
+                    func.count(Task.id),
+                    func.count(Task.id).filter(Task.is_labeled.is_(True)),
+                    func.count(Task.id).filter(Task.status == "completed"),
+                    func.count(Task.id).filter(Task.status == "review"),
+                )
+                .join(visible, visible.c.id == Task.id)
+                .group_by(Task.project_id)
+            )
+        ).all()
+        stats = {row[0]: row[1:] for row in rows}
     return {
         "dataset_id": dataset_id,
         "availability_counts": {state: counts.get(state, 0) for state in STATES},

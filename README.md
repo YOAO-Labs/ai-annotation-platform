@@ -32,7 +32,7 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 统一挂载的服务器目录可通过[受控存储位置 API](./docs-site/api/guides/storage-locations.md)动态登记、授权浏览并按指定 worker 探测；根内新增子目录无需重建容器。已有数据集还可通过[目录来源与观测扫描](./docs-site/api/guides/dataset-sources.md)保留可恢复的只读目录清单；扫描不创建样本。完整预检后可分页核对[增量差异](./docs-site/api/guides/dataset-sources.md#手动增量差异)，确认仅登记新增路径；变化和未见项保留旧绑定；不同摘要的内容变化可[逐项接受为新修订](./docs-site/api/guides/dataset-sources.md#接受内容为新修订)，创建新样本和空白任务，保留旧标注。同内容的观测变化可[明确重新核验](./docs-site/api/guides/dataset-sources.md#同内容重新核验)，保留原样本、任务与标注。同来源内文件移动也可[明确重定位](./docs-site/api/guides/dataset-sources.md#移动重定位)，继续原任务。还可预览并确认调整扫描规则，保留原任务读取；来源面板保留分页历史和最近完整扫描，存储页可跳转到对应来源与后台任务。来源还可配置[周期扫描与预检](./docs-site/api/guides/dataset-sources.md#周期扫描与预检)，默认人工核对，也可显式启用纯新增轮次自动登记；含变化、未见、排除或失败的整轮仍等待核对。管理员可通过[内容核验与严格读取](./docs-site/api/guides/verified-content.md)核验图片并按摘要读取请求内快照，托管图片任务也有同样的严格 API。数据集 UI 支持受控目录、外部 S3 和具备部署资格的只读 SFTP 原地登记，也保留上传和连接器复制导入。
 
-数据集当前筛选可选择关联项目并进入训练预检，创建后固定匹配任务、原图与标注；成员变化会要求重新预检。组合筛选与个人视图支持 Scene 条件，按场景 ID 限定包含多模态和校准文件的业务成员；选项可搜索、分页，失效 Scene 不会扩大为全部样本。详见[数据集工作台](./docs-site/user-guide/datasets/index.md#独立数据集详情)。
+数据集当前筛选可选择关联项目并进入训练预检，创建后固定匹配任务、原图与标注；成员变化会要求重新预检。组合筛选与个人视图支持 Scene 条件，按场景 ID 限定包含多模态和校准文件的业务成员；选项可搜索、分页，失效 Scene 不会扩大为全部样本。“项目关联”按当前任务可见性显示各项目进度，并可选择项目查看标签对象分布，跳转至带数据集与类别筛选的项目任务列表。详见[数据集工作台](./docs-site/user-guide/datasets/index.md#独立数据集详情)。
 
 数据集详情的“质量”页签支持固定整份数据集的图片解码、尺寸与可信精确重复检测，可取消恢复并记录人工复核。批量复核支持勾选或全部筛选结果，先预览固定范围，再逐项检查修订、保留冲突与恢复进度。结果保留内容身份和时间，不自动删除、合并或影响训练；详见[质量检测说明](./docs-site/user-guide/datasets/index.md#图片质量检测与复核)与[API 合同](./docs-site/api/guides/datasets.md#图片质量运行)。
 

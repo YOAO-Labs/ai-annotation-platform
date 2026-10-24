@@ -3,7 +3,7 @@ title: 数据集上传与扫描
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-25
 ---
 
 # 数据集上传与扫描
@@ -62,8 +62,12 @@ ZIP 仍限制整包200MiB、5000文件、单文件100MiB；连接器受受理时
 - `GET /{id}/items`：`limit` 1–200、`offset`，可组合 `search`（文件名，最多200字符）、`source_id`、`scene_id`、`availability`、`media_type`、`extension`、`dimension_state` 与 `min_width/max_width/min_height/max_height`。来源 ID 必须属于该数据集且当前账号可管理，否则404。
 - `GET /{id}/items/{item_id}`：直接读取单个样本及同一可用性合同；父子不匹配返回404。
 - `GET /{id}/items/{item_id}/preview`：管理员的鉴权图片流，复用来源预览读取的绑定、策略和实时授权检查；`Cache-Control: no-store`，不支持 Range。不会读取外部原图；源文件缺失时仍可交付获授权的独立派生。
-- `GET /{id}/workbench`：可用性分类计数、当前可管理来源和可见关联项目。项目统计仅包含该数据集的任务；`can_manage` 复用项目权限。旧 `/projects` 也按项目可见范围裁剪。
+- `GET /{id}/workbench`：可用性分类计数、当前可管理来源和可见关联项目。项目统计仅包含该数据集内当前调用者可见的任务，沿用项目身份、批次与分派规则；直接样本优先，缺少直接样本时按 primary 主样本归属，相机辅助链接不会重复归属整个任务。`can_manage` 复用项目权限。旧 `/projects` 也按项目可见范围裁剪。
 - `GET /{id}/training-versions`：分页列出有管理权限项目中的关联版本，返回 id/project_id/project_name/name/status/created_at，不另建版本详情。新引用快照或显式数据集选择保存 dataset_id；旧托管快照通过仍存在的源任务关联，任务删除后的旧快照不能推导未保存的数据集血缘。
+
+项目上下文标签统计复用 `POST /api/v1/projects/{project_id}/data-manager/summary`，请求 `filter_json={"field":"dataset.dataset_id","op":"eq","value":"<dataset UUID>"}`，沿用该项目当前访问权限。`scope.matched_task_total` 是此数据集匹配的可见任务数，`visible_task_total` 仍是全项目可见任务数。`annotations.by_class` 统计匹配任务内有效、未取消的 Annotation 对象，包含相机成员；不展开视频轨迹帧，不包含未采纳 Prediction。数据集页面仅允许从当前可见关联项目中选择上下文；通用 Data Manager 筛选仍按任务实际数据集归属执行。
+
+Data Manager schema 发布 `dataset.dataset_id` 条件，支持 UUID 的 `eq`、`ne` 和 `in`。类别任务跳转将该规则与 `annotation.class_name eq <类别>` 组合，不携带旧视图或任务选择。此条件是普通可编辑筛选，不是跨项目页面操作的固定范围。
 
 每个 item 增加 `availability`：state（verified/missing/changed/preview_only/unavailable/unverified）、reason_code、observed_at、preview_available、脱敏 source_id/source_name/location_id 和 allowed_actions。动作值为 read_original/read_preview/manage_source/view_location；来源信息和管理动作只提供给当前获授权的来源管理者。旧托管 file_url 继续原合同，不能凭其存在推断已核验。
 

@@ -23,6 +23,8 @@ import {
 } from "@/hooks/useDatasets";
 import { DatasetItemFilters } from "./DatasetItemFilters";
 import { DatasetQualityPanel } from "./DatasetQualityPanel";
+import { DatasetProjectStatistics } from "./DatasetProjectStatistics";
+import { datasetDataManagerPath } from "../Projects/data-manager/datasetScope";
 import {
   datasetTrainingFilterJSON,
   datasetTrainingFilterSummary,
@@ -176,7 +178,7 @@ function DatasetDetailOwner({ datasetId }: { datasetId: string }) {
         </p>
       )}
       {result.error && <ErrorState error={result.error} retry={() => void result.refetch()} />}
-      {result.data && <DatasetDetailContent ds={result.data} />}
+      {result.data && !result.error && <DatasetDetailContent ds={result.data} />}
     </PageContainer>
   );
 }
@@ -303,6 +305,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
       "dataset-items",
       "dataset-item",
       "dataset-workbench",
+      "dataset-project-statistics",
       "dataset-training-versions",
       "tasks",
       "projects",
@@ -319,7 +322,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
   const failure = (error: unknown) => {
     if (currentOwner()) setActionError(errorMessage(error));
   };
-  const projects = workbench.data?.projects ?? [];
+  const projects = workbench.error ? [] : (workbench.data?.projects ?? []);
   const sources = workbench.data?.sources ?? [];
   const availableProjects = (allProjects.data ?? []).filter(
     (project) => !projects.some((linked) => linked.id === project.id),
@@ -728,6 +731,14 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
       {state.tab === "projects" && (
         <section aria-label="项目关联" className="space-y-3">
           {workbench.isLoading && <p role="status">正在加载关联项目…</p>}
+          {workbench.data && !workbench.error && (
+            <DatasetProjectStatistics
+              datasetId={ds.id}
+              projects={projects}
+              selectedProjectId={state.statsProjectId}
+              onProjectChange={(id) => patch({ stats_project: id })}
+            />
+          )}
           {!workbench.isLoading && !workbench.error && !projects.length && (
             <p className="rounded-md bg-muted p-4 text-sm text-muted-foreground">
               未关联可见项目；关联后可在项目中标注，并创建冻结训练版本。
@@ -743,7 +754,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <Link
-                      to={`/projects/${project.id}`}
+                      to={datasetDataManagerPath(project.id, ds.id)}
                       className="text-sm font-medium text-primary hover:underline"
                     >
                       {project.name}
@@ -788,20 +799,22 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
                 </dl>
               </article>
             ))}
-          <ListPagination
-            label="关联项目"
-            page={state.projectPage}
-            pageSize={state.projectPageSize}
-            total={projects.length}
-            loading={workbench.isFetching}
-            onPageChange={(page) => patch({ project_page: page ? String(page + 1) : undefined })}
-            onPageSizeChange={(size) =>
-              patch({
-                project_page_size: size === 20 ? undefined : String(size),
-                project_page: undefined,
-              })
-            }
-          />
+          {!workbench.error && projects.length > 0 && (
+            <ListPagination
+              label="关联项目"
+              page={state.projectPage}
+              pageSize={state.projectPageSize}
+              total={projects.length}
+              loading={workbench.isFetching}
+              onPageChange={(page) => patch({ project_page: page ? String(page + 1) : undefined })}
+              onPageSizeChange={(size) =>
+                patch({
+                  project_page_size: size === 20 ? undefined : String(size),
+                  project_page: undefined,
+                })
+              }
+            />
+          )}
           {canManage && !workbench.error && availableProjects.length > 0 && (
             <label className="grid max-w-md gap-2 text-xs">
               关联到项目

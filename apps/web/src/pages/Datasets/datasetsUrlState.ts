@@ -166,6 +166,7 @@ export function parseDatasetDetailUrl(params: URLSearchParams) {
     versionPageSize: listPageSize(params.get("version_page_size")),
     projectPage: pageNumber(params.get("project_page")),
     projectPageSize: listPageSize(params.get("project_page_size")),
+    statsProjectId: params.has("stats_project") ? params.get("stats_project")! : undefined,
   };
 }
 export function safeDatasetsReturn(value: string | null): string {

@@ -111,6 +111,18 @@ describe("Datasets URL state", () => {
       "return=%2Fdatasets%3Fq%3Dabc%26page%3D2",
     );
   });
+  it("preserves explicit project statistics selections, including invalid empty values", () => {
+    expect(
+      parseDatasetDetailUrl(new URLSearchParams("tab=projects")).statsProjectId,
+    ).toBeUndefined();
+    expect(
+      parseDatasetDetailUrl(new URLSearchParams("tab=projects&stats_project=p-two&project_page=2")),
+    ).toMatchObject({ tab: "projects", statsProjectId: "p-two", projectPage: 1 });
+    expect(parseDatasetDetailUrl(new URLSearchParams("stats_project=")).statsProjectId).toBe("");
+    expect(parseDatasetDetailUrl(new URLSearchParams("stats_project=unknown")).statsProjectId).toBe(
+      "unknown",
+    );
+  });
 });
 it("recognizes the quality tab without consuming item filter context", () => {
   const state = parseDatasetDetailUrl(

@@ -8,6 +8,8 @@ import { datasetsApi } from "@/api/datasets";
 import { useAuthStore } from "@/stores/authStore";
 import type { MeResponse } from "@/api/auth";
 import { readOriginal } from "@/api/originals";
+import { taskViewsApi } from "@/api/taskViews";
+import { SUMMARY } from "@/test/dataManagerApi";
 
 vi.mock("@/api/originals", async (load) => {
   const actual = await load<typeof import("@/api/originals")>();
@@ -15,6 +17,7 @@ vi.mock("@/api/originals", async (load) => {
 });
 
 const { toast } = vi.hoisted(() => ({ toast: vi.fn() }));
+vi.mock("@/api/taskViews", () => ({ taskViewsApi: { summary: vi.fn() } }));
 vi.mock("@/api/datasets", () => ({
   datasetsApi: {
     get: vi.fn(),
@@ -175,6 +178,7 @@ function mount(path = "/datasets/dataset-one") {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(taskViewsApi.summary).mockResolvedValue(SUMMARY);
   vi.mocked(datasetsApi.savedViews).mockResolvedValue({ items: [] });
   useAuthStore.getState().setAuth("a", { id: "owner-a" } as MeResponse);
   vi.mocked(datasetsApi.get).mockImplementation(
@@ -490,6 +494,23 @@ describe("Dataset detail workbench", () => {
     const second = screen.getByRole("link", { name: "路口复查" }).closest("article")!;
     expect(within(first).getByText("35")).toBeVisible();
     expect(within(second).getByText("3")).toBeVisible();
+    for (const [card, projectId] of [
+      [first, "p-one"],
+      [second, "p-two"],
+    ] as const) {
+      const url = new URL(
+        within(card)
+          .getByRole("link", { name: projectId === "p-one" ? "车辆检测" : "路口复查" })
+          .getAttribute("href")!,
+        "http://localhost",
+      );
+      expect(url.pathname).toBe(`/projects/${projectId}/data-manager`);
+      expect(JSON.parse(url.searchParams.get("filter")!).value).toEqual({
+        field: "dataset.dataset_id",
+        op: "eq",
+        value: "dataset-one",
+      });
+    }
     expect(within(first).getByRole("link", { name: "为整份数据集创建版本" })).toHaveAttribute(
       "href",
       "/projects/p-one/learning?tab=data&dataset_id=dataset-one",
@@ -497,6 +518,66 @@ describe("Dataset detail workbench", () => {
     expect(
       within(second).queryByRole("link", { name: "为整份数据集创建版本" }),
     ).not.toBeInTheDocument();
+  });
+  it("restores and persists the selected statistics project through URL history", async () => {
+    const user = userEvent.setup();
+    mount("/datasets/dataset-one?tab=projects&stats_project=p-two&project_page=1");
+    const select = await screen.findByRole("combobox", { name: "统计项目" });
+    expect(select).toHaveValue("p-two");
+    await waitFor(() =>
+      expect(taskViewsApi.summary).toHaveBeenCalledWith(
+        "p-two",
+        {
+          field: "dataset.dataset_id",
+          op: "eq",
+          value: "dataset-one",
+        },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+    await user.selectOptions(select, "p-one");
+    expect(screen.getByTestId("location")).toHaveTextContent("stats_project=p-one");
+    await user.click(screen.getByRole("button", { name: "返回先前筛选" }));
+    expect(screen.getByRole("combobox", { name: "统计项目" })).toHaveValue("p-two");
+    expect(screen.getByTestId("location")).toHaveTextContent("stats_project=p-two");
+  });
+  it.each(["", "unlinked-project"])(
+    "does not query or replace an invalid explicit statistics selection %j",
+    async (id) => {
+      mount(`/datasets/dataset-one?tab=projects&stats_project=${id}`);
+      expect(await screen.findByText(/所选项目不可用/)).toBeVisible();
+      expect(taskViewsApi.summary).not.toHaveBeenCalled();
+      expect(screen.getByTestId("location")).toHaveTextContent(`stats_project=${id}`);
+    },
+  );
+  it("hides cached project statistics when the workbench access check fails", async () => {
+    vi.mocked(taskViewsApi.summary).mockResolvedValue({
+      ...SUMMARY,
+      annotations: { ...SUMMARY.annotations, by_class: { 私有标签: 2 } },
+    });
+    mount("/datasets/dataset-one?tab=projects&stats_project=p-one");
+    await screen.findByRole("cell", { name: "私有标签" });
+    vi.mocked(datasetsApi.workbench).mockRejectedValueOnce(new Error("没有数据集访问权限"));
+    await act(async () => clients[0].invalidateQueries({ queryKey: ["dataset-workbench"] }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("没有数据集访问权限");
+    expect(screen.queryByRole("table", { name: "项目标签数量" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "车辆检测" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "路口复查" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "关联项目分页" })).not.toBeInTheDocument();
+    expect(taskViewsApi.summary).toHaveBeenCalledTimes(1);
+  });
+  it("retires project statistics and cards when dataset access is revoked", async () => {
+    vi.mocked(taskViewsApi.summary).mockResolvedValue({
+      ...SUMMARY,
+      annotations: { ...SUMMARY.annotations, by_class: { 私有标签: 2 } },
+    });
+    mount("/datasets/dataset-one?tab=projects&stats_project=p-one");
+    await screen.findByRole("table", { name: "项目标签数量" });
+    vi.mocked(datasetsApi.get).mockRejectedValueOnce(new Error("数据集访问已撤销"));
+    await act(async () => clients[0].invalidateQueries({ queryKey: ["dataset"] }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("数据集访问已撤销");
+    expect(screen.queryByRole("region", { name: "项目标签统计" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "车辆检测" })).not.toBeInTheDocument();
   });
   it("paginates associated versions and links to the existing training detail", async () => {
     mount("/datasets/dataset-one?tab=versions&version_page=2");

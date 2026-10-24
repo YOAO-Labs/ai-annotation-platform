@@ -21,6 +21,7 @@ from tests.test_training_datasets import (
     reviewed_project,
     source_headers as source_headers,
 )
+from tests.training_original_fixtures import register_original
 
 
 async def test_item_pagination_single_item_parent_and_unknown_status(
@@ -327,6 +328,7 @@ async def test_training_dataset_scope_and_related_versions_are_real_queries(
         db.add(item)
         await db.flush()
         task.dataset_item_id = item.id
+        await register_original(db, task, super_admin[0], provider=source_headers)
     for ds in datasets:
         db.add(ProjectDataset(dataset_id=ds.id, project_id=project.id))
     await db.commit()
