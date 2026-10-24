@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Portable Identity admission contract and credential verifier"
 requires-python = ">=3.11"
 dependencies = [
+    "aap-identity-admission>=0.1.0",
     "aap-notifications>=0.1.0",
     "pydantic>=2.5",
     "python-jose[cryptography]>=3.3.0",
@@ -41,6 +42,7 @@ test = [
 ]
 
 [tool.uv.sources]
+aap-identity-admission = { path = "../_shared/identity_admission", editable = true }
 aap-mail-transport = { path = "../_shared/mail_transport", editable = true }
 aap-notifications = { path = "../notifications", editable = true }
 

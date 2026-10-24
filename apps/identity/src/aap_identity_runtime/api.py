@@ -2,6 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import uuid
+
+from aap_identity_admission.actor_status_contract import (
+    actor_status_failure_reply,
+    actor_status_reply,
+    decode_actor_status_request,
+)
 
 from aap_identity.account_contract import (
     ACCOUNT_POLICY_PROTOCOL,
@@ -19,6 +26,8 @@ from aap_identity.actor_contract import (
     decode_actor_request,
 )
 from aap_identity.actor_reader import ActorContextReader
+from aap_identity.actor_status_postgres import ActorStatusPostgresData
+from aap_identity.actor_status_reader import ActorStatusData, ActorStatusReader
 from aap_identity.admin_password_contract import (
     ADMIN_PASSWORD_POLICY_PROTOCOL,
     ADMIN_PASSWORD_PROTOCOL,
@@ -188,6 +197,7 @@ def create_app(
     deletion_data: DeletionPostgresData | None = None,
     offboarding_data: OffboardingPostgresData | None = None,
     briefs_data: BriefsPostgresData | None = None,
+    actor_status_data: ActorStatusData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -197,6 +207,15 @@ def create_app(
     )
     auth = Authenticator(data, settings.signing_secret.get_secret_value())
     actor_context_reader = ActorContextReader(data)
+    if actor_status_data is None and settings.actor_status_database_url is not None:
+        actor_status_data = ActorStatusPostgresData(
+            settings.actor_status_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    actor_status_reader = (
+        ActorStatusReader(actor_status_data) if actor_status_data is not None else None
+    )
     if key_data is None and settings.key_database_url is not None:
         key_data = KeyPostgresData(
             settings.key_database_url.get_secret_value(),
@@ -457,6 +476,15 @@ def create_app(
     slots = asyncio.Semaphore(settings.max_concurrency)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
+    def admission_authorized(request: Request) -> bool:
+        supplied = request.headers.get("authorization", "").encode()
+        expected = [("Bearer " + settings.token.get_secret_value()).encode()]
+        if settings.admission_token is not None:
+            expected.append(
+                ("Bearer " + settings.admission_token.get_secret_value()).encode()
+            )
+        return any(hmac.compare_digest(supplied, candidate) for candidate in expected)
+
     @app.get("/health")
     async def health():
         return {"status": "ok"}
@@ -466,6 +494,9 @@ def create_app(
         try:
             async with asyncio.timeout(settings.request_timeout_seconds):
                 policy = await data.authentication_policy()
+                if actor_status_reader is not None:
+                    async with slots:
+                        await actor_status_reader.read(uuid.UUID(int=0))
                 if settings.key_database_url is not None:
                     if key_data is None:
                         raise IdentityUnavailable()
@@ -701,9 +732,7 @@ def create_app(
 
     @app.post("/v1/identity/authenticate")
     async def authenticate(request: Request):
-        supplied = request.headers.get("authorization", "").encode()
-        expected = ("Bearer " + settings.token.get_secret_value()).encode()
-        if not hmac.compare_digest(supplied, expected):
+        if not admission_authorized(request):
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         if (
             request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
@@ -734,6 +763,41 @@ def create_app(
                 {"detail": "Identity authentication unavailable"}, status_code=503
             )
         return JSONResponse(principal_reply(principal))
+
+    @app.post("/v1/identity/actor-status")
+    async def read_actor_status(request: Request):
+        if not admission_authorized(request):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                actor_status_failure_reply(),
+                status_code=400,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                try:
+                    body = bytearray()
+                    async for chunk in request.stream():
+                        body.extend(chunk)
+                        if len(body) > 65536:
+                            return JSONResponse(
+                                actor_status_failure_reply(), status_code=400
+                            )
+                    parsed = decode_actor_status_request(bytes(body))
+                except IdentityFailure:
+                    return JSONResponse(actor_status_failure_reply(), status_code=400)
+                if actor_status_reader is None:
+                    raise IdentityUnavailable()
+                async with slots:
+                    actor = await actor_status_reader.read(parsed.actor_id)
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity actor status unavailable"}, status_code=503
+            )
+        return JSONResponse(actor_status_reply(actor))
 
     @app.post("/v1/identity/actor-context")
     async def read_actor_context(request: Request):

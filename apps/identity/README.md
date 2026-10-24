@@ -43,11 +43,23 @@ rederive Identity credentials. Keep the existing Identity secret stable for
 live issuers and durable receipts; this is not a key-rotation procedure.
 Configuration errors never fall back. The runtime does not load an API `.env` file.
 
+For a separate API admission connection, optionally provide
+`IDENTITY_ADMISSION_TOKEN` or `IDENTITY_ADMISSION_TOKEN_FILE`. It must be a
+canonical bearer value distinct from the normalized `IDENTITY_TOKEN`. This
+scoped bearer is accepted only by `/v1/identity/authenticate` and
+`/v1/identity/actor-status`; command, session, and administrator endpoints
+continue to require the general token. Provide
+`IDENTITY_ACTOR_STATUS_DATABASE_URL` or its `_FILE` variant to enable the
+second-handshake status read. It uses a dedicated LOGIN with only
+`aap_identity_v1.read_actor_facts(uuid)` and has no fallback to the admission
+database URL. Without that source, `/v1/identity/actor-status` returns 503.
+
 ```sh
 uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime
 ```
 
-`/health` is process liveness; `/ready` calls and checks the native policy.
+`/health` is process liveness; `/ready` calls and checks the native policy and
+the actor-status source when configured.
 Private `POST /v1/identity/authenticate` requires the control bearer and a JSON
 `{"token":"..."}` body. Valid credential verdicts return a closed success or
 failure envelope with HTTP 200. Invalid control credentials return 401, malformed
@@ -55,6 +67,12 @@ requests return 400, and owner failures/deadlines return 503. Bodies never echo
 the supplied credential. Concurrency and deadlines are bounded. Account preferences
 retain their existing accepted size/cardinality set rather than inheriting the
 smaller admission/session byte limits.
+
+`POST /v1/identity/actor-status` accepts the same general or scoped service
+bearer and a closed `aap-identity-actor-status/v1` request containing an actor
+UUID. Its reply contains only that UUID and the current strict boolean activity
+flag, or `actor: null` when the account is absent. It deliberately does not
+compare the actor's current role with the role from credential admission.
 
 `docker-compose.identity.yml` starts optional admission and Recovery credential-
 mail processes from the same `aap-identity:local` image. The opt-in `mail-v2`

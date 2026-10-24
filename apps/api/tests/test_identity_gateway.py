@@ -68,7 +68,7 @@ async def test_remote_gateway_uses_versioned_control_authenticated_protocol(
     principal = _principal()
     client = _Client(_Response(200, principal_reply(principal)))
     monkeypatch.setattr(
-        "app.services.identity_gateway.httpx.AsyncClient",
+        "aap_identity_admission.client.httpx.AsyncClient",
         lambda **_kwargs: client,
     )
     gateway = IdentityGateway(
@@ -91,7 +91,7 @@ async def test_remote_credential_failure_never_falls_back_to_embedded(monkeypatc
     code: FailureCode = "credential_revoked"
     client = _Client(_Response(200, failure_reply(code)))
     monkeypatch.setattr(
-        "app.services.identity_gateway.httpx.AsyncClient",
+        "aap_identity_admission.client.httpx.AsyncClient",
         lambda **_kwargs: client,
     )
     gateway = IdentityGateway(
@@ -111,7 +111,7 @@ async def test_remote_credential_failure_never_falls_back_to_embedded(monkeypatc
 async def test_remote_outage_and_bad_control_credentials_fail_closed(monkeypatch):
     client = _Client(_Response(503, {"error": "unavailable"}))
     monkeypatch.setattr(
-        "app.services.identity_gateway.httpx.AsyncClient",
+        "aap_identity_admission.client.httpx.AsyncClient",
         lambda **_kwargs: client,
     )
     gateway = IdentityGateway(
@@ -157,9 +157,9 @@ async def test_secret_file_is_bounded_and_configuration_never_falls_back(tmp_pat
 async def test_remote_response_budget_is_enforced_during_stream(monkeypatch):
     client = _Client(_Response(200, principal_reply(_principal())))
     monkeypatch.setattr(
-        "app.services.identity_gateway.httpx.AsyncClient", lambda **kwargs: client
+        "aap_identity_admission.client.httpx.AsyncClient", lambda **kwargs: client
     )
-    monkeypatch.setattr("app.services.identity_gateway.MAX_RESPONSE_BYTES", 128)
+    monkeypatch.setattr("aap_identity_admission.client.MAX_RESPONSE_BYTES", 128)
     with pytest.raises(IdentityGatewayUnavailable):
         await IdentityGateway(
             identity_url="https://identity.internal", identity_token="control"

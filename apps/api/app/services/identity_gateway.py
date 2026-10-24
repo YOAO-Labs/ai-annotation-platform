@@ -8,6 +8,12 @@ from typing import NoReturn
 from urllib.parse import urlsplit
 
 import httpx
+from aap_identity_admission.client import RemoteAdmissionClient
+from aap_identity_admission.contract import (
+    IdentityFailure,
+    IdentityUnavailable,
+    Principal,
+)
 from aap_identity.actor_contract import (
     ACTOR_PROTOCOL,
     ActorContext,
@@ -15,7 +21,6 @@ from aap_identity.actor_contract import (
     decode_actor_reply,
 )
 from aap_identity.actor_reader import ActorContextReader
-from aap_identity.contract import IdentityFailure, IdentityUnavailable, Principal
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -157,18 +162,16 @@ class IdentityGateway:
         return bytes(body)
 
     async def _authenticate_remote(self, token: str):
-        from aap_identity.contract import decode_principal_reply
-
-        payload = await self._remote_reply(
-            "/v1/identity/authenticate", {"token": token}
-        )
         try:
-            principal = decode_principal_reply(payload)
+            return await RemoteAdmissionClient(
+                origin=self.identity_url or "",
+                service_token=self.identity_token or "",
+                timeout_seconds=self.timeout_seconds,
+            ).authenticate(token)
         except IdentityFailure as exc:
             self._raise_failure(exc.code)
         except IdentityUnavailable:
             raise IdentityGatewayUnavailable() from None
-        return principal
 
     async def actor_context(
         self, principal: Principal, *, db: AsyncSession | None = None
