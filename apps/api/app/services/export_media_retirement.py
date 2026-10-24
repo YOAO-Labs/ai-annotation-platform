@@ -11,7 +11,8 @@ import logging
 import re
 import uuid
 
-from sqlalchemy import Text, and_, cast, func, or_, select
+from sqlalchemy import Text, and_, cast, func, literal, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import aliased, load_only
 
 from app.db.models.async_job import AsyncJob
@@ -80,14 +81,25 @@ async def has_operations(db, owner, *, ignore=None):
 
 def _replacement_query():
     replacement = aliased(Bundle)
-    proof = func.jsonb_build_object(
-        "schema",
-        1,
-        "bundle_id",
-        cast(replacement.id, Text),
-        "input_digest",
-        replacement.input_digest,
-    )
+    proofs = []
+    for key, schema in (("lidar_media", 1), ("lidar_media", 2), ("image_media", 3)):
+        proof = func.jsonb_build_object(
+            "schema",
+            schema,
+            "bundle_id",
+            cast(replacement.id, Text),
+            "input_digest",
+            replacement.input_digest,
+        )
+        proofs.append(
+            and_(
+                replacement.input_snapshot["schema"] == literal(schema, type_=JSONB),
+                AsyncJob.payload[key] == proof,
+                ~AsyncJob.payload.has_key(
+                    "lidar_media" if key == "image_media" else "image_media"
+                ),
+            )
+        )
     return (
         select(replacement.id)
         .join(AsyncJob, AsyncJob.id == replacement.job_id)
@@ -97,7 +109,7 @@ def _replacement_query():
             AsyncJob.project_id == Bundle.project_id,
             replacement.id != Bundle.id,
             replacement.project_id == Bundle.project_id,
-            AsyncJob.payload["lidar_media"] == proof,
+            or_(*proofs),
         )
         .correlate(Bundle)
         .exists()
@@ -165,14 +177,19 @@ async def attempt_ended(db, owner, *, current=None):
     if job is None or job.status in _TERMINAL:
         return True
     payload = job.payload if type(job.payload) is dict else {}
-    proof = payload.get("lidar_media")
+    if "image_media" in payload:
+        if "lidar_media" in payload:
+            return False
+        proof, schemas = payload["image_media"], {3}
+    else:
+        proof, schemas = payload.get("lidar_media"), {1, 2}
     if (
         job.kind != "export"
         or job.project_id != owner.project_id
         or type(proof) is not dict
         or set(proof) != {"schema", "bundle_id", "input_digest"}
         or type(proof["schema"]) is not int
-        or proof["schema"] != 1
+        or proof["schema"] not in schemas
         or type(proof["bundle_id"]) is not str
         or type(proof["input_digest"]) is not str
         or _SHA.fullmatch(proof["input_digest"]) is None
@@ -187,7 +204,11 @@ async def attempt_ended(db, owner, *, current=None):
     replacement = (
         await db.execute(
             select(
-                Bundle.id, Bundle.project_id, Bundle.job_id, Bundle.input_digest
+                Bundle.id,
+                Bundle.project_id,
+                Bundle.job_id,
+                Bundle.input_digest,
+                Bundle.input_snapshot["schema"].label("input_schema"),
             ).where(Bundle.id == identifier)
         )
     ).one_or_none()
@@ -195,6 +216,8 @@ async def attempt_ended(db, owner, *, current=None):
         replacement.project_id == owner.project_id
         and replacement.job_id == owner.job_id
         and replacement.input_digest == proof["input_digest"]
+        and type(replacement.input_schema) is int
+        and replacement.input_schema == proof["schema"]
     )
 
 

@@ -22,7 +22,7 @@ last_reviewed: 2026-08-27
 
 引用图片可从整个项目、单个批次或 Data Manager 选中的任务导出，支持上列全部后台图片格式，也可与托管图片混合。平台在排队时固定本次任务和内容，worker 完整核验原图摘要后将图片放进 ZIP；源离线、文件变化或权限撤回时整包失败，不以预览代替原图。
 
-引用原图在 `images/<数据集 ID>/<样本 ID>/<任务 ID>/<文件名>`，不同任务和同名文件互不覆盖。YOLO 的 `labels/` 使用同一 ID 层级；多目标包还在各 YOLO 目标目录内提供对应图片。COCO、AAP JSON、Brush 和 PNG manifest 直接指向包内图片。托管图片继续由 `fetch_images.py` 回源，下面原有目录树描述其兼容布局。
+引用原图在 `images/<数据集 ID>/<样本 ID>/<任务 ID>/<文件名>`，不同任务和同名文件互不覆盖。YOLO 的 `labels/` 使用同一 ID 层级；多目标包还在各 YOLO 目标目录内提供对应图片。COCO、AAP JSON、Brush 和 PNG manifest 使用同一图片路径。托管图片由 `fetch_images.py` 下载独立交付副本，逻辑路径为 `images/tasks/<任务 ID>/<安全文件名>`，标签使用同一 Task 层级。
 
 解压后可运行 `python fetch_images.py` 校验包内引用图片并下载托管图片。即使托管链接已过期，脚本仍会先核对引用原图的 SHA-256；失败会明确列出校验错误。托管链接是相对地址时，使用 `python fetch_images.py --base-url https://平台地址`。运行中的导出可在后台任务列表取消，取消和失败不会发布部分包。同步 VOC 暂不支持引用图片。
 
@@ -109,17 +109,17 @@ ZIP 同时包含 `media_manifest.json`、`fetch_media.py`、`export_report.json`
 
 普通图片和视频目标会自动跳过当前类别定义中不存在的孤儿标注，并只导出当前 attribute schema 内的用户属性 key。Multi-camera COCO 为保证 2D/3D 身份合同完整，会在预检阶段拒绝未知类别，不会静默跳过。
 
-## 图片产物形态：仅标注 + 回源脚本（不含图片本体）
+## 图片产物形态：标注、媒体清单与下载脚本
 
-为了控制体积、并尊重「用户本地往往已有原图」的现实，图片导出的 ZIP **只包含标注与回源脚本，不打包图片本体**。无论图片项目选哪种格式，包内都含以下公共文件：
+图片导出在入队时固定任务、标注、格式配置及原件身份。托管原图完整核对 SHA／大小后保存为独立交付副本，由脚本下载；引用原图严格核验后直接嵌入 ZIP。各格式共享以下元数据与下载入口：
 
-| 文件                    | 条件                                                                       | 说明                                                                                       |
-| ----------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `classes.txt`           | 总是                                                                       | 类别清单（每行一个类名，行号即类别索引）                                                   |
-| `attribute_schema.json` | **仅 `include_attributes=True`**（导出弹窗「包含属性数据」勾选，默认勾选） | 属性 schema；取消勾选则**不产出**此文件                                                    |
-| `data.yaml`             | 总是                                                                       | YOLO 训练入口，`path` / `train` / `val` / `nc` / `names` 已配好                            |
-| `images_manifest.json`  | 总是                                                                       | 每张图一条记录，含相对路径、所属 dataset，以及 **7 天有效的预签名下载 URL + `expires_at`** |
-| `fetch_images.py`       | 总是                                                                       | 回源脚本（纯 Python stdlib），跑它把原图按相对路径下载到 `images/`，与 `labels/` 平行      |
+| 文件                    | 条件                                                                       | 说明                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `classes.txt`           | 总是                                                                       | 类别清单（每行一个类名，行号即类别索引）                                             |
+| `attribute_schema.json` | **仅 `include_attributes=True`**（导出弹窗「包含属性数据」勾选，默认勾选） | 属性 schema；取消勾选则**不产出**此文件                                              |
+| `data.yaml`             | YOLO 目标及单独 COCO／AAP／Mask 包                                         | YOLO 训练入口，`path` / `train` / `val` / `nc` / `names` 已配好                      |
+| `images_manifest.json`  | 总是                                                                       | 每张图的逻辑路径、真实 SHA／大小；托管条目另含独立副本 URL 和固定 `expires_at`       |
+| `fetch_images.py`       | 总是                                                                       | 纯 Python stdlib，校验嵌入／已有图片并下载托管副本，保持 `images/` 与 `labels/` 对应 |
 
 **回源脚本用法**：解压 ZIP 后执行
 
@@ -127,7 +127,9 @@ ZIP 同时包含 `media_manifest.json`、`fetch_media.py`、`export_report.json`
 python fetch_images.py
 ```
 
-脚本读取 `images_manifest.json` 里的预签名 URL，把图片下载到 `images/<同相对路径>`，与 `labels/` 严格平行 → 即取即训。本地已有原图时可不跑此脚本。预签名 URL **7 天有效**（与导出产物生命周期对齐，无需配置 MinIO 密钥）；脚本启动时会校验 `expires_at`，临近过期会提示尽快下载。
+脚本按清单下载并校验真实 SHA-256／大小，已有文件也要通过校验；下载失败保留原文件并清理本次临时文件。站内相对 URL 使用 `--base-url https://平台地址`。媒体、ZIP 与缓存共用入队登记时起七天截止，重复导出命中缓存不延期，链接过期后应重新导出。引用图片在托管链接到期后仍可独立核验。
+
+单次最多20000个图片任务（含引用），托管单件256MiB，所有唯一托管原件加引用声明累计20GiB，冻结 JSON256MiB；标注和预测各最多100000行。引用仍限制64MiB／3200万像素，Data Manager 选中最多200题。超限请缩小范围。未知托管原件须先完成核验登记，旧未完成任务缺少新合同需重新发起。
 
 各格式的标注落点不同，详见下文。
 
@@ -194,13 +196,13 @@ YOLO 不同变体的标注行格式互不相同，因此导出拆成三个可独
 - `binary-png`：`manifest.json` 将每个 annotation 映射到独立 `masks/<task>/<annotation>.png`，因此实例重叠仍然无损。
 - `indexed-png`：每个 task 只写一张 palette PNG。单图超过 255 个实例会阻止导出；存在重叠时默认阻止，也可显式选择 `z_order`、`larger_area` 或 `smaller_area`。非 `error` 策略会在 manifest 的 `loss_report` 记录被覆盖实例、像素数和 winner 策略。
 
-label 文件按**镜像目录**组织，保留原数据集的递归子目录结构：
+托管图片的 label 使用与图片一致的 Task 逻辑层级：
 
 ```
-{project_id}/{dataset_id}/labels/<原图相对路径>.txt
+labels/tasks/<task UUID>/<安全文件名去扩展名>.txt
 ```
 
-例如 `animals/cat/001.jpg` → `{project_id}/{dataset_id}/labels/animals/cat/001.txt`。这修复了过去只用叶子文件名、导致同名跨目录文件互相覆盖、丢失目录结构的问题。`fetch_images.py` 拉下来的原图会落在与之平行的 `images/` 树下。
+例如任务 A 的 `001.jpg` 对应 `labels/tasks/<A>/001.txt` 和 `images/tasks/<A>/001.jpg`。不同任务即使同名也互不覆盖；COCO 文件名、AAP 匹配字段和 Mask 清单使用同一逻辑图片路径，不暴露物理对象键。引用图片保留前述数据集／样本／Task 层级。
 
 启用 `include_attributes` 时，每个 label 旁会附一个同名的 `.attrs.json`（如 `001.attrs.json`）。
 
@@ -227,7 +229,7 @@ names:
 
 <!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/export/yolo-dir-tree.png — 解压后 YOLO 单目标导出包目录树（terminal 截图）；标注红框：labels/ 镜像层级。[manual] -->
 
-**单目标**（只勾一个 YOLO 变体）落包根，`labels/` 按 `{project_id}/{dataset_id}/labels/<原图相对路径>.txt` 镜像层级：
+**单目标**（只勾一个 YOLO 变体）落包根，托管图片和标签使用平行 Task 层级：
 
 ```
 {下载文件名}.zip 解压后/
@@ -236,16 +238,12 @@ names:
 ├── data.yaml
 ├── images_manifest.json
 ├── fetch_images.py
-├── {project_id}/
-│   └── {dataset_id}/
-│       └── labels/                 # ← 镜像原数据集递归子目录
-│           ├── 001.txt             # 来自 dataset 根的 001.jpg
-│           └── animals/
-│               └── cat/
-│                   └── 002.txt     # 来自 animals/cat/002.jpg
-└── images/                         # fetch_images.py 回源后才出现，与 labels/ 平行同层级
-    ├── 001.jpg
-    └── animals/cat/002.jpg
+├── labels/tasks/
+│   ├── <任务 A>/001.txt
+│   └── <任务 B>/002.txt
+└── images/tasks/                   # fetch_images.py 下载后出现
+    ├── <任务 A>/001.jpg
+    └── <任务 B>/002.jpg
 ```
 
 **多目标**（如同时勾 `yolo-det` + `yolo-seg`，或再加 `coco`）时，每个目标各落自己的 `{target}/` 子目录，`classes.txt` / `attribute_schema.json` / `images_manifest.json` / `fetch_images.py` 仍在包根共享：
@@ -258,10 +256,12 @@ names:
 ├── fetch_images.py
 ├── yolo-det/
 │   ├── data.yaml
-│   └── {project_id}/{dataset_id}/labels/...
+│   ├── labels/tasks/...
+│   └── images/tasks/...            # 下载脚本按清单生成
 ├── yolo-seg/
 │   ├── data.yaml
-│   └── {project_id}/{dataset_id}/labels/...
+│   ├── labels/tasks/...
+│   └── images/tasks/...
 └── coco/
     └── annotations.json
 ```

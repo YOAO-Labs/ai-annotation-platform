@@ -609,7 +609,7 @@ async def _run_export(
     lock_owner: str | None = None
     lock_acquired = False
     reference_media = None
-    owned_lidar = False
+    owned_media = False
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -637,6 +637,27 @@ async def _run_export(
                     # A duplicate delivery for the same durable job must not
                     # build or publish a second artifact.
                     return
+                project = await db.get(Project, proj_uuid)
+                if (project is not None and project.data_type == "image") or (
+                    "image_media" in (job_row.payload or {})
+                ):
+                    from app.workers.lidar_export import run_owned
+
+                    owned_media = True
+                    await db.rollback()
+                    await run_owned(
+                        db,
+                        project_id=project_id,
+                        batch_id=batch_id,
+                        task_ids=task_ids,
+                        targets=targets,
+                        opts=opts,
+                        async_job_id=async_job_id,
+                        celery_task_id=celery_task_id,
+                        media_kind="image",
+                        worker_node_id=worker_node_id,
+                    )
+                    return
                 if {"kitti", "pointmask", "coco-multicamera", "nuscenes"}.intersection(
                     targets
                 ) or "lidar_media" in (job_row.payload or {}):
@@ -646,7 +667,7 @@ async def _run_export(
                     ) or "lidar_media" in (job_row.payload or {}):
                         from app.workers.lidar_export import run_owned
 
-                        owned_lidar = True
+                        owned_media = True
                         await db.rollback()
                         await run_owned(
                             db,
@@ -910,7 +931,7 @@ async def _run_export(
                 )
             except Exception as exc:  # noqa: BLE001
                 await db.rollback()
-                if owned_lidar:
+                if owned_media:
                     # The owned branch fences its exact lease before every
                     # terminal write; the generic handler must not overwrite it.
                     raise

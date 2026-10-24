@@ -215,3 +215,9 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py --fail-after resto
 受控离线恢复仅映射 DatasetAuxiliaryOriginal 当前 bucket／storage_identity；保留 UUID、Dataset 快照、种类、对象键、SHA／大小、写入回执、源合同与业务指针，Creation 全部历史不变。恢复后按保存位置完整回读 raw／map，源 ETag／VersionId 不作为目标版本选择器。共享地图、未绑定与业务删除后责任继续保留，未完成创建不自动重放，不宣称获得原件物理回收资格。
 
 新 NuScenes 的媒体 bundle 和 ZIP 继承共同截止及现有恢复规则；不可改写的 ZIP 中保留历史签名 URL，准确失效相应缓存。重新导出生成新链接，恢复不会延长旧交付期限。
+
+## 图片导出合同的部署与恢复
+
+更新图片导出代码后刷新实际 API 与导出 Worker；挂载源码无需重建镜像，本合同复用现有 bundle 表。旧未完成图片任务缺少冻结输入证明时会明确失败，应重新发起导出；不要在 Worker 回填或重捕获旧任务的今天输入。新纯引用与空范围也有独立 bundle／ZIP 配对，空媒体清单不是缺失责任。
+
+恢复只映射已保存 bundle／ZIP 当前桶与身份；图片原件、冻结业务输入、内容清单、UUID、首次截止及 ZIP 内历史签名链接保持。含这些旧链接的缓存准确失效，恢复后重新导出获得新交付。引用仍需恢复对应受控根／节点和现有授权，不能因恢复了 ZIP 元数据就跳过来源核验。

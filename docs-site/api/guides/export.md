@@ -11,7 +11,7 @@ last_reviewed: 2026-10-24
 
 图片项目、批次和 Data Manager 显式任务导出支持原地引用与托管图片混合。含引用的任务在排队时固定实际 Task 清单、任务版本及 Item/Asset/SHA；API Key 还须具备 `tasks:read`，后台持续验证同一个 Key 的身份与权限。原图经统一引用 reader 捕获严格快照，完整核对 SHA-256 后写入 ZIP；实际读取来源时要求真实 worker 的锚点。完整原图缓存的读取边界见[严格内容读取](verified-content.md#完整原图缓存的接入状态)；来源停用或内容绑定变化仍拒绝，不回退预览或按来源路径猜测平台桶。
 
-引用条目在 `images_manifest.json` 中包含 `storage_mode="embedded"`、`archive_path`、`archive_paths`、`asset_id`、`sha256` 和 `size_bytes`，不包含来源 URL。其包内路径为 `images/<dataset UUID>/<item UUID>/<task UUID>/<安全文件名>`；YOLO 图片与标签在对应目标目录下配对。COCO `file_name`、AAP `file_path` 及掩码 manifest 使用同一包内图片路径。托管条目保留原有预签名 URL 回源合同。`fetch_images.py` 先校验包内原图，再下载托管图片；托管 URL 过期不会跳过包内 SHA 校验。托管 URL 使用站内相对地址时，脚本需带 `--base-url https://平台地址`；显式平台 origin 不改写签名路径。
+引用条目在 `images_manifest.json` 中包含 `storage_mode="embedded"`、`archive_path`、`archive_paths`、`asset_id`、`sha256` 和 `size_bytes`，不包含来源 URL。其包内路径为 `images/<dataset UUID>/<item UUID>/<task UUID>/<安全文件名>`；YOLO 图片与标签在对应目标目录下配对。COCO `file_name`、AAP `file_path` 及掩码 manifest 使用同一包内图片路径。托管条目的预签名 URL 指向完整核验后的独立交付副本，清单保存真实 SHA、大小和共同截止。`fetch_images.py` 核对包内图片、已有文件及实际下载字节；托管 URL 过期不会跳过包内 SHA 校验。托管 URL 使用站内相对地址时，脚本需带 `--base-url https://平台地址`；显式平台 origin 不改写签名路径。
 
 引用包不跨 job 复用缓存。上传后的最终短事务重新检查原发起人、项目权限、原 Key、固定内容、显式选择的批次可见性与来源，并与取消串行；通过后才一起提交产物索引、下载链接和完成通知。失败或取消等待真实I/O收尾后关闭快照、清理本任务临时ZIP；独立pending归属和未确认对象保留待核对，不物理删除或返回部分包。到期已发布Output由durable退休账本重试清理，pending不按年龄自动回收。已下载的包及已签发的七天 bearer URL 无法承诺随撤权立即回收。
 
@@ -24,6 +24,14 @@ last_reviewed: 2026-10-24
 项目、批次、选中任务三个入口均固定原请求的账号/项目和Key证明，任务排队、生成和最终签名期间的撤销、轮换、scope或期限变化都会拒绝发布；不增加新的scope要求。私有output_authority不出现在Job DTO。引用输入仍须原有tasks:read与来源内容证明。旧未完成Job若没有输出授权证明，需要重新发起导出；旧NULL缓存索引不猜桶接管，重导建立新归属。已完成旧Job/通知保存的URL保持原值及原期限，GET不重新签名。
 
 当前输出上限64GiB，完整读取以600秒协作预算和独立字节数约束，分块计算摘要。存储身份或端点不符明确失败，不回退当前桶；未确认关闭的读取permit会阻止退休清理。新内部归属不在公开result中返回，既有object_key/download_url字段继续使用。此能力不开放整个export用途切换。
+
+## 图片独立媒体交付
+
+项目、批次和 Data Manager 选中任务的异步图片导出，在入队事务固定准确范围、Task 顺序、类别／属性／工具、标注、AAP 预测与相关轨迹、尺寸、坐标约定和原件身份。后台序列化使用冻结视图；物理读取与发布前继续核对准确原请求、当前来源和完整输入。新托管图片使用 `images/tasks/<task UUID>/<安全文件名>`，YOLO 标签使用相同层级；同一原件可共享一个交付副本，但每个 Task 的绑定独立验证。
+
+托管原件沿已登记 Dataset 或 TaskOriginal 位置完整读取，不猜当前桶；未知历史需先显式核验登记。媒体和 ZIP 同事务发布，共用 bundle 创建起168小时截止和一次3600秒租约。纯托管缓存核对完整输入摘要、保存位置的 ZIP 与全部媒体，复用首次截止；含引用时不跨 Job 缓存。纯引用与空项目同样固定输入并保留独立 ZIP／bundle 责任。
+
+本合同最多20000个图片 Task（含引用），托管单件256MiB，唯一托管原件加各引用声明累计20GiB，冻结 JSON256MiB，相关标注和预测各100000行；Data Manager 选中200题限制不变。引用继续64MiB／3200万像素限制，已有 mask 和 ZIP 限制继续执行。超限在有界收集时明确拒绝，这些是交付预算，不是性能指标。旧未完成图片 Job 缺少 `image_media` 证明时需重新导出；私有证明不出现在公开 Job DTO，同步 VOC 保持原合同。
 
 ## 点云独立媒体交付
 

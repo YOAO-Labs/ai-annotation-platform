@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import re
+from types import SimpleNamespace
 import uuid
 
 from fastapi import HTTPException
@@ -96,12 +98,49 @@ async def authorize_export_job(
 
 
 async def _capture_export_authority(
-    db, project, actor, request, *, batch_id=None, task_ids=None
+    db, project, actor, request, *, batch_id=None, task_ids=None, frozen_snapshot=None
 ):
     """No original I/O. Never replace this proof when republishing an existing job."""
     if project.data_type != "image":
         return None
-    tasks = list((await db.scalars(task_query(project.id, batch_id, task_ids))).all())
+    references = None
+    if frozen_snapshot is None:
+        tasks = list(
+            (await db.scalars(task_query(project.id, batch_id, task_ids))).all()
+        )
+    else:
+        # New image jobs have already measured and locked their bounded scope.
+        # Reuse those facts; neither Task JSON nor source/connection credentials
+        # need full ORM hydration merely to capture this separate authority.
+        selected = sorted(str(v) for v in task_ids) if task_ids is not None else None
+        if (
+            type(frozen_snapshot) is not dict
+            or type(frozen_snapshot.get("schema")) is not int
+            or frozen_snapshot["schema"] != 3
+            or frozen_snapshot.get("project_id") != str(project.id)
+            or frozen_snapshot.get("batch_id") != (str(batch_id) if batch_id else None)
+            or frozen_snapshot.get("task_ids") != selected
+            or type(frozen_snapshot.get("tasks")) is not list
+            or type(frozen_snapshot.get("references")) is not dict
+        ):
+            raise ContentError("export_scope_changed")
+        tasks = []
+        for facts in frozen_snapshot["tasks"]:
+            tasks.append(
+                SimpleNamespace(
+                    id=facts["id"],
+                    batch_id=facts["batch_id"],
+                    dataset_item_id=facts["dataset_item_id"],
+                    file_path=facts["file_path"],
+                    file_name=facts["file_name"],
+                    version=facts["version"],
+                )
+            )
+        references = frozen_snapshot["references"]
+        if set(references) != {
+            str(task.id) for task in tasks if is_reference(task.file_path)
+        }:
+            raise ContentError("export_scope_changed")
     if not any(is_reference(task.file_path) for task in tasks):
         return None
     key_id = getattr(request.state, "api_key_id", None)
@@ -110,7 +149,11 @@ async def _capture_export_authority(
     for task in tasks:
         binding = _task_binding(task)
         if is_reference(task.file_path):
-            binding["reference"] = await _reference_binding(db, task)
+            binding["reference"] = (
+                deepcopy(references[str(task.id)])
+                if references is not None
+                else await _reference_binding(db, task)
+            )
         bindings.append(binding)
     return {
         "schema": 1,

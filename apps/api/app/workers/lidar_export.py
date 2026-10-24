@@ -1,4 +1,8 @@
-"""Publish registered LiDAR media and its reserved ZIP as one fixed delivery."""
+"""Publish registered media and its reserved ZIP as one fixed delivery.
+
+The LiDAR entry point remains compatible; each attempt selects its own explicit
+protocol, sharing physical, cache and publication fences with image exports.
+"""
 
 from datetime import datetime, timezone
 import logging
@@ -18,8 +22,8 @@ from app.services import export_media_storage as media_storage
 from app.services import export_media_transfer as transfer
 from app.services import export_outputs, export_storage, storage_access
 from app.services.content_snapshot import ContentError
-from app.services.exporting import cache, lidar_inputs, lidar_jobs
-from app.services.exporting.lidar_media_paths import logical_sources
+from app.services.exporting import cache, lidar_jobs
+from app.services.exporting.media_protocol import for_snapshot, protocol
 from app.services.exporting.packaging import build_export_zip
 from app.services.exporting.reference_media import ExportCancelled, check_cancelled
 
@@ -44,19 +48,27 @@ async def _job(db, identifier):
 
 
 def _attempt(row, receipt, task_id):
-    proof = (row.payload or {}).get("lidar_media") if row is not None else None
+    adapter = for_snapshot(receipt._input_snapshot)
+    proof = (row.payload or {}).get(adapter.proof_key) if row is not None else None
     if (
         row is None
         or row.status != "running"
         or row.celery_task_id != task_id
         or not isinstance(proof, dict)
         or type(proof.get("schema")) is not int
-        or proof["schema"] != 2
+        or proof["schema"] != adapter.schema
         or proof.get("bundle_id") != str(receipt.id)
         or proof.get("input_digest") != receipt.input_digest
         or row.project_id != receipt.project_id
     ):
-        reject()
+        reject(adapter.error("attempt_changed"))
+
+
+def _selected(receipt):
+    data = receipt._input_snapshot
+    if data.get("schema") == 3 and data.get("task_ids") is not None:
+        return [uuid.UUID(identifier) for identifier in data["task_ids"]]
+    return None
 
 
 async def _guard(db, receipt, task_id):
@@ -66,13 +78,17 @@ async def _guard(db, receipt, task_id):
     _attempt(row, receipt, task_id)
     batch_id = receipt._input_snapshot["batch_id"]
     await _reauthorize_export_final_write(
-        db, receipt.job_id, None, batch_id=uuid.UUID(batch_id) if batch_id else None
+        db,
+        receipt.job_id,
+        _selected(receipt),
+        batch_id=uuid.UUID(batch_id) if batch_id else None,
     )
     _attempt(row, receipt, task_id)
     await bundles.check_claim(db, receipt, lock=True)
 
 
 async def _published(db, receipt, *, lock=False):
+    error = for_snapshot(receipt._input_snapshot).error("cache_changed")
     query = select(
         *(getattr(ExportMediaBundle, name) for name in bundles._SCALARS)
     ).where(ExportMediaBundle.id == receipt.id)
@@ -80,7 +96,7 @@ async def _published(db, receipt, *, lock=False):
         query = query.with_for_update(read=True, nowait=True)
     facts = (await db.execute(query)).mappings().one_or_none()
     if facts is None:
-        reject("lidar_export_cache_changed")
+        reject(error)
     current = bundles._fence(dict(facts))
     if (
         current.state != "ready"
@@ -90,7 +106,7 @@ async def _published(db, receipt, *, lock=False):
             getattr(current, name) != getattr(receipt, name) for name in bundles._FACTS
         )
     ):
-        reject("lidar_export_cache_changed")
+        reject(error)
     return current
 
 
@@ -158,6 +174,7 @@ def _naming(data, job_id):
 
 def _cache_key(receipt):
     data = receipt._input_snapshot
+    adapter = for_snapshot(data)
     options = data["options"]
     return cache.compute_cache_key(
         uuid.UUID(data["batch_id"]) if data["batch_id"] else receipt.project_id,
@@ -167,8 +184,11 @@ def _cache_key(receipt):
         None,
         len(data["annotations"]),
         axis_frame=options.get("axis_frame", "iso"),
-        options_digest=lidar_inputs.digest(
-            {"lidar_media_contract": 2, "input_digest": receipt.input_digest}
+        options_digest=adapter.inputs.digest(
+            {
+                adapter.proof_key + "_contract": adapter.schema,
+                "input_digest": receipt.input_digest,
+            }
         ),
     )
 
@@ -184,6 +204,9 @@ async def _invalidate(db, artifact_id, output_id):
 
 async def _lookup(db, receipt, key, *, guard):
     """Verify ZIP and every copy outside SQL locks; never extend signed deadlines."""
+    adapter = for_snapshot(receipt._input_snapshot)
+    if receipt._input_snapshot.get("references"):
+        return None
     artifact = await db.scalar(
         select(ExportArtifact)
         .where(ExportArtifact.cache_key == key, ExportArtifact.expires_at > now())
@@ -206,7 +229,7 @@ async def _lookup(db, receipt, key, *, guard):
         ExportMediaBundle, output.media_bundle_id, populate_existing=True
     )
     if owner_row is None:
-        reject("lidar_export_cache_changed")
+        reject(adapter.error("cache_changed"))
     previous = bundles.snapshot(owner_row)
     if (
         output.state != "ready"
@@ -217,9 +240,9 @@ async def _lookup(db, receipt, key, *, guard):
         or previous.job_id != output.job_id
         or previous.expires_at != candidate.expires_at
     ):
-        reject("lidar_export_cache_changed")
+        reject(adapter.error("cache_changed"))
     data = previous.input_snapshot
-    mapping = bundles.source_objects(previous, logical_sources(data))
+    mapping = bundles.source_objects(previous, adapter.logical_sources(data))
     bindings = {}
     for row in data["media"]:
         bindings.setdefault(row["source_key"], []).append(row)
@@ -236,7 +259,7 @@ async def _lookup(db, receipt, key, *, guard):
     async def source_guard(owned, references=()):
         await guard(owned)
         for binding in references:
-            await lidar_inputs.check_source(owned, binding)
+            await adapter.inputs.check_source(owned, binding)
 
     try:
         present, zip_revision = await _io(
@@ -269,7 +292,7 @@ async def _lookup(db, receipt, key, *, guard):
                     key: facts["size_bytes"]
                     for key, facts in record.inventory["objects"].items()
                 }:
-                    reject("lidar_export_cache_inventory_changed")
+                    reject(adapter.error("cache_inventory_changed"))
 
         await _io(db, previous, inventory, guard=source_guard, published=True)
     except (
@@ -286,6 +309,8 @@ async def _lookup(db, receipt, key, *, guard):
             "export_storage_expired",
             "lidar_export_cache_changed",
             "lidar_export_cache_inventory_changed",
+            "image_export_cache_changed",
+            "image_export_cache_inventory_changed",
         }
         if not recoverable or getattr(exc, "storage_operation_unsettled", False):
             raise
@@ -304,7 +329,9 @@ async def _finish_cache(db, receipt, hit, previous, *, task_id, name):
     )
 
     await _guard(db, receipt, task_id)
-    await lidar_inputs.check(db, receipt._input_snapshot, lock=True)
+    await for_snapshot(receipt._input_snapshot).inputs.check(
+        db, receipt._input_snapshot, lock=True
+    )
     await _published(db, previous, lock=True)
     job = await db.get(AsyncJob, receipt.job_id)
     from app.services.exporting import output_authority
@@ -348,7 +375,9 @@ async def _fail(db, receipt, task_id, exc):
     if isinstance(exc, ExportCancelled):
         await db.rollback()
         return
-    code = getattr(exc, "code", None) or "lidar_export_failed"
+    code = getattr(exc, "code", None) or for_snapshot(receipt._input_snapshot).error(
+        "failed"
+    )
     await jobs.mark_failed(db, receipt.job_id, error=code)
     pending = await _emit_export_notification(db, receipt.job_id, ok=False, error=code)
     await db.commit()
@@ -363,13 +392,16 @@ async def _fail_unclaimed(db, receipt, task_id, exc):
 
     await db.rollback()
     row = await _job(db, receipt.job_id)
-    proof = (row.payload or {}).get("lidar_media") if row is not None else None
+    adapter = for_snapshot(receipt._input_snapshot)
+    proof = (row.payload or {}).get(adapter.proof_key) if row is not None else None
     if (
         row is None
         or row.status not in {"pending", "running"}
         or row.celery_task_id not in {None, task_id}
         or row.project_id != receipt.project_id
         or not isinstance(proof, dict)
+        or type(proof.get("schema")) is not int
+        or proof["schema"] != adapter.schema
         or proof.get("bundle_id") != str(receipt.id)
         or proof.get("input_digest") != receipt.input_digest
     ):
@@ -386,32 +418,45 @@ async def _fail_unclaimed(db, receipt, task_id, exc):
     if current is None or current.lease_token is not None:
         await db.rollback()
         return
-    code = getattr(exc, "code", None) or "lidar_export_failed"
+    code = getattr(exc, "code", None) or adapter.error("failed")
     await jobs.mark_failed(db, receipt.job_id, error=code)
     pending = await _emit_export_notification(db, receipt.job_id, ok=False, error=code)
     await db.commit()
     await _publish_export_notification(db, pending)
 
 
-async def _missing_contract(db, job, *, project_id, batch_id, targets, task_ids):
+async def _missing_contract(
+    db, job, *, project_id, batch_id, targets, task_ids, opts=None, adapter=None
+):
     """End a matching historical Job without inventing a new media contract."""
     from app.workers.export import (
         _emit_export_notification,
         _publish_export_notification,
     )
 
-    payload = job.payload or {}
-    if (
-        job.kind != "export"
-        or str(job.project_id) != project_id
-        or not lidar_jobs._same_json(payload.get("targets"), targets)
-        or payload.get("batch_id") != batch_id
-        or task_ids is not None
-        or payload.get("scope") is not None
-        or payload.get("task_ids") is not None
-    ):
-        reject("lidar_export_message_changed")
-    code = "lidar_export_contract_missing"
+    adapter = adapter or protocol()
+    if adapter.kind == "image":
+        adapter.jobs.validate_missing_message(
+            job,
+            project_id=project_id,
+            batch_id=batch_id,
+            targets=targets,
+            opts=opts,
+            task_ids=task_ids,
+        )
+    else:
+        payload = job.payload or {}
+        if (
+            job.kind != "export"
+            or str(job.project_id) != project_id
+            or not lidar_jobs._same_json(payload.get("targets"), targets)
+            or payload.get("batch_id") != batch_id
+            or task_ids is not None
+            or payload.get("scope") is not None
+            or payload.get("task_ids") is not None
+        ):
+            reject("lidar_export_message_changed")
+    code = adapter.error("contract_missing")
     await jobs.mark_failed(db, job.id, error=code)
     pending = await _emit_export_notification(db, job.id, ok=False, error=code)
     await db.commit()
@@ -419,7 +464,17 @@ async def _missing_contract(db, job, *, project_id, batch_id, targets, task_ids)
 
 
 async def run_owned(
-    db, *, project_id, batch_id, task_ids, targets, opts, async_job_id, celery_task_id
+    db,
+    *,
+    project_id,
+    batch_id,
+    task_ids,
+    targets,
+    opts,
+    async_job_id,
+    celery_task_id,
+    media_kind="lidar",
+    worker_node_id=None,
 ):
     """Own one durable attempt; stale/duplicate deliveries never gain publication."""
     from app.workers.export import (
@@ -428,9 +483,10 @@ async def run_owned(
         _reauthorize_export_final_write,
         _sign_export_output,
     )
-    from app.services.exporting.lidar_delivery import prepare
 
+    adapter = protocol(media_kind)
     receipt = None
+    reference_media = None
     path = None
     claimed, accepted = False, False
     try:
@@ -441,9 +497,9 @@ async def run_owned(
         if job.celery_task_id is not None and job.celery_task_id != celery_task_id:
             await db.rollback()
             return
-        proof = (job.payload or {}).get("lidar_media")
+        proof = (job.payload or {}).get(adapter.proof_key)
         if not isinstance(proof, dict) or (
-            type(proof.get("schema")) is int and proof["schema"] == 1
+            type(proof.get("schema")) is int and proof["schema"] != adapter.schema
         ):
             await _missing_contract(
                 db,
@@ -452,15 +508,17 @@ async def run_owned(
                 batch_id=batch_id,
                 targets=targets,
                 task_ids=task_ids,
+                opts=opts,
+                adapter=adapter,
             )
             return
         row = await db.get(
             ExportMediaBundle, uuid.UUID(proof["bundle_id"]), populate_existing=True
         )
         if row is None:
-            reject("lidar_export_contract_missing")
+            reject(adapter.error("contract_missing"))
         receipt = bundles.snapshot(row)
-        lidar_jobs.validate_message(
+        adapter.jobs.validate_message(
             job,
             receipt,
             project_id=project_id,
@@ -471,12 +529,33 @@ async def run_owned(
         )
         accepted = True
         await _reauthorize_export_final_write(
-            db, job.id, None, batch_id=uuid.UUID(batch_id) if batch_id else None
+            db,
+            job.id,
+            _selected(receipt),
+            batch_id=uuid.UUID(batch_id) if batch_id else None,
         )
-        await lidar_inputs.check(db, receipt._input_snapshot)
-        from app.services.exporting.lidar_preflight import assert_frozen_lidar_ready
+        await adapter.inputs.check(db, receipt._input_snapshot)
+        if adapter.ready is not None:
+            await adapter.ready(receipt._input_snapshot)
+        if adapter.kind == "image":
+            authority = (job.payload or {}).get("export_authority")
+            if authority is not None:
+                from app.services.exporting.reference_media import ReferenceExportMedia
 
-        await assert_frozen_lidar_ready(receipt._input_snapshot)
+                if not worker_node_id:
+                    reject("reference_export_worker_node_missing")
+                reference_media = ReferenceExportMedia(
+                    db,
+                    job.id,
+                    authority,
+                    project_id=receipt.project_id,
+                    batch_id=uuid.UUID(batch_id) if batch_id else None,
+                    task_ids=_selected(receipt),
+                    node_id=worker_node_id,
+                )
+                await reference_media.validate()
+            elif receipt._input_snapshot.get("references"):
+                reject("reference_export_authority_missing")
         if receipt.lease_token is not None:
             await db.rollback()
             return
@@ -502,7 +581,10 @@ async def run_owned(
         await guard(db)
         await jobs.update_progress(db, receipt.job_id, 10)
         await db.commit()
-        context = await prepare(db, receipt, guard=guard)
+        context = await adapter.prepare(db, receipt, guard=guard)
+        context_options = {adapter.context_keyword: context}
+        if adapter.kind == "image":
+            context_options["reference_media"] = reference_media
         path, file_count, size = await build_export_zip(
             db,
             receipt.project_id,
@@ -512,7 +594,7 @@ async def run_owned(
             video_frame_mode=opts.get("video_frame_mode", "keyframes"),
             axis_frame=opts.get("axis_frame", "iso"),
             format_options=opts,
-            lidar_media=context,
+            **context_options,
             check_cancel=lambda: check_cancelled(db, receipt.job_id),
         )
         await guard(db)
@@ -546,21 +628,24 @@ async def run_owned(
                 or current.state != "pending"
                 or not export_outputs.same(current, candidate)
             ):
-                reject("lidar_export_output_changed")
+                reject(adapter.error("output_changed"))
 
         _, revision = await _io(
             db, receipt, lambda: export_storage.write(candidate, path), guard=zip_guard
         )
         await _guard(db, receipt, celery_task_id)
-        await lidar_inputs.check(db, receipt._input_snapshot, lock=True)
+        if reference_media is not None:
+            await reference_media.validate(final=True)
+        await adapter.inputs.check(db, receipt._input_snapshot, lock=True)
         output = await export_outputs.publish(db, candidate, revision)
         await bundles.publish(db, receipt)
-        await cache.record(
-            db,
-            cache_key=key,
-            output=output,
-            batch_id=uuid.UUID(batch_id) if batch_id else None,
-        )
+        if not receipt._input_snapshot.get("references"):
+            await cache.record(
+                db,
+                cache_key=key,
+                output=output,
+                batch_id=uuid.UUID(batch_id) if batch_id else None,
+            )
         url = await _sign_export_output(
             db, await db.get(AsyncJob, receipt.job_id), candidate, name
         )

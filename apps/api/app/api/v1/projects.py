@@ -2088,7 +2088,6 @@ async def export_project(
 
     from app.services.exporting.reference_media import capture_export_authority
 
-    export_authority = await capture_export_authority(db, project, actor, request)
     from app.services.exporting import output_authority
 
     output_proof = await output_authority.capture(db, project, actor, request)
@@ -2108,7 +2107,6 @@ async def export_project(
         user_id=actor.id,
         project_id=project.id,
         payload={
-            **({"export_authority": export_authority} if export_authority else {}),
             "output_authority": output_proof,
             "batch_id": None,
             "targets": targets,
@@ -2118,14 +2116,23 @@ async def export_project(
         },
     )
     from app.services.content_snapshot import ContentError
-    from app.services.exporting.lidar_jobs import capture_job
+    from app.services.exporting.media_jobs import capture_job
 
     try:
-        await capture_job(
+        media_bundle = await capture_job(
             db, job, project, batch_id=None, targets=targets, opts=export_opts
         )
     except ContentError as exc:
         raise HTTPException(status_code=exc.status, detail={"code": exc.code}) from exc
+    export_authority = await capture_export_authority(
+        db,
+        project,
+        actor,
+        request,
+        frozen_snapshot=media_bundle.input_snapshot if media_bundle else None,
+    )
+    if export_authority:
+        job.payload = {**job.payload, "export_authority": export_authority}
     await AuditService.log(
         db,
         actor=actor,

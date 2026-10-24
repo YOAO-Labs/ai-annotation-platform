@@ -96,18 +96,23 @@ async def test_unpublished_attempt_end_is_explicit_and_never_a_job_age_timeout(s
         "extra",
         "missing",
         "same",
+        "input_schema",
+        "proof_kind",
+        "both",
     ],
 )
-async def test_replacement_requires_an_existing_exact_new_bundle_proof(fault):
+@pytest.mark.parametrize("schema", [1, 2, 3])
+async def test_replacement_requires_an_existing_exact_new_bundle_proof(fault, schema):
     row = owner()
     replacement = SimpleNamespace(
         id=uuid.uuid4(),
         project_id=row.project_id,
         job_id=row.job_id,
         input_digest="b" * 64,
+        input_schema=schema,
     )
     proof = {
-        "schema": 1,
+        "schema": schema,
         "bundle_id": str(replacement.id),
         "input_digest": replacement.input_digest,
     }
@@ -123,11 +128,19 @@ async def test_replacement_requires_an_existing_exact_new_bundle_proof(fault):
         proof["lease"] = "renewed"
     elif fault == "same":
         proof["bundle_id"] = str(row.id)
+    elif fault == "input_schema":
+        replacement.input_schema = 2 if schema == 3 else 3
+    key = "image_media" if schema == 3 else "lidar_media"
+    if fault == "proof_kind":
+        key = "lidar_media" if key == "image_media" else "image_media"
+    payload = {key: proof}
+    if fault == "both":
+        payload["lidar_media" if key == "image_media" else "image_media"] = proof
     job = SimpleNamespace(
         kind="export",
         status="running",
         project_id=row.project_id,
-        payload={"lidar_media": proof},
+        payload=payload,
     )
     db = PolicyDB(job, None if fault == "missing" else replacement)
     assert await retirement.attempt_ended(db, row) is (fault is None)
