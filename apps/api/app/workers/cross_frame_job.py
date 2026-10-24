@@ -170,6 +170,17 @@ async def execute_cross_frame_job(
     job_id: uuid.UUID,
     celery_task_id: str | None = None,
 ) -> None:
+    job = await db.get(AsyncJob, job_id, populate_existing=True)
+    if (
+        job is None
+        or job.kind != JOB_KIND
+        or job.status
+        not in {
+            AsyncJobStatus.PENDING.value,
+            AsyncJobStatus.RUNNING.value,
+        }
+    ):
+        return
     await async_job_svc.mark_running(db, job_id, celery_task_id=celery_task_id)
     await db.commit()
     job = await db.get(AsyncJob, job_id)

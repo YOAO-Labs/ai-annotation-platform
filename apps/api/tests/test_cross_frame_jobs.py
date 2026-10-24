@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+import sys
 import uuid
-from types import SimpleNamespace
+from types import ModuleType
 
 import pytest
 from sqlalchemy import func, select
@@ -22,6 +24,24 @@ from app.workers.cross_frame_job import (
     execute_cross_frame_job,
 )
 from tests.factory import create_project, create_user
+
+
+def _install_jobs_queue(monkeypatch, callback=None):
+    requests = []
+    module = ModuleType("app.services.jobs_queue")
+
+    async def dispatch_job(**request):
+        requests.append(request)
+        if callback is None:
+            return request["execution_id"]
+        result = callback(**request)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
+
+    module.dispatch_job = dispatch_job
+    monkeypatch.setitem(sys.modules, "app.services.jobs_queue", module)
+    return requests
 
 
 def _box3d():
@@ -152,12 +172,11 @@ async def test_create_cross_frame_job_is_explicit_and_singleflight(
     source = await _add_box(db_session, task=tasks[0], project=project, user_id=user.id)
     dispatched = []
 
-    def fake_delay(job_id):
-        dispatched.append(job_id)
-        return SimpleNamespace(id="celery-cross-frame")
-
-    monkeypatch.setattr(
-        "app.workers.cross_frame_job.run_cross_frame_job.delay", fake_delay
+    requests = _install_jobs_queue(
+        monkeypatch,
+        lambda **request: (
+            dispatched.append(request["args"][0]) or request["execution_id"]
+        ),
     )
     url = f"/api/v1/tasks/{tasks[0].id}/cross-frame-jobs"
     headers = {"Authorization": f"Bearer {token}"}
@@ -168,6 +187,16 @@ async def test_create_cross_frame_job_is_explicit_and_singleflight(
     assert second.status_code == 202, second.text
     assert first.json()["id"] == second.json()["id"]
     assert dispatched == [first.json()["id"]]
+    assert requests[0]["task_name"] == (
+        "app.workers.cross_frame_job.run_cross_frame_job"
+    )
+    assert requests[0]["args"] == [first.json()["id"]]
+    stored_job = await db_session.get(
+        AsyncJob, uuid.UUID(first.json()["id"]), populate_existing=True
+    )
+    assert requests[0]["execution_id"] == stored_job.celery_task_id
+    assert "kwargs" not in requests[0]
+    assert "options" not in requests[0]
     payload = first.json()["payload"]
     assert payload["contract_version"] == 1
     assert payload["scene_id"] == str(scene.id)
@@ -195,10 +224,7 @@ async def test_cross_frame_worker_propagates_range_and_skips_existing_track(
         user_id=user.id,
         track_id="trk-cross-frame",
     )
-    monkeypatch.setattr(
-        "app.workers.cross_frame_job.run_cross_frame_job.delay",
-        lambda _job_id: SimpleNamespace(id="celery-cross-frame"),
-    )
+    _install_jobs_queue(monkeypatch)
     response = await httpx_client.post(
         f"/api/v1/tasks/{tasks[0].id}/cross-frame-jobs",
         json=_request(source.id),
@@ -234,10 +260,7 @@ async def test_cross_frame_worker_marks_changed_source_stale(
     user, token = super_admin
     project, _, tasks = await _seed_scene(db_session, owner_id=user.id)
     source = await _add_box(db_session, task=tasks[0], project=project, user_id=user.id)
-    monkeypatch.setattr(
-        "app.workers.cross_frame_job.run_cross_frame_job.delay",
-        lambda _job_id: SimpleNamespace(id="celery-cross-frame"),
-    )
+    _install_jobs_queue(monkeypatch)
     response = await httpx_client.post(
         f"/api/v1/tasks/{tasks[0].id}/cross-frame-jobs",
         json=_request(source.id),
@@ -329,10 +352,7 @@ async def test_cross_frame_cancel_is_immediate_when_pending_and_cooperative_when
     user, token = super_admin
     project, _, tasks = await _seed_scene(db_session, owner_id=user.id)
     source = await _add_box(db_session, task=tasks[0], project=project, user_id=user.id)
-    monkeypatch.setattr(
-        "app.workers.cross_frame_job.run_cross_frame_job.delay",
-        lambda _job_id: SimpleNamespace(id="celery-cross-frame"),
-    )
+    _install_jobs_queue(monkeypatch)
     monkeypatch.setattr(
         "app.workers.celery_app.celery_app.control.revoke",
         lambda *_args, **_kwargs: None,
@@ -383,10 +403,7 @@ async def test_cross_frame_worker_continues_after_one_target_rolls_back(
     user, token = super_admin
     project, _, tasks = await _seed_scene(db_session, owner_id=user.id)
     source = await _add_box(db_session, task=tasks[0], project=project, user_id=user.id)
-    monkeypatch.setattr(
-        "app.workers.cross_frame_job.run_cross_frame_job.delay",
-        lambda _job_id: SimpleNamespace(id="celery-cross-frame"),
-    )
+    _install_jobs_queue(monkeypatch)
     response = await httpx_client.post(
         f"/api/v1/tasks/{tasks[0].id}/cross-frame-jobs",
         json=_request(source.id),
@@ -423,16 +440,7 @@ async def test_cross_frame_all_scope_caps_source_snapshot(
             project=project,
             user_id=user.id,
         )
-    dispatched = False
-
-    def fake_delay(_job_id):
-        nonlocal dispatched
-        dispatched = True
-        return SimpleNamespace(id="unused")
-
-    monkeypatch.setattr(
-        "app.workers.cross_frame_job.run_cross_frame_job.delay", fake_delay
-    )
+    dispatches = _install_jobs_queue(monkeypatch)
     response = await httpx_client.post(
         f"/api/v1/tasks/{tasks[0].id}/cross-frame-jobs",
         json=_request(uuid.uuid4(), start=1, end=1, scope="all"),
@@ -440,7 +448,7 @@ async def test_cross_frame_all_scope_caps_source_snapshot(
     )
 
     assert response.status_code == 422
-    assert dispatched is False
+    assert dispatches == []
 
 
 async def test_cross_frame_job_validates_scope_direction_and_editable_targets(
@@ -449,10 +457,7 @@ async def test_cross_frame_job_validates_scope_direction_and_editable_targets(
     user, token = super_admin
     project, _, tasks = await _seed_scene(db_session, owner_id=user.id, frames=[0, 1])
     source = await _add_box(db_session, task=tasks[0], project=project, user_id=user.id)
-    monkeypatch.setattr(
-        "app.workers.cross_frame_job.run_cross_frame_job.delay",
-        lambda _job_id: SimpleNamespace(id="unused"),
-    )
+    _install_jobs_queue(monkeypatch)
     url = f"/api/v1/tasks/{tasks[0].id}/cross-frame-jobs"
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -481,12 +486,16 @@ async def test_retry_failed_cross_frame_job_refreshes_source_snapshot(
     project, _, tasks = await _seed_scene(db_session, owner_id=user.id)
     source = await _add_box(db_session, task=tasks[0], project=project, user_id=user.id)
     dispatched = []
-    monkeypatch.setattr(
-        "app.workers.cross_frame_job.run_cross_frame_job.delay",
-        lambda job_id: (
-            dispatched.append(job_id) or SimpleNamespace(id=f"celery-{len(dispatched)}")
-        ),
-    )
+
+    async def record_dispatch(**request):
+        dispatched.append(request["args"][0])
+        stored = await db_session.get(
+            AsyncJob, uuid.UUID(request["args"][0]), populate_existing=True
+        )
+        assert stored.celery_task_id == request["execution_id"]
+        return request["execution_id"]
+
+    _install_jobs_queue(monkeypatch, record_dispatch)
     response = await httpx_client.post(
         f"/api/v1/tasks/{tasks[0].id}/cross-frame-jobs",
         json=_request(source.id),

@@ -43,28 +43,31 @@ router = APIRouter()
 
 
 async def _dispatch_job(db: AsyncSession, job: AsyncJob) -> AsyncJob:
+    execution_id = job.celery_task_id or str(uuid.uuid4())
+    async_job_svc.bind_execution_id(job, execution_id)
     await db.commit()
     try:
-        from app.workers.cross_frame_job import run_cross_frame_job
+        from app.services.jobs_queue import dispatch_job
 
-        queued = run_cross_frame_job.delay(str(job.id))
+        await dispatch_job(
+            task_name="app.workers.cross_frame_job.run_cross_frame_job",
+            execution_id=execution_id,
+            args=[str(job.id)],
+        )
     except Exception as exc:
-        await async_job_svc.mark_failed(
+        changed = await async_job_svc.mark_dispatch_failed(
             db, job.id, error="cross-frame job dispatch failed"
         )
-        await notify_job_terminal(db, job_id=job.id)
+        if changed:
+            await notify_job_terminal(db, job_id=job.id)
         await db.commit()
         raise HTTPException(
             status_code=503,
             detail="cross-frame worker is unavailable",
         ) from exc
-    current = await db.get(AsyncJob, job.id)
+    current = await db.get(AsyncJob, job.id, populate_existing=True)
     if current is None:
         raise HTTPException(status_code=500, detail="cross-frame job disappeared")
-    if not current.celery_task_id:
-        async_job_svc.bind_execution_id(current, str(queued.id))
-        await db.commit()
-        await db.refresh(current)
     return current
 
 
