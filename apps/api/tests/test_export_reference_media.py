@@ -42,7 +42,10 @@ from app.services.exporting.reference_media import (
     authorize_export_job,
     capture_export_authority,
 )
-from app.services.raster_mask_storage import build_rle_reference, canonical_rle_bytes
+from app.services.raster_mask_storage import (
+    build_rle_reference,
+    store_mask_reference_objects,
+)
 from app.services.storage import storage_service
 from app.utils.raster_mask_rle import encode_coco_rle
 from app.workers import export as worker
@@ -128,12 +131,13 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
     await db_session.flush()
     rle = encode_coco_rle([1] + [0] * (48 * 32 - 1), 48, 32)
     mask_reference = build_rle_reference(rle)
-
-    def mask_object(**kwargs):
-        assert kwargs["Key"] == mask_reference["object_key"]
-        return {"Body": io.BytesIO(canonical_rle_bytes(rle))}
-
-    monkeypatch.setattr(storage_service.client, "get_object", mask_object)
+    geometry = {"type": "raster_mask", "mask": mask_reference}
+    await db_session.execute(
+        select(Task.id).where(Task.id == task.id).with_for_update(nowait=True)
+    )
+    await store_mask_reference_objects(
+        db_session, geometry, [(mask_reference, rle)], task_id=task.id
+    )
     db_session.add(
         Annotation(
             project_id=project.id,
@@ -151,10 +155,7 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
             tool_unit_id="region",
             annotation_type="raster_mask",
             class_name="car",
-            geometry={
-                "type": "raster_mask",
-                "mask": mask_reference,
-            },
+            geometry=geometry,
         )
     )
     await db_session.flush()

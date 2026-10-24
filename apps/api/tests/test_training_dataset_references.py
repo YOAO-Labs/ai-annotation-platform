@@ -129,14 +129,16 @@ async def test_reference_freeze_pins_labels_and_retains_originals_after_source_r
     httpx_client,
     super_admin,
     selection,
-    request,
     tmp_path,
     monkeypatch,
 ):
     db, (world, project, _) = db_session, reference_training
     project_id = project.id
     if selection.get("bridge"):
-        from app.services.raster_mask_storage import store_coco_rle_sync
+        from app.services.raster_mask_storage import (
+            build_rle_reference,
+            store_mask_reference_objects,
+        )
         from tests.test_training_instance_rle import rle
 
         mask = rle(
@@ -148,16 +150,29 @@ async def test_reference_freeze_pins_labels_and_retains_originals_after_source_r
                 for y in range(32)
             ]
         )
-        reference = store_coco_rle_sync(mask)
-        request.addfinalizer(
-            lambda: storage_service.delete_object(reference["object_key"])
-        )
-        for annotation in await db.scalars(
-            select(Annotation).where(
-                Annotation.project_id == project_id, Annotation.tool_unit_id == "region"
+        annotations = list(
+            await db.scalars(
+                select(Annotation)
+                .where(
+                    Annotation.project_id == project_id,
+                    Annotation.tool_unit_id == "region",
+                )
+                .order_by(Annotation.task_id, Annotation.id)
             )
-        ):
-            annotation.geometry = {"type": "raster_mask", "mask": reference}
+        )
+        await db.execute(
+            select(Task.id)
+            .where(Task.id.in_({annotation.task_id for annotation in annotations}))
+            .order_by(Task.id)
+            .with_for_update(nowait=True)
+        )
+        reference = build_rle_reference(mask)
+        for annotation in annotations:
+            geometry = {"type": "raster_mask", "mask": reference}
+            await store_mask_reference_objects(
+                db, geometry, [(reference, mask)], task_id=annotation.task_id
+            )
+            annotation.geometry = geometry
         await db.commit()
     version, report = await create_version(
         db, httpx_client, headers(super_admin), project, selection
