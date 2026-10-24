@@ -1262,3 +1262,13 @@ Creation 新增 dataset_auxiliary 范围和专属 `__aap_auxiliary_originals__/{
 辅助原件沿当前保守原件保留政策：业务删除只解除指针，独立 owner／Creation 和未知操作责任保留，不宣称已有自动物理回收资格。七天交付副本继续由 G1 精确清单退休与回收；不增加裸扫或按当前桶删除。恢复只在现有 restore guard 下映射辅助当前 owner 的 bucket／storage_identity；历史 Creation、冻结 JSON、签名 URL、期限和所有内容证据不变，新增语义核对与 raw／map 真字节夹具。新 bundle 沿用精确缓存失效；旧 ZIP 的历史链接不能因桶恢复被宣称已更新。
 
 实施在本地 Design HEAD 的隔离树，测试只用新建可销毁环境，覆盖新导入／幂等重导、指针错配、共享地图、扫描与直传禁区、源篡改／撤权、纯及混合导出、全场景与坐标合同、预算、真实关闭、恢复映射和清理。同步用户／API／架构资料与生成合同。保留3100／8100、两 Worker／绑定 Beat与既有业务指纹，不安装依赖、重建镜像、分配发布版本或归档仍活动的 E02／B13。
+
+### G2 implementation checkpoint — auxiliary originals and complete delivery
+
+0235 的独立辅助归属、数据库绑定约束、专属创建空间及 raw／map resolver 已落地。导入器从同一有界原始读取生成 raw 与平台 PCD，受控创建及完整核验在业务最终锁外完成；已登记重导复用原件并核对旧元数据和当前关系，最终事务检查 Dataset／Scene／Item 与准确委派授权。物理线程在所有 BaseException 下排空并采纳迟到回执；未知收尾保留耐久许可。
+
+新输入合同为 schema 2，纯 NuScenes 和混合格式同样冻结完整 Scene、全部相机及辅助原件，逐件复制、缓存核验与发布复核沿用 G1。共享地图虽只写一个副本，每个引用 Task 都独立检查绑定。生成下载器完整校验大小、SHA 和安全路径，支持公共网关及显式 base URL。空 raw `.pcd.bin` 保留零字节与空内容 SHA；迁移 0236 仅放宽不可变预期清单的零字节下界，应用仍拒绝空图片／地图／平台 PCD，降级前拒绝存在零字节清单。
+
+真实 ASGI HTTP→独立 Celery→MinIO 已完成纯 NuScenes、缓存复用、KITTI 混合三次成功交付，以及同长度 raw 与地图篡改的两次明确失败。双 Scene、双相机数据的十三条媒体逐字节核对，三次生成下载器实际运行均通过，包含空原始点云；幂等重导未增加 Creation 或替换 Item 来源。该资格不代表独立 TCP API 服务、浏览器或 GPU 性能验收。
+
+用户／API／架构／恢复说明及 CHANGELOG 已更新，OpenAPI 无漂移、codegen、docs build 和代码格式检查已通过。完整回归、包含真实空辅助 Creation 的最终离线恢复、主树合入、人工环境 0236 刷新及按归属清理仍待完成，本检查点不作为 G2 Outcome。完整 E02／B13 和用途切换仍继续执行。

@@ -33,7 +33,7 @@ last_reviewed: 2026-10-24
 
 每次 HTTP 请求预分配独立 bundle、ZIP UUID 和媒体 UUID，Worker 一次 claim、固定 3600 秒，不续约或接管。ZIP 和媒体共用登记时起 168 小时的截止；缓存同时完整验证保存的 ZIP 与媒体，只签剩余窗口。损坏或缺失的缓存重新生成独立交付，不覆盖旧对象。已发布媒体保留到固定截止，即使 Job、项目或缓存索引消失；未发布的关联 ZIP／副本在明确尝试结束后才进入可重试回收。任何相关未知存储操作继续阻止删除。
 
-私有输入、清单和 `lidar_media` 证明不出现在公开 Job DTO。项目预检及实际导出仍沿用既有 `export.annotations` 能力；批次预检保留项目可见性要求，不新增 `tasks:read`／`annotations:read`。旧未完成点云 Job 缺少媒体合同会失败，需要重新导出。恢复映射只改变保存桶和身份，保留 ZIP 内历史媒体 URL 与原期限，并失效准确关联的缓存；恢复后重新导出生成新的链接。NuScenes raw／map 辅助文件尚未进入此合同，混合包只在上述三目标及其共享主 PCD／相机上使用独立副本。
+私有输入、清单和 `lidar_media` 证明不出现在公开 Job DTO。项目预检及实际导出仍沿用既有 `export.annotations` 能力；批次预检保留项目可见性要求，不新增 `tasks:read`／`annotations:read`。旧未完成点云 Job 缺少媒体合同会失败，需要重新导出。恢复映射只改变保存桶和身份，保留 ZIP 内历史媒体 URL 与原期限，并失效准确关联的缓存；恢复后重新导出生成新的链接。NuScenes 的 raw／map 和全部相机同样进入此合同；单独与混合导出共用冻结输入、完整副本核验与固定截止。辅助文件缺少独立归属时明确拒绝，历史 JSON 路径和摘要不构成归属证明。
 
 ## 导出数据契约
 
@@ -180,7 +180,7 @@ KITTI 不消费 `axis_frame`。它会先按每帧数据集的 `axis_convention` 
 
 `targets=coco-multicamera` 不依赖主点云轴约定或完整 Scene。它为每个相机 link 生成一个 COCO image，只导出持久化人工 bbox，并保留无框图作为负样本；不会用 3D 投影补框。预检会核对 link、媒体类型/宽高/对象大小、归一化 bbox、类别及 2D 成员与活跃 3D 成员、SceneTrack 的身份闭合。标定 digest 过期不会阻断独立 2D 真值，而是在 annotation 扩展字段和报告中标记 `stale`。单次范围最多 20,000 张相机图、100,000 个人工框、20 GiB 媒体总量和单图 256 MiB。worker 流式计算媒体 SHA-256；`fetch_media.py` 只会在大小与 SHA-256 校验成功后原子落盘。
 
-`targets=nuscenes` 只接受由 nuScenes 导入器以 ego / ISO 模式保全的完整 Scene。项目或批次预检会校验原始 scene / sample / sensor / pose / map 合同、标定指纹、原始资产指纹和完整帧范围；任一不符时返回 409 且不创建导出任务。单次范围最多包含 1000 帧和 30000 个有效 3D 框，单帧 PCD 不超过 256 MiB、总 PCD 不超过 4 GiB，精确框内点测试不超过 1 亿次；超限同样在预检阶段拒绝。产物是官方 devkit 可加载/查询的关键帧子集，不代表官方 benchmark 兼容。为保证已签发包在链接有效期内仍可物化，删除 Dataset 不会立即删除其冻结的可信来源资产。
+`targets=nuscenes` 只接受由 nuScenes 导入器以 ego / ISO 模式保全的完整 Scene。项目或批次预检会校验原始 scene / sample / sensor / pose / map 合同、标定指纹、原始资产指纹和完整帧范围；任一不符时返回 409 且不创建导出任务。单次范围最多包含 1000 帧和 30000 个有效 3D 框，单帧 PCD 不超过 256 MiB、总 PCD 不超过 4 GiB，精确框内点测试不超过 1 亿次；超限同样在预检阶段拒绝。产物是官方 devkit 可加载/查询的关键帧子集，不代表官方 benchmark 兼容。原始五通道 `.pcd.bin`、相机和地图逐字节复制到已保存的交付位置，`media_manifest.json` 保留原 `rel_path`、`kind`、`source_file_size`、`source_sha256`；平台 PCD 仅供点框统计。所有媒体共用 256MiB／件、21000 件／24GiB 总上限。删除 Dataset 不影响尚未到期的独立交付责任，辅助原件归属继续保留。
 
 ## 权限
 

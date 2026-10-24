@@ -207,3 +207,11 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py --fail-after resto
 ```
 
 真实部署还需确定备份目标、保留时间、外部原件保护责任和维护窗口。生产停写必须覆盖 API、所有 Worker/Beat、清理和外部写入；单个进程锁或数据库 dump 事务不能替代这个门禁。生产删除保护、在线/PITR、调度和上线切换须有各自验收证据。
+
+## NuScenes 辅助原件的部署与恢复
+
+应用迁移 0235、0236 后刷新使用导入器和导出队列的 API／Worker，挂载源码无需重建镜像。新导入器为 raw LiDAR 与地图登记独立 owner，PCD／相机登记真实托管原件；已有合格归属的幂等重导核对并复用。历史数据缺归属时，先提供原始 NuScenes 数据显式重导，再发起新导出，不能只回填 JSON 或从当前桶猜测登记。
+
+受控离线恢复仅映射 DatasetAuxiliaryOriginal 当前 bucket／storage_identity；保留 UUID、Dataset 快照、种类、对象键、SHA／大小、写入回执、源合同与业务指针，Creation 全部历史不变。恢复后按保存位置完整回读 raw／map，源 ETag／VersionId 不作为目标版本选择器。共享地图、未绑定与业务删除后责任继续保留，未完成创建不自动重放，不宣称获得原件物理回收资格。
+
+新 NuScenes 的媒体 bundle 和 ZIP 继承共同截止及现有恢复规则；不可改写的 ZIP 中保留历史签名 URL，准确失效相应缓存。重新导出生成新链接，恢复不会延长旧交付期限。

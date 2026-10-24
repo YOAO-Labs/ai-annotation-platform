@@ -520,4 +520,12 @@ GET分页历史只读；显式POST创建或复用活动任务，接口和通用�
 
 Worker 从冻结 DTO 构建 ZIP，不在序列化中重读业务行；最终按 Job／授权、Batch→Task、Dataset→Item 和场景轨迹父行检查并锁定输入，SQL 锁内不进行对象存储 I/O。预分配的 `ExportOutput.media_bundle_id` 与 bundle 首次发布在同一事务配对，固定登记时起 168 小时。重复投递不获新 claim，缓存验证保存位置的 ZIP 和全部媒体，签名不延期。
 
-回收通过独立 bundle 责任行执行。已发布 latch 保护到共同截止；未发布尝试只在业务终态、可证明替换或租约／交付期限结束时退休。媒体与 ZIP 可分别重试，活跃／未知操作在候选 LIMIT 前排除并在锁内重查，未知额外对象保留。离线恢复只允许映射 bucket／storage_identity，冻结输入、逻辑路径、UUID、摘要和期限均保留；含不可改写媒体 URL 的 G1 缓存准确失效。此合同覆盖 KITTI、Point Mask、多相机 COCO；NuScenes raw／map 的物理交付仍待后续处理。
+回收通过独立 bundle 责任行执行。已发布 latch 保护到共同截止；未发布尝试只在业务终态、可证明替换或租约／交付期限结束时退休。媒体与 ZIP 可分别重试，活跃／未知操作在候选 LIMIT 前排除并在锁内重查，未知额外对象保留。离线恢复只允许映射 bucket／storage_identity，冻结输入、逻辑路径、UUID、摘要和期限均保留；含不可改写媒体 URL 的 G1 缓存准确失效。此合同覆盖 KITTI、Point Mask、多相机 COCO 和 NuScenes；NuScenes 的全部相机沿准确 Task link，raw／map 沿辅助原件指针，纯格式与混合格式使用相同副本和缓存流程。输入合同区分新代，旧 G1 责任仍可验证、退休和恢复，新 NuScenes 请求不采纳旧部分归属。
+
+### NuScenes 辅助原件
+
+`DatasetAuxiliaryOriginal` 保存 verified Creation 对应的独立当前位置与内容事实，没有 Dataset／Item／Scene 业务级联。Item 的 raw 指针和 Scene 的地图指针核对同 Dataset、种类及来源合同；同 Dataset 的多 Scene 可以共享同一确切地图 owner。不同内容的 raw 与平台 PCD 不作为同一 Asset 的副本，也不建立可见辅助 Item。
+
+Creation 的 dataset_auxiliary 范围使用专属 `__aap_auxiliary_originals__/{dataset UUID}/{creation UUID}/payload`，禁止普通直传且不被数据集目录扫描收集。导入器从单次有界原始字节产生 raw 收据与坐标转换后的 PCD；受控写入、完整回读及真实关闭后才关联业务。已登记媒体幂等重导先核对并复用，历史缺归属仅能由明确提供的原始数据重新创建，不能从当前桶推断。
+
+辅助 resolver 只绑定原有导出权限下的准确 Task／主 Item／Scene，不授予新读取能力。冻结保存指针和格式事实，物理复制前后重新检查，最终发布再核整个输入。原件保留合同与七天交付回收分开：业务删除保留辅助 owner、创建历史及未知责任，当前不提供辅助原件自动物理删除。恢复仅映射辅助当前位置的 bucket／storage_identity，不改变原始 Creation、内容证据、token、filename、指针、冻结输入或已签期限。

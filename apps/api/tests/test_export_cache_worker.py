@@ -219,7 +219,7 @@ def isolate_cancel_owner(monkeypatch):
     monkeypatch.setattr(export_worker.output_authority, "validate", AsyncMock())
 
 
-@pytest.mark.parametrize("targets", [["davis", "mots"], ["nuscenes"], ["aap_json"]])
+@pytest.mark.parametrize("targets", [["davis", "mots"], ["aap_json"]])
 @pytest.mark.asyncio
 async def test_export_worker_cache_hit_skips_packaging(
     monkeypatch: pytest.MonkeyPatch,
@@ -333,14 +333,7 @@ async def test_export_worker_cache_hit_skips_packaging(
 
     mark_running.assert_awaited_once()
     expected_options: object = opts
-    if "nuscenes" in targets:
-        expected_options = {
-            "request": opts,
-            "nuscenes_scope_digest": "lidar-scope-digest",
-        }
-        lidar_scope_digest.assert_awaited_once()
-    else:
-        lidar_scope_digest.assert_not_awaited()
+    lidar_scope_digest.assert_not_awaited()
     if task_ids:
         expected_options = {
             "request": opts,
