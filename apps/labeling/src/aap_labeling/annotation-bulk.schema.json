@@ -1,0 +1,281 @@
+{
+  "$defs": {
+    "AnnotationBulkPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "class_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Class Name"
+        },
+        "attributes": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attributes"
+        },
+        "z_order": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Z Order"
+        },
+        "is_locked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Locked"
+        },
+        "is_hidden": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Hidden"
+        }
+      },
+      "title": "AnnotationBulkPatch",
+      "type": "object"
+    },
+    "AnnotationBulkResult": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/AnnotationBulkRow"
+          },
+          "title": "Annotations",
+          "type": "array"
+        },
+        "camera_members": {
+          "items": {
+            "$ref": "#/$defs/AnnotationBulkRow"
+          },
+          "title": "Camera Members",
+          "type": "array"
+        },
+        "tracks": {
+          "items": {
+            "$ref": "#/$defs/AnnotationBulkTrack"
+          },
+          "title": "Tracks",
+          "type": "array"
+        }
+      },
+      "required": ["annotations", "camera_members", "tracks"],
+      "title": "AnnotationBulkResult",
+      "type": "object"
+    },
+    "AnnotationBulkRow": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "attributes": {
+          "title": "Attributes"
+        },
+        "attributes_meta": {
+          "title": "Attributes Meta"
+        },
+        "z_order": {
+          "title": "Z Order",
+          "type": "integer"
+        },
+        "is_locked": {
+          "title": "Is Locked",
+          "type": "boolean"
+        },
+        "is_hidden": {
+          "title": "Is Hidden",
+          "type": "boolean"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "class_name",
+        "attributes",
+        "attributes_meta",
+        "z_order",
+        "is_locked",
+        "is_hidden",
+        "version",
+        "updated_at"
+      ],
+      "title": "AnnotationBulkRow",
+      "type": "object"
+    },
+    "AnnotationBulkTrack": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": ["id", "class_name", "revision", "updated_at"],
+      "title": "AnnotationBulkTrack",
+      "type": "object"
+    },
+    "UpdateAnnotations": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-bulk/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "update",
+          "title": "Operation",
+          "type": "string"
+        },
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Ids",
+          "type": "array"
+        },
+        "patch": {
+          "$ref": "#/$defs/AnnotationBulkPatch"
+        }
+      },
+      "required": ["schema", "operation", "actor_id", "task_id", "project_id", "ids", "patch"],
+      "title": "UpdateAnnotations",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-annotation-bulk/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "update": "#/$defs/UpdateAnnotations"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/UpdateAnnotations"
+        }
+      ],
+      "title": "Request"
+    },
+    "data": {
+      "$ref": "#/$defs/AnnotationBulkResult"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "AnnotationBulkReply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-annotation-bulk/v1",
+  "x-postgresql-functions": ["aap_labeling_v1.annotation_bulk_command(jsonb)"]
+}

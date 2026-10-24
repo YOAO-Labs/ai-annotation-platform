@@ -1,0 +1,26 @@
+"""Move task-scoped bulk Annotation updates behind the Labeling owner."""
+
+from pathlib import Path
+
+import sqlalchemy as sa
+from alembic import op
+
+revision = "0339"
+down_revision = "0338"
+branch_labels = depends_on = None
+
+_SQL_PATH = (
+    Path(__file__).resolve().parents[1] / "sql" / "0339_labeling_annotation_bulk.sql"
+)
+
+
+def upgrade() -> None:
+    for statement in _SQL_PATH.read_text(encoding="utf-8").split(
+        "-- aap-statement-break"
+    ):
+        if statement.strip():
+            op.execute(sa.text(statement.strip().replace(":", r"\:")))
+
+
+def downgrade() -> None:
+    op.execute("DROP FUNCTION aap_labeling_v1.annotation_bulk_command(jsonb) RESTRICT")

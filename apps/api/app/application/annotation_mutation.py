@@ -179,6 +179,9 @@ class _AnnotationBulkUpdateSqlAdapter(AnnotationBulkUpdatePort):
             z_order=payload.patch.z_order,
             is_locked=payload.patch.is_locked,
             is_hidden=payload.patch.is_hidden,
+            actor_id=self._actor.id,
+            task_id=task.id,
+            project_id=task.project_id,
         )
         await AuditService.log(
             self._db,

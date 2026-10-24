@@ -26,6 +26,11 @@ from aap_labeling.annotation_write_contract import (
     UpdateAnnotation,
     WriteCreateReceipt,
 )
+from aap_labeling.annotation_bulk_contract import (
+    ANNOTATION_BULK_PROTOCOL,
+    AnnotationBulkPatch,
+    UpdateAnnotations,
+)
 
 from app.db.models.annotation import Annotation
 from app.services.project_access import get_workspace_project
@@ -80,6 +85,7 @@ from app.services.scene_track_domain import (
     touch_annotation_scene_track,
 )
 from app.services.labeling_annotation_data import annotation_write_command
+from app.services.labeling_annotation_bulk_data import annotation_bulk_command
 
 logger = logging.getLogger("app.services.annotation")
 
@@ -1374,6 +1380,9 @@ class AnnotationService:
         z_order: int | None = None,
         is_locked: bool | None = None,
         is_hidden: bool | None = None,
+        actor_id: uuid.UUID | None = None,
+        task_id: uuid.UUID | None = None,
+        project_id: uuid.UUID | None = None,
     ) -> list[Annotation]:
         """I12 · 批量 patch N 个标注. 任一标注被锁/已软删则整体 422.
 
@@ -1394,150 +1403,102 @@ class AnnotationService:
                 status_code=404,
                 detail=f"annotations not found: {sorted(str(m) for m in missing)}",
             )
-        mask_task_ids = sorted(
-            {
-                row.task_id
-                for row in rows
-                if (row.geometry or {}).get("type")
-                in {"raster_mask", "video_mask", "video_track_mask"}
-            },
-            key=str,
+        result_order = [row.id for row in rows]
+        if any(
+            (row.geometry or {}).get("type")
+            in {"raster_mask", "video_mask", "video_track_mask"}
+            for row in rows
+        ):
+            result_order.sort()
+        if (task_id is None) != (project_id is None):
+            raise ValueError("task_id and project_id must be supplied together")
+        patch = {
+            key: value
+            for key, value in {
+                "class_name": class_name,
+                "attributes": attributes,
+                "z_order": z_order,
+                "is_locked": is_locked,
+                "is_hidden": is_hidden,
+            }.items()
+            if value is not None
+        }
+        result = await annotation_bulk_command(
+            self.db,
+            UpdateAnnotations(
+                schema=ANNOTATION_BULK_PROTOCOL,
+                operation="update",
+                actor_id=actor_id,
+                task_id=task_id,
+                project_id=project_id,
+                ids=ids,
+                patch=AnnotationBulkPatch(**patch),
+            ),
         )
-        if mask_task_ids:
-            await self.db.execute(
-                select(Task)
-                .where(Task.id.in_(mask_task_ids))
-                .order_by(Task.id)
-                .with_for_update()
-            )
-            rows = (
-                (
-                    await self.db.execute(
-                        select(Annotation)
-                        .where(Annotation.id.in_(ids))
-                        .order_by(Annotation.id)
-                        .with_for_update()
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-        # 整体校验: 任一被锁 / 已软删 → 422 + 整体回滚 (调用方上游事务承担).
-        for r in rows:
-            if r.sensor_role is not None:
-                raise HTTPException(
-                    status_code=422,
-                    detail="camera members must be edited through the point-cloud camera member API",
-                )
-            if not r.is_active:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"annotation {r.id} is not active",
-                )
-            if r.is_locked and (
-                class_name is not None or attributes is not None or z_order is not None
+
+        write_fields = set(patch)
+        if "attributes" in patch:
+            write_fields.add("attributes_meta")
+        loaded = {row.id: row for row in rows}
+        for snapshot in result.annotations:
+            annotation = loaded.get(snapshot.id)
+            if annotation is None:
+                continue
+            fields = {
+                "class_name": snapshot.class_name,
+                "attributes": snapshot.attributes,
+                "attributes_meta": snapshot.attributes_meta,
+                "z_order": snapshot.z_order,
+                "is_locked": snapshot.is_locked,
+                "is_hidden": snapshot.is_hidden,
+            }
+            state = inspect(annotation)
+            for field, value in fields.items():
+                if (
+                    field in write_fields
+                    or not state.attrs[field].history.has_changes()
+                ):
+                    set_committed_value(annotation, field, value)
+            set_committed_value(annotation, "version", snapshot.version)
+            set_committed_value(annotation, "updated_at", snapshot.updated_at)
+
+        loaded_by_id = {
+            item.id: item
+            for item in self.db.identity_map.values()
+            if isinstance(item, Annotation)
+        }
+        for snapshot in result.camera_members:
+            annotation = loaded_by_id.get(snapshot.id)
+            if annotation is None:
+                continue
+            state = inspect(annotation)
+            if (
+                "class_name" in patch
+                or not state.attrs.class_name.history.has_changes()
             ):
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"annotation {r.id} is locked; unlock it first",
-                )
-        # class_name 走软校验 (复用 _validate_class_name); bulk 时按 tool_unit_id 分桶,
-        # 每桶各校验一次, 避免 N 次同 unit 重复查 project.tool_bindings.
-        if class_name is not None:
-            by_unit: dict[tuple[uuid.UUID | None, str], None] = {}
-            for r in rows:
-                by_unit[(r.project_id, r.tool_unit_id)] = None
-            for (pid, unit), _ in by_unit.items():
-                await self._validate_class_name(pid, unit, class_name)
-        linked_rows = [row for row in rows if row.scene_track_id is not None]
-        linked_track_ids = sorted(
-            {
-                row.scene_track_id
-                for row in linked_rows
-                if row.scene_track_id is not None
-            },
-            key=str,
-        )
-        linked_tracks: dict[uuid.UUID, SceneTrack] = {}
-        if linked_track_ids:
-            tracks = list(
-                (
-                    await self.db.execute(
-                        select(SceneTrack)
-                        .where(SceneTrack.id.in_(linked_track_ids))
-                        .order_by(SceneTrack.id)
-                        .with_for_update()
-                    )
-                ).scalars()
-            )
-            linked_tracks = {track.id: track for track in tracks}
-            if len(linked_tracks) != len(linked_track_ids):
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "reason": "track_missing",
-                        "message": "one or more annotations reference a missing Scene Track",
-                    },
-                )
-        if class_name is not None:
-            selected_counts = Counter(
-                row.scene_track_id
-                for row in linked_rows
-                if row.scene_track_id is not None
-            )
-            for track_id, selected_count in selected_counts.items():
-                active_count = await self.db.scalar(
-                    select(func.count())
-                    .select_from(Annotation)
-                    .where(Annotation.scene_track_id == track_id)
-                    .where(Annotation.is_active.is_(True))
-                    .where(Annotation.was_cancelled.is_(False))
-                    .where(Annotation.sensor_role.is_(None))
-                )
-                if int(active_count or 0) != selected_count:
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "reason": "track_class_change_requires_scope",
-                            "message": "select every active Scene Track member to change its class",
-                        },
-                    )
-                linked_tracks[track_id].class_name = class_name
-                camera_members = list(
-                    (
-                        await self.db.execute(
-                            select(Annotation)
-                            .where(Annotation.scene_track_id == track_id)
-                            .where(Annotation.sensor_role.is_not(None))
-                            .where(Annotation.was_cancelled.is_(False))
-                            .with_for_update()
-                        )
-                    ).scalars()
-                )
-                for camera_member in camera_members:
-                    camera_member.class_name = class_name
-                    camera_member.version = int(camera_member.version or 1) + 1
-        for r in rows:
-            if class_name is not None:
-                r.class_name = class_name
-            if attributes is not None:
-                # v0.20.10 · 同 update: 批量改属性时同步各行 meta（人工认领）。
-                r.attributes_meta = _sync_attributes_meta(
-                    r.attributes, r.attributes_meta, attributes
-                )
-                r.attributes = attributes
-            if z_order is not None:
-                r.z_order = z_order
-            if is_locked is not None:
-                r.is_locked = is_locked
-            if is_hidden is not None:
-                r.is_hidden = is_hidden
-            r.version += 1
-        for track in linked_tracks.values():
-            track.revision = int(track.revision or 1) + 1
+                set_committed_value(annotation, "class_name", snapshot.class_name)
+            set_committed_value(annotation, "version", snapshot.version)
+            set_committed_value(annotation, "updated_at", snapshot.updated_at)
+
+        loaded_tracks = {
+            item.id: item
+            for item in self.db.identity_map.values()
+            if isinstance(item, SceneTrack)
+        }
+        for snapshot in result.tracks:
+            track = loaded_tracks.get(snapshot.id)
+            if track is None:
+                continue
+            state = inspect(track)
+            if (
+                "class_name" in patch
+                or not state.attrs.class_name.history.has_changes()
+            ):
+                set_committed_value(track, "class_name", snapshot.class_name)
+            set_committed_value(track, "revision", snapshot.revision)
+            set_committed_value(track, "updated_at", snapshot.updated_at)
         await self.db.flush()
-        return rows
+        return [loaded[annotation_id] for annotation_id in result_order]
 
     async def _resolve_axis_convention(self, task: Task) -> str | None:
         """v0.14.1 · 取 task 主 dataset_item 所在 dataset 的 axis_convention。
