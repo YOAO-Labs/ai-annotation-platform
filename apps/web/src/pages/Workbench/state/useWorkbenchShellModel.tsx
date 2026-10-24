@@ -69,7 +69,11 @@ import { publishTaskBoxCount } from "@/components/PerfHud/useTaskBoxCount";
 import { useWorkbenchState, type VideoTool } from "./useWorkbenchState";
 import { usePendingGeom } from "./usePendingGeom";
 import { useToolBindings, classesForUnit, attributeSchemaForUnit } from "./useToolBindings";
-import { MANUAL_IMAGE_TOOLS, manualImageTool, continuousIntentError } from "./manualImageCreation";
+import {
+  MANUAL_IMAGE_TOOLS,
+  manualImageTool,
+  useContinuousCreationGuard,
+} from "./manualImageCreation";
 import { ManualCreationPopover } from "../shell/ManualCreationPopover";
 import { videoToolUnit, videoToolEnabled } from "../stage/videoToolUnits";
 import type { ToolUnitId } from "@/constants/toolUnits";
@@ -498,6 +502,9 @@ export function useWorkbenchShellModel({
   );
 
   const meUserId = useAuthStore((s) => s.user?.id);
+  const continuousOwnerKey = useAuthStore((state) =>
+    state.user?.id && state.sessionId ? JSON.stringify([state.user.id, state.sessionId]) : null,
+  );
   const { hasPermission } = usePermissions();
   const s = useWorkbenchState();
   const pendingDiscussionTaskSwitch = Boolean(
@@ -2769,8 +2776,7 @@ export function useWorkbenchShellModel({
     closeDrawer: closeOfflineDrawer,
   } = offlineQ;
 
-  const isLockedForActions =
-    !!contentBlockedReason ||
+  const businessLockedForActions =
     projectWriteBlocked ||
     sceneWriteBlocked ||
     (mode === "review"
@@ -2784,6 +2790,25 @@ export function useWorkbenchShellModel({
             activeVideoSegment.status === "completed" ||
             activeVideoSegment.locked_by !== meUserId ||
             !!segmentLeaseError)));
+  const notifyInvalidContinuousBinding = useCallback(
+    (error: string) => {
+      setTool("select");
+      pushToast({ msg: "已退出连续创建", sub: error, kind: "warning" });
+    },
+    [pushToast, setTool],
+  );
+  const isLockedForActions = useContinuousCreationGuard({
+    intent: s.continuousCreation,
+    setIntent: s.setContinuousCreation,
+    ownerKey: continuousOwnerKey,
+    projectId,
+    contextAllowsIntent: stageKind === "image" && mode !== "review",
+    businessLocked: businessLockedForActions,
+    mediaBlocked: !!contentBlockedReason,
+    tool: s.tool,
+    bindings: currentProject?.id === projectId ? currentProject?.tool_bindings : undefined,
+    onInvalidBinding: notifyInvalidContinuousBinding,
+  });
   const pushSliceHistory = history.push;
   const sliceWriteOwner = useRef({ taskId, canWrite: false });
   useLayoutEffect(() => {
@@ -3121,50 +3146,6 @@ export function useWorkbenchShellModel({
     classes: classesForUnit(currentProject?.tool_bindings, item.unit),
   }));
   const { continuousCreation, setContinuousCreation } = s;
-  useEffect(() => {
-    if (!continuousCreation) return;
-    const error =
-      currentProject && currentProject.id === projectId
-        ? continuousIntentError(continuousCreation, currentProject.tool_bindings)
-        : null;
-    if (
-      stageKind !== "image" ||
-      mode === "review" ||
-      isLockedForActions ||
-      continuousCreation.projectId !== projectId ||
-      error
-    ) {
-      setContinuousCreation(null);
-      if (error) {
-        setTool("select");
-        pushToast({ msg: "已退出连续创建", sub: error, kind: "warning" });
-      }
-      return;
-    }
-    const next = manualImageTool(s.tool);
-    if (!next) {
-      setContinuousCreation(null);
-      return;
-    }
-    if (next.unit !== continuousCreation.toolUnitId)
-      setContinuousCreation({
-        projectId: projectId!,
-        tool: next.tool,
-        toolUnitId: next.unit,
-        className: "",
-      });
-  }, [
-    continuousCreation,
-    stageKind,
-    mode,
-    isLockedForActions,
-    currentProject,
-    projectId,
-    pushToast,
-    s.tool,
-    setTool,
-    setContinuousCreation,
-  ]);
   useEffect(() => {
     if (isLockedForActions && s.pendingDrawing?.creation) s.setPendingDrawing(null);
   }, [isLockedForActions, s]);

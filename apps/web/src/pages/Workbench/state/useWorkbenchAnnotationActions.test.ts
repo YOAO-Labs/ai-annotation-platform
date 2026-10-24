@@ -5,7 +5,8 @@ import { act, renderHook } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { useWorkbenchAnnotationActions } from "./useWorkbenchAnnotationActions";
-import type { ContinuousImageCreation } from "./manualImageCreation";
+import { useContinuousCreationGuard, type ContinuousImageCreation } from "./manualImageCreation";
+import type { ToolBindings } from "@/api/projects";
 import type { PendingDrawing, Tool } from "./useWorkbenchState";
 
 const { enqueueDurably } = vi.hoisted(() => ({
@@ -20,7 +21,8 @@ vi.mock("./offlineQueue", () => ({
 }));
 
 const authState = vi.hoisted(() => ({ userId: "user-1", active: true }));
-vi.mock("@/stores/authStore", () => ({
+vi.mock("@/stores/authStore", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/stores/authStore")>()),
   isCurrentAuthOwner: (userId: string) => authState.active && authState.userId === userId,
 }));
 
@@ -104,6 +106,164 @@ function setup({
   );
   return { ...hook, create, update, deleteMutation, history, queryClient, pushToast };
 }
+
+interface CreationLifecycleProps {
+  taskId: string;
+  ownerKey: string | null;
+  projectId: string;
+  contextAllowsIntent: boolean;
+  businessLocked: boolean;
+  mediaBlocked: boolean;
+  tool: Tool;
+  bindings: ToolBindings;
+}
+
+function setupCreationLifecycle() {
+  const create = vi.fn<
+    (payload: import("@/api/tasks").AnnotationPayload) => Promise<{ id: string }>
+  >(async () => ({ id: "created" }));
+  const onInvalidBinding = vi.fn();
+  const queryClient = new QueryClient();
+  const observed: { intent: ContinuousImageCreation | null; locked: boolean }[] = [];
+  const initialProps: CreationLifecycleProps = {
+    taskId: "task-1",
+    ownerKey: JSON.stringify(["user-1", "session-1"]),
+    projectId: "project-1",
+    contextAllowsIntent: true,
+    businessLocked: false,
+    mediaBlocked: false,
+    tool: "box",
+    bindings,
+  };
+  const hook = renderHook(
+    (props: CreationLifecycleProps) => {
+      const [intent, setIntent] = useState<ContinuousImageCreation | null>(continuous);
+      const [pendingDrawing, setPendingDrawing] = useState<PendingDrawing>(null);
+      const locked = useContinuousCreationGuard({
+        ...props,
+        intent,
+        setIntent,
+        onInvalidBinding,
+      });
+      const actions = useWorkbenchAnnotationActions({
+        taskId: props.taskId,
+        projectId: props.projectId,
+        meUserId: "user-1",
+        queryClient,
+        history: { push: vi.fn() } as never,
+        s: {
+          tool: props.tool,
+          continuousCreation: intent,
+          pendingDrawing,
+          setPendingDrawing,
+          setSelectedId: vi.fn(),
+          setActiveClass: vi.fn(),
+        } as never,
+        pushToast: vi.fn(),
+        recordRecentClass: vi.fn(),
+        mutations: {
+          create: { mutate: vi.fn() },
+          update: { mutate: vi.fn() },
+          delete: { mutate: vi.fn() },
+        },
+        createAnnotationAsync: create as never,
+        toolBindings: props.bindings,
+        enqueueOnError: vi.fn(),
+        annotationsRef: { current: [] },
+        isLocked: locked,
+      });
+      observed.push({ intent, locked });
+      return { ...actions, intent, locked };
+    },
+    { initialProps },
+  );
+  return { ...hook, initialProps, create, observed, onInvalidBinding, queryClient };
+}
+
+describe("continuous creation admission", () => {
+  it("preserves creation intent across task image waiting and failure while blocking writes", async () => {
+    const hook = setupCreationLifecycle();
+    await act(async () => {
+      expect(hook.result.current.beginBboxDrawing(geom)).toBe(true);
+    });
+    expect(hook.create).toHaveBeenCalledTimes(1);
+    const target = { ...hook.initialProps, taskId: "task-2" };
+    hook.rerender({ ...target, mediaBlocked: true });
+    expect(hook.result.current.intent).toEqual(continuous);
+    expect(hook.result.current.locked).toBe(true);
+    act(() => {
+      expect(hook.result.current.beginBboxDrawing(geom)).toBe(false);
+      hook.result.current.submitManualDrawing();
+    });
+    // A failed read remains blocked until a successful retry admits its bytes.
+    hook.rerender({ ...target, mediaBlocked: true });
+    expect(hook.result.current.intent).toEqual(continuous);
+    act(() => expect(hook.result.current.beginBboxDrawing(geom)).toBe(false));
+    expect(hook.create).toHaveBeenCalledTimes(1);
+    hook.rerender(target);
+    expect(hook.result.current.intent).toEqual(continuous);
+    expect(hook.result.current.locked).toBe(false);
+    await act(async () => {
+      expect(hook.result.current.beginBboxDrawing(geom)).toBe(true);
+    });
+    expect(hook.create).toHaveBeenCalledTimes(2);
+    expect(hook.create.mock.calls[1][0]).toMatchObject({ class_name: "car" });
+    hook.unmount();
+    hook.queryClient.clear();
+  });
+
+  it.each([JSON.stringify(["user-2", "session-1"]), JSON.stringify(["user-1", "session-2"]), null])(
+    "retires intent on account/session retirement %s before allowing a new owner's writes",
+    (ownerKey) => {
+      const hook = setupCreationLifecycle();
+      hook.observed.length = 0;
+      hook.rerender({ ...hook.initialProps, ownerKey });
+      expect(hook.observed[0]).toEqual({ intent: continuous, locked: true });
+      expect(hook.result.current.intent).toBeNull();
+      hook.rerender({ ...hook.initialProps, ownerKey, mediaBlocked: true });
+      hook.rerender({ ...hook.initialProps, ownerKey });
+      expect(hook.result.current.intent).toBeNull();
+      expect(hook.create).not.toHaveBeenCalled();
+      hook.unmount();
+      hook.queryClient.clear();
+    },
+  );
+
+  it("keeps ordinary drawing available after an owner changes with no retained intent", () => {
+    const hook = setupCreationLifecycle();
+    hook.rerender({ ...hook.initialProps, businessLocked: true });
+    expect(hook.result.current.intent).toBeNull();
+    hook.rerender({
+      ...hook.initialProps,
+      ownerKey: JSON.stringify(["user-1", "session-2"]),
+    });
+    expect(hook.result.current.locked).toBe(false);
+    act(() => expect(hook.result.current.beginBboxDrawing(geom)).toBe(true));
+    expect(hook.result.current.intent).toBeNull();
+    expect(hook.create).not.toHaveBeenCalled();
+    hook.unmount();
+    hook.queryClient.clear();
+  });
+
+  it.each([
+    { businessLocked: true },
+    { contextAllowsIntent: false },
+    { projectId: "project-2" },
+    { tool: "select" as Tool },
+    { bindings: { ...bindings, bbox: { ...bindings.bbox, enabled: false } } },
+  ])("retires intent for a real lock or invalid creation context %o", (change) => {
+    const hook = setupCreationLifecycle();
+    hook.rerender({ ...hook.initialProps, mediaBlocked: true, ...change });
+    expect(hook.result.current.intent).toBeNull();
+    expect(hook.result.current.locked).toBe(true);
+    act(() => expect(hook.result.current.beginBboxDrawing(geom)).toBe(false));
+    hook.rerender(hook.initialProps);
+    expect(hook.result.current.intent).toBeNull();
+    expect(hook.create).not.toHaveBeenCalled();
+    hook.unmount();
+    hook.queryClient.clear();
+  });
+});
 
 describe("useWorkbenchAnnotationActions module", () => {
   it("auto point batches reject undo/cancel/task snapshots and retain the full point budget", () => {
