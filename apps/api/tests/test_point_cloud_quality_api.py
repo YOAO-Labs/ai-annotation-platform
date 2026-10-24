@@ -22,7 +22,7 @@ from app.schemas.point_cloud_quality import (
     PointCloudQualityRunRequest,
 )
 from app.services import async_job as async_job_svc
-from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.point_cloud_quality.service import (
     create_quality_run,
     list_issues,
@@ -84,6 +84,7 @@ def _box(center_x: float = 0) -> dict:
 
 
 async def _seed_quality_scene(db, *, owner_id, original_objects, points=None):
+    await ensure_legacy_bindings(db)
     raw = _pcd_bytes(np.zeros((32, 3), dtype=np.float32) if points is None else points)
     sha256 = hashlib.sha256(raw).hexdigest()
     project = await create_project(db, owner_id=owner_id, type_key="lidar")
