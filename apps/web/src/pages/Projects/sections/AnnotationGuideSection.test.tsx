@@ -18,6 +18,7 @@ const mockUploadAsset = vi.fn();
 const mockDeleteAsset = vi.fn();
 const mockSignAsset = vi.fn().mockResolvedValue("http://signed/x");
 let mockAuthUserId: string | null = "u1";
+let mockImageUpload: ((file: File) => Promise<unknown>) | undefined;
 
 vi.mock("@/stores/authStore", () => ({
   useAuthStore: <T,>(selector: (state: { user: { id: string } | null }) => T) =>
@@ -39,6 +40,8 @@ vi.mock("@/hooks/useGuideAssets", () => ({
     uploadAsset: mockUploadAsset,
     deleteAsset: mockDeleteAsset,
     signAsset: mockSignAsset,
+    imageScope: "guide-image-session",
+    isCurrent: () => mockAuthUserId === "u1",
   }),
 }));
 vi.mock("@/components/ui/Toast", async () => {
@@ -55,18 +58,23 @@ vi.mock("@/components/markdown/MarkdownEditor", () => ({
     value,
     onChange,
     onBlur,
+    onUploadImage,
   }: {
     value: string;
     onChange: (v: string) => void;
     onBlur?: () => void;
-  }) => (
-    <textarea
-      data-testid="markdown-editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onBlur={onBlur}
-    />
-  ),
+    onUploadImage?: (file: File) => Promise<unknown>;
+  }) => {
+    mockImageUpload = onUploadImage;
+    return (
+      <textarea
+        data-testid="markdown-editor"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+      />
+    );
+  },
 }));
 
 import { AnnotationGuideSection, resetRetainedGuideDraftsForTests } from "./AnnotationGuideSection";
@@ -211,6 +219,59 @@ describe("AnnotationGuideSection", () => {
       expect(mockDeleteAsset).toHaveBeenCalledWith(asset.key);
     });
   });
+
+  it("uses the server image receipt instead of reconstructing its metadata", async () => {
+    render(<AnnotationGuideSection project={makeProject()} />);
+    await screen.findByTestId("markdown-editor");
+    const asset = {
+      key: "projects/source/guide/immutable-id",
+      original_name: "服务端规范原名.png",
+      content_type: "image/png",
+      size: 5,
+      uploaded_at: "2026-10-24T00:00:00Z",
+    };
+    mockUploadAsset.mockResolvedValueOnce({ src: `guide-asset:${asset.key}`, asset });
+    await act(async () => {
+      await mockImageUpload!(new File(["image"], "客户端原名.png", { type: "image/png" }));
+    });
+    expect(screen.getByText(asset.original_name)).toBeInTheDocument();
+    expect(screen.queryByText("客户端原名.png")).not.toBeInTheDocument();
+  });
+
+  it.each(["project", "account", "unmount"])(
+    "does not show a retired deletion failure after %s changes",
+    async (change) => {
+      let reject!: (error: Error) => void;
+      mockDeleteAsset.mockReturnValueOnce(
+        new Promise((_, fail) => {
+          reject = fail;
+        }),
+      );
+      const asset = {
+        key: "projects/origin/guide/image",
+        original_name: "已退役图片.png",
+        content_type: "image/png",
+        size: 5,
+        uploaded_at: "2026-10-24T00:00:00Z",
+      };
+      const view = render(
+        <AnnotationGuideSection project={makeProject({ guide_assets: [asset] })} />,
+      );
+      await screen.findByTestId("markdown-editor");
+      fireEvent.click(screen.getByRole("button", { name: /删除/ }));
+      if (change === "unmount") view.unmount();
+      else {
+        if (change === "account") mockAuthUserId = "u2";
+        view.rerender(
+          <AnnotationGuideSection
+            project={makeProject({ id: change === "project" ? "p-new" : "p-guide" })}
+          />,
+        );
+      }
+      await act(async () => reject(new Error("旧页面删除失败")));
+      expect(mockPushToast).not.toHaveBeenCalled();
+    },
+  );
 
   it("停止编辑 1000ms 后自动保存并合并连续输入", async () => {
     const { unmount } = render(<AnnotationGuideSection project={makeProject()} />);

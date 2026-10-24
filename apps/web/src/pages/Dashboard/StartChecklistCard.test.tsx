@@ -12,7 +12,10 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@/hooks/useDashboard", () => ({ useOnboardingProjectSummary: () => mocks.summary }));
 vi.mock("@/hooks/useGuideAssets", () => ({
-  useGuideAssets: () => ({ resolveImage: mocks.resolveImage }),
+  useGuideAssets: () => ({
+    resolveImage: mocks.resolveImage,
+    imageScope: "guide-session-project-a",
+  }),
 }));
 vi.mock("@/hooks/useOnboardingProjectState", () => ({
   useOnboardingProjectState: () => ({
@@ -84,7 +87,10 @@ it("does not complete guide by opening it and disables work without assignments"
   fireEvent.click(screen.getByRole("button", { name: "打开指引" }));
   expect(screen.getByText("Draw one box")).toBeVisible();
   expect(screen.getByTestId("guide-view")).toHaveAttribute("data-has-resolver", "true");
-  expect(screen.getByTestId("guide-view")).toHaveAttribute("data-image-scope", "p1");
+  expect(screen.getByTestId("guide-view")).toHaveAttribute(
+    "data-image-scope",
+    "guide-session-project-a",
+  );
   expect(mocks.markGuideRead).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "确认已阅读" }));
   expect(mocks.markGuideRead).toHaveBeenCalledOnce();

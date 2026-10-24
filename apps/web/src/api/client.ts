@@ -150,6 +150,9 @@ export const apiClient = {
       path,
       body !== undefined ? { method: "DELETE", body: JSON.stringify(body) } : { method: "DELETE" },
     ),
+  /** Scoped callers own cancellation and error feedback for authenticated deletes. */
+  silentDelete: <T>(path: string, init?: RequestInit) =>
+    request<T>(path, { method: "DELETE", ...init }, { silent: true }),
   /** 公开请求：不携带 Authorization；401 不触发全局 logout（用于 /auth/register 等公开端点）。 */
   publicGet: <T>(path: string) => request<T>(path, undefined, { anonymous: true }),
   publicPost: <T>(path: string, body?: unknown) =>

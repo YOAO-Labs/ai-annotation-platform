@@ -189,3 +189,35 @@ it("keeps silent helpers authenticated for successful blobs, raw bodies and JSON
     useAuthStore.getState().logout();
   }
 });
+
+it("keeps authenticated delete cancellation and errors scoped to its caller", async () => {
+  const signal = new AbortController().signal;
+  const fetch = vi
+    .fn()
+    .mockResolvedValue({ ok: true, status: 200, json: async () => ({ deleted: "key" }) });
+  vi.stubGlobal("fetch", fetch);
+  const toast = vi.spyOn(useToastStore.getState(), "push");
+  useAuthStore.getState().setAuth("delete-token", { id: "delete-user" } as MeResponse);
+  try {
+    await expect(apiClient.silentDelete("/guide", { signal })).resolves.toEqual({ deleted: "key" });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/guide",
+      expect.objectContaining({
+        method: "DELETE",
+        signal,
+        headers: expect.objectContaining({ Authorization: "Bearer delete-token" }),
+      }),
+    );
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "retired" }), { status: 403 }),
+    );
+    await expect(apiClient.silentDelete("/guide", { signal })).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(toast).not.toHaveBeenCalled();
+  } finally {
+    toast.mockRestore();
+    vi.unstubAllGlobals();
+    useAuthStore.getState().logout();
+  }
+});

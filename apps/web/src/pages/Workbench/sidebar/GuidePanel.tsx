@@ -59,7 +59,7 @@ export function GuidePanel({
   const trimmed = (content ?? "").trim();
   const version = guideVersion ?? annotationGuideVersion(content);
   const scopeKey = guidePanelScopeKey({ projectId, userId, guideVersion, content });
-  const { resolveImage } = useGuideAssets(projectId);
+  const { resolveImage, imageScope } = useGuideAssets(projectId);
   const {
     markGuideRead,
     retry,
@@ -201,7 +201,7 @@ export function GuidePanel({
             <GuideMarkdownView
               content={trimmed}
               resolveImage={resolveImage}
-              imageScope={scopeKey}
+              imageScope={JSON.stringify([scopeKey, imageScope])}
               modalContainerRef={dialogContentRef as RefObject<HTMLElement | null>}
             />
           </div>

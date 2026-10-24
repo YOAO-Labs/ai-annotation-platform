@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   imagePlaceholderMarkdown,
   replacePendingImageNode,
   resolveUploadedImageAlt,
+  resolveScopedImagePreview,
   stripPendingImageNodes,
 } from "./MarkdownEditor";
 
@@ -69,4 +70,47 @@ describe("MarkdownEditor upload markers", () => {
     const draft = ["前[](", source, ")中(", source, ")后 ", source].join("");
     expect(stripPendingImageNodes(draft, [source])).toBe("前中后 ");
   });
+});
+
+describe("MarkdownEditor image preview ownership", () => {
+  it("preserves exact sources while resolving current image bytes", async () => {
+    const resolve = vi.fn().mockResolvedValue({ url: "blob:current" });
+    const source = "guide-asset:projects/source/guide/中文 %25.png";
+    expect(await resolveScopedImagePreview(source, resolve, () => true)).toBe("blob:current");
+    expect(resolve).toHaveBeenCalledWith(source);
+    expect(await resolveScopedImagePreview("https://example.test/image", resolve, () => true)).toBe(
+      "https://example.test/image",
+    );
+  });
+
+  it.each(["success", "failure"])(
+    "does not let a late %s overwrite a new scope's preview",
+    async (outcome) => {
+      let finish!: (value: { url: string }) => void;
+      let fail!: (error: Error) => void;
+      const gate = new Promise<{ url: string }>((resolve, reject) => {
+        finish = resolve;
+        fail = reject;
+      });
+      let current = true;
+      const mountedImage = vi.fn();
+      void resolveScopedImagePreview(
+        "guide-asset:key",
+        () => gate,
+        () => current,
+      ).then(mountedImage);
+      current = false;
+      if (outcome === "success") finish({ url: "blob:retired" });
+      else fail(new Error("old session failed"));
+      expect(
+        await resolveScopedImagePreview(
+          "guide-asset:key",
+          async () => ({ url: "blob:new" }),
+          () => true,
+        ),
+      ).toBe("blob:new");
+      await Promise.resolve();
+      expect(mountedImage).not.toHaveBeenCalled();
+    },
+  );
 });

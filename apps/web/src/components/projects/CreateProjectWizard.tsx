@@ -495,7 +495,7 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
                     setForm((s) => ({ ...s, copyAnnotationGuide: e.target.checked }))
                   }
                 />
-                同时复制标注指引（图片资源与源项目共享存储）
+                同时复制标注指引（共享图片引用，独立删除）
               </label>
             )}
           </div>
