@@ -18,6 +18,7 @@ from app.services.ml_client import PredictionResult
 from tests.factory import create_task, create_membership
 from tests.test_failed_predictions import _passthrough_session_factory
 from tests.test_prediction_inputs import input_world as input_world
+from tests.test_managed_prediction_requests import managed_task
 from tests.test_trained_models import (
     controlled_artifacts as controlled_artifacts,
     seed_source,
@@ -26,6 +27,7 @@ from tests.test_trained_models import (
     publish,
     headers,
     mock_live_receipts,
+    next_successful_attempt,
 )
 
 
@@ -90,6 +92,7 @@ async def test_each_stage_is_frozen_and_idempotent_replay_keeps_original_release
     )
     _, token = super_admin
     task = await create_task(db_session, project_id=project.id)
+    await managed_task(db_session, project, super_admin[0], task=task)
     dispatch = Mock(side_effect=lambda **kw: SimpleNamespace(id=kw["task_id"]))
     monkeypatch.setattr(batch_predict, "apply_async", dispatch)
     endpoint = f"/api/v1/projects/{project.id}/preannotate"
@@ -116,16 +119,7 @@ async def test_each_stage_is_frozen_and_idempotent_replay_keeps_original_release
         for stage in original["stages"]
     )
     assert original["stages"][1]["class_filter"] == [1]
-    from app.db.models.training_run import TrainingAttempt
-
-    next_attempt = TrainingAttempt(
-        run_id=run.id,
-        ordinal=2,
-        status="succeeded",
-        artifacts=copy.deepcopy(attempt.artifacts),
-    )
-    db_session.add(next_attempt)
-    await db_session.flush()
+    next_attempt = await next_successful_attempt(db_session, run, attempt)
     second, _ = await register(
         httpx_client, token, project, run, next_attempt, name="new release"
     )
