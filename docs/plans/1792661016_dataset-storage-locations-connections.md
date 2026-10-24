@@ -1475,3 +1475,15 @@ predict-test／interactive-annotating 覆盖 TaskOriginal、直接 DatasetItem �
 人工 3100／8100、两 Worker／绑定 Beat 均健康，十二表 155 行、24 对象完整字节和十二源文件指纹完全一致。新增用途仅由同步 API 调用；Worker 默认路由调用及任务合同保持，未触发镜像重建。test 数据库、专属 Redis 和九桶由所属 launcher 销毁，独立 doctor 实际核对均不存在；四棵干净且 patch 等价的隔离树已移除。任务日志、JUnit、缓存及文档构建产物按归属清理，保留人工环境、虚拟环境、共享依赖与生成类型。
 
 README、CHANGELOG Unreleased、SAM 用户指南、ML／任务 API 和预测架构已同步；OpenAPI 无漂移、codegen、docs build、Ruff／格式、正常 hooks 与 diff 检查通过。下一片先推进托管图片 secondary 二次推理的原件、独立 crop 与父标注最终事务；Mask repair、视频 Tracker、E10 真实训练消费和生产回收仍为独立完整切片。完整 E02／B13 与整套 Epic 未完成，完整用途切换关闭。
+
+## E02-B13-B3-K Design — 托管图片二次推理与独立裁剪责任
+
+2026-10-25 基于 J 收尾 `035353d14` 核对 secondary-inference 路由、服务、ROI 与输入账本。当前图片分支仍按旧路径读原图、同一 Annotation 裸 PUT 固定 crop key，远程推理后使用旧 ORM 对象写回。本片将选中框二次推理完整接入 canonical 原件、每请求独立输入责任与父标注最终事务；保留属性人工值保护、AI model_ref、子框一层谱系、坐标回映、32px 下限和既有 400／422／502／504 语义，不新增 Prediction 或异步 Job。引用图片仍由现有入口明确拒绝，视频既有行为不借本片获得新资格。
+
+沿 J 原件适配器建立真实 secondary_inference 操作：同样冻结原 JWT／Key、Task／Batch 和三类 canonical 绑定，额外冻结父 Annotation 的版本、几何、类别、属性及 meta、工具／父子／视频归属和活动／取消／锁定事实。重用严格 annotation.write 判据，审核员不开放 review-adjustment，不增加 ai_interactive_enabled 要求，API Key 始终保持 annotations:write。当前原件完整核验一次，用 Snapshot 的真实尺寸裁切，deferred ROI 编码在线程中完成并在取消时等待实际收尾；只上传裁剪，不上传无用途整图。每请求随机 UUID，经 PredictionInputs 的条件创建、完整回读、非 null VersionId 和准确 GET／删除供图，同一 Annotation 的并发请求不能共用对象。
+
+窄增迁移 0240，在模型和服务的 owner-kind 合同中加入 secondary_inference，沿用 0238／0239 账本结构、不可变事实、期限和维护清理。降级遇到已有新用途责任明确拒绝，不能删除 tombstone 或改 owner_kind。离线恢复仍映射运行位置，不改来源／库存／首次期限；核对现有恢复验证器是否有封闭用途集合。
+
+实际选池后的 before_dispatch 再核权并提交短事务，随后才能模型 I/O。最终沿账户→项目／成员／原 Key→Task 编辑 advisory→Batch／fresh Task→canonical 来源／Gate→父 Annotation 写锁→输入元信息顺序复核。父标注任一冻结事实变化均拒绝并提示重试，不能静默以旧属性覆盖人工编辑。最终当前 Task／Annotation 用于全部属性或子框写入、actor 证据、Audit，写入后再核原凭据时钟／JWT 注销缓存，沿同一顶层事务整体 commit；不在对象读取／模型调用／源关闭时持业务写锁。退出仍先 rollback 释放调用者事务，再真实关闭输入和来源；未知关闭保护不可由 TTL 或二次 no-op 解除。
+
+操作与窄迁移、服务／路由、回归夹具分别在当前本地 HEAD 的独立工作树实施，根树独占可销毁数据库及实际验收。覆盖三类来源、同键异桶陷阱、非方形真实 ROI 像素／固定版本、同标注并发输入、人工属性保护／AI 更新／未知类别回退／一层父子、无检出和错误映射，以及来源／Key／JWT／角色／批次／编辑锁／父标注在读取、真实派发与写入边界变化时零半套结果。验证取消真实收尾及 unknown-close 责任，执行旧 secondary／权限、共享原件／输入／引用与 Pipeline 回归及真实 HTTP／MinIO。同步用户／API／架构／CHANGELOG；迁移和运行刷新只作用于本工作树所属环境，保持 3100／8100、两 Worker／Beat 和原业务／字节指纹，精确清理后才记录 K Outcome。完整 E02／B13、用途切换与整套 Epic 仍未完成。
