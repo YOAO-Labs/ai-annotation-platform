@@ -75,7 +75,9 @@ job ID, the existing `default` route, and a stable execution ID stored before
 dispatch. The reply confirms broker acceptance only. Revoke uses
 `terminate=False` and does not prove a task stopped. Custom task options, Celery
 canvases, other task payloads, and non-JSON serializers remain unqualified; the
-independent container/broker acceptance is still pending.
+bounded local API/owner/worker and full-database-restore acceptance is recorded
+in [the module deployment ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-lifecycle-queue).
+This does not qualify the remaining producers or complete Jobs credential closure.
 
 The standalone `apps/jobs/Dockerfile.queue` image runs as UID 10005, exposes no
 host port, and reads `JOBS_QUEUE_BROKER_URL_FILE` and `JOBS_QUEUE_TOKEN_FILE`.

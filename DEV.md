@@ -516,7 +516,7 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 docker compose -f docker-compose.yml -f docker-compose.jobs-queue.yml up -d --build jobs-queue
 ```
 
-先在 Compose 环境中设置 `JOBS_QUEUE_BROKER_URL_FILE` 和 `JOBS_QUEUE_TOKEN_FILE`，分别指向只含 broker URL 与共享 bearer 的文件；本地 Redis broker URL 可用 `redis://redis:6379/0`。API 的 secret file 也必须读到相同 bearer。容器不发布宿主机端口。只有同一 Compose 网络中的 API 可通过 `http://jobs-queue:8190` 调用；宿主机热重载 API 保持内嵌模式。目前唯一接入的消费者是跨帧作业，发送一条 positional job ID、`default` 队列和预先持久化的执行 ID；独立容器／broker 验收尚未完成。`accepted` 代表 broker 已接收请求，不代表任务完成；撤销使用 `terminate=False`，不代表任务已停止。其他任务载荷、自定义 Celery options、canvas 和非 JSON serializer 尚未验收，训练与资产作业也未切换。
+先在 Compose 环境中设置 `JOBS_QUEUE_BROKER_URL_FILE` 和 `JOBS_QUEUE_TOKEN_FILE`，分别指向只含 broker URL 与共享 bearer 的文件；本地 Redis broker URL 可用 `redis://redis:6379/0`。API 的 secret file 也必须读到相同 bearer。容器不发布宿主机端口。只有同一 Compose 网络中的 API 可通过 `http://jobs-queue:8190` 调用；宿主机热重载 API 保持内嵌模式。目前唯一接入的消费者是跨帧作业，发送一条 positional job ID、`default` 队列和预先持久化的执行 ID；独立 API／owner／worker、完整数据库恢复及恢复后新请求已通过限定本地验收，见[唯一台账](docs-site/dev/concepts/module-deployment.md#jobs-lifecycle-queue)。`accepted` 代表 broker 已接收请求，不代表任务完成；撤销使用 `terminate=False`，不代表任务已停止。其他任务载荷、自定义 Celery options、canvas 和非 JSON serializer 尚未验收，训练与资产作业也未切换。
 
 ### Notifications 偏好事务内能力
 
