@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B/B13-A completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -783,3 +783,21 @@ init与complete要求tasks:write和当前项目管理身份，复用现有原请
 本片超过八文件，分三个隔离树：Creation显式作用域与0230领域迁移；TaskOriginal领域/固定回执绑定与独立服务；恢复映射/夹具与测试。主树负责认证路由和原凭证复核、生产签名器保护、API合同/SDK分类、文档及集成验收。先完成类型、约束、不可变/禁止降级、旧Dataset回归；再覆盖暂存重放、最终同键冲突、完整回读损坏、未知收尾、竞争完成与删除/权限撤销、业务回滚后责任存续、点云关联排除和恢复映射。真实TCP API/MinIO必须验证写入回执与源删除后的责任，离线恢复先销毁源再验证当前位置映射与历史不变。
 
 主树使用已验证一次性test环境运行DB，不触及日常数据库。人工3100/8100在业务空闲后应用新增迁移并刷新所属Worker，核对72任务、两Worker/Beat和原24对象、12源文件及11业务表指纹。无UI变更不重复视觉矩阵；不更改共享env、依赖、镜像、部署目标和版本。正式文档、CHANGELOG、API快照及相关检查随实现提交；清理测试资源和干净已集成隔离树。回退保留新增归属/历史证据，禁止重新开放最终键PUT。
+
+## E02-B13-A Outcome — 独立 Task 原件封存与耐久归属
+
+主集成 `66c51039f`，创建记录、原件领域和恢复分别集成于 `94c03ad4c`、`399984a7a`、`c136b5f91`。0230显式扩展Creation作用域，旧Dataset字段和终态历史保持，Task不伪造Dataset；0231增加无业务级联的TaskOriginal及Task.original_id。原件先独立提交已验证位置/内容/源写回执，再与Task状态同事务关联；回滚、未知提交或删除业务行不抹除责任。Task与DatasetLink双向锁定，NULL直接外键的多文件点云不能被误认。
+
+两个低层上传接口保留请求/返回形状，增加名称/类型边界、tasks:write、当前项目管理权限与原发起者检查。暂存区PUT后复用既有条件multipart封存、完整回读、真实关闭及取消收尾，单文件5GiB。末端重核原请求JWT/Key、Task/Project和Gate，释放业务锁后才进行物理I/O；提交等待期间自然到期也不返回URL或成功。重复完成不重写最终对象或重置后续业务状态；未知旧uploading零物理I/O返回409。最终UUID命名空间禁止客户端PUT签名，不新增原件GC或历史自动接管。
+
+223个不同本地API、服务及DB用例全部通过，另59个恢复纯单元通过，无失败或跳过。覆盖作用域/迁移/不可变/受限恢复与禁止降级、旧Dataset创建回归、JSON以外的通用字节/视频/空文件、暂存重放、同SHA或异内容最终冲突、坏内容/未知许可与重复取消、发布回滚/未知commit、Task删除、Key撤销/轮换/scope/期限变化、提交自然到期及DatasetLink并发。当前项目DELETE和真实seed namespace清理均证明业务行消失后owner、Creation与原件保留；未完成暂存责任也保留。后者依赖最终销毁整个一次性test环境清理，不绕过历史触发器。
+
+真实TCP API和本机MinIO六组验收通过：封存并保存完整回执、暂存URL重放后最终SHA不变、源Task删除后原件保持、最终同键冲突保留对方字节、未知旧上传不认领或删除、已删除Task拒绝完成且保留allocation，以及最终键签PUT拒绝。首轮探针遗漏既有浏览器相对代理地址，按当前代理的origin映射处理后全部通过，生产签名方式未改变。探针与HTTP服务均关闭。
+
+离线恢复先销毁随机源，再向空目标恢复162表160行、九桶64对象/10331字节，迁移头0231。包含两个独立Task原件、四条Task Creation（当前关联、源Task删除、已验证未绑定、未完成）及未知legacy Task；仅当前bucket/identity映射，源Creation、UUID键、SHA/大小、源ETag/VersionId及时间保持。目标当前HEAD/完整SHA核对通过，不用源VersionId选择目标版本；不宣称B13-B业务读取已交付或生产RPO/RTO合格。
+
+README、CHANGELOG、API/用户/架构/存储桶和部署恢复说明同步，执行队列补齐B11/B12既有Outcome。OpenAPI仅增加输入长度边界，快照检查及本地类型生成、文档build、Ruff/format、正常hooks和提交范围diff检查通过。无UI变更，不重复视觉矩阵；SDK的files内部接口排除分类保持，不新增一等SDK承诺。
+
+人工3100/8100已应用0230/0231并由原拥有服务刷新。迁移前保留旧API服务子进程，验证后恢复reloader；启动收敛后doctor、两个Worker各72任务/准确队列、实际Guide清理与RLE dry-run、Beat五分钟及原UTC03:20调度正常。11业务表指纹、24对象完整SHA及12源文件保持，新增Task原件/Task作用域创建记录为空，既有Task指针保持NULL。没有重建镜像、安装依赖或修改共享配置/版本。
+
+三个一次性命名空间的数据库、Redis及合计27桶已独立查验不存在；三棵干净且patch等价的隔离树和分支移除，任务产物清理，人工服务及本地类型保留。完整E02和B13仍在执行，完整用途切换关闭。下一片B13-B先统一TaskOriginal、直接DatasetItem和primary_lidar的关系定位，接已有认证content/identity；随后覆盖媒体/大文件、推理、导出和冻结来源，不能按当前桶猜读或重复建立Dataset原件owner。

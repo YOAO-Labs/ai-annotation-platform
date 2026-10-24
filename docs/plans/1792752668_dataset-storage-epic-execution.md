@@ -52,7 +52,7 @@ E02-B10-A进一步完成隔离fixture的附件清理合同与训练种子归属�
 
 E02-B11完成指南图片独立归属、共享引用和认证内容，迁移0228，集成 `7d3c60adb`；验收和清理见[E02-B11 Outcome](1792661016_dataset-storage-locations-connections.md#e02-b11-outcome--指南图片独立归属与项目共享引用)。B12-A进一步修复RLE条件写、完整核验和取消收尾；B12-B完成独立候选、耐久发布保护、所有writer接入及分轮退休/删除，迁移0229，集成 `ed40b31b3`。675项不重复API/服务/DB和37项恢复纯测试、真实TCP/MinIO/Celery及源销毁后的161表152行/九桶56对象恢复通过；人工业务、24对象/12源文件保持，三个一次性命名空间和五棵隔离树清理。见[E02-B12-B Outcome](1792661016_dataset-storage-locations-connections.md#e02-b12-b-outcome--持久-rle-归属、发布与分轮回收)。
 
-B13正在实施独立Task原件和已有Dataset位置消费者。三路审查确认Dataset原件已有AssetLocation，不重复建owner；独立Task直传缺创建回执及固定归属，历史点云还可能通过primary_lidar关联。先交付B13-A暂存封存、当前授权复核、独立Task原件和恢复；B13-B接通完整读取/冻结调用者及大文件合同。该分片不代表B13或完整用途切换完成，详见[E02-B13 Design](1792661016_dataset-storage-locations-connections.md#e02-b13-design--task-原件与既有-dataset-位置消费者)。
+B13-A已交付独立Task暂存封存、原请求/当前授权复核、独立原件和恢复，迁移0230/0231，集成 `66c51039f`。223项不同本地API/服务/DB及59项恢复纯测、六组真实TCP/MinIO和源销毁后的162表160行/九桶64对象恢复通过；人工3100/8100、72任务/两个Worker/Beat及原24对象/12文件保持，三个一次性命名空间及三棵隔离树清理。详见[E02-B13-A Outcome](1792661016_dataset-storage-locations-connections.md#e02-b13-a-outcome--独立-task-原件封存与耐久归属)。B13-B继续统一TaskOriginal、直接DatasetItem与primary_lidar的关系和固定位置，再接完整读取/冻结调用者及大文件合同；复用已有AssetLocation，不重复建Dataset原件owner。该分片不代表完整B13或用途切换完成。
 
 ## Outcome
 
