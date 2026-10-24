@@ -8,6 +8,37 @@
 > 依赖：EPIC-01 的标识与适配契约；EPIC-11 的最小权限规则必须随 M1 一起交付。
 > 下游：EPIC-03 原地注册、EPIC-05 读取、EPIC-07 迁移、EPIC-09 存储控制台。
 
+## 本轮实施定案：E02-B7 异步导出候选、缓存与到期清理
+
+基于干净HEAD `767625498` 继续已有整套实施/提交授权。当前ExportArtifact只保存缓存索引，Worker以当前export桶上传、HEAD探活和签名，失败后直接删除候选；相同Job重投递复用键，缓存命中还会新签七天但文件仍按原保存期过期。本片完整固定异步导出候选的物理责任，并保留既有ZIP内容、缓存指纹及公开Job/通知格式，不开放用途切换。
+
+0224新增独立ExportOutput：随机UUID、项目/Job UUID快照（无FK，避免源记录清理丢失物理责任）、image/video媒体段、format/file_count、SHA/字节数、严格export storage_ref、固定created/expires及pending/ready/retired状态/退休/清理时间。每候选使用 `{media}/{project}/{job}/{output}.zip`，同Job重试不覆写旧候选。内容及身份/期限不可变，状态只向前；复用现有受限恢复标记和表owner规则仅改bucket/identity。有任何Output或缓存关联时拒绝破坏性降级。ExportArtifact增可空output_id RESTRICT外键，作为可替换缓存索引，物理责任留在独立Output。
+
+生成ZIP后有界流式取得独立本地SHA/大小，再分配并提交pending，才在durable permit中上传并完整条件有界回读。期限在分配时固定七天，上传消耗该窗口，不因缓存复用延期。64GiB输出/600秒协作读取预算、分块摘要、不将整包留在内存。全部I/O异常、取消或发布commit结果未知均不删除候选，pending保留待人工确认真实停写和独立回执；不按年龄自动reap。最终原有Job取消、账号/项目/任务/引用来源围栏不变，另复核Output快照、维护修订，共同提交ready、缓存和结果/通知。原件读取、ZIP内容合同与选中范围不因物理归属变化重写。
+
+三个新建入口（项目、批次、选中任务）均另保存不公开的output_authority，固定请求原账号/项目及API Key hash/scopes/expiry；不引入新scope要求。规范请求原token/认证scope在捕获时验证，Worker首次执行和最终签URL前重新验证，最终持Key共享锁到提交。引用路径原export_authority继续独立负责任务/来源内容，不把所有托管导出伪装成引用。历史未保存输出授权的未完成Job不新建产物，应重新发起导出；已完成旧URL继续原样展示，不从当前桶重签。
+
+缓存lookup只从已关联ready Output的保存桶完整核对实际SHA/大小，校验Artifact的project/key/size/file_count/format/deadline与Output一致。NULL旧索引零物理I/O视为miss；已知对象缺失或字节损坏只失效索引并重新构建，不提前删旧Output/字节；未知身份/端点冲突明确拒绝。签名前锁定并复核同一已核验快照、所属项目、ready/期限及维护代次，签名align=False且只给固定期限剩余秒数。record安全替换NULL/过期索引，竞争中的其他未过期有效索引保留，避免全表唯一cache_key导致过期重导冲突；每个Job仍可发布自己的独立输出。
+
+过期清理分批锁Output；确认期限已过、无同Output的durable读取permit后，删除关联缓存索引并提交retired。读permit采用含Output UUID的purpose，on_acquired短事务复核ready/期限/快照后释放业务锁再物理读，防止退休与开始读取竞态；不确定关闭保留permit，清理继续延期。退休行提交后按保存桶精确删除，再复核状态/快照/引用后删行；每项失败保留并重试。旧NULL索引仅过期删除数据库行，绝不猜物理键。Job/Project先消失不改变Output快照、已签期限或清理责任，后台不自动恢复/重派pending。
+
+本片超过8文件：领域/0224/严格存储与流式I/O及专项测试由一棵当前HEAD隔离树负责；Output工作流/缓存/导出与清理Worker及其回归由另一棵隔离树负责；主树负责三个API入口的输出授权、DTO隐藏、恢复白名单/合成夹具、旧测试适配、正式文档和实际环境验收。最小替代是在缓存行加bucket，但会丢失写前/失败候选责任、项目级联删除后的责任并允许重试覆写，因此保留独立物理Output、复用现有缓存索引。最脆弱前提是旧线程是否真正停止，设计用每候选独立键和永久保留未知pending承受其失败。不新增依赖、服务、环境变量、凭据或镜像。
+
+```text
+三个API入口 -> 原scope/内容证明 + 隐藏output_authority -> 导出Job
+                                                               |
+冻结ZIP -> SHA/size -> 独立pending(ref/key/deadline)提交 -> permit PUT + fullGET
+                                                               |
+                         当前授权/取消/Gate/Output复核 -> ready + cache + result
+                                                               |
+新Job -> cache -> UUID读permit + 保存桶SHA核验 -> 同一Output剩余期限签名
+                                                               |
+期限已过 + 无读permit -> cache移除 + retired提交 -> 保存桶精确删除/失败重试
+离线恢复 -> 仅bucket/identity，内容/期限/状态/Job与Project快照保持
+```
+
+验证覆盖所有格式共用Worker、全项目/批次/选中/引用范围、跨桶同键陷阱、NULL旧缓存零I/O、已知丢失/损坏重建、过期索引替换/竞争、期限cap、重复投递独立键、PUT/commit结果未知/取消真实收尾、账号/Key撤权、维护与读permit退休竞态、Job/Project清理、严格迁移/受限恢复。DB仅使用确认owner的一次性test环境；真实HTTP+MinIO+Celery从新Job建立ZIP并完整下载，验证缓存、失败保留和过期清理；浏览器观察现有任务下载链路，不将合成夹具称为生产或原生GPU资格。Ruff、OpenAPI/SDK、生成类型、文档和diff/正常hooks通过后提交。迁移并刷新所属人工3100/8100、两类Worker和Beat，核对既有业务及24对象/12原件字节；清理全部本轮测试资源/中间产物。回退保留归属表、引用和期限，关闭新导出即可，不恢复当前桶猜测。
+
 ## 本轮实施定案：E02-B6 上传头像的固定归属与耐久清理
 
 基于干净本地HEAD `5aad08281` 继续已有整套实施和提交授权。只读盘点确认其余八用途仍有当前桶消费者，且全用途legacy binding校验尚不允许切换。本片选择单一规范化写入口的头像；基础权重由管理员准备脚本按显式桶发布/下载至节点缓存，训练派发不临时下载基础权重，不为其凭空引入训练对象表。
