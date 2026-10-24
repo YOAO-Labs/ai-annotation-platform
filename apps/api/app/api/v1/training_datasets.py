@@ -40,6 +40,8 @@ from app.services.project_write_guard import lock_actor_project_authority
 from app.services.project_access import resolve_project_access_by_id
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services.content_snapshot import ContentError
+from app.services.original_request import connected_snapshot
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-datasets",
@@ -73,6 +75,13 @@ async def load_version(db, project, version_id, *, lock=False):
     return version
 
 
+async def connected_preparation(request, operation):
+    prepared = await connected_snapshot(request, operation, close_result=False)
+    if prepared is None:
+        raise HTTPException(499, {"code": "client_disconnected"})
+    return prepared
+
+
 @router.post(":preflight", response_model=TrainingDatasetPreflight)
 async def preflight(
     body: TrainingDatasetSelection,
@@ -82,16 +91,22 @@ async def preflight(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        _, report = await service.freeze_selection(
-            db,
-            project,
-            body,
-            actor_id=user.id,
-            api_key_id=getattr(request.state, "api_key_id", None),
+        prepared = await connected_preparation(
+            request,
+            service.prepare_selection(
+                db,
+                project,
+                body,
+                actor_id=user.id,
+                api_key_id=getattr(request.state, "api_key_id", None),
+                http_request=request,
+            ),
         )
-        return report
+        return prepared.report
     except TrainingDatasetError as exc:
         fail(exc)
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
 
 
 @router.post("", response_model=TrainingDatasetOut, status_code=202)
@@ -127,18 +142,49 @@ async def create_version(
             fail(exc)
         await db.commit()
         return await task_datasets.attach_read_metadata(db, existing)
+    # The following preparation owns only read phases. Release this request's
+    # idempotency/authority locks before any source I/O, then serialize again.
+    await db.commit()
     try:
-        snapshot, report = await service.freeze_selection(
-            db,
-            project,
-            service.selection_of(body),
-            actor_id=user.id,
-            api_key_id=getattr(request.state, "api_key_id", None),
+        prepared = await connected_preparation(
+            request,
+            service.prepare_selection(
+                db,
+                project,
+                service.selection_of(body),
+                actor_id=user.id,
+                api_key_id=getattr(request.state, "api_key_id", None),
+                http_request=request,
+            ),
         )
+        report = prepared.report
         if report["digest"] != body.preflight_digest:
             raise HTTPException(status_code=409, detail="数据已变化，请重新预检")
         if not report["ready"]:
             raise HTTPException(status_code=422, detail=report)
+        await db.execute(
+            select(
+                func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0))
+            )
+        )
+        await lock_owner(db, user, project)
+        existing = await db.scalar(
+            select(TrainingDatasetVersion)
+            .where(
+                TrainingDatasetVersion.project_id == project.id,
+                TrainingDatasetVersion.request_id == body.request_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if existing:
+            if existing.request_digest != request_digest:
+                raise HTTPException(409, "同一请求标识不能用于不同数据版本")
+            await task_datasets.ensure_membership(db, existing, project_locked=True)
+            service.check_prepared_clock(prepared)
+            await db.commit()
+            return await task_datasets.attach_read_metadata(db, existing)
+        snapshot, report = await service.finalize_selection(db, prepared)
         version = TrainingDatasetVersion(
             project_id=project.id,
             creator_id=user.id,
@@ -157,12 +203,17 @@ async def create_version(
         await storage_owners.allocate(db, version)
         await task_datasets.ensure_membership(db, version, project_locked=True)
         await service.enqueue_dataset(db, version)
+        service.check_prepared_clock(prepared)
+        if await request.is_disconnected():
+            raise HTTPException(499, {"code": "client_disconnected"})
         await db.commit()
         await service.dispatch_dataset(db, version)
         await db.refresh(version)
         return await task_datasets.attach_read_metadata(db, version)
     except TrainingDatasetError as exc:
         fail(exc)
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
 
 
 @router.get("", response_model=TrainingDatasetPage)

@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import io
-from PIL import Image
+from dataclasses import dataclass
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import String, cast, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
@@ -23,10 +22,11 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.user import User
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import async_job as jobs
+from app.services import training_dataset_originals as originals
+from app.services.content_snapshot import ContentError
 from app.services.async_job_notify import notify_job_terminal
 from app.services.project_access import resolve_project_access
 from app.services.project_write_guard import lock_actor_project_authority
-from app.services.storage import storage_service
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
@@ -68,6 +68,22 @@ def selection_of(body) -> TrainingDatasetSelection:
 async def assert_dataset_authority(
     db: AsyncSession, version: TrainingDatasetVersion
 ) -> None:
+    if "managed_original_contract" in version.snapshot:
+        try:
+            await originals.delegated(db, version)
+        except HTTPException as exc:
+            if exc.status_code not in {401, 403}:
+                raise
+            code = (
+                "api_key_revoked"
+                if isinstance(exc.detail, dict)
+                and exc.detail.get("code") == "api_key_authority_revoked"
+                else "authority_revoked"
+            )
+            raise TrainingDatasetError(
+                code, "训练数据版本的凭证或权限已失效", status_code=403
+            ) from exc
+        return
     await assert_training_authority(
         db,
         project_id=version.project_id,
@@ -128,58 +144,151 @@ async def assert_training_authority(
 
 
 def capture_source_media(sample: dict) -> dict:
-    head = storage_service.client.head_object(
-        Bucket=sample["source_bucket"], Key=sample["source_key"]
+    """Legacy locator-only inputs cannot acquire a new original identity."""
+    raise TrainingDatasetError(
+        "original_input_unrecorded", "原图缺少已登记内容身份，请重新预检"
     )
-    size = head["ContentLength"]
-    if size <= 0 or size > MAX_IMAGE_BYTES:
-        raise TrainingDatasetError("image_size_limit", "图片大小超出训练数据范围")
-    dimensions = {}
-    if sample.get("raster_contract") and not (
-        sample.get("expected_width") and sample.get("expected_height")
-    ):
-        # Legacy direct-upload tasks may lack DatasetItem dimensions. Read a
-        # bounded, ETag-pinned header, never a dense image or unbounded object.
-        params = {
-            "Bucket": sample["source_bucket"],
-            "Key": sample["source_key"],
-            "IfMatch": head["ETag"],
-            "Range": "bytes=0-1048575",
-        }
-        if head.get("VersionId"):
-            params["VersionId"] = head["VersionId"]
-        response = storage_service.client.get_object(**params)
-        try:
-            header = response["Body"].read(1024 * 1024 + 1)
-        finally:
-            response["Body"].close()
-        if len(header) > 1024 * 1024:
-            raise TrainingDatasetError(
-                "image_header_limit", "图片尺寸头超过 1 MiB 预检范围"
+
+
+@dataclass
+class PreparedSelection:
+    snapshot: dict
+    report: dict
+    authority: originals.Authority
+    sources: dict
+    selection: TrainingDatasetSelection
+
+
+def check_prepared_clock(prepared):
+    originals.clock(prepared.authority)
+
+
+async def prepare_selection(
+    db,
+    project,
+    selection,
+    *,
+    actor_id,
+    api_key_id=None,
+    http_request=None,
+    trusted_actor=False,
+):
+    """Own read transactions without committing caller policy/version changes.
+
+    Callers must release their business locks before this physical phase and
+    reacquire their serialization/context guards before finalize_selection.
+    """
+    await db.flush()
+    maker = async_sessionmaker(
+        db.bind, expire_on_commit=False, join_transaction_mode="create_savepoint"
+    )
+    try:
+        async with maker() as reading:
+            authority = await originals.authorize(
+                reading,
+                project.id,
+                actor_id,
+                http_request=http_request,
+                api_key_id=api_key_id,
+                trusted_actor=trusted_actor,
             )
-        try:
-            with Image.open(io.BytesIO(header)) as image:
-                width, height = storage_service._logical_image_dimensions(image)
-            dimensions = {"width": width, "height": height}
-        except Exception as exc:
+            await reading.commit()
+            current = await reading.get(Project, project.id, populate_existing=True)
+            sources = {}
+            snapshot, report = await _freeze_selection(
+                reading,
+                current,
+                selection,
+                actor_id=actor_id,
+                api_key_id=api_key_id,
+                authority=authority,
+                observed=sources,
+            )
+            for source in sources.values():
+                await originals.recheck(reading, authority, source)
+            await originals.check(reading, authority)
+            originals.clock(authority)
+            return PreparedSelection(
+                snapshot, report, authority, sources, selection.model_copy(deep=True)
+            )
+    except HTTPException as exc:
+        if exc.status_code in {401, 403}:
             raise TrainingDatasetError(
-                "image_dimensions_unavailable", "无法从有界原图头读取标注尺寸"
+                "authority_revoked", "训练数据请求的凭证或权限已失效", status_code=403
             ) from exc
-    return {
-        **dimensions,
-        "etag": head["ETag"],
-        "size_bytes": size,
-        "version_id": head.get("VersionId"),
-    }
+        raise
+
+
+async def finalize_selection(db, prepared):
+    """Lock and compare the prepared selection without I/O or implicit commit."""
+    from app.services import original_sources
+
+    authority = prepared.authority
+    await originals.check(db, authority)
+    project = await db.get(Project, authority.project_id, populate_existing=True)
+    task_ids = [uuid.UUID(s["task_id"]) for s in prepared.snapshot["samples"]]
+    async with original_sources._reads(db, True):
+        for statement in (
+            select(Task.id).where(Task.id.in_(task_ids)).order_by(Task.id),
+            select(Annotation.id)
+            .where(Annotation.task_id.in_(task_ids))
+            .order_by(Annotation.id),
+        ):
+            await db.execute(statement.with_for_update(read=True, nowait=True))
+        for source in prepared.sources.values():
+            await originals.recheck(db, authority, source)
+        current, _report = await _freeze_selection(
+            db,
+            project,
+            prepared.selection,
+            actor_id=authority.actor_id,
+            api_key_id=str(authority.key_id) if authority.key_id else None,
+            authority=authority,
+            frozen_samples={s["task_id"]: s for s in prepared.snapshot["samples"]},
+        )
+        if content_digest(current) != prepared.report["digest"]:
+            raise TrainingDatasetError(
+                "preflight_changed", "数据已变化，请重新预检", status_code=409
+            )
+    originals.clock(authority)
+    return prepared.snapshot, prepared.report
 
 
 async def freeze_selection(
+    db,
+    project,
+    selection,
+    *,
+    actor_id,
+    api_key_id=None,
+    http_request=None,
+    trusted_actor=False,
+):
+    """Convenience for internal callers that already own the phase boundary."""
+    prepared = await prepare_selection(
+        db,
+        project,
+        selection,
+        actor_id=actor_id,
+        api_key_id=api_key_id,
+        http_request=http_request,
+        trusted_actor=trusted_actor,
+    )
+    if prepared.report["ready"]:
+        return await finalize_selection(db, prepared)
+    return prepared.snapshot, prepared.report
+
+
+async def _freeze_selection(
     db: AsyncSession,
     project: Project,
     selection: TrainingDatasetSelection,
     *,
     actor_id: uuid.UUID,
     api_key_id: str | None = None,
+    authority,
+    frozen_samples=None,
+    observed=None,
 ) -> tuple[dict, dict]:
     if (project.data_type or "image") != "image":
         raise TrainingDatasetError(
@@ -406,11 +515,7 @@ async def freeze_selection(
                         "dataset_item_id": str(item.id),
                     }
                     if reference
-                    else {
-                        "source_bucket": storage_service.datasets_bucket
-                        if task.dataset_item_id
-                        else storage_service.bucket
-                    }
+                    else {}
                 ),
                 "source_key": task.file_path,
                 "expected_width": item.width if item else None,
@@ -429,51 +534,111 @@ async def freeze_selection(
     for dataset_id in sorted(eligible_dataset_ids, key=str):
         dataset = await require_writable(db, dataset_id)
         dataset_revisions[dataset_id] = dataset.lifecycle_revision
-    semaphore = asyncio.Semaphore(8)
-
-    async def capture(sample):
-        async with semaphore:
-            try:
-                sample["media"] = await asyncio.to_thread(capture_source_media, sample)
-                if is_instance_rle(contract):
-                    sample["expected_width"] = sample.get("expected_width") or sample[
-                        "media"
-                    ].get("width")
-                    sample["expected_height"] = sample.get("expected_height") or sample[
-                        "media"
-                    ].get("height")
-                    instance_mask_annotations(
-                        sample["annotations"],
-                        classes,
-                        sample["expected_width"],
-                        sample["expected_height"],
-                    )
-            except (TrainingDatasetError, DatasetContractError) as exc:
-                issues.append(
-                    {
-                        "task_id": sample["task_id"],
-                        "code": exc.code,
-                        "message": str(exc),
-                    }
-                )
-            except Exception:
-                issues.append(
-                    {
-                        "task_id": sample["task_id"],
-                        "code": "media_unavailable",
-                        "message": "无法读取原始图片",
-                    }
-                )
-
-    await asyncio.gather(
-        *(
-            capture(sample)
-            for sample in samples
-            if not is_reference(sample["source_key"])
+    # Resolve declared content before any image I/O so the version budget is
+    # enforced on authoritative sizes, not after downloading every sample.
+    declared = 0
+    for sample in samples:
+        try:
+            original_source = await originals.original_sources.resolve_task(
+                db, uuid.UUID(sample["task_id"])
+            )
+            if is_reference(sample["source_key"]):
+                declared += original_source.size_bytes
+            else:
+                original_source = await originals.pin(db, project.id, sample)
+                sample["original"] = originals.receipt(original_source)
+                declared += original_source.size_bytes
+        except ContentError as exc:
+            if exc.code.endswith("busy") or getattr(
+                exc, "storage_operation_unsettled", False
+            ):
+                raise
+            issues.append(
+                {
+                    "task_id": sample["task_id"],
+                    "code": exc.code,
+                    "message": "原图缺少可用的已登记内容身份",
+                }
+            )
+    if declared > MAX_DATASET_BYTES:
+        issues.append(
+            {"code": "dataset_size_limit", "message": "训练数据总量超过 20 GiB"}
         )
-    )
+    for sample in samples:
+        if frozen_samples is not None:
+            frozen = frozen_samples.get(sample["task_id"], {})
+            for name in (
+                "media",
+                "asset_reference",
+                "source_lineage",
+                "source_maintenance",
+            ):
+                if name in frozen:
+                    sample[name] = frozen[name]
+            if is_instance_rle(contract) and sample.get("media"):
+                sample["expected_width"] = sample.get("expected_width") or sample[
+                    "media"
+                ].get("width")
+                sample["expected_height"] = sample.get("expected_height") or sample[
+                    "media"
+                ].get("height")
+            continue
+        if (
+            is_reference(sample["source_key"])
+            or "original" not in sample
+            or declared > MAX_DATASET_BYTES
+        ):
+            continue
+        try:
+            sample["media"], original_source = await originals.preflight(
+                db, authority, sample
+            )
+            observed[sample["task_id"]] = original_source
+            if is_instance_rle(contract):
+                sample["expected_width"] = (
+                    sample.get("expected_width") or sample["media"]["width"]
+                )
+                sample["expected_height"] = (
+                    sample.get("expected_height") or sample["media"]["height"]
+                )
+                instance_mask_annotations(
+                    sample["annotations"],
+                    classes,
+                    sample["expected_width"],
+                    sample["expected_height"],
+                )
+        except (TrainingDatasetError, DatasetContractError) as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
+            issues.append(
+                {"task_id": sample["task_id"], "code": exc.code, "message": str(exc)}
+            )
+        except ContentError as exc:
+            if exc.code not in {
+                "source_changed",
+                "content_too_large",
+                "content_media_unsupported",
+            } or getattr(exc, "storage_operation_unsettled", False):
+                raise
+            issues.append(
+                {
+                    "task_id": sample["task_id"],
+                    "code": exc.code,
+                    "message": "原图内容无法通过完整校验",
+                }
+            )
+        except (ValueError, OSError) as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
+            issues.append(
+                {
+                    "task_id": sample["task_id"],
+                    "code": "media_unavailable",
+                    "message": "无法完整读取或解码原始图片",
+                }
+            )
     references = [s for s in samples if is_reference(s["source_key"])]
-    if references:
+    if references and frozen_samples is None and declared <= MAX_DATASET_BYTES:
         from app.services.training_dataset_sources import training_reference_snapshot
 
         actor = await db.get(User, actor_id, populate_existing=True)
@@ -531,6 +696,7 @@ async def freeze_selection(
         )
     snapshot = {
         **contract,
+        "managed_original_contract": 1,
         **(
             {
                 "asset_source_contract": {
@@ -558,7 +724,7 @@ async def freeze_selection(
         "seed": selection.seed,
         "validation_fraction": selection.validation_fraction,
         "selection": selection.canonical_payload(),
-        "authorization": {"actor_id": str(actor_id), "api_key_id": api_key_id},
+        "authorization": originals.authorization(authority),
     }
     report = {
         "task": selection.task,
@@ -591,7 +757,7 @@ async def freeze_selection(
         "issues": sorted(issues, key=lambda i: (i.get("task_id", ""), i["code"])),
         "excluded": excluded,
     }
-    if is_instance_rle(contract) and report["ready"]:
+    if frozen_samples is not None and is_instance_rle(contract) and report["ready"]:
         # The caller inserts the immutable version and commits this same
         # transaction. GC rechecks roots while holding these exact content locks.
         from app.services.raster_mask_storage import lock_raster_mask_references
@@ -599,9 +765,12 @@ async def freeze_selection(
         await lock_raster_mask_references(db, snapshot)
     # Only a new selection is gated. Workers serving existing immutable versions
     # continue under their captured content and current project permissions.
-    for dataset_id, revision in dataset_revisions.items():
-        await require_writable(db, dataset_id, expected_revision=revision, lock=True)
-    if report["ready"] and references:
+    if frozen_samples is not None:
+        for dataset_id, revision in dataset_revisions.items():
+            await require_writable(
+                db, dataset_id, expected_revision=revision, lock=True
+            )
+    if frozen_samples is not None and report["ready"] and references:
         from app.services.training_dataset_sources import lock_source_maintenance
 
         await lock_source_maintenance(db, snapshot)
@@ -678,4 +847,14 @@ async def lock_dataset_execution(db: AsyncSession, version_id: uuid.UUID) -> Non
     if not acquired:
         raise TrainingDatasetError(
             "execution_stopping", "上次构建仍在停止，请稍后重试", status_code=409
+        )
+    from app.db.models.storage_maintenance import StorageOperation
+
+    if await db.scalar(
+        select(StorageOperation.id)
+        .where(StorageOperation.purpose == originals.output_purpose(version_id))
+        .limit(1)
+    ):
+        raise TrainingDatasetError(
+            "execution_stopping", "上次构建的存储操作尚未确认收尾", status_code=409
         )

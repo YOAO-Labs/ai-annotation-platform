@@ -5,11 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import tempfile
 import zipfile
 from copy import deepcopy
 from pathlib import Path
 from aap_task_contract import normalize_task
+from app.services import storage_access
 from training_contract.dataset import (
     DETECTION_CONTRACT,
     DatasetContractError,
@@ -271,8 +271,8 @@ def build_training_package(
             representatives.setdefault(sample["sha256"], sample)
         samples = list(representatives.values())
     manifest_samples = []
-    with zipfile.ZipFile(
-        output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1
+    with storage_access.closing_registered(
+        zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1)
     ) as package:
         for sample in sorted(samples, key=lambda s: s["task_id"]):
             task_id = sample["task_id"]
@@ -473,7 +473,9 @@ def instance_rle_semantic(instances):
 
 def build_instance_rle_package(snapshot, media, output, *, parent_manifest=None):
     """Spool encoded labels instead of retaining the whole dataset in RAM."""
-    with tempfile.TemporaryDirectory(prefix="aap-training-rle-") as temporary:
+    from app.services.training_dataset_originals import temporary_directory
+
+    with temporary_directory(prefix="aap-training-rle-") as temporary:
         return _build_instance_rle_package(
             snapshot, media, output, Path(temporary), parent_manifest=parent_manifest
         )
@@ -512,7 +514,8 @@ def _build_instance_rle_package(
             for instance in payload["instances"]
         ]
         label_file = labels_directory / f"{item['task_id']}.json"
-        label_file.write_text(text)
+        with storage_access.closing_registered(label_file.open("w")) as target:
+            target.write(text)
         label_size = len(text.encode())
         label_sha256 = hashlib.sha256(text.encode()).hexdigest()
         del text, payload
@@ -552,8 +555,8 @@ def _build_instance_rle_package(
             representatives.setdefault(item["sha256"], item)
         samples = list(representatives.values())
     members = []
-    with zipfile.ZipFile(
-        output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1
+    with storage_access.closing_registered(
+        zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1)
     ) as package:
         for item in sorted(samples, key=lambda item: item["task_id"]):
             task_id, split = item["task_id"], splits[item["task_id"]]

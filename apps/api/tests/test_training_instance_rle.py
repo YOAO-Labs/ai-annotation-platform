@@ -277,16 +277,13 @@ def test_verified_original_dimensions_use_full_image_and_orientation():
 
 def test_locator_only_capture_requires_registered_original(monkeypatch):
     from app.services import training_datasets
+    from app.services.storage import storage_service
 
     def unexpected_io(**kwargs):
         pytest.fail("Locator-only inputs must be rejected before storage I/O")
 
-    monkeypatch.setattr(
-        training_datasets.storage_service.client, "head_object", unexpected_io
-    )
-    monkeypatch.setattr(
-        training_datasets.storage_service.client, "get_object", unexpected_io
-    )
+    monkeypatch.setattr(storage_service.client, "head_object", unexpected_io)
+    monkeypatch.setattr(storage_service.client, "get_object", unexpected_io)
     with pytest.raises(TrainingDatasetError) as error:
         training_datasets.capture_source_media(
             {"raster_contract": True, "source_bucket": "private", "source_key": "image"}

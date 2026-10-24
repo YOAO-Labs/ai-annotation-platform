@@ -2,9 +2,12 @@
 
 import asyncio
 from copy import deepcopy
+from dataclasses import replace
 import hashlib
 import io
+import threading
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 import uuid
 
 from botocore.exceptions import ClientError
@@ -23,6 +26,8 @@ from app.services import training_datasets as datasets
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
+from app.services.reference_keys import reference_key
+from app.services import storage_access
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 from app.workers import training_dataset as worker
 from tests.factory import create_project
@@ -251,6 +256,79 @@ def saved_owner(project_id, version_id, *, bucket="saved-training-boundary-bucke
     }
 
 
+async def test_reference_close_cancellation_preserves_prior_unknown_output_owner(
+    monkeypatch, tmp_path
+):
+    from app.services import training_dataset_sources
+
+    project_id, version_id = uuid.uuid4(), uuid.uuid4()
+    version = SimpleNamespace(
+        id=version_id,
+        project_id=project_id,
+        creator_id=uuid.uuid4(),
+        storage_ref=saved_owner(project_id, version_id),
+        snapshot={},
+    )
+    sample = {
+        "task_id": str(uuid.uuid4()),
+        "source_key": reference_key(uuid.uuid4(), "a" * 64),
+    }
+    closing, release, finished = threading.Event(), threading.Event(), threading.Event()
+    source = io.BytesIO(b"verified reference")
+
+    def close():
+        source.close()
+        closing.set()
+        if not release.wait(10):
+            raise TimeoutError("test did not release reference close")
+        finished.set()
+
+    calls = []
+
+    def materialize(*args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise TrainingDatasetError(
+                "reference_read_required", "retained media absent"
+            )
+        raise storage_access.mark_unsettled(OSError("output close unknown"))
+
+    monkeypatch.setattr(worker, "materialize_image", materialize)
+    monkeypatch.setattr(worker, "assert_dataset_authority", AsyncMock())
+    monkeypatch.setattr(
+        training_dataset_sources,
+        "training_reference_snapshot",
+        AsyncMock(return_value=(SimpleNamespace(file=source, close=close), {}, {})),
+    )
+    db = SimpleNamespace(get=AsyncMock(return_value=object()))
+    pending = asyncio.create_task(
+        worker.materialize_sample(
+            db,
+            version,
+            sample,
+            version.storage_ref["prefix"].rstrip("/"),
+            "snapshot",
+            tmp_path,
+            "worker:original-test",
+        )
+    )
+    try:
+        assert await asyncio.to_thread(closing.wait, 5)
+        pending.cancel()
+        await asyncio.sleep(0)
+        assert not pending.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError) as failure:
+            await pending
+        assert failure.value.storage_operation_unsettled is True
+        assert finished.is_set() and source.closed and len(calls) == 2
+    finally:
+        release.set()
+        if not pending.done():
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+
+
 @pytest.fixture
 async def execution_world(db_session, super_admin):
     db, (actor, token) = db_session, super_admin
@@ -347,6 +425,19 @@ async def test_guard_execution_rechecks_saved_database_bindings(
     execution_world, change
 ):
     world = execution_world
+    if change == "owner":
+        # Persisted ownership is immutable; an execution captured for another
+        # owner must still fail against the actual saved database row.
+        context = replace(
+            world.context,
+            owner_ref=saved_owner(
+                world.project.id, world.version.id, bucket="other-owner-bucket"
+            ),
+        )
+        with pytest.raises(ContentError) as failure:
+            await worker.guard_execution(world.db, context, lock=True)
+        assert failure.value.code == "training_input_binding_changed"
+        return
     if change == "snapshot":
         model, identifier, values = (
             TrainingDatasetVersion,
@@ -358,18 +449,6 @@ async def test_guard_execution_rechecks_saved_database_bindings(
             TrainingDatasetVersion,
             world.version.id,
             {"snapshot_digest": "f" * 64},
-        )
-    elif change == "owner":
-        model, identifier, values = (
-            TrainingDatasetVersion,
-            world.version.id,
-            {
-                "storage_ref": saved_owner(
-                    world.project.id,
-                    world.version.id,
-                    bucket="rewritten-training-boundary-bucket",
-                )
-            },
         )
     elif change == "attempt":
         model, identifier, values = (

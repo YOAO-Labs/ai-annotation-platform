@@ -1076,3 +1076,19 @@ Job→Run短锁原子认领pending并固定Celery任务绑定；计算阶段只�
 正式资料已同步README、CHANGELOG Unreleased、`docs-site/user-guide/workbench/3d-box.md`、`docs-site/api/guides/verified-content.md`与`docs-site/dev/concepts/storage-connections.md`。完整E02／B13及整套epic仍在执行，完整用途切换关闭，不归档此活动计划。
 
 下一片优先定稿训练数据版本的托管图片预检与Worker缺失媒体回源：`freeze_selection→capture_source_media`及`materialize_sample→materialize_image`仍冻结当前source_bucket／ETag／size，现有版本snapshot、固定输出storage_ref和attempt围栏可复用。保持引用图片、已保留媒体、历史ready包和原管理者／scope合同；金字塔及LiDAR导出还涉及独立派生output归属或额外nuScenes文件，继续分别实施。此项仅完成只读盘点，尚未定稿或实现。
+
+## E02-B13-B3-D Design — 训练数据托管图片原件与物化
+
+基线 `699acafa6` 的只读复核确认：托管图片预检只按当前桶冻结ETag／size，缺少保留媒体时Worker直接回源；保留命中只比可改写的对象metadata SHA，原生线程取消后仍可能访问已退出的临时目录。新片覆盖预检、创建、自动策略／种子内调用、Worker回源及ready发布，不只替换GET；引用图片继续执行独立asset_source_contract，已有输出storage_ref不换owner。
+
+新snapshot声明managed_original_contract=1，托管sample记录安全owner／内容UUID／SHA／大小／逻辑位置收据，不再保存当前桶作原件证据；预检摘要包含该身份，单图256MiB、100MP、既有格式／EXIF、20GiB／版本及20000样本保持。先核对声明总量再实际完整捕获、解码及关闭，所有原件读取沿canonical Task direct／primary或独立TaskOriginal保存位置执行。缺失／不支持输入明确阻止ready预检；权限、绑定、Gate、取消或未知收尾错误不能被宽泛media_unavailable吞掉。
+
+HTTP固定准确原请求证明，snapshot.authorization私有保存原Key指纹，后台与retry继续核对它；不保存Bearer或把JWT短寿命委派给Worker。保持manager及datasets:read／annotations:read，不增加datasets:write／tasks:read。自动策略和种子使用显式内部构造入口，策略原有更严格scopes仍检查，不能把request=None当HTTP已授权。
+
+预检／创建采用显式prepare和finalize阶段：业务事务持有的项目advisory、User／Project及Policy／Trigger锁不能跨物理读取，也不能由媒体helper隐式commit。先保存本次选择与调用方上下文，短事务释放后完成所有物理工作；末端重新取得原串行化锁，复核调用上下文和选择／标签／原件事实，再原子保存Version、membership与Job。策略重取锁后复核启用状态、revision／config、基线和活动trigger；后来的策略编辑或并发检查不得覆盖。Worker沿原Version→Job取消顺序及执行advisory锁，不移植PCQ相反顺序。
+
+物化先从版本固定输出owner读取保留媒体，新合同同时核对冻结原件SHA／size，拒绝重写metadata伪造；仅保留缺失时读取固定原件，完整暂存、复制、解码、输出PUT／回读和真实关闭之后再复核当前权限／来源／Gate。本次回源的完整OriginalSource只在内存保存，ready末端复核；保留媒体命中不要求已删Task／源位置仍可用。训练标签在创建后已冻结，ready不重跑当前标签选择。旧ready包和合格历史保留媒体仍可用，旧无原件事实且保留媒体缺失时零raw I/O拒绝回源，不回填当前owner。
+
+原件以独立两槽及耐久访问许可覆盖物化到真实关闭，未知关闭保留责任；输出媒体／mask、ZIP构造、包上传／校验与失败清理线程均等待实际收尾，才能退出TemporaryDirectory和释放执行锁。包ready仍要求当前版本／attempt／Job／owner、创建者权限与原Key、所有本次回源事实有效，最终自然期限复核后统一提交状态及通知；取消或迟到变化不发布ready。保留媒体和包的实际写回／回读沿固定output owner，不授予完整用途切换或物理回收许可。
+
+验证使用本工作树新test／e2e模式、实际图片／RLE及独立HTTP／MinIO／Celery；保留3100／8100、两Worker／绑定Beat和11表／24对象／12文件指纹。不增加依赖、环境配置、迁移、镜像或版本；当前实现与验收未完成，完整E02／B13与整套epic继续执行。

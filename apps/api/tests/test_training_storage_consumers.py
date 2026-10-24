@@ -21,6 +21,7 @@ from app.db.models.training_run import TrainingAttempt
 from app.db.models.trained_model import TrainedModelVersion
 from app.services import training_dataset_analysis as analysis
 from app.services import training_dataset_storage as owners
+from app.services import training_preview_storage as preview_owners
 from app.services import training_run_storage as run_owners
 from app.services import training_previews, training_runs, trained_models
 from app.services.dataset_assets import LEGACY_LOCATION_ID
@@ -417,12 +418,18 @@ async def test_run_assignment_does_not_sign_an_unresolved_dataset(frozen, invali
 
 
 def preview_for(frozen):
+    identifier = uuid.uuid4()
     return SimpleNamespace(
-        id=uuid.uuid4(),
+        id=identifier,
         project_id=frozen.version.project_id,
         dataset_id=frozen.version.id,
         claim_id=uuid.uuid4(),
         input_digest="b" * 64,
+        storage_ref={
+            **deepcopy(frozen.version.storage_ref),
+            "purpose": "training-preview",
+            "prefix": preview_owners.prefix_for(frozen.version.project_id, identifier),
+        },
         spec={"sources": [{"task_id": frozen.sample.task_id, "media_key": frozen.key}]},
     )
 
@@ -587,9 +594,14 @@ async def test_worker_package_and_attempt_cleanup_keep_the_saved_owner(
     async def sessions():
         yield Session()
 
-    @asynccontextmanager
-    async def output_permit():
-        yield SimpleNamespace(revision=1)
+    class OutputPermit:
+        revision = 1
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
 
     def package(snapshot, media, destination, **kwargs):
         destination.write_bytes(b"immutable frozen package")
@@ -617,7 +629,7 @@ async def test_worker_package_and_attempt_cleanup_keep_the_saved_owner(
     monkeypatch.setattr(
         worker.storage_access,
         "acquire",
-        AsyncMock(side_effect=lambda *args: output_permit()),
+        AsyncMock(side_effect=lambda *args, **kwargs: OutputPermit()),
     )
     monkeypatch.setattr(worker.storage_access, "check", AsyncMock())
     monkeypatch.setattr(worker, "build_training_package", package)
