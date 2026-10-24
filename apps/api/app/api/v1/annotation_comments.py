@@ -452,9 +452,14 @@ async def create_comment(
         await attachment_uploads.bind(db, rows, comment.id)
         await attachment_uploads.reauthorize(db, authority)
         attachment_uploads.validate_bound(rows, comment.id)
+        attachment_expiries = tuple(row.expires_at for row in rows)
     await db.commit()
+    if authority is not None:
+        attachment_uploads.check_deadlines(authority, attachment_expiries)
     await NotificationService(db).publish_committed(pending_notifications)
     await db.refresh(comment)
+    if authority is not None:
+        attachment_uploads.check_deadlines(authority, attachment_expiries)
     return _to_out(comment, current_user.name)
 
 

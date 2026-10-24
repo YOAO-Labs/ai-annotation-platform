@@ -62,9 +62,20 @@ async def _locked(db, identifier, *, skip_locked=False):
     )
 
 
-def _ready(row):
-    if row.expires_at <= now():
+def _check_expiries(expiries):
+    current = now()
+    if any(expires_at <= current for expires_at in expiries):
         reject("comment_attachment_expired", 410)
+
+
+def check_deadlines(proof, expiries):
+    """Recheck immutable deadlines after waits without reopening business locks."""
+    authority.check_clock(proof)
+    _check_expiries(expiries)
+
+
+def _ready(row):
+    _check_expiries((row.expires_at,))
     if row.state != "ready":
         reject("comment_attachment_not_ready")
 
@@ -139,9 +150,10 @@ async def upload(db, proof, original, data, mime_type, file_name):
         db.add(row)
         await db.flush()
         receipt = storage.snapshot(row)
+        expiries = (receipt.expires_at,)
         await reauthorize(db, proof)
         await db.commit()
-        authority.check_clock(proof)
+        check_deadlines(proof, expiries)
         revision = None
 
         async def acquired(permit):
@@ -161,17 +173,19 @@ async def upload(db, proof, original, data, mime_type, file_name):
                 reject("comment_attachment_expired", 410)
             await reauthorize(db, proof)
             await db.commit()
-            authority.check_clock(proof)
+            check_deadlines(proof, expiries)
             revision = permit.revision
+
+        def write_saved():
+            # Executor queueing can outlive admission; only immutable facts are used.
+            check_deadlines(proof, expiries)
+            storage.write(storage_service.client, receipt, data)
 
         await storage_access.run(
             db,
             uuid.UUID(receipt.storage_ref["location_id"]),
             "comment_attachment_write_" + receipt.id.hex,
-            storage.write,
-            storage_service.client,
-            receipt,
-            data,
+            write_saved,
             on_acquired=acquired,
         )
         actor = await reauthorize(db, proof)
@@ -194,7 +208,7 @@ async def upload(db, proof, original, data, mime_type, file_name):
             reject("comment_attachment_expired", 410)
         current.state = "ready"
         await db.commit()
-        authority.check_clock(proof)
+        check_deadlines(proof, expiries)
         return attachment(receipt)
     except HTTPException:
         raise
@@ -317,9 +331,10 @@ async def read(db, actor, request, annotation_id, key):
         actor, proof = await lock_authority(db, actor, request)
         original, row = await _read_binding(db, actor, annotation_id, key)
         receipt = storage.snapshot(row)
+        expiries = (receipt.expires_at,)
         await reauthorize(db, proof)
         await db.commit()
-        authority.check_clock(proof)
+        check_deadlines(proof, expiries)
         revision = None
 
         async def acquired(permit):
@@ -330,16 +345,18 @@ async def read(db, actor, request, annotation_id, key):
             )
             await reauthorize(db, proof)
             await db.commit()
-            authority.check_clock(proof)
+            check_deadlines(proof, expiries)
             revision = permit.revision
+
+        def read_saved():
+            check_deadlines(proof, expiries)
+            return storage.read(storage_service.client, receipt)
 
         data = await storage_access.run(
             db,
             uuid.UUID(receipt.storage_ref["location_id"]),
             read_purpose(receipt.id),
-            storage.read,
-            storage_service.client,
-            receipt,
+            read_saved,
             on_acquired=acquired,
         )
         actor = await reauthorize(db, proof)
@@ -355,7 +372,7 @@ async def read(db, actor, request, annotation_id, key):
         await reauthorize(db, proof)
         _ready(current)
         await db.commit()
-        authority.check_clock(proof)
+        check_deadlines(proof, expiries)
         return receipt, data
     except HTTPException:
         raise

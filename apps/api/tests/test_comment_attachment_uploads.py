@@ -1,12 +1,12 @@
 """Original-comment receipts, authorization windows and durable retirement."""
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import io
 import threading
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 import uuid
 
 from botocore.exceptions import ClientError
@@ -550,6 +550,318 @@ async def test_natural_expiry_during_final_gate_wait(
     assert response.status_code == 403, response.text
     assert (await db_session.scalar(select(CommentAttachmentUpload))).state == "pending"
     assert objects.puts
+
+
+@pytest.mark.parametrize("commit_number", [1, 2, 3])
+async def test_read_rechecks_frozen_expiry_after_each_real_commit_wait(
+    commit_number,
+    httpx_client,
+    super_admin,
+    discussion,
+    objects,
+    db_session,
+    monkeypatch,
+):
+    value = await upload(httpx_client, super_admin, discussion[1])
+    created = await comment(httpx_client, super_admin, discussion[1], [value])
+    row = await db_session.scalar(select(CommentAttachmentUpload))
+    receipt = storage.snapshot(row)
+    objects.reads.clear()
+    objects.bodies.clear()
+    monkeypatch.setattr(
+        uploads, "now", lambda: receipt.expires_at - timedelta(seconds=1)
+    )
+    acquire = AsyncMock(wraps=storage_access.acquire)
+    monkeypatch.setattr(storage_access, "acquire", acquire)
+    original_commit, commits = db_session.commit, 0
+
+    async def commit():
+        nonlocal commits
+        commits += 1
+        await original_commit()
+        if commits == commit_number:
+            # A post-commit check must use frozen facts, even if ORM fields expire.
+            db_session.expire(row, ["expires_at"])
+            monkeypatch.setattr(uploads, "now", lambda: receipt.expires_at)
+
+    monkeypatch.setattr(db_session, "commit", commit)
+    response = await download(
+        httpx_client, super_admin, discussion[1], value["storageKey"]
+    )
+    assert response.status_code == 410, response.text
+    assert response.json()["detail"]["code"] == "comment_attachment_expired"
+    assert commits == commit_number
+    assert acquire.await_count == (0 if commit_number == 1 else 1)
+    assert len(objects.reads) == (1 if commit_number == 3 else 0)
+    assert all(body.closed for body in objects.bodies)
+    assert not objects.deleted and not await operation_ids(db_session, receipt)
+    current = await db_session.scalar(
+        select(CommentAttachmentUpload)
+        .where(CommentAttachmentUpload.id == receipt.id)
+        .execution_options(populate_existing=True)
+    )
+    assert current.state == "ready" and storage.same(current, receipt)
+    assert current.bound_comment_id == uuid.UUID(created["id"])
+
+
+@pytest.mark.parametrize("commit_number", [1, 2, 3])
+async def test_upload_rechecks_frozen_expiry_after_pending_acquired_and_final_commit(
+    commit_number,
+    httpx_client,
+    super_admin,
+    discussion,
+    objects,
+    db_session,
+    monkeypatch,
+):
+    capture = uploads.capture_upload
+    original_commit, commits = db_session.commit, 0
+    acquire = AsyncMock(wraps=storage_access.acquire)
+    monkeypatch.setattr(storage_access, "acquire", acquire)
+    frozen = {}
+
+    async def commit():
+        nonlocal commits
+        commits += 1
+        row = next(
+            value
+            for value in db_session.identity_map.values()
+            if isinstance(value, CommentAttachmentUpload)
+        )
+        receipt = storage.snapshot(row)
+        await original_commit()
+        if commits == commit_number:
+            frozen["receipt"] = receipt
+            db_session.expire(row, ["expires_at"])
+            monkeypatch.setattr(uploads, "now", lambda: receipt.expires_at)
+
+    async def captured(*args, **kwargs):
+        result = await capture(*args, **kwargs)
+        # Only count the three owner commits, after the body preflight's commit.
+        monkeypatch.setattr(db_session, "commit", commit)
+        return result
+
+    monkeypatch.setattr(uploads, "capture_upload", captured)
+    response = await httpx_client.post(
+        path(discussion[1].id, "upload"),
+        params={"file_name": "file.bin"},
+        content=b"general",
+        headers=bearer(super_admin[1]),
+    )
+    assert response.status_code == 410, response.text
+    assert response.json()["detail"]["code"] == "comment_attachment_expired"
+    assert commits == commit_number
+    assert acquire.await_count == (0 if commit_number == 1 else 1)
+    assert len(objects.puts) == len(objects.reads) == (1 if commit_number == 3 else 0)
+    assert all(body.closed for body in objects.bodies)
+    assert not objects.deleted
+    receipt = frozen["receipt"]
+    current = await db_session.scalar(
+        select(CommentAttachmentUpload)
+        .where(CommentAttachmentUpload.id == receipt.id)
+        .execution_options(populate_existing=True)
+    )
+    assert current.state == ("ready" if commit_number == 3 else "pending")
+    assert storage.same(current, receipt) and current.bound_comment_id is None
+    assert current.retired_at is None
+
+
+@pytest.mark.parametrize("stage", ["commit", "notification", "refresh"])
+@pytest.mark.parametrize("deadline", ["attachment", "key", "jwt"])
+async def test_binding_last_wait_expiry_preserves_the_committed_comment_and_owner(
+    stage,
+    deadline,
+    httpx_client,
+    super_admin,
+    discussion,
+    objects,
+    db_session,
+    monkeypatch,
+):
+    from app.services.notification import NotificationService
+
+    value = await upload(httpx_client, super_admin, discussion[1])
+    row = await db_session.scalar(select(CommentAttachmentUpload))
+    receipt = storage.snapshot(row)
+    token = super_admin[1]
+    expiration = receipt.expires_at
+    if deadline == "key":
+        created = await key_for(httpx_client, super_admin)
+        token = created["plaintext"]
+        key = await db_session.get(ApiKey, uuid.UUID(created["id"]))
+        expiration = authority.now() + timedelta(seconds=60)
+        key.expires_at = expiration
+        await db_session.flush()
+    elif deadline == "jwt":
+        token = create_access_token(
+            str(super_admin[0].id), "super_admin", timedelta(seconds=60)
+        )
+        expiration = datetime.fromtimestamp(
+            decode_access_token(token)["exp"], timezone.utc
+        )
+    expired = []
+
+    def expire():
+        expired.append(stage)
+        monkeypatch.setattr(
+            uploads if deadline == "attachment" else authority,
+            "now",
+            lambda: expiration,
+        )
+
+    if stage == "commit":
+        original_commit = db_session.commit
+
+        async def commit():
+            bound = row.bound_comment_id is not None
+            await original_commit()
+            if bound:
+                # Preserve the committed first binding; expiry cannot undo it.
+                db_session.expire(row, ["expires_at"])
+                expire()
+
+        monkeypatch.setattr(db_session, "commit", commit)
+    elif stage == "notification":
+        publish = NotificationService.publish_committed
+
+        async def published(self, *args, **kwargs):
+            result = await publish(self, *args, **kwargs)
+            db_session.expire(row, ["expires_at"])
+            expire()
+            return result
+
+        monkeypatch.setattr(NotificationService, "publish_committed", published)
+    else:
+        original_refresh = db_session.refresh
+
+        async def refresh(instance, *args, **kwargs):
+            result = await original_refresh(instance, *args, **kwargs)
+            if isinstance(instance, AnnotationComment):
+                db_session.expire(row, ["expires_at"])
+                expire()
+            return result
+
+        monkeypatch.setattr(db_session, "refresh", refresh)
+
+    response = await httpx_client.post(
+        f"/api/v1/annotations/{discussion[1].id}/comments",
+        json={"body": "", "attachments": [value]},
+        headers=bearer(token),
+    )
+    assert response.status_code == (410 if deadline == "attachment" else 403), (
+        response.text
+    )
+    assert response.json()["detail"]["code"] == (
+        "comment_attachment_expired"
+        if deadline == "attachment"
+        else "comment_attachment_authority_revoked"
+    )
+    assert expired == [stage]
+    comments = list(await db_session.scalars(select(AnnotationComment)))
+    mirrors = list(await db_session.scalars(select(AnnotationFeedback)))
+    assert len(comments) == len(mirrors) == 1
+    assert comments[0].attachments == mirrors[0].attachments == [value]
+    current = await db_session.scalar(
+        select(CommentAttachmentUpload)
+        .where(CommentAttachmentUpload.id == receipt.id)
+        .execution_options(populate_existing=True)
+    )
+    assert current.state == "ready" and current.retired_at is None
+    assert current.bound_comment_id == comments[0].id
+    assert (
+        current.storage_ref == receipt.storage_ref and current.sha256 == receipt.sha256
+    )
+    assert current.expires_at == receipt.expires_at
+    assert len(objects.puts) == 1 and not objects.deleted
+
+
+async def test_body_only_comment_does_not_enter_attachment_deadline_protocol(
+    httpx_client, super_admin, discussion, db_session, monkeypatch
+):
+    check = Mock(
+        side_effect=AssertionError("body-only comments have no attachment owner")
+    )
+    monkeypatch.setattr(uploads, "check_deadlines", check)
+    response = await httpx_client.post(
+        f"/api/v1/annotations/{discussion[1].id}/comments",
+        json={"body": "Body only", "attachments": []},
+        headers=bearer(super_admin[1]),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["body"] == "Body only"
+    check.assert_not_called()
+    assert await db_session.scalar(select(CommentAttachmentUpload.id)) is None
+
+
+@pytest.mark.parametrize("operation", ["upload", "read"])
+async def test_executor_queue_wait_rechecks_expiry_before_actual_storage_io(
+    operation,
+    httpx_client,
+    super_admin,
+    discussion,
+    objects,
+    db_session,
+    monkeypatch,
+):
+    value = None
+    if operation == "read":
+        value = await upload(httpx_client, super_admin, discussion[1])
+        await comment(httpx_client, super_admin, discussion[1], [value])
+    objects.reads.clear()
+    objects.bodies.clear()
+    initial_puts = len(objects.puts)
+    original_run = storage_access.run
+    entered, release = threading.Event(), threading.Event()
+    frozen = {}
+
+    async def run(db, location_id, purpose, call, *args, **kwargs):
+        row = next(
+            item
+            for item in db_session.identity_map.values()
+            if isinstance(item, CommentAttachmentUpload)
+        )
+        frozen["receipt"] = storage.snapshot(row)
+
+        def queued(*call_args, **call_kwargs):
+            entered.set()
+            assert release.wait(10)
+            return call(*call_args, **call_kwargs)
+
+        return await original_run(db, location_id, purpose, queued, *args, **kwargs)
+
+    monkeypatch.setattr(storage_access, "run", run)
+    if operation == "upload":
+        request = asyncio.create_task(
+            httpx_client.post(
+                path(discussion[1].id, "upload"),
+                params={"file_name": "queued.bin"},
+                content=b"general",
+                headers=bearer(super_admin[1]),
+            )
+        )
+    else:
+        request = asyncio.create_task(
+            download(httpx_client, super_admin, discussion[1], value["storageKey"])
+        )
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        expiration = frozen["receipt"].expires_at
+        monkeypatch.setattr(uploads, "now", lambda: expiration)
+    finally:
+        release.set()
+        response = await request
+    assert response.status_code == 410, response.text
+    assert response.json()["detail"]["code"] == "comment_attachment_expired"
+    assert not objects.reads and not objects.bodies and not objects.deleted
+    assert len(objects.puts) == initial_puts
+    receipt = frozen["receipt"]
+    current = await db_session.scalar(
+        select(CommentAttachmentUpload)
+        .where(CommentAttachmentUpload.id == receipt.id)
+        .execution_options(populate_existing=True)
+    )
+    assert current.state == ("pending" if operation == "upload" else "ready")
+    assert storage.same(current, receipt)
 
 
 async def test_retirement_grace_expiry_and_feedback_do_not_keep_owner_alive(
