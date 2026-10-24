@@ -1305,6 +1305,7 @@ class LocalResources:
                     "aap_labeling_v1.scene_track_command(jsonb), "
                     "aap_labeling_v1.cross_frame_write_command(jsonb), "
                     "aap_labeling_v1.annotation_prediction_command(jsonb), "
+                    "aap_labeling_v1.annotation_maintenance_command(jsonb), "
                     "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb), "
                     "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid), "
                     "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb), "

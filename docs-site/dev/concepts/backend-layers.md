@@ -89,7 +89,7 @@ writer lease 后处理；原始 bytes 始终保留，包括不确定提交产生
 
 目录列表、详情、文件分页和公开创建/更新通过 `services/assets_catalog.py::AssetsCatalogGateway` 消费五项原生目录能力。本地装配沿用请求方事务，显式远程装配由独立 `apps/assets-catalog` 提交并签发文件 URL，远程故障不自动切回本地。创建/更新与 `dataset_catalog_operations` 回执原子保存，当前账号与素材库管理权在数据库内重验；响应中断后同键重放原快照。普通创建只写 SQL，不再写空目录标记。该服务使用 execute-only LOGIN 与只读 S3 身份，协议见[独立素材目录](/api/guides/assets-catalog)。
 
-`application/project_task_cleanup.py::cleanup_annotation_orphans` 组合当前项目管理权、配置和 `AnnotationService`。执行命令先按账号 → 项目取得当前管理权，再取得项目排他锁并刷新 `tool_bindings`；`AnnotationService` 持有孤儿筛选 / 修剪、贡献证据及任务统计 DML，按批次 → 任务 → 标注排序锁定并刷新目标身份。权限撤销、项目转移或目标改向不会沿用旧快照，NOWAIT 忙锁返回冲突。默认 dry-run 只读且不写审计；真实修改与 HTTP 审计同事务提交，保留标注来源、几何、`_` 系统元数据，不执行对象存储删除。该服务所有者不反向依赖应用层。
+`application/project_task_cleanup.py::cleanup_annotation_orphans` 组合当前项目管理权、配置和 `AnnotationService`。执行命令先按账号 → 项目取得当前管理权，再取得项目排他锁并刷新 `tool_bindings`；`AnnotationService` 委托 Labeling 的固定 maintenance 能力读取候选、按批次 → 任务 → 标注排序锁定并刷新目标身份及执行修剪；贡献证据和任务统计复用既有 owner 能力。权限撤销、项目转移或目标改向不会沿用旧快照，NOWAIT 忙锁返回冲突。默认 dry-run 只读且不写审计；真实修改与 HTTP 审计同事务提交，保留标注来源、几何、`_` 系统元数据，不执行对象存储删除。该服务所有者不反向依赖应用层。
 
 `application/nuscenes_import.py::NuScenesImportWorkflow` 组合 Dataset/Project workspace、关联、点云标定和建题；nuScenes 入口把标定前置与建题分块提交关闭，使素材、Scene、pose、workspace、Task 和标定都只 flush 到脚本持有的同一个 `AsyncSession`，由入口最终提交。普通任务创建仍使用原默认提交点。Scene 来源元数据更新通过 Assets spatial 原生能力执行。Operational `ensure_import_admin` 经 `services/identity_provisioning_data.py` 调用 Identity provisioning owner 并只返回 UUID；既有 admin 行无论 role/status 均原样复用，恰为 `production` 且账号缺失时保持原拒绝文案，导入仍与 Assets/Workspace/Labeling 共用一个提交／回滚边界。图片导入的 Dataset/Item 写入由 `DatasetService` 持有。
 

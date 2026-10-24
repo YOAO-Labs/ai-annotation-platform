@@ -92,6 +92,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1.scene_track_command(jsonb)": "0343_labeling_scene_track_commands.sql",
     "aap_labeling_v1.cross_frame_write_command(jsonb)": "0344_labeling_cross_frame_writes.sql",
     "aap_labeling_v1.annotation_prediction_command(jsonb)": "0345_labeling_annotation_prediction.sql",
+    "aap_labeling_v1.annotation_maintenance_command(jsonb)": "0346_labeling_annotation_maintenance.sql",
     "aap_labeling_v1.annotation_bulk_command(jsonb)": "0339_labeling_annotation_bulk.sql",
     "aap_labeling_v1.video_bbox_editing_command(jsonb)": "0340_labeling_video_bbox_editing.sql",
     "aap_labeling_v1.batch_control_command(jsonb)": "0341_labeling_batch_control.sql",
@@ -253,6 +254,7 @@ IDENTITY_CLIENT_ROLES = {
     "LABELING_PREDICTION": "labeling_prediction_client",
     "LABELING_SCENE_TRACK_COMMAND": "labeling_scene_track_command_client",
     "LABELING_CROSS_FRAME": "labeling_cross_frame_client",
+    "LABELING_ANNOTATION_MAINTENANCE": "labeling_annotation_maintenance_client",
     "VIDEO_RESTORE": "video_restore_operator_client",
     "INFERENCE_PIPELINES": "inference_pipelines_client",
     "INFERENCE_BACKEND_PROBE": "inference_backend_probe_client",
@@ -503,6 +505,7 @@ SQL_ARTIFACTS = (
     "0343_labeling_scene_track_commands.sql",
     "0344_labeling_cross_frame_writes.sql",
     "0345_labeling_annotation_prediction.sql",
+    "0346_labeling_annotation_maintenance.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -659,6 +662,7 @@ SCHEMA_ARTIFACTS = (
     "0343_labeling_scene_track_commands.schema.json",
     "0344_labeling_cross_frame_writes.schema.json",
     "0345_labeling_annotation_prediction.schema.json",
+    "0346_labeling_annotation_maintenance.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -734,6 +738,7 @@ TEST_FILES = (
     "tests/test_labeling_scene_track_commands_native.py",
     "tests/test_labeling_cross_frame_writes_native.py",
     "tests/test_labeling_annotation_prediction_native.py",
+    "tests/test_labeling_annotation_maintenance_native.py",
     "tests/test_labeling_video_writer_live.py",
     "tests/test_labeling_video_writer_containers.py",
     "tests/test_labeling_video_writer_restore.py",
@@ -3975,6 +3980,9 @@ def main(argv: list[str] | None = None) -> int:
         labeling_cross_frame_grants_path = (
             ROOT / "infra/docker/labeling-cross-frame-grants.sql"
         )
+        labeling_annotation_maintenance_grants_path = (
+            ROOT / "infra/docker/labeling-annotation-maintenance-grants.sql"
+        )
         video_restore_grants_path = ROOT / "infra/docker/video-restore-grants.sql"
         inference_pipelines_grants_path = (
             ROOT / "infra/docker/inference-pipelines-grants.sql"
@@ -4091,6 +4099,7 @@ def main(argv: list[str] | None = None) -> int:
             or not labeling_prediction_grants_path.is_file()
             or not labeling_scene_track_commands_grants_path.is_file()
             or not labeling_cross_frame_grants_path.is_file()
+            or not labeling_annotation_maintenance_grants_path.is_file()
             or not video_restore_grants_path.is_file()
             or not inference_pipelines_grants_path.is_file()
             or not inference_backend_probe_grants_path.is_file()
@@ -4213,6 +4222,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         labeling_cross_frame_grant_sql = labeling_cross_frame_grants_path.read_text(
             encoding="utf-8"
+        )
+        labeling_annotation_maintenance_grant_sql = (
+            labeling_annotation_maintenance_grants_path.read_text(encoding="utf-8")
         )
         video_restore_grant_sql = video_restore_grants_path.read_text(encoding="utf-8")
         inference_pipelines_grant_sql = inference_pipelines_grants_path.read_text(
@@ -4400,8 +4412,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0345"]:
-            raise RuntimeError("module-data acceptance requires migration head 0345")
+        if heads != ["0346"]:
+            raise RuntimeError("module-data acceptance requires migration head 0346")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -6253,6 +6265,22 @@ def main(argv: list[str] | None = None) -> int:
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
                 "cross_frame_role": "labeling_cross_frame_client",
+            },
+        )
+        phase = "install-labeling-annotation-maintenance-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_annotation_maintenance_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "annotation_maintenance_role": "labeling_annotation_maintenance_client",
             },
         )
         phase = "install-video-restore-grants"

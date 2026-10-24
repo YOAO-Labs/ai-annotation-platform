@@ -5,14 +5,11 @@ import json
 import logging
 import re
 import uuid
-from collections import Counter
 from datetime import datetime
 from dataclasses import replace
-from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import inspect, or_, select
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -47,7 +44,6 @@ from app.db.models.prediction import (
     Prediction,
 )
 from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import AnnotationDraft
 
 # v0.16.x 拆分：传播纯逻辑簇已抽到 annotation_propagation.py，此处 import 回来给
@@ -81,6 +77,11 @@ from app.services.scene_track_domain import (
     SceneTrackIntegrityError,
     touch_annotation_scene_track,
 )
+from app.services.labeling_annotation_maintenance import (
+    LabelingAnnotationMaintenanceService,
+    _orphan_user_attribute_keys as _orphan_user_attribute_keys,
+    _prune_orphan_user_attributes as _prune_orphan_user_attributes,
+)
 from app.services.labeling_annotation_data import annotation_write_command
 from app.services.labeling_annotation_bulk_data import annotation_bulk_command
 from app.services.labeling_video_bbox_editing import LabelingVideoBBoxEditingService
@@ -93,51 +94,6 @@ from app.services.labeling_annotation_prediction import (
 logger = logging.getLogger("app.services.annotation")
 
 VIDEO_BBOX_CONVERSION_LIMIT = 5000
-
-
-def _orphan_user_attribute_keys(
-    attributes: dict[str, Any] | None, allowed_keys: set[str]
-) -> list[str]:
-    if not isinstance(attributes, dict):
-        return []
-    return [
-        key for key in attributes if key not in allowed_keys and not key.startswith("_")
-    ]
-
-
-def _prune_orphan_user_attributes(
-    attributes: dict[str, Any] | None, allowed_keys: set[str]
-) -> dict[str, Any]:
-    if not isinstance(attributes, dict):
-        return {}
-    return {
-        key: value
-        for key, value in attributes.items()
-        if key in allowed_keys or key.startswith("_")
-    }
-
-
-_SCHEMA_CLEANUP_LOCK_FAILURES = {"55P03", "40001", "40P01"}
-
-
-async def _lock_schema_cleanup_rows(
-    db: AsyncSession, statement: Any, *, reason: str
-) -> list[Any]:
-    try:
-        with db.no_autoflush:
-            result = await db.execute(statement)
-    except DBAPIError as exc:
-        sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
-            exc.orig, "pgcode", None
-        )
-        if sqlstate in _SCHEMA_CLEANUP_LOCK_FAILURES:
-            await db.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail={"reason": reason},
-            ) from exc
-        raise
-    return result.scalars().all()
 
 
 def annotation_create_request_digest(payload: dict) -> str:
@@ -1819,36 +1775,16 @@ class AnnotationService:
     async def save_draft(
         self, task_id: uuid.UUID, user_id: uuid.UUID, result: dict
     ) -> AnnotationDraft:
-        existing = await self.db.execute(
-            select(AnnotationDraft).where(
-                AnnotationDraft.task_id == task_id,
-                AnnotationDraft.user_id == user_id,
-            )
+        return await LabelingAnnotationMaintenanceService(self.db).save_draft(
+            task_id, user_id, result
         )
-        draft = existing.scalar_one_or_none()
-        if draft:
-            draft.result = result
-        else:
-            draft = AnnotationDraft(
-                id=uuid.uuid4(),
-                task_id=task_id,
-                user_id=user_id,
-                result=result,
-            )
-            self.db.add(draft)
-        await self.db.flush()
-        return draft
 
     async def get_draft(
         self, task_id: uuid.UUID, user_id: uuid.UUID
     ) -> AnnotationDraft | None:
-        result = await self.db.execute(
-            select(AnnotationDraft).where(
-                AnnotationDraft.task_id == task_id,
-                AnnotationDraft.user_id == user_id,
-            )
+        return await LabelingAnnotationMaintenanceService(self.db).get_draft(
+            task_id, user_id
         )
-        return result.scalar_one_or_none()
 
     async def cleanup_schema_orphan_annotations(
         self,
@@ -1859,178 +1795,15 @@ class AnnotationService:
         actor_id: uuid.UUID,
         dry_run: bool,
     ) -> dict[str, int | dict[str, int]]:
-        with self.db.no_autoflush:
-            annotations = list(
-                (
-                    await self.db.execute(
-                        select(Annotation).where(
-                            Annotation.project_id == project_id,
-                            Annotation.is_active.is_(True),
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-
-        orphan_annotations = 0
-        orphan_attribute_keys: Counter[str] = Counter()
-        mutation_annotation_tasks: dict[uuid.UUID, uuid.UUID] = {}
-        mutation_task_ids: set[uuid.UUID] = set()
-
-        for ann in annotations:
-            if ann.class_name not in class_names:
-                orphan_annotations += 1
-                if not dry_run:
-                    mutation_annotation_tasks[ann.id] = ann.task_id
-                    mutation_task_ids.add(ann.task_id)
-                continue
-
-            orphan_keys = _orphan_user_attribute_keys(ann.attributes, attribute_keys)
-            if not orphan_keys:
-                continue
-            orphan_attribute_keys.update(orphan_keys)
-            if not dry_run:
-                mutation_annotation_tasks[ann.id] = ann.task_id
-                mutation_task_ids.add(ann.task_id)
-
-        if dry_run:
-            return {
-                "orphan_annotations": orphan_annotations,
-                "orphan_attribute_keys": dict(orphan_attribute_keys),
-            }
-
-        if not mutation_annotation_tasks:
-            return {
-                "orphan_annotations": 0,
-                "orphan_attribute_keys": {},
-            }
-
-        with self.db.no_autoflush:
-            observed_task_rows = (
-                await self.db.execute(
-                    select(Task.id, Task.project_id, Task.batch_id)
-                    .where(Task.id.in_(mutation_task_ids))
-                    .order_by(Task.id)
-                )
-            ).all()
-        observed_tasks = {
-            task_id: (task_project_id, batch_id)
-            for task_id, task_project_id, batch_id in observed_task_rows
-        }
-        if set(observed_tasks) != mutation_task_ids or any(
-            task_project_id != project_id
-            for task_project_id, _batch_id in observed_tasks.values()
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail={"reason": "task_target_changed"},
-            )
-
-        batch_ids = {
-            batch_id
-            for _task_project_id, batch_id in observed_tasks.values()
-            if batch_id is not None
-        }
-        if batch_ids:
-            locked_batches = await _lock_schema_cleanup_rows(
-                self.db,
-                select(TaskBatch)
-                .where(TaskBatch.id.in_(batch_ids))
-                .order_by(TaskBatch.id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True),
-                reason="batch_busy",
-            )
-            if {batch.id for batch in locked_batches} != batch_ids or any(
-                batch.project_id != project_id for batch in locked_batches
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail={"reason": "task_target_changed"},
-                )
-
-        locked_tasks = await _lock_schema_cleanup_rows(
-            self.db,
-            select(Task)
-            .where(Task.id.in_(mutation_task_ids))
-            .order_by(Task.id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
-            reason="task_busy",
+        return await LabelingAnnotationMaintenanceService(
+            self.db
+        ).cleanup_schema_orphan_annotations(
+            project_id=project_id,
+            class_names=class_names,
+            attribute_keys=attribute_keys,
+            actor_id=actor_id,
+            dry_run=dry_run,
         )
-        tasks_by_id = {task.id: task for task in locked_tasks}
-        if set(tasks_by_id) != mutation_task_ids or any(
-            task.project_id != project_id or task.batch_id != observed_tasks[task.id][1]
-            for task in locked_tasks
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail={"reason": "task_target_changed"},
-            )
-
-        locked_annotations = await _lock_schema_cleanup_rows(
-            self.db,
-            select(Annotation)
-            .where(Annotation.id.in_(mutation_annotation_tasks))
-            .order_by(Annotation.id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
-            reason="annotation_busy",
-        )
-
-        if {ann.id for ann in locked_annotations} != set(mutation_annotation_tasks):
-            raise HTTPException(
-                status_code=409,
-                detail={"reason": "annotation_target_changed"},
-            )
-
-        orphan_annotations = 0
-        orphan_attribute_keys.clear()
-        affected_task_ids: set[uuid.UUID] = set()
-        deactivated_task_ids: set[uuid.UUID] = set()
-        for ann in locked_annotations:
-            if (
-                ann.project_id != project_id
-                or ann.task_id != mutation_annotation_tasks[ann.id]
-                or ann.task_id not in tasks_by_id
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail={"reason": "annotation_target_changed"},
-                )
-            if not ann.is_active:
-                continue
-            if ann.class_name not in class_names:
-                orphan_annotations += 1
-                ann.is_active = False
-                affected_task_ids.add(ann.task_id)
-                deactivated_task_ids.add(ann.task_id)
-                continue
-
-            orphan_keys = _orphan_user_attribute_keys(ann.attributes, attribute_keys)
-            if orphan_keys:
-                orphan_attribute_keys.update(orphan_keys)
-                ann.attributes = _prune_orphan_user_attributes(
-                    ann.attributes, attribute_keys
-                )
-                affected_task_ids.add(ann.task_id)
-
-        await self.db.flush()
-        for task_id in sorted(affected_task_ids, key=str):
-            await record_annotation_actor(
-                self.db,
-                tasks_by_id[task_id],
-                actor_id,
-                lock=False,
-            )
-        for task_id in sorted(deactivated_task_ids, key=str):
-            await self._update_task_stats(task_id)
-
-        return {
-            "orphan_annotations": orphan_annotations,
-            "orphan_attribute_keys": dict(orphan_attribute_keys),
-        }
 
     async def _update_task_stats(
         self,

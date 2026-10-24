@@ -167,6 +167,20 @@ fixture cleanup and other Labeling writes/reads remain explicit migration work;
 these operation contracts do not establish complete module deployment or recovery
 qualification.
 
+## Drafts and schema cleanup
+
+`annotation_maintenance_command(jsonb)` owns existing draft reads/writes, cleanup
+candidate/task reads and the final schema-orphan mutation. It retains ordered
+Batch → Task → Annotation locks, refreshes current targets before changes and
+keeps Mask history, system attributes and source geometry intact. The API retains
+current management/configuration locks, contributor evidence, statistics, audit
+and the outer commit. Existing draft service methods remain internal; no draft
+product flow is added.
+
+`infra/docker/labeling-annotation-maintenance-grants.sql` gives a trusted caller
+exactly this one function, without private-table, CREATE or TEMP access. Native
+permission/concurrency and recovery qualification remain pending for the module.
+
 ## Video worker finalization
 
 The private protocol `aap-labeling-video-writer/v1` moves worker success,

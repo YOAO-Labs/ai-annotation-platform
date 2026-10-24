@@ -148,7 +148,8 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text),
     aap_labeling_v1.prediction_record_command(jsonb),
     aap_labeling_v1.scene_track_command(jsonb),
     aap_labeling_v1.cross_frame_write_command(jsonb),
-    aap_labeling_v1.annotation_prediction_command(jsonb)
+    aap_labeling_v1.annotation_prediction_command(jsonb),
+    aap_labeling_v1.annotation_maintenance_command(jsonb)
     TO :"application_role";
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.
 GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,

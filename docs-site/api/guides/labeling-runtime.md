@@ -234,3 +234,14 @@ control token 和按需 Mask token 文件。API 冷镜像另以禁网、只读�
 人工审核及中间 start/progress 仍由 API 持有，不能据此认定整个 Labeling
 已独立部署或可替换语言。Go 月报服务继续作为架构实验。范围和限制见
 [ADR-0159](/dev/adr/0159-independent-labeling-video-writer)。
+
+## 草稿与配置孤儿清理 {#annotation-maintenance}
+
+`aap-labeling-annotation-maintenance/v1` 的固定 `annotation_maintenance_command(jsonb)`
+持有现有草稿读写、清理候选／任务读取及最终孤儿清理。清理先固定候选身份，再按批次、
+任务、标注排序取得 NOWAIT 锁并重新校验，忙锁及目标改向仍返回 409。系统属性、来源、
+几何和既有 Mask 修订规则保留；当前管理权／配置锁、贡献证据、统计、审计及提交仍由原工作流组合。
+
+草稿继续是未接入生产入口的内部服务，本次不新增产品入口。可信调用账号使用
+`infra/docker/labeling-annotation-maintenance-grants.sql`，仅获得这一函数的执行权。
+本组源码实现不替代整个 Labeling 的原生权限、并发、独立运行及恢复验收。

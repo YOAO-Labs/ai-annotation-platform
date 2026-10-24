@@ -1,0 +1,1467 @@
+{
+  "$defs": {
+    "CleanupAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "video_segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Video Segment Id"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "tool_unit_id": {
+          "title": "Tool Unit Id",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "geometry": {
+          "title": "Geometry"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "parent_prediction_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Prediction Id"
+        },
+        "parent_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Annotation Id"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        },
+        "sensor_dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Dataset Item Id"
+        },
+        "sensor_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Role"
+        },
+        "sensor_visibility": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Visibility"
+        },
+        "calibration_revision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration Revision"
+        },
+        "calibration_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Calibration Digest"
+        },
+        "temporal_role": {
+          "enum": ["keyframe", "derived", "sample"],
+          "title": "Temporal Role",
+          "type": "string"
+        },
+        "lead_time": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lead Time"
+        },
+        "was_cancelled": {
+          "title": "Was Cancelled",
+          "type": "boolean"
+        },
+        "ground_truth": {
+          "title": "Ground Truth",
+          "type": "boolean"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "attributes": {
+          "title": "Attributes"
+        },
+        "attributes_meta": {
+          "title": "Attributes Meta"
+        },
+        "z_order": {
+          "title": "Z Order",
+          "type": "integer"
+        },
+        "is_locked": {
+          "title": "Is Locked",
+          "type": "boolean"
+        },
+        "is_hidden": {
+          "title": "Is Hidden",
+          "type": "boolean"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "project_id",
+        "video_segment_id",
+        "user_id",
+        "source",
+        "annotation_type",
+        "tool_unit_id",
+        "class_name",
+        "geometry",
+        "confidence",
+        "parent_prediction_id",
+        "parent_annotation_id",
+        "track_id",
+        "scene_track_id",
+        "sensor_dataset_item_id",
+        "sensor_role",
+        "sensor_visibility",
+        "calibration_revision",
+        "calibration_digest",
+        "temporal_role",
+        "lead_time",
+        "was_cancelled",
+        "ground_truth",
+        "is_active",
+        "attributes",
+        "attributes_meta",
+        "z_order",
+        "is_locked",
+        "is_hidden",
+        "version",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "CleanupAnnotation",
+      "type": "object"
+    },
+    "CleanupAnnotationReference": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["id", "task_id"],
+      "title": "CleanupAnnotationReference",
+      "type": "object"
+    },
+    "CleanupBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Id"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "priority": {
+          "title": "Priority",
+          "type": "integer"
+        },
+        "deadline": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deadline"
+        },
+        "assigned_user_ids": {
+          "title": "Assigned User Ids"
+        },
+        "total_tasks": {
+          "title": "Total Tasks",
+          "type": "integer"
+        },
+        "completed_tasks": {
+          "title": "Completed Tasks",
+          "type": "integer"
+        },
+        "review_tasks": {
+          "title": "Review Tasks",
+          "type": "integer"
+        },
+        "approved_tasks": {
+          "title": "Approved Tasks",
+          "type": "integer"
+        },
+        "rejected_tasks": {
+          "title": "Rejected Tasks",
+          "type": "integer"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "review_feedback": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Feedback"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewed At"
+        },
+        "reviewed_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewed By"
+        },
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotator Id"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "admin_locked": {
+          "title": "Admin Locked",
+          "type": "boolean"
+        },
+        "admin_lock_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Admin Lock Reason"
+        },
+        "admin_locked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Admin Locked At"
+        },
+        "admin_locked_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Admin Locked By"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "dataset_id",
+        "display_id",
+        "name",
+        "description",
+        "status",
+        "priority",
+        "deadline",
+        "assigned_user_ids",
+        "total_tasks",
+        "completed_tasks",
+        "review_tasks",
+        "approved_tasks",
+        "rejected_tasks",
+        "created_by",
+        "created_at",
+        "updated_at",
+        "review_feedback",
+        "reviewed_at",
+        "reviewed_by",
+        "annotator_id",
+        "reviewer_id",
+        "admin_locked",
+        "admin_lock_reason",
+        "admin_locked_at",
+        "admin_locked_by"
+      ],
+      "title": "CleanupBatch",
+      "type": "object"
+    },
+    "CleanupCandidates": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "read_cleanup_candidates",
+          "title": "Operation",
+          "type": "string"
+        },
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/CleanupAnnotation"
+          },
+          "title": "Annotations",
+          "type": "array"
+        }
+      },
+      "required": ["operation", "annotations"],
+      "title": "CleanupCandidates",
+      "type": "object"
+    },
+    "CleanupData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "cleanup_schema",
+          "title": "Operation",
+          "type": "string"
+        },
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/CleanupAnnotation"
+          },
+          "title": "Annotations",
+          "type": "array"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/CleanupTask"
+          },
+          "title": "Tasks",
+          "type": "array"
+        },
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/CleanupBatch"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "affected_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Affected Task Ids",
+          "type": "array"
+        },
+        "deactivated_task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Deactivated Task Ids",
+          "type": "array"
+        },
+        "report": {
+          "$ref": "#/$defs/CleanupReport"
+        }
+      },
+      "required": [
+        "operation",
+        "annotations",
+        "tasks",
+        "batches",
+        "affected_task_ids",
+        "deactivated_task_ids",
+        "report"
+      ],
+      "title": "CleanupData",
+      "type": "object"
+    },
+    "CleanupReport": {
+      "additionalProperties": false,
+      "properties": {
+        "orphan_annotations": {
+          "minimum": 0,
+          "title": "Orphan Annotations",
+          "type": "integer"
+        },
+        "orphan_attribute_keys": {
+          "additionalProperties": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": "Orphan Attribute Keys",
+          "type": "object"
+        }
+      },
+      "required": ["orphan_annotations", "orphan_attribute_keys"],
+      "title": "CleanupReport",
+      "type": "object"
+    },
+    "CleanupSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "cleanup_schema",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "class_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Class Names",
+          "type": "array"
+        },
+        "attribute_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Attribute Keys",
+          "type": "array"
+        },
+        "annotations": {
+          "items": {
+            "$ref": "#/$defs/CleanupAnnotationReference"
+          },
+          "title": "Annotations",
+          "type": "array"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/CleanupTaskReference"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "class_names",
+        "attribute_keys",
+        "annotations",
+        "tasks"
+      ],
+      "title": "CleanupSchema",
+      "type": "object"
+    },
+    "CleanupTask": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assignee Id"
+        },
+        "assigned_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assigned At"
+        },
+        "submitted_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Submitted At"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "reviewer_is_override": {
+          "title": "Reviewer Is Override",
+          "type": "boolean"
+        },
+        "reviewer_claimed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Claimed At"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewed At"
+        },
+        "reject_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reject Reason"
+        },
+        "reject_reason_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reject Reason Type"
+        },
+        "skip_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Skip Reason"
+        },
+        "skipped_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Skipped At"
+        },
+        "reopened_count": {
+          "title": "Reopened Count",
+          "type": "integer"
+        },
+        "last_reopened_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Reopened At"
+        },
+        "review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Round Id"
+        },
+        "annotation_contributor_ids": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Contributor Ids"
+        },
+        "review_contributor_ids": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Contributor Ids"
+        },
+        "review_submitter_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Submitter Id"
+        },
+        "first_review_eligible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Review Eligible"
+        },
+        "first_reviewed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Reviewed At"
+        },
+        "first_review_result": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Review Result"
+        },
+        "first_review_contributor_ids": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Review Contributor Ids"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Item Id"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "file_name": {
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_type": {
+          "title": "File Type",
+          "type": "string"
+        },
+        "media_source_generation": {
+          "title": "Media Source Generation",
+          "type": "integer"
+        },
+        "media_object_identity": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Media Object Identity"
+        },
+        "media_source_drifted": {
+          "title": "Media Source Drifted",
+          "type": "boolean"
+        },
+        "tags": {
+          "title": "Tags"
+        },
+        "assignee_is_override": {
+          "title": "Assignee Is Override",
+          "type": "boolean"
+        },
+        "is_labeled": {
+          "title": "Is Labeled",
+          "type": "boolean"
+        },
+        "overlap": {
+          "title": "Overlap",
+          "type": "integer"
+        },
+        "total_annotations": {
+          "title": "Total Annotations",
+          "type": "integer"
+        },
+        "total_predictions": {
+          "title": "Total Predictions",
+          "type": "integer"
+        },
+        "precomputed_agreement": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Precomputed Agreement"
+        },
+        "sequence_order": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sequence Order"
+        },
+        "thumbnail_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Thumbnail Path"
+        },
+        "blurhash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Blurhash"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "batch_id",
+        "status",
+        "assignee_id",
+        "assigned_at",
+        "submitted_at",
+        "reviewer_id",
+        "reviewer_is_override",
+        "reviewer_claimed_at",
+        "reviewed_at",
+        "reject_reason",
+        "reject_reason_type",
+        "skip_reason",
+        "skipped_at",
+        "reopened_count",
+        "last_reopened_at",
+        "review_round_id",
+        "annotation_contributor_ids",
+        "review_contributor_ids",
+        "review_submitter_id",
+        "first_review_eligible",
+        "first_reviewed_at",
+        "first_review_result",
+        "first_review_contributor_ids",
+        "dataset_item_id",
+        "display_id",
+        "file_name",
+        "file_path",
+        "file_type",
+        "media_source_generation",
+        "media_object_identity",
+        "media_source_drifted",
+        "tags",
+        "assignee_is_override",
+        "is_labeled",
+        "overlap",
+        "total_annotations",
+        "total_predictions",
+        "precomputed_agreement",
+        "sequence_order",
+        "thumbnail_path",
+        "blurhash",
+        "version",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "CleanupTask",
+      "type": "object"
+    },
+    "CleanupTaskReference": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        }
+      },
+      "required": ["id", "project_id", "batch_id"],
+      "title": "CleanupTaskReference",
+      "type": "object"
+    },
+    "DraftData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "enum": ["read_draft", "save_draft"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "draft": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MaintenanceDraft"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["operation", "draft"],
+      "title": "DraftData",
+      "type": "object"
+    },
+    "MaintenanceDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotation Id"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "result": {
+          "title": "Result"
+        },
+        "was_postponed": {
+          "title": "Was Postponed",
+          "type": "boolean"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "annotation_id",
+        "user_id",
+        "result",
+        "was_postponed",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "MaintenanceDraft",
+      "type": "object"
+    },
+    "ObserveCleanupTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "observe_cleanup_tasks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "task_ids"],
+      "title": "ObserveCleanupTasks",
+      "type": "object"
+    },
+    "ObservedCleanupTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "observe_cleanup_tasks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/CleanupTaskReference"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": ["operation", "tasks"],
+      "title": "ObservedCleanupTasks",
+      "type": "object"
+    },
+    "ReadCleanupCandidates": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_cleanup_candidates",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id"],
+      "title": "ReadCleanupCandidates",
+      "type": "object"
+    },
+    "ReadDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_draft",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "user_id"],
+      "title": "ReadDraft",
+      "type": "object"
+    },
+    "SaveDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-annotation-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "save_draft",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "draft_id": {
+          "format": "uuid",
+          "title": "Draft Id",
+          "type": "string"
+        },
+        "existing": {
+          "title": "Existing",
+          "type": "boolean"
+        },
+        "write_result": {
+          "title": "Write Result",
+          "type": "boolean"
+        },
+        "result": {
+          "additionalProperties": true,
+          "title": "Result",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "user_id",
+        "draft_id",
+        "existing",
+        "write_result",
+        "result"
+      ],
+      "title": "SaveDraft",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-labeling-annotation-maintenance/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "cleanup_schema": "#/$defs/CleanupSchema",
+          "observe_cleanup_tasks": "#/$defs/ObserveCleanupTasks",
+          "read_cleanup_candidates": "#/$defs/ReadCleanupCandidates",
+          "read_draft": "#/$defs/ReadDraft",
+          "save_draft": "#/$defs/SaveDraft"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ReadDraft"
+        },
+        {
+          "$ref": "#/$defs/SaveDraft"
+        },
+        {
+          "$ref": "#/$defs/ReadCleanupCandidates"
+        },
+        {
+          "$ref": "#/$defs/ObserveCleanupTasks"
+        },
+        {
+          "$ref": "#/$defs/CleanupSchema"
+        }
+      ],
+      "title": "Request"
+    },
+    "data": {
+      "discriminator": {
+        "mapping": {
+          "cleanup_schema": "#/$defs/CleanupData",
+          "observe_cleanup_tasks": "#/$defs/ObservedCleanupTasks",
+          "read_cleanup_candidates": "#/$defs/CleanupCandidates",
+          "read_draft": "#/$defs/DraftData",
+          "save_draft": "#/$defs/DraftData"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/DraftData"
+        },
+        {
+          "$ref": "#/$defs/CleanupCandidates"
+        },
+        {
+          "$ref": "#/$defs/ObservedCleanupTasks"
+        },
+        {
+          "$ref": "#/$defs/CleanupData"
+        }
+      ],
+      "title": "Data"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "_Reply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-annotation-maintenance/v1",
+  "x-postgresql-functions": ["aap_labeling_v1.annotation_maintenance_command(jsonb)"]
+}

@@ -3244,3 +3244,7 @@ python3 scripts/verify_docker_host_forwarding.py \
 临时资源。未取得 BPF／sudo 权限时会明确报告前置条件失败，不能记录为通过。
 [当前范围与未解决部分](docs-site/dev/concepts/module-deployment.md#runtime-host-forwarding)
 仍按唯一台账跟踪；此入口不是 Docker 的修复开关。
+
+草稿和配置孤儿清理也在原业务事务调用 Labeling 固定能力。应用匹配迁移、owner 及普通
+运行授权；函数专用可信账号使用 `infra/docker/labeling-annotation-maintenance-grants.sql`。
+`AAP_MODULE_DATA_LABELING_ANNOTATION_MAINTENANCE_URL` 只用于独占验收库，不是产品 DSN。

@@ -449,7 +449,7 @@ Workspace 的后端能力探测通过 Inference 私有协议返回模态，Works
 
 作业交接的定向退役协议已提供并通过限定本地验收：先关闭单个 scope 的准入，再确认该范围的实际后端工作结束，其他作业继续运行。视频 runner 已接入执行代次、原子路由绑定和当前业务写入检查，重派发复用后台汇总；持久窗口检查点与协调恢复已完成限定本地验收，见[协调恢复 ADR](./docs/adr/0160-coordinated-video-restore.md)；完整 Inference 装配仍按模块台账推进。
 
-类别与属性用量已接入 Labeling 读取边界，先核验当前项目管理权，保留原统计口径和两次顺序读取；独立安装包、三路径响应、语句间提交、受限镜像与备份恢复已完成限定本地验收，见 [Labeling 运行协议](./docs-site/api/guides/labeling-runtime.md)与 [统计 owner ADR](./docs/adr/0142-labeling-class-usage-query-owner.md)。任务／批次控制、人工与批量标注、预测记录与采纳、轨迹命令／撤销、跨帧和视频框写入已接入同事务命令边界，完整模块验收仍按[唯一台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
+类别与属性用量已接入 Labeling 读取边界，先核验当前项目管理权，保留原统计口径和两次顺序读取；独立安装包、三路径响应、语句间提交、受限镜像与备份恢复已完成限定本地验收，见 [Labeling 运行协议](./docs-site/api/guides/labeling-runtime.md)与 [统计 owner ADR](./docs/adr/0142-labeling-class-usage-query-owner.md)。任务／批次控制、人工与批量标注、预测记录与采纳、轨迹命令／撤销、跨帧、视频框及草稿／配置孤儿清理已接入同事务命令边界，完整模块验收仍按[唯一台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
 
 项目与批次维护、数据回填、成员绩效、搜索、指引资源及预测／标注导入见 [项目、批次与数据运维](./docs-site/dev/sdk/project-workflows.md)。分派绑定原预览版本，项目范围约束先于查询限制，批次导出与项目导出使用相同能力检查。
 

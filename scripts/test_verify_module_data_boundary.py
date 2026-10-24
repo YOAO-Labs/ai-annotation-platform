@@ -100,6 +100,11 @@ def test_module_cold_case_selects_api_bootstrap_credentials(test_path):
             ("aap_labeling_v1.annotation_prediction_command(jsonb)",),
             "0345_labeling_annotation_prediction",
         ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_ANNOTATION_MAINTENANCE"],
+            ("aap_labeling_v1.annotation_maintenance_command(jsonb)",),
+            "0346_labeling_annotation_maintenance",
+        ),
     ],
 )
 def test_capability_logins_have_no_temporary_grant(

@@ -748,6 +748,21 @@ GRANT SELECT (id, project_id, task_id, annotation_id, thread_parent_id),
     ON public.annotation_feedbacks TO :"labeling_owner";
 GRANT SELECT (task_id, annotation_id), DELETE
     ON public.annotation_drafts TO :"labeling_owner";
+GRANT SELECT (
+    id, project_id, dataset_item_id, display_id, file_name,
+    file_path, file_type, media_source_generation, media_object_identity, media_source_drifted,
+    tags, status, assignee_id, assignee_is_override, assigned_at,
+    is_labeled, overlap, total_annotations, total_predictions, precomputed_agreement,
+    sequence_order, thumbnail_path, blurhash, batch_id, version,
+    submitted_at, reviewer_id, reviewer_is_override, reviewer_claimed_at, review_round_id,
+    first_review_eligible, first_reviewed_at, first_review_result, first_review_contributor_ids, annotation_contributor_ids,
+    review_contributor_ids, review_submitter_id, reviewed_at, reject_reason, reject_reason_type,
+    skip_reason, skipped_at, reopened_count, last_reopened_at, created_at,
+    updated_at
+) ON public.tasks TO :"labeling_owner";
+GRANT SELECT (id, user_id, result, was_postponed, created_at, updated_at),
+    INSERT (id, task_id, user_id, result, was_postponed), UPDATE (result, updated_at)
+    ON public.annotation_drafts TO :"labeling_owner";
 GRANT SELECT (id, unique_id, task_id, user_id, expire_at, created_at),
     INSERT (id, unique_id, task_id, user_id, expire_at),
     UPDATE (id, expire_at), DELETE
@@ -2579,6 +2594,8 @@ ALTER FUNCTION aap_labeling_v1.scene_track_command(jsonb)
 ALTER FUNCTION aap_labeling_v1.cross_frame_write_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.annotation_prediction_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.annotation_maintenance_command(jsonb)
     OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
