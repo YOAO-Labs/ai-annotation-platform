@@ -32,7 +32,7 @@ from aap_notifications.websocket import (
 from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.db.models.user import User
-from tests.factory import DEFAULT_PASSWORD, create_membership, create_task
+from tests.factory import DEFAULT_PASSWORD, create_membership, create_task, create_user
 from tests.identity_module_assembly_helpers import IdentityModuleStack
 from tests.identity_recovery_live_helpers import SMTPInbox
 from tests.notifications_module_acceptance_helpers import (
@@ -858,6 +858,20 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         socket = None
                         await _wait_for_subscribers(publisher_admin, channel, 1)
 
+                        async with seed.begin() as db:
+                            extra_admin = await create_user(
+                                db,
+                                "super_admin",
+                                email=(
+                                    "notifications-extra-admin-"
+                                    + uuid.uuid4().hex
+                                    + "@example.test"
+                                ),
+                                name="Notifications extra administrator",
+                            )
+                        assert extra_admin.is_active is True
+                        assert extra_admin.id not in {actor.id, owner_id}
+
                         await stack.stop_service("identity-notification-publisher")
                         operation_id, pending_rows = await _create_deactivation(
                             async_sessionmaker(test_engine, expire_on_commit=False),
@@ -888,19 +902,29 @@ async def test_notifications_module_cold_composition_and_full_restore(
                             for row in pending_notifications
                             if row.user_id == actor.id
                         }
-                        other_recipient_notification_ids = {
+                        owner_notification_ids = {
                             str(row.id)
                             for row in pending_notifications
-                            if row.user_id != actor.id
+                            if row.user_id == owner_id
                         }
-                        assert actor_notification_ids
-                        assert other_recipient_notification_ids
-                        assert actor_notification_ids.isdisjoint(
-                            other_recipient_notification_ids
+                        extra_admin_notification_ids = {
+                            str(row.id)
+                            for row in pending_notifications
+                            if row.user_id == extra_admin.id
+                        }
+                        durable_notification_ids = {
+                            str(value) for value in notification_ids
+                        }
+                        assert actor_notification_ids == set()
+                        assert recipient_ids == {owner_id, extra_admin.id}
+                        assert owner_notification_ids
+                        assert extra_admin_notification_ids
+                        assert owner_notification_ids.isdisjoint(
+                            extra_admin_notification_ids
                         )
                         assert (
-                            actor_notification_ids | other_recipient_notification_ids
-                        ) == {str(value) for value in notification_ids}
+                            owner_notification_ids | extra_admin_notification_ids
+                        ) == durable_notification_ids
                         await owner_subscriber.subscribe(
                             *(f"notify:{value}" for value in recipient_ids)
                         )
@@ -1053,9 +1077,28 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                     )
                                     assert str(deleted_notice_id) not in restored_by_id
                                     restored_ids = set(restored_by_id)
-                                    assert actor_notification_ids <= restored_ids
-                                    assert other_recipient_notification_ids.isdisjoint(
+                                    assert durable_notification_ids.isdisjoint(
                                         restored_ids
+                                    )
+
+                                    async with httpx.AsyncClient(
+                                        base_url=stack.api_origin,
+                                        trust_env=False,
+                                        timeout=30,
+                                        headers=owner_headers,
+                                    ) as restored_owner_api:
+                                        restored_owner_inbox = await _request(
+                                            restored_owner_api,
+                                            "GET",
+                                            "/api/v1/notifications?limit=100",
+                                        )
+                                    restored_owner_ids = {
+                                        item["id"]
+                                        for item in restored_owner_inbox["items"]
+                                    }
+                                    assert owner_notification_ids <= restored_owner_ids
+                                    assert extra_admin_notification_ids.isdisjoint(
+                                        restored_owner_ids
                                     )
 
                                     async with websockets.connect(
@@ -1117,6 +1160,8 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                         str(value) for value in notification_ids
                                     ],
                                     "restored_owner_attempt": 2,
+                                    "actor_inbox_excludes_all_durable_notifications": True,
+                                    "owner_inbox_excludes_extra_admin_notifications": True,
                                     "new_ordinary_event_after_restore": True,
                                     "socket_world_history_retention_mode": "retain_history",
                                 },
