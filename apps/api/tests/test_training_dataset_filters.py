@@ -22,10 +22,11 @@ from tests.test_training_dataset_references import (
 )
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_source_training_immutability import object_bytes
+from tests.training_original_fixtures import image_bytes, register_original
 
 
 @pytest.fixture
-async def filtered_project(db_session, super_admin):
+async def filtered_project(db_session, super_admin, source_headers):
     db, owner = db_session, super_admin[0]
     project, tasks = await reviewed_project(db, owner)
     ds = await dataset(db, owner)
@@ -48,6 +49,9 @@ async def filtered_project(db_session, super_admin):
         db.add(item)
         await db.flush()
         task.dataset_item_id = item.id
+        await register_original(
+            db, task, owner, raw=image_bytes(size=(1280, 720)), provider=source_headers
+        )
         items.append(item)
     await db.commit()
     return project, ds, scene, tasks, items

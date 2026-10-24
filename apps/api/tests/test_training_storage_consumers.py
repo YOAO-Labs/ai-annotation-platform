@@ -28,6 +28,7 @@ from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.workers import training_dataset as worker
+from tests.training_original_fixtures import original_receipt, staged_image
 from training_contract.dataset import instance_rle_evidence
 
 
@@ -53,13 +54,21 @@ class Objects:
     def get_object(self, *, Bucket, Key, **kwargs):
         self.calls.append(("get", Bucket, Key))
         data = self.objects[Bucket, Key]
-        return {"Body": StreamingBody(io.BytesIO(data), len(data))}
+        etag = '"' + hashlib.md5(data).hexdigest() + '"'
+        if kwargs.get("IfMatch", etag) != etag:
+            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "GetObject")
+        return {
+            "Body": StreamingBody(io.BytesIO(data), len(data)),
+            "ContentLength": len(data),
+            "ETag": etag,
+        }
 
     def upload_file(self, filename, bucket, key, **kwargs):
         from pathlib import Path
 
         self.calls.append(("upload", bucket, key))
         self.objects[bucket, key] = Path(filename).read_bytes()
+        self.metadata[bucket, key] = kwargs.get("ExtraArgs", {}).get("Metadata", {})
 
     def generate_presigned_url(self, operation, *, Params, ExpiresIn):
         self.calls.append(("sign", Params["Bucket"], Params["Key"]))
@@ -132,8 +141,8 @@ def source_sample(frozen):
     return {
         "task_id": frozen.sample.task_id,
         "source_key": "must-not-reread-source",
-        "source_bucket": "source-bucket",
-        "media": {"etag": "original", "size_bytes": len(frozen.raw)},
+        "original": original_receipt(frozen.raw),
+        "media": {"sha256": frozen.sample.sha256, "size_bytes": len(frozen.raw)},
     }
 
 
@@ -212,14 +221,19 @@ def test_new_retained_media_and_mask_writes_do_not_follow_current_bucket(
         "classes": ["shape"],
         "annotations": [],
     }
-    frozen.client.objects[sample["source_bucket"], sample["source_key"]] = frozen.raw
-    result = worker.materialize_image(
-        sample,
-        frozen.version.storage_ref["prefix"].rstrip("/"),
-        frozen.version.snapshot_digest,
-        tmp_path,
-        bucket=frozen.bucket,
-    )
+    stage = staged_image(frozen.raw)
+    try:
+        result = worker.materialize_image(
+            sample,
+            frozen.version.storage_ref["prefix"].rstrip("/"),
+            frozen.version.snapshot_digest,
+            tmp_path,
+            bucket=frozen.bucket,
+            verified_original=stage,
+        )
+        assert not stage.file.closed
+    finally:
+        stage.close()
     assert result["sha256"] == frozen.sample.sha256
     assert frozen.client.objects[frozen.bucket, frozen.key] == frozen.raw
     assert frozen.client.objects["new-current-bucket", frozen.key] != frozen.raw
@@ -573,6 +587,10 @@ async def test_worker_package_and_attempt_cleanup_keep_the_saved_owner(
     async def sessions():
         yield Session()
 
+    @asynccontextmanager
+    async def output_permit():
+        yield SimpleNamespace(revision=1)
+
     def package(snapshot, media, destination, **kwargs):
         destination.write_bytes(b"immutable frozen package")
         return {"summary": {}}
@@ -585,6 +603,23 @@ async def test_worker_package_and_attempt_cleanup_keep_the_saved_owner(
     monkeypatch.setattr(
         worker, "assert_dataset_authority", AsyncMock(side_effect=authority)
     )
+    # This isolated test proves saved output ownership. Real execution/authority
+    # fences and durable permits are exercised by the database worker suites.
+    monkeypatch.setattr(worker, "guard_execution", AsyncMock(return_value=version))
+    monkeypatch.setattr(worker.originals, "delegated", AsyncMock(return_value=object()))
+    monkeypatch.setattr(worker.originals, "check", AsyncMock())
+    monkeypatch.setattr(worker.originals, "clock", lambda _authority: None)
+    monkeypatch.setattr(
+        worker.jobs,
+        "lock_job",
+        AsyncMock(return_value=SimpleNamespace(celery_task_id=None)),
+    )
+    monkeypatch.setattr(
+        worker.storage_access,
+        "acquire",
+        AsyncMock(side_effect=lambda *args: output_permit()),
+    )
+    monkeypatch.setattr(worker.storage_access, "check", AsyncMock())
     monkeypatch.setattr(worker, "build_training_package", package)
     monkeypatch.setattr(worker, "notify_job_terminal", AsyncMock())
     for name in ["mark_running", "mark_complete", "mark_failed"]:

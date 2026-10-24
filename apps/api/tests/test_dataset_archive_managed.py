@@ -37,6 +37,7 @@ from tests.test_training_datasets import (
     reviewed_project,
     source_headers as source_headers,
 )
+from tests.training_original_fixtures import register_original
 
 
 async def transition(client, row, actor, operation="archive", revision=1):
@@ -456,7 +457,7 @@ async def test_pointcloud_committed_chunk_is_retained_but_old_ticket_stops_next_
     assert len(complete) == 2 and partial[0].id in complete
 
 
-async def managed_training_world(db, owner):
+async def managed_training_world(db, owner, *, original_objects=None):
     project, tasks = await reviewed_project(db, owner)
     row = await dataset(db, owner)
     batch = await create_batch(db, project_id=project.id)
@@ -473,6 +474,8 @@ async def managed_training_world(db, owner):
         await db.flush()
         task.dataset_item_id = item.id
         task.batch_id = batch.id
+        if original_objects is not None:
+            await register_original(db, task, owner, provider=original_objects)
     await db.commit()
     return row, project, tasks, batch
 
@@ -486,10 +489,10 @@ async def test_new_freeze_rejects_archived_eligible_managed_membership(
     await transition(httpx_client, row, super_admin)
     forbid_source_io(monkeypatch)
 
-    def unexpected_media(_sample):
+    async def unexpected_media(*args, **kwargs):
         pytest.fail("Archived new selections must be rejected before media capture")
 
-    monkeypatch.setattr(training_datasets, "capture_source_media", unexpected_media)
+    monkeypatch.setattr(training_datasets.originals, "preflight", unexpected_media)
     selected = {
         "all": {},
         "task_ids": {"task_ids": [task.id for task in tasks]},
@@ -502,6 +505,7 @@ async def test_new_freeze_rejects_archived_eligible_managed_membership(
             project,
             TrainingDatasetSelection(**selected),
             actor_id=super_admin[0].id,
+            trusted_actor=True,
         )
     conflict(error)
 
@@ -511,7 +515,9 @@ async def test_archived_excluded_or_unselected_rows_do_not_block_new_freeze(
     db_session, super_admin, httpx_client, source_headers, selection
 ):
     db = db_session
-    row, project, tasks, _ = await managed_training_world(db, super_admin[0])
+    row, project, tasks, _ = await managed_training_world(
+        db, super_admin[0], original_objects=source_headers
+    )
     archived = await dataset(db, super_admin[0])
     rejected_item = DatasetItem(
         dataset_id=archived.id,
@@ -531,7 +537,7 @@ async def test_archived_excluded_or_unselected_rows_do_not_block_new_freeze(
         else TrainingDatasetSelection()
     )
     snapshot, report = await training_datasets.freeze_selection(
-        db, project, selected, actor_id=super_admin[0].id
+        db, project, selected, actor_id=super_admin[0].id, trusted_actor=True
     )
     assert report["ready"], report
     assert {sample["task_id"] for sample in snapshot["samples"]} == {
@@ -552,9 +558,15 @@ async def test_existing_frozen_version_remains_readable_after_dataset_archive(
     from app.workers.training_dataset import assert_dataset_authority
 
     db = db_session
-    row, project, _, _ = await managed_training_world(db, super_admin[0])
+    row, project, _, _ = await managed_training_world(
+        db, super_admin[0], original_objects=source_headers
+    )
     snapshot, report = await training_datasets.freeze_selection(
-        db, project, TrainingDatasetSelection(), actor_id=super_admin[0].id
+        db,
+        project,
+        TrainingDatasetSelection(),
+        actor_id=super_admin[0].id,
+        trusted_actor=True,
     )
     assert report["ready"]
     version = await frozen_version(db, project.id, snapshot, "ready")

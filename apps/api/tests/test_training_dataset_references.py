@@ -376,10 +376,10 @@ async def test_reference_partial_freeze_retries_same_snapshot_without_rereading_
     real = worker.materialize_sample
     completed = []
 
-    async def interrupted(*args):
+    async def interrupted(*args, **kwargs):
         if stop == "failure" and completed:
             raise RuntimeError("interrupt the second sample")
-        result = await real(*args)
+        result = await real(*args, **kwargs)
         completed.append(result["task_id"])
         if stop == "cancel" and len(completed) == 1:
             version.status = "cancelled"
@@ -863,8 +863,8 @@ async def test_reference_retained_retry_rechecks_key_before_publication(
     monkeypatch.setattr(worker, "build_training_package", package)
     original = worker.materialize_sample
 
-    async def revoke_after_retained(*args):
-        result = await original(*args)
+    async def revoke_after_retained(*args, **kwargs):
+        result = await original(*args, **kwargs)
         key.revoked_at = datetime.now(timezone.utc)
         await db.flush()
         return result
