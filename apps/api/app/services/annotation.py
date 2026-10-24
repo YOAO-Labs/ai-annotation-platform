@@ -12,9 +12,10 @@ from dataclasses import replace
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import func, inspect, or_, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from aap_labeling.annotation_write_contract import (
     ANNOTATION_WRITE_PROTOCOL,
@@ -243,6 +244,141 @@ class AnnotationService:
             )
         ).scalar_one()
 
+    async def _refresh_loaded_annotation_fields(
+        self, annotation_ids: set[uuid.UUID], fields: tuple[str, ...]
+    ) -> None:
+        loaded = {
+            item.id: item
+            for item in self.db.sync_session.identity_map.values()
+            if isinstance(item, Annotation) and item.id in annotation_ids
+        }
+        if not loaded:
+            return
+        columns = [Annotation.id, *(getattr(Annotation, field) for field in fields)]
+        with self.db.no_autoflush:
+            rows = (
+                await self.db.execute(select(*columns).where(Annotation.id.in_(loaded)))
+            ).mappings()
+            for row in rows:
+                item = loaded[row["id"]]
+                state = inspect(item)
+                for field in fields:
+                    value = row[field]
+                    if field not in state.dict or state.dict[field] != value:
+                        set_committed_value(item, field, value)
+
+    async def _refresh_loaded_scene_track_fields(
+        self, scene_track_id: uuid.UUID, fields: tuple[str, ...]
+    ) -> None:
+        loaded = next(
+            (
+                item
+                for item in self.db.sync_session.identity_map.values()
+                if isinstance(item, SceneTrack) and item.id == scene_track_id
+            ),
+            None,
+        )
+        if loaded is None:
+            return
+        columns = [SceneTrack.id, *(getattr(SceneTrack, field) for field in fields)]
+        with self.db.no_autoflush:
+            row = (
+                (
+                    await self.db.execute(
+                        select(*columns).where(SceneTrack.id == scene_track_id)
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        if row is not None:
+            state = inspect(loaded)
+            for field in fields:
+                value = row[field]
+                if field not in state.dict or state.dict[field] != value:
+                    set_committed_value(loaded, field, value)
+
+    async def _refresh_loaded_scene_track_cameras(
+        self, scene_track_id: uuid.UUID
+    ) -> None:
+        loaded = {
+            item.id: item
+            for item in self.db.sync_session.identity_map.values()
+            if isinstance(item, Annotation)
+            and inspect(item).dict.get("scene_track_id", scene_track_id)
+            == scene_track_id
+            and inspect(item).dict.get("sensor_role", "camera") is not None
+        }
+        if not loaded:
+            return
+        with self.db.no_autoflush:
+            rows = (
+                await self.db.execute(
+                    select(
+                        Annotation.id,
+                        Annotation.class_name,
+                        Annotation.version,
+                        Annotation.updated_at,
+                    )
+                    .where(Annotation.id.in_(loaded))
+                    .where(Annotation.scene_track_id == scene_track_id)
+                    .where(Annotation.sensor_role.is_not(None))
+                    .where(Annotation.was_cancelled.is_(False))
+                )
+            ).mappings()
+            for row in rows:
+                item = loaded[row["id"]]
+                state = inspect(item)
+                for field in ("class_name", "version", "updated_at"):
+                    value = row[field]
+                    if field not in state.dict or state.dict[field] != value:
+                        set_committed_value(item, field, value)
+
+    async def _refresh_deleted_annotation_cache(
+        self,
+        annotation: Annotation,
+        *,
+        deleted_camera_members: int,
+        deleted_children: int,
+    ) -> None:
+        loaded = {
+            item.id: item
+            for item in self.db.sync_session.identity_map.values()
+            if isinstance(item, Annotation)
+        }
+        if not loaded:
+            return
+        targets = [Annotation.id == annotation.id]
+        if deleted_camera_members and annotation.scene_track_id is not None:
+            targets.append(
+                (Annotation.task_id == annotation.task_id)
+                & (Annotation.scene_track_id == annotation.scene_track_id)
+                & Annotation.sensor_role.is_not(None)
+                & Annotation.was_cancelled.is_(False)
+            )
+        if deleted_children:
+            targets.append(Annotation.parent_annotation_id == annotation.id)
+        with self.db.no_autoflush:
+            rows = (
+                await self.db.execute(
+                    select(
+                        Annotation.id,
+                        Annotation.is_active,
+                        Annotation.version,
+                        Annotation.updated_at,
+                    ).where(or_(*targets))
+                )
+            ).mappings()
+            for row in rows:
+                item = loaded.get(row["id"])
+                if item is None:
+                    continue
+                state = inspect(item)
+                for field in ("is_active", "version", "updated_at"):
+                    value = row[field]
+                    if field not in state.dict or state.dict[field] != value:
+                        set_committed_value(item, field, value)
+
     async def _validate_class_name(
         self, project_id: uuid.UUID | None, tool_unit_id: str, class_name: str
     ) -> None:
@@ -418,7 +554,12 @@ class AnnotationService:
         await self.db.flush()
 
         await self._update_task_stats(task_id)
-        return await self._load_after_write(annotation_id)
+        annotation = await self._load_after_write(annotation_id)
+        if annotation.scene_track_id is not None:
+            await self._refresh_loaded_scene_track_fields(
+                annotation.scene_track_id, ("revision", "updated_at")
+            )
+        return annotation
 
     async def annotation_create_receipt_response(
         self,
@@ -1211,6 +1352,16 @@ class AnnotationService:
         assert result.mutation is not None
         if not result.mutation.changed:
             return False
+        await self._refresh_deleted_annotation_cache(
+            annotation,
+            deleted_camera_members=result.mutation.deleted_camera_members,
+            deleted_children=result.mutation.deleted_children,
+        )
+        if annotation.scene_track_id is not None:
+            await self._refresh_loaded_scene_track_fields(
+                annotation.scene_track_id, ("revision", "updated_at")
+            )
+        await self.db.flush()
         await self._update_task_stats(annotation.task_id)
         return True
 
@@ -2068,40 +2219,85 @@ class AnnotationService:
             values["is_locked"] = is_locked
         if is_hidden is not None:
             values["is_hidden"] = is_hidden
-        await annotation_write_command(self.db, UpdateAnnotation(**values))
+        scene_track_id = annotation.scene_track_id
+        track_reclassified = (
+            scene_track_id is not None
+            and class_name is not None
+            and class_name != annotation.class_name
+        )
+        result = await annotation_write_command(self.db, UpdateAnnotation(**values))
+        assert result.mutation is not None
 
-        if (
-            annotation.scene_track_id is None
-            and (next_geometry or {}).get("type") == "box_3d"
-        ):
+        if scene_track_id is not None:
+            await self._refresh_loaded_scene_track_fields(
+                scene_track_id,
+                ("class_name", "revision", "updated_at")
+                if track_reclassified
+                else ("revision", "updated_at"),
+            )
+            if track_reclassified:
+                await self._refresh_loaded_scene_track_cameras(scene_track_id)
+
+        scene_track_bound = False
+        if scene_track_id is None and (next_geometry or {}).get("type") == "box_3d":
             from app.services.labeling_scene import resolve_task_scene_frames
 
-            updated = await self._load_after_write(annotation_id)
-            scene_frame = (await resolve_task_scene_frames(self.db, [updated.task_id]))[
-                updated.task_id
-            ]
+            scene_frame = (
+                await resolve_task_scene_frames(self.db, [annotation.task_id])
+            )[annotation.task_id]
             if scene_frame.scene_id is not None and scene_frame.frame_index is not None:
                 await annotation_write_command(
                     self.db,
                     BindSceneTrackMember(
                         schema=ANNOTATION_WRITE_PROTOCOL,
                         operation="bind_scene_track_member",
-                        annotation_id=updated.id,
-                        task_id=updated.task_id,
+                        annotation_id=annotation.id,
+                        task_id=annotation.task_id,
                         project_id=project_id,
                         actor_id=None,
-                        expected_version=int(updated.version or 1),
+                        expected_version=result.mutation.version,
                         scene_id=scene_frame.scene_id,
                         frame_index=scene_frame.frame_index,
                         temporal_role=(
                             "keyframe"
                             if geometry is not None or class_name is not None
-                            else updated.temporal_role
+                            else annotation.temporal_role
                         ),
                     ),
                 )
+                scene_track_bound = True
+        cache_fields = {"version", "updated_at"}
+        if geometry is not None:
+            cache_fields.update(("geometry", "annotation_type", "track_id"))
+        elif (annotation.geometry or {}).get(
+            "type"
+        ) == "box_3d" and annotation.track_id is None:
+            cache_fields.add("track_id")
+        if class_name is not None:
+            cache_fields.add("class_name")
+        if confidence is not None:
+            cache_fields.add("confidence")
+        if attributes is not None:
+            cache_fields.update(("attributes", "attributes_meta"))
+        if z_order is not None:
+            cache_fields.add("z_order")
+        if is_locked is not None:
+            cache_fields.add("is_locked")
+        if is_hidden is not None:
+            cache_fields.add("is_hidden")
+        if (scene_track_id is not None and geometry is not None) or scene_track_bound:
+            cache_fields.add("temporal_role")
+        if scene_track_bound:
+            cache_fields.add("scene_track_id")
+        await self._refresh_loaded_annotation_fields(
+            {annotation.id}, tuple(sorted(cache_fields))
+        )
+        if scene_track_bound and annotation.scene_track_id is not None:
+            await self._refresh_loaded_scene_track_fields(
+                annotation.scene_track_id, ("revision", "updated_at")
+            )
         await self.db.flush()
-        return await self._load_after_write(annotation_id)
+        return annotation
 
     async def convert_video_track_to_bboxes(
         self,
