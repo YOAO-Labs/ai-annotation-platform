@@ -85,7 +85,11 @@ Idempotency-Key: 61fffd41-c706-48c7-818e-0c40cdbeb6c9
 
 `POST /api/v1/tasks/:id/annotations/:annotation_id/secondary-inference` 在选中标注的 ROI 上运行模型，按 `write_target` 写回属性或创建子标注。
 
-仅 `super_admin`、`project_admin`、`annotator` 可调用，且仍需通过项目与任务可见性、当前归属和可编辑状态检查；API Key 还需 `annotations:write` scope。审核员调用返回 `403`，不会执行推理或写入结果。审核员通过普通标注接口进行人工修正的权限保持原有规则。
+项目管理者或具备 `annotation.write` 能力的项目标注员可调用，且仍需通过项目与任务可见性、当前归属和可编辑状态检查；API Key 还需 `annotations:write` scope。审核员调用返回 `403`，不会执行推理或写入结果。审核员通过普通标注接口进行人工修正的权限保持原有规则。
+
+托管图片使用已登记 canonical 原件，覆盖独立 Task、直接 DatasetItem 和 primary 关联。完整读取并核验一次原图后，按实际尺寸裁剪 ROI；每请求的临时输入独立登记为 `secondary_inference`，只上传裁剪，并固定非 null 对象版本。请求和响应结构保持原样，不创建 Prediction 或 AsyncJob；该入口不受交互工具开关控制。
+
+模型派发前及写入前重新检查原 JWT／API Key、当前项目／任务权限、批次、编辑锁、原件与父标注事实。原图来源或父标注在推理期间变化返回 `409`，撤权返回 `403`，失去项目可见性时沿用 `404`；不会留下部分子标注或覆盖并发人工属性。全部属性／子标注、贡献者与审计在同一事务提交；人工属性保护、AI model_ref、子标注一层深度、32px ROI 下限及原有后端错误映射保持。
 
 ## 任务讨论与问题线程
 

@@ -382,6 +382,12 @@ decision 内保留非授权的原图溯源，15 分钟候选 receipt 到期后�
 
 物理工作保留真实 Future 并排空，未知关闭标记不会被后续 close 的 no-op 消除。同步模型输入关闭在事务释放后进行；来源仍持同 purpose 时，首次准确回收延期属于正常保护。接受仅重新读取原件，不生成模型输入或新后台任务。视频与引用的既有权限、身份和持久化合同保持独立。
 
+### 托管图片的选中框二次推理
+
+`managed_secondary_inference.ManagedSecondaryOperation` 复用同步原件适配器的凭据／canonical 绑定、完整 Snapshot 和取消收尾，以独立 `secondary_inference` 输入责任保存父 Annotation 的冻结事实。权限使用严格 annotation.write 判据及原 Key 的 annotations:write，不借交互工具开关或审核调整路径。纯参数与几何预检先于对象读取；deferred ROI 在线程中编码，取消时等待实际收尾，只将裁剪交给版本化输入 writer，不上传无用途整图或复用固定文件名。
+
+实际路由选池后复核并释放短事务，再发送固定版本 URL。最终在调用者顶层事务锁定当前权限／Task／来源与父 Annotation，核对版本、几何、类别、属性／meta、结构和活动事实，再用刷新对象写属性或创建子框。父标注变化不能作为普通 AI 属性合并吞掉；整个子框集合、贡献者和 Audit 一起提交，提交前再次复核原凭据时钟与 JWT 注销缓存。正常退出先释放事务再关闭输入／来源，未知关闭保护延续输入账本的耐久责任。该路径直接写 Annotation，不伪造 Prediction、原生 Mask receipt 或异步 Job；引用、视频与批量修复保留各自合同。
+
 ### 引用图片的批量修复
 
 `reference_mask_repair.ReferenceRepairUnit` 按分片/候选组管理固定引用内容、当前 Job 私有 Key proof、真实 Worker 节点严格快照及临时输入。确定性修复仅需审核写入与 native gate；SAM 另需 AI 开关，并在计划中固定模型声明、变体和参数。当前协议提供声明配置身份，不虚构 checkpoint 摘要。实际路由 transport 的 setup 在发送原图 URL 前核对冻结模型；最终短事务共享锁定 pool、项目启用关联、成员和 registry，保留实际 instance/pool 溯源。

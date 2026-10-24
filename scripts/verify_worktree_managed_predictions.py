@@ -709,7 +709,7 @@ def lifecycle_and_versions(storage, run_id, resources):
     }
 
 
-async def seed(factory, storage, backend, run_id):
+async def seed(factory, storage, backend, run_id, *, roi_marker=False):
     from PIL import Image
     from sqlalchemy import select
     from app.core.security import hash_password
@@ -834,6 +834,9 @@ async def seed(factory, storage, backend, run_id):
             )
         ):
             with io.BytesIO() as output, Image.new("RGB", (128, 96), color) as image:
+                marker = tuple(240 - component // 2 for component in color)
+                if roi_marker:
+                    image.paste(marker, (32, 24, 96, 72))
                 image.save(output, "PNG")
                 raw = output.getvalue()
             digest = hashlib.sha256(raw).hexdigest()
@@ -946,6 +949,7 @@ async def seed(factory, storage, backend, run_id):
                     "sha256": digest,
                     "size_bytes": len(raw),
                     "rgb": color,
+                    "roi_rgb": marker if roi_marker else color,
                     "object_key": task.file_path,
                     "item_id": task.dataset_item_id,
                 }
