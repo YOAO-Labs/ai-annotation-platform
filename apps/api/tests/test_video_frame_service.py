@@ -19,11 +19,29 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.video_tracker_job import VideoTrackerJob
 from app.cli.video.rebuild_timetable import rebuild_item_timetable
 from app.services.system_settings_service import SystemSettingsService
+from app.db.models.video_derivative import VideoDerivativeOutput
+from app.services import video_derivatives as video_contract
+from app.services import storage_access
+from app.services.content_snapshot import ContentError
+from tests.video_derivative_fixtures import (
+    inventory,
+    publish_result,
+    install_video_transport,
+    owned_metadata,
+    owned_output,
+    video_authority,
+    saved_url,
+)
 from tests.factory import build_tool_bindings
 from app.services.video_frame_service import (
     build_context_from_dataset_item,
     list_chunks,
 )
+
+
+@pytest.fixture(autouse=True)
+def owned_video_transport(monkeypatch):
+    return install_video_transport(monkeypatch)
 
 
 async def _make_video_task(db_session, owner_id):
@@ -74,35 +92,27 @@ async def _make_video_task(db_session, owner_id):
     )
     db_session.add(task)
     await db_session.flush()
+    await owned_metadata(db_session, item)
     return task, item
 
 
 @pytest.mark.parametrize("playback_path", [None, "playback/clip.mp4"])
 async def test_video_manifest_v2_exposes_derived_service_urls_only(
-    db_session, httpx_client, super_admin, monkeypatch, playback_path
+    db_session,
+    httpx_client,
+    super_admin,
+    monkeypatch,
+    playback_path,
+    owned_video_transport,
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    item.metadata_ = {
-        "video": {**item.metadata_["video"], "playback_path": playback_path}
-    }
-    await db_session.flush()
-    monkeypatch.setattr(
-        "app.services.video_segment_service.settings.video_segment_size_frames",
-        30,
+    generation = await owned_metadata(
+        db_session, item, force=True, playback=bool(playback_path)
     )
-
-    signed = []
-
-    def sign(key, **kwargs):
-        signed.append(key)
-        return f"http://storage.local/{key}"
-
     monkeypatch.setattr(
-        "app.services.video_frame_service.storage_service.generate_download_url",
-        sign,
+        "app.services.video_segment_service.settings.video_segment_size_frames", 30
     )
-
     task_resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/manifest-v2",
         headers={"Authorization": f"Bearer {token}"},
@@ -111,26 +121,24 @@ async def test_video_manifest_v2_exposes_derived_service_urls_only(
         f"/api/v1/videos/{item.id}/manifest",
         headers={"Authorization": f"Bearer {token}"},
     )
-
-    assert task_resp.status_code == 200
-    assert video_resp.status_code == 200
+    assert task_resp.status_code == 200, task_resp.text
+    assert video_resp.status_code == 200, video_resp.text
     body = task_resp.json()
-    assert body["task_id"] == str(task.id)
-    assert body["dataset_item_id"] == str(item.id)
+    assert body["task_id"] == str(task.id) and body["dataset_item_id"] == str(item.id)
+    assert body["metadata_generation_id"] == str(generation.id)
     assert body["video_url"] is None
-    assert body["poster_url"] == "http://storage.local/posters/clip.webp"
+    assert body["poster_url"] == saved_url(generation, "poster.webp")
     assert body["chunks_manifest_url"].endswith(f"/api/v1/tasks/{task.id}/video/chunks")
     assert body["frame_service_base"].endswith(f"/api/v1/tasks/{task.id}/video/frames")
     assert [
         (s["segment_index"], s["start_frame"], s["end_frame"]) for s in body["segments"]
-    ] == [
-        (0, 0, 29),
-        (1, 30, 59),
-        (2, 60, 89),
-    ]
+    ] == [(0, 0, 29), (1, 30, 59), (2, 60, 89)]
     assert video_resp.json()["dataset_item_id"] == str(item.id)
     assert video_resp.json()["video_url"] is None
-    assert signed == ["posters/clip.webp", "posters/clip.webp"]
+    assert [call for call in owned_video_transport.calls if call[1] is not None] == [
+        (generation.id, "poster.webp"),
+        (generation.id, "poster.webp"),
+    ]
 
 
 async def test_video_segments_facade_lists_lazy_segments(
@@ -545,66 +553,55 @@ async def test_video_segment_non_assignee_cannot_claim_assigned_segment(
 
 
 async def test_video_chunks_create_pending_rows_and_enqueue(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, owned_video_transport
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    queued: list[tuple[str, list[int]]] = []
-
-    def reject_original_signing(*args, **kwargs):
-        pytest.fail("Pending chunks must not sign an original or playback proxy")
-
-    monkeypatch.setattr(
-        "app.services.video_frame_service.storage_service.generate_download_url",
-        reject_original_signing,
+    await SystemSettingsService.set_many(
+        db_session, {"video_chunk_warmup_lookahead": 0}, actor_id=user.id
     )
-    monkeypatch.setattr(
-        "app.workers.media.ensure_video_chunks.delay",
-        lambda item_id, chunk_ids: queued.append((item_id, chunk_ids)),
-    )
-
     resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/chunks?from_frame=0&to_frame=65",
         headers={"Authorization": f"Bearer {token}"},
     )
-
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["fallback_video_url"] is None
     assert [chunk["chunk_id"] for chunk in body["chunks"]] == [0, 1]
     assert {chunk["status"] for chunk in body["chunks"]} == {"pending"}
-    assert queued == [(str(item.id), [0, 1])]
-
+    assert len(owned_video_transport.queued) == 1
+    assert set(map(str, owned_video_transport.queued[0])) == {
+        chunk["output_id"] for chunk in body["chunks"]
+    }
     rows = (
-        await db_session.execute(
-            VideoChunk.__table__.select().where(VideoChunk.dataset_item_id == item.id)
+        await db_session.scalars(
+            select(VideoChunk).where(VideoChunk.dataset_item_id == item.id)
         )
     ).all()
-    assert len(rows) == 2
+    assert len(rows) == 2 and all(row.output_id for row in rows)
+    assert owned_video_transport.calls == []
 
 
 async def test_video_warmup_zero_skips_neighbor_enqueue(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, owned_video_transport
 ):
     user, _ = super_admin
     _, item = await _make_video_task(db_session, user.id)
     await SystemSettingsService.set_many(
         db_session, {"video_chunk_warmup_lookahead": 0}, actor_id=user.id
     )
-    await db_session.flush()
-    queued: list[tuple[str, list[int]]] = []
-    monkeypatch.setattr(
-        "app.workers.media.ensure_video_chunks.delay",
-        lambda item_id, chunk_ids: queued.append((item_id, chunk_ids)),
+    authority = await video_authority(db_session, item)
+    ctx = await build_context_from_dataset_item(
+        db_session, item.id, authority=authority
     )
-
-    ctx = await build_context_from_dataset_item(db_session, item.id)
-    await list_chunks(db_session, ctx, 0, 0)
-
-    assert queued == [(str(item.id), [0])]
+    response = await list_chunks(db_session, ctx, 0, 0)
+    assert len(owned_video_transport.queued) == 1
+    assert list(map(str, owned_video_transport.queued[0])) == [
+        str(response.chunks[0].output_id)
+    ]
     rows = (
-        await db_session.execute(
-            VideoChunk.__table__.select().where(VideoChunk.dataset_item_id == item.id)
+        await db_session.scalars(
+            select(VideoChunk).where(VideoChunk.dataset_item_id == item.id)
         )
     ).all()
     assert [row.chunk_id for row in rows] == [0]
@@ -612,197 +609,133 @@ async def test_video_warmup_zero_skips_neighbor_enqueue(
 
 @pytest.mark.parametrize("path", ["chunks?from_frame=0&to_frame=0", "chunks/0"])
 async def test_warmup_setting_failure_does_not_expire_the_primary_response(
-    db_session, httpx_client, super_admin, monkeypatch, path
+    db_session, httpx_client, super_admin, monkeypatch, path, owned_video_transport
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    task_id, item_id = task.id, item.id
-    db_session.add(
-        VideoChunk(
-            dataset_item_id=item_id,
-            chunk_id=0,
-            start_frame=0,
-            end_frame=59,
-            storage_key="video-test/0.mp4",
-            status="ready",
-        )
-    )
-    await db_session.flush()
-    queued = []
+    output = await owned_output(db_session, item, "chunk")
 
     async def unavailable(db, *args, **kwargs):
-        # A real failed statement leaves this transaction needing rollback.
         await db.execute(text("SELECT 1 / 0"))
 
     monkeypatch.setattr(SystemSettingsService, "get", unavailable)
-    monkeypatch.setattr(
-        "app.services.video_frame_service.storage_service.generate_download_url",
-        lambda key, **kwargs: f"http://storage.local/{key}",
-    )
-    monkeypatch.setattr(
-        "app.workers.media.ensure_video_chunks.delay",
-        lambda item_id, chunk_ids: queued.append((item_id, chunk_ids)),
-    )
     response = await httpx_client.get(
-        f"/api/v1/tasks/{task_id}/video/{path}",
+        f"/api/v1/tasks/{task.id}/video/{path}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 200, response.text
     body = response.json()
     chunks = body["chunks"] if "chunks" in body else [body]
     assert [chunk["chunk_id"] for chunk in chunks] == [0]
-    assert chunks[0]["status"] == "ready"
-    assert queued == []
+    assert chunks[0]["status"] == "ready" and chunks[0]["output_id"] == str(output.id)
+    assert owned_video_transport.queued == []
 
 
 async def test_video_chunk_api_exposes_generation_diagnostics(
-    db_session, httpx_client, super_admin, monkeypatch
-):
-    user, token = super_admin
-    task, item = await _make_video_task(db_session, user.id)
-    db_session.add(
-        VideoChunk(
-            dataset_item_id=item.id,
-            chunk_id=0,
-            start_frame=0,
-            end_frame=59,
-            start_pts_ms=0,
-            end_pts_ms=1967,
-            storage_key=f"videos/{item.id}/chunks/0.mp4",
-            byte_size=1234,
-            generation_mode="smart_copy",
-            diagnostics={
-                "source_codec": "h264",
-                "output_codec": "h264",
-                "keyframe_aligned": True,
-                "start_byte_offset": 100,
-                "end_byte_offset": 9000,
-                "smart_copy_eligible": True,
-                "fallback_reason": None,
-            },
-            status="ready",
-        )
-    )
-    await db_session.flush()
-
-    monkeypatch.setattr(
-        "app.services.video_frame_service.storage_service.generate_download_url",
-        lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
-    )
-
-    resp = await httpx_client.get(
-        f"/api/v1/tasks/{task.id}/video/chunks/0",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "ready"
-    assert body["generation_mode"] == "smart_copy"
-    assert body["diagnostics"]["source_codec"] == "h264"
-    assert body["diagnostics"]["keyframe_aligned"] is True
-    assert body["diagnostics"]["smart_copy_eligible"] is True
-
-
-async def test_video_chunk_samples_returns_description_and_stored_order(
     db_session, httpx_client, super_admin
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    # 后端 sample manifest 保持 packet decode order,frame_index 按 PTS presentation rank;
-    # B 帧下 pts 非单调(frame 10 key → frame 12 → frame 11)。前端按 timestamp 解码,不能假设
-    # 数组顺序即展示顺序,故此处断言存储顺序原样回传。
-    samples = [
-        {
-            "frame_index": 10,
-            "pts_ms": 0,
-            "duration_ms": 33,
-            "is_keyframe": True,
-            "size_bytes": 5000,
-            "offset_in_chunk": 48,
-        },
-        {
-            "frame_index": 12,
-            "pts_ms": 67,
-            "duration_ms": 33,
-            "is_keyframe": False,
-            "size_bytes": 1200,
-            "offset_in_chunk": 5048,
-        },
-        {
-            "frame_index": 11,
-            "pts_ms": 33,
-            "duration_ms": 33,
-            "is_keyframe": False,
-            "size_bytes": 800,
-            "offset_in_chunk": 6248,
-        },
-    ]
-    db_session.add(
-        VideoChunk(
-            dataset_item_id=item.id,
-            chunk_id=0,
-            start_frame=10,
-            end_frame=12,
-            start_pts_ms=0,
-            end_pts_ms=100,
-            storage_key=f"videos/{item.id}/chunks/0.mp4",
-            byte_size=7048,
-            generation_mode="smart_copy",
-            diagnostics={
-                "source_codec": "h264",
-                "output_codec": "h264",
-                "codec_string": "avc1.64001f",
-                "description": "AAAA",
-                "width": 1920,
-                "height": 1080,
-                "samples": samples,
-            },
-            status="ready",
-        )
+    diagnostics = {
+        "source_codec": "h264",
+        "output_codec": "h264",
+        "keyframe_aligned": True,
+        "start_byte_offset": 100,
+        "end_byte_offset": 9000,
+        "smart_copy_eligible": True,
+        "fallback_reason": None,
+    }
+    output = await owned_output(
+        db_session, item, "chunk", generation_mode="smart_copy", diagnostics=diagnostics
     )
-    await db_session.flush()
-
     resp = await httpx_client.get(
-        f"/api/v1/videos/{item.id}/chunks/0/samples",
+        f"/api/v1/tasks/{task.id}/video/chunks/0",
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["dataset_item_id"] == str(item.id)
-    assert body["chunk_id"] == 0
-    assert body["codec_string"] == "avc1.64001f"
-    assert body["description"] == "AAAA"
+    assert body["status"] == "ready" and body["generation_mode"] == "smart_copy"
+    assert body["output_id"] == str(output.id)
+    assert body["metadata_generation_id"] == str(item.video_output_id)
+    assert (
+        body["sha256"]
+        == output.inventory["objects"][output.storage_ref["prefix"] + "chunk.mp4"][
+            "sha256"
+        ]
+    )
+    assert body["diagnostics"] == diagnostics
+
+
+async def test_video_chunk_samples_returns_description_and_stored_order(
+    db_session, httpx_client, super_admin, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.services.video_derivatives.settings.video_chunk_size_frames", 3
+    )
+    user, token = super_admin
+    _, item = await _make_video_task(db_session, user.id)
+    # Decode order differs from presentation rank for B frames.
+    samples = [
+        {
+            "frame_index": index,
+            "pts_ms": pts,
+            "duration_ms": 33,
+            "is_keyframe": index == 9,
+            "size_bytes": size,
+            "offset_in_chunk": offset,
+        }
+        for index, pts, size, offset in [
+            (9, 0, 5000, 48),
+            (11, 67, 1200, 5048),
+            (10, 33, 800, 6248),
+        ]
+    ]
+    diagnostics = {
+        "source_codec": "h264",
+        "output_codec": "h264",
+        "codec_string": "avc1.64001f",
+        "description": "AAAA",
+        "width": 1920,
+        "height": 1080,
+        "samples": samples,
+    }
+    output = await owned_output(
+        db_session,
+        item,
+        "chunk",
+        chunk_id=3,
+        generation_mode="smart_copy",
+        diagnostics=diagnostics,
+        data=b"x" * 7048,
+    )
+    resp = await httpx_client.get(
+        f"/api/v1/videos/{item.id}/chunks/3/samples",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"expected_output_id": str(output.id)},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["dataset_item_id"] == str(item.id) and body["chunk_id"] == 3
+    assert body["output_id"] == str(output.id) and body[
+        "metadata_generation_id"
+    ] == str(item.video_output_id)
+    assert body["codec_string"] == "avc1.64001f" and body["description"] == "AAAA"
     assert body["width"] == 1920 and body["height"] == 1080
-    # samples 保持存储(decode)顺序,不按 pts 重排。
-    assert [s["frame_index"] for s in body["samples"]] == [10, 12, 11]
-    assert [s["offset_in_chunk"] for s in body["samples"]] == [48, 5048, 6248]
-    assert [s["pts_ms"] for s in body["samples"]] == [0, 67, 33]
-    assert body["samples"][0]["is_keyframe"] is True
+    assert body["samples"] == samples
 
 
 async def test_video_chunk_samples_404_when_no_samples(
     db_session, httpx_client, super_admin
 ):
     user, token = super_admin
-    task, item = await _make_video_task(db_session, user.id)
-    db_session.add(
-        VideoChunk(
-            dataset_item_id=item.id,
-            chunk_id=0,
-            start_frame=0,
-            end_frame=9,
-            start_pts_ms=0,
-            end_pts_ms=300,
-            storage_key=f"videos/{item.id}/chunks/0.mp4",
-            byte_size=100,
-            generation_mode="smart_copy",
-            diagnostics={"source_codec": "h264"},  # 无 samples(旧 chunk)
-            status="ready",
-        )
+    _, item = await _make_video_task(db_session, user.id)
+    await owned_output(
+        db_session,
+        item,
+        "chunk",
+        generation_mode="smart_copy",
+        diagnostics={"source_codec": "h264"},
     )
-    await db_session.flush()
-
     resp = await httpx_client.get(
         f"/api/v1/videos/{item.id}/chunks/0/samples",
         headers={"Authorization": f"Bearer {token}"},
@@ -826,161 +759,112 @@ async def test_video_chunk_samples_404_when_item_invisible(
 
 
 async def test_video_frame_ready_returns_cached_url_without_enqueue(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, owned_video_transport
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    queued: list[object] = []
-    db_session.add(
-        VideoFrameCache(
-            dataset_item_id=item.id,
-            frame_index=12,
-            width=512,
-            format="webp",
-            storage_key=f"videos/{item.id}/frames/12_512.webp",
-            byte_size=1234,
-            status="ready",
-        )
-    )
-    await db_session.flush()
-
-    monkeypatch.setattr(
-        "app.services.video_frame_service.storage_service.generate_download_url",
-        lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
-    )
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_frames.delay",
-        lambda *args: queued.append(args),
-    )
-
+    output = await owned_output(db_session, item, "frame", frame_index=12)
     resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/frames/12?format=webp&w=512",
         headers={"Authorization": f"Bearer {token}"},
     )
-
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     assert resp.headers["cache-control"] == "private, max-age=3600"
     body = resp.json()
-    assert body["status"] == "ready"
-    assert body["url"].endswith(f"/videos/{item.id}/frames/12_512.webp")
-    assert queued == []
+    assert body["status"] == "ready" and body["url"] == saved_url(output, "frame.webp")
+    assert body["output_id"] == str(output.id)
+    assert owned_video_transport.queued == []
 
 
 async def test_video_frame_pending_does_not_enqueue_duplicate_worker(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, owned_video_transport
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    queued: list[object] = []
-    db_session.add(
-        VideoFrameCache(
-            dataset_item_id=item.id,
-            frame_index=12,
-            width=512,
-            format="webp",
-            status="pending",
-        )
+    output = await owned_output(
+        db_session, item, "frame", frame_index=12, ready=False, claimed=True
     )
-    await db_session.flush()
-
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_frames.delay",
-        lambda *args: queued.append(args),
-    )
-
     resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/video/frames/12?format=webp&w=512",
         headers={"Authorization": f"Bearer {token}"},
     )
-
-    assert resp.status_code == 202
+    assert resp.status_code == 202, resp.text
     assert resp.headers["cache-control"] == "no-store"
-    assert resp.json()["status"] == "pending"
-    assert queued == []
+    assert resp.json()["status"] == "pending" and resp.json()["output_id"] == str(
+        output.id
+    )
+    assert owned_video_transport.queued == []
 
 
 async def test_video_frame_prefetch_creates_missing_rows(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, owned_video_transport
 ):
     user, token = super_admin
-    task, item = await _make_video_task(db_session, user.id)
-    queued: list[tuple[str, list[dict]]] = []
-
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_frames.delay",
-        lambda item_id, requests: queued.append((item_id, requests)),
-    )
-
+    _, item = await _make_video_task(db_session, user.id)
     resp = await httpx_client.post(
         f"/api/v1/videos/{item.id}/frames:prefetch",
         headers={"Authorization": f"Bearer {token}"},
         json={"frame_indices": [3, 3, 4], "width": 320, "format": "jpeg"},
     )
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert [frame["frame_index"] for frame in body["frames"]] == [3, 4]
-    assert {frame["status"] for frame in body["frames"]} == {"pending"}
-    assert queued == [
-        (
-            str(item.id),
-            [
-                {"frame_index": 3, "width": 320, "format": "jpeg"},
-                {"frame_index": 4, "width": 320, "format": "jpeg"},
-            ],
+    assert resp.status_code == 200, resp.text
+    frames = resp.json()["frames"]
+    assert [frame["frame_index"] for frame in frames] == [3, 4]
+    assert {frame["status"] for frame in frames} == {"pending"}
+    assert all(
+        frame["metadata_generation_id"] == str(item.video_output_id) for frame in frames
+    )
+    assert len(owned_video_transport.queued) == 1
+    assert set(map(str, owned_video_transport.queued[0])) == {
+        frame["output_id"] for frame in frames
+    }
+    outputs = (
+        await db_session.scalars(
+            select(VideoDerivativeOutput).where(
+                VideoDerivativeOutput.id.in_(owned_video_transport.queued[0])
+            )
         )
-    ]
+    ).all()
+    assert {
+        (output.spec["frame_index"], output.spec["width"], output.spec["format"])
+        for output in outputs
+    } == {(3, 320, "jpeg"), (4, 320, "jpeg")}
 
 
 async def test_video_frame_retry_resets_failed_rows_only(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin, owned_video_transport
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    queued: list[tuple[str, list[dict]]] = []
-    db_session.add_all(
-        [
-            VideoFrameCache(
-                dataset_item_id=item.id,
-                frame_index=7,
-                width=512,
-                format="webp",
-                status="failed",
-                error="ffmpeg failed",
-            ),
-            VideoFrameCache(
-                dataset_item_id=item.id,
-                frame_index=8,
-                width=512,
-                format="webp",
-                status="ready",
-                storage_key=f"videos/{item.id}/frames/8_512.webp",
-            ),
-        ]
+    ready = await owned_output(db_session, item, "frame", frame_index=8)
+    db_session.add(
+        VideoFrameCache(
+            dataset_item_id=item.id,
+            frame_index=7,
+            width=512,
+            format="webp",
+            status="failed",
+            error="ffmpeg failed",
+        )
     )
-    await db_session.flush()
-
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_frames.delay",
-        lambda item_id, requests: queued.append((item_id, requests)),
-    )
-
+    await db_session.commit()
     resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/video/frames:retry",
         headers={"Authorization": f"Bearer {token}"},
         json={"frame_indices": [7, 8], "width": 512, "format": "webp"},
     )
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert [frame["frame_index"] for frame in body["frames"]] == [7]
-    assert body["frames"][0]["status"] == "pending"
-    assert queued == [
-        (
-            str(item.id),
-            [{"frame_index": 7, "width": 512, "format": "webp"}],
+    assert resp.status_code == 200, resp.text
+    frames = resp.json()["frames"]
+    assert [frame["frame_index"] for frame in frames] == [7]
+    assert frames[0]["status"] == "pending"
+    assert len(owned_video_transport.queued) == 1 and list(
+        map(str, owned_video_transport.queued[0])
+    ) == [frames[0]["output_id"]]
+    slot = await db_session.scalar(
+        select(VideoFrameCache).where(
+            VideoFrameCache.dataset_item_id == item.id, VideoFrameCache.frame_index == 8
         )
-    ]
+    )
+    assert slot.output_id == ready.id and slot.status == "ready"
 
 
 async def test_video_asset_failures_list_metadata_chunk_and_frame_errors(
@@ -1033,11 +917,12 @@ async def test_video_asset_failures_list_metadata_chunk_and_frame_errors(
     assert by_type["frame"]["width"] == 320
 
 
-async def test_video_asset_retry_queues_existing_media_tasks(
-    db_session, httpx_client, super_admin, monkeypatch
+async def test_video_asset_retry_queues_saved_attempts_for_existing_slots(
+    db_session, httpx_client, super_admin, owned_video_transport
 ):
     user, token = super_admin
     _, item = await _make_video_task(db_session, user.id)
+    active = item.video_output_id
     chunk = VideoChunk(
         dataset_item_id=item.id,
         chunk_id=1,
@@ -1056,70 +941,57 @@ async def test_video_asset_retry_queues_existing_media_tasks(
     )
     db_session.add_all([chunk, frame])
     await db_session.flush()
-    queued_metadata: list[str] = []
-    queued_chunks: list[tuple[str, list[int]]] = []
-    queued_frames: list[tuple[str, list[dict]]] = []
-
-    monkeypatch.setattr(
-        "app.workers.media.generate_video_metadata.delay",
-        lambda item_id: queued_metadata.append(item_id),
-    )
-    monkeypatch.setattr(
-        "app.workers.media.ensure_video_chunks.delay",
-        lambda item_id, chunk_ids: queued_chunks.append((item_id, chunk_ids)),
-    )
-    monkeypatch.setattr(
-        "app.workers.media.extract_video_frames.delay",
-        lambda item_id, requests: queued_frames.append((item_id, requests)),
-    )
-
-    metadata_resp = await httpx_client.post(
-        "/api/v1/storage/video-assets/retry",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"asset_type": "poster", "dataset_item_id": str(item.id)},
-    )
-    chunk_resp = await httpx_client.post(
-        "/api/v1/storage/video-assets/retry",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "asset_type": "chunk",
-            "dataset_item_id": str(item.id),
-            "chunk_id": 1,
-        },
-    )
-    frame_resp = await httpx_client.post(
-        "/api/v1/storage/video-assets/retry",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
+    payloads = [
+        {"asset_type": "poster", "dataset_item_id": str(item.id)},
+        {"asset_type": "chunk", "dataset_item_id": str(item.id), "chunk_id": 1},
+        {
             "asset_type": "frame",
             "dataset_item_id": str(item.id),
             "frame_index": 8,
             "width": 320,
             "format": "jpeg",
         },
-    )
-
-    assert metadata_resp.status_code == 202
-    assert chunk_resp.status_code == 202
-    assert frame_resp.status_code == 202
-    assert queued_metadata == [str(item.id)]
-    assert queued_chunks == [(str(item.id), [1])]
-    assert queued_frames == [
-        (
-            str(item.id),
-            [{"frame_index": 8, "width": 320, "format": "jpeg"}],
-        )
     ]
+    for payload in payloads:
+        response = await httpx_client.post(
+            "/api/v1/storage/video-assets/retry",
+            headers={"Authorization": f"Bearer {token}"},
+            json=payload,
+        )
+        assert response.status_code == 202, response.text
+    assert len(owned_video_transport.queued) == 3
+    identifiers = [batch[0] for batch in owned_video_transport.queued]
+    assert all(len(batch) == 1 for batch in owned_video_transport.queued)
+    outputs = (
+        await db_session.scalars(
+            select(VideoDerivativeOutput).where(
+                VideoDerivativeOutput.id.in_(identifiers)
+            )
+        )
+    ).all()
+    assert {output.kind for output in outputs} == {"metadata", "chunk", "frame"}
+    assert all(
+        output.state == "building" and output.auth_ref["policy"] == "storage"
+        for output in outputs
+    )
+    assert all(
+        output.original_ref["owner_kind"] == "dataset_asset" for output in outputs
+    )
+    await db_session.refresh(item)
     await db_session.refresh(chunk)
     await db_session.refresh(frame)
-    assert chunk.status == "pending"
-    assert chunk.error is None
-    assert frame.status == "pending"
-    assert frame.error is None
+    assert (
+        item.video_output_id == active and item.video_building_output_id in identifiers
+    )
+    assert (
+        chunk.status == frame.status == "pending" and chunk.error is frame.error is None
+    )
+    assert chunk.output_id in identifiers and frame.output_id in identifiers
+    assert owned_video_transport.calls == []
 
 
 async def test_video_asset_retry_accepts_any_managed_linked_project(
-    db_session, httpx_client, super_admin, project_admin, monkeypatch
+    db_session, httpx_client, super_admin, project_admin, owned_video_transport
 ):
     """一个 dataset item 可被多个项目的 task 关联：只要其中任一链接项目是该
     管理员合法管理的，重试就应放行（与失败列表 any-owned-project 作用域一致），
@@ -1157,19 +1029,18 @@ async def test_video_asset_retry_accepts_any_managed_linked_project(
     db_session.add(other_task)
     await db_session.flush()
 
-    queued_metadata: list[str] = []
-    monkeypatch.setattr(
-        "app.workers.media.generate_video_metadata.delay",
-        lambda item_id: queued_metadata.append(item_id),
-    )
-
     resp = await httpx_client.post(
         "/api/v1/storage/video-assets/retry",
         headers={"Authorization": f"Bearer {token}"},
         json={"asset_type": "poster", "dataset_item_id": str(item.id)},
     )
     assert resp.status_code == 202, resp.text
-    assert queued_metadata == [str(item.id)]
+    assert len(owned_video_transport.queued) == 1
+    output = await db_session.get(
+        VideoDerivativeOutput, owned_video_transport.queued[0][0]
+    )
+    assert output.kind == "metadata" and output.auth_ref["policy"] == "storage"
+    assert output.auth_ref["owner_id"] == str(item.id)
 
 
 async def test_video_asset_retry_rejects_unmanaged_linked_projects_only(
@@ -1239,76 +1110,94 @@ async def test_video_asset_retry_rejects_unmanaged_linked_projects_only(
     assert resp.status_code == 403
 
 
-async def test_rebuild_timetable_cli_helper_replaces_rows(
+async def test_rebuild_timetable_cli_publishes_new_metadata_generation(
     db_session, super_admin, monkeypatch
 ):
     user, _ = super_admin
     _, item = await _make_video_task(db_session, user.id)
+    active = item.video_output_id
     db_session.add(
         VideoFrameIndex(
-            dataset_item_id=item.id,
-            frame_index=0,
-            pts_ms=999,
-            is_keyframe=False,
+            dataset_item_id=item.id, frame_index=0, pts_ms=999, is_keyframe=False
         )
     )
     await db_session.flush()
+    frames = [
+        {
+            "frame_index": 0,
+            "pts_ms": 0,
+            "is_keyframe": True,
+            "pict_type": "I",
+            "byte_offset": 10,
+        },
+        {
+            "frame_index": 1,
+            "pts_ms": 33,
+            "is_keyframe": False,
+            "pict_type": "P",
+            "byte_offset": 20,
+        },
+    ]
+    invoked = []
 
-    class FakeClient:
-        def download_fileobj(self, Bucket, Key, Fileobj):
-            # v0.10.x · ffmpeg 处理(含时间表探测)用原始视频 file_path, 不用 playback_path
-            # (转码版只供浏览器播放; 用它会 bucket 串台 404 + 帧号漂移破坏 D2)。
-            # bucket 仍按 key 前缀路由: 本 fixture file_path 撞 "videos/" 缓存前缀 → media-cache;
-            # 真实 dataset 原视频在用户文件夹下(如 "测试视频/")→ datasets。
-            assert Key == "videos/clip.mp4"
-            assert Bucket == "media-cache"
-            Fileobj.write(b"fake video")
+    class NoLegacyStorage:
+        @property
+        def client(self):
+            raise AssertionError(
+                "CLI must not download through a caller's mutable storage bucket"
+            )
 
-    class FakeStorage:
-        datasets_bucket = "datasets"
-        media_cache_bucket = "media-cache"
-        MEDIA_CACHE_PREFIXES = ("thumbnails/", "videos/", "playback/")
-        client = FakeClient()
+    async def finish_outputs(identifiers):
+        assert not db_session.in_transaction()
+        assert len(identifiers) == 1
+        output = await db_session.get(VideoDerivativeOutput, uuid.UUID(identifiers[0]))
+        assert output.id != active and output.spec == {
+            "schema": 1,
+            "timetable_stride": 1,
+        }
+        authority = await video_authority(db_session, item, register=False)
+        video = {
+            **item.metadata_["video"],
+            "frame_timetable_frame_count": 2,
+            "frame_timetable_error": None,
+            "poster_frame_path": output.storage_ref["prefix"] + "poster.webp",
+            "playback_path": output.storage_ref["prefix"] + "playback.mp4",
+        }
+        result = {"schema": 1, "kind": "metadata", "video": video, "frames": frames}
+        await publish_result(
+            db_session,
+            output,
+            authority,
+            result,
+            inventory(
+                output, result, {"poster.webp": b"poster", "playback.mp4": b"playback"}
+            ),
+        )
+        invoked.extend(identifiers)
 
-        def bucket_for_cache_key(self, key, default=None):
-            if key and key.startswith(self.MEDIA_CACHE_PREFIXES):
-                return self.media_cache_bucket
-            return default or self.datasets_bucket
-
-    monkeypatch.setattr(
-        "app.cli.video.rebuild_timetable.probe_video_frame_timetable",
-        lambda path: [
-            {
-                "frame_index": 0,
-                "pts_ms": 0,
-                "is_keyframe": True,
-                "pict_type": "I",
-                "byte_offset": 10,
-            },
-            {
-                "frame_index": 1,
-                "pts_ms": 33,
-                "is_keyframe": False,
-                "pict_type": "P",
-                "byte_offset": 20,
-            },
-        ],
-    )
-
-    count = await rebuild_item_timetable(db_session, item, storage=FakeStorage())
-
+    monkeypatch.setattr("app.workers.media_derivatives.run_outputs", finish_outputs)
+    count = await rebuild_item_timetable(db_session, item, storage=NoLegacyStorage())
     rows = (
-        await db_session.execute(
-            VideoFrameIndex.__table__.select()
+        await db_session.scalars(
+            select(VideoFrameIndex)
             .where(VideoFrameIndex.dataset_item_id == item.id)
-            .order_by(VideoFrameIndex.frame_index.asc())
+            .order_by(VideoFrameIndex.frame_index)
         )
     ).all()
     await db_session.refresh(item)
-
-    assert count == 2
-    assert [row.pts_ms for row in rows] == [0, 33]
+    assert count == 2 and [row.pts_ms for row in rows] == [0, 33]
     assert item.metadata_["video"]["frame_timetable_frame_count"] == 2
+    assert item.video_output_id != active and str(item.video_output_id) == invoked[0]
+    assert item.video_building_output_id is None
+    old = await db_session.get(VideoDerivativeOutput, active)
+    assert old.state == "ready"
+    assert (
+        await rebuild_item_timetable(
+            db_session, item, storage=NoLegacyStorage(), dry_run=True
+        )
+        == 2
+    )
+    assert len(invoked) == 1
 
 
 async def test_video_tracker_job_create_get_cancel(
@@ -1595,129 +1484,146 @@ async def _make_committed_video_item(maker, *, frame_count: int = 90):
             },
         )
         s.add(item)
-        await s.commit()
+        await s.flush()
+        await owned_metadata(s, item)
         return item.id, dataset.id, user.id
 
 
 async def _cleanup_video_item(maker, item_id, dataset_id, user_id):
     from sqlalchemy import delete
-
     from app.db.models.user import User
+    from app.db.models.storage_maintenance import StorageOperation
+    from app.services.video_derivative_objects import purpose
 
     async with maker() as s:
-        await s.execute(
-            delete(VideoSegment).where(VideoSegment.dataset_item_id == item_id)
+        identifiers = list(
+            await s.scalars(
+                select(VideoDerivativeOutput.id).where(
+                    VideoDerivativeOutput.dataset_item_id == item_id
+                )
+            )
         )
-        await s.execute(delete(VideoChunk).where(VideoChunk.dataset_item_id == item_id))
-        await s.execute(
-            delete(VideoFrameCache).where(VideoFrameCache.dataset_item_id == item_id)
-        )
-        await s.execute(delete(DatasetItem).where(DatasetItem.id == item_id))
+        if identifiers:
+            assert not await s.scalar(
+                select(StorageOperation.id)
+                .where(
+                    StorageOperation.purpose.in_(
+                        [purpose(identifier) for identifier in identifiers]
+                    )
+                )
+                .limit(1)
+            )
         await s.execute(delete(Dataset).where(Dataset.id == dataset_id))
+        if identifiers:
+            await s.execute(
+                update(VideoDerivativeOutput)
+                .where(
+                    VideoDerivativeOutput.id.in_(identifiers),
+                    VideoDerivativeOutput.state.in_(["building", "ready"]),
+                )
+                .values(state="retiring")
+            )
+            await s.execute(
+                update(VideoDerivativeOutput)
+                .where(
+                    VideoDerivativeOutput.id.in_(identifiers),
+                    VideoDerivativeOutput.state == "retiring",
+                )
+                .values(state="deleted")
+            )
+            await s.execute(
+                delete(VideoDerivativeOutput).where(
+                    VideoDerivativeOutput.id.in_(identifiers)
+                )
+            )
         await s.execute(delete(User).where(User.id == user_id))
         await s.commit()
 
 
-async def test_ensure_frame_row_concurrent_insert_does_not_raise(test_engine):
-    """回归: timeline scrub 时单帧 GET 与 prefetch 窗口会并发为同一
-    (item, frame, width, format) 走 _ensure_frame_row。旧实现 select-then-insert 在并发下
-    撞 uq_video_frame_cache_item_frame_width_format → 未捕获 IntegrityError → 500。修复用
-    SAVEPOINT 包 INSERT + 冲突 re-select: N 个并发请求恰好 1 个 created=True、其余 False,
-    都不抛错, DB 最终只有 1 行。
-    """
+async def _concurrent_video_prepare(test_engine, kind):
+    """NOWAIT contention may retry; no duplicate slot or owner may be committed."""
     import asyncio
+    from sqlalchemy.exc import DBAPIError
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    from sqlalchemy import select as sa_select
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-    from app.services.video_frame_service import (
-        _ensure_frame_row,
-        build_context_from_dataset_item,
-    )
-
-    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    item_id, dataset_id, user_id = await _make_committed_video_item(maker)
-    try:
-        # Barrier: 4 个 worker 建好 ctx 后同步起跑, 保证 select 都在任何 insert 之前
-        # (都拿到 None), 确定性地逼出 select-then-insert 冲突, 覆盖 SAVEPOINT re-select 分支。
-        barrier = asyncio.Barrier(4)
-
-        async def worker():
-            async with maker() as s:
-                ctx = await build_context_from_dataset_item(s, item_id)
-                await barrier.wait()
-                _, created, _ = await _ensure_frame_row(s, ctx, 5, 320, "webp")
-                await s.commit()
-                return created
-
-        results = await asyncio.gather(*[worker() for _ in range(4)])
-
-        assert sum(1 for created in results if created) == 1
-        assert sum(1 for created in results if not created) == 3
-        async with maker() as s:
-            rows = (
-                (
-                    await s.execute(
-                        sa_select(VideoFrameCache).where(
-                            VideoFrameCache.dataset_item_id == item_id
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            assert len(rows) == 1
-    finally:
-        await _cleanup_video_item(maker, item_id, dataset_id, user_id)
-
-
-async def test_ensure_chunk_rows_concurrent_insert_does_not_raise(test_engine):
-    """回归: 视频播放/拖进度条时 list_chunks 主请求 + warmup + 并发 scrub 会并发为同一
-    chunk_id 走 _ensure_chunk_rows。旧实现 select-then-insert 撞 uq_video_chunks_item_chunk
-    → 未捕获 IntegrityError → 500。修复用 SAVEPOINT 包每个 INSERT + 冲突 re-select: N 个
-    并发请求都不抛错、都拿到同一 chunk, DB 最终只有 1 行。
-    """
-    import asyncio
-
-    from sqlalchemy import select as sa_select
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-    from app.services.video_frame_service import (
-        _ensure_chunk_rows,
-        build_context_from_dataset_item,
-    )
-
-    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
     item_id, dataset_id, user_id = await _make_committed_video_item(maker)
     try:
         barrier = asyncio.Barrier(4)
 
         async def worker():
-            async with maker() as s:
-                ctx = await build_context_from_dataset_item(s, item_id)
+            async with maker() as db:
                 await barrier.wait()
-                rows = await _ensure_chunk_rows(s, ctx, [0])
-                await s.commit()
-                return rows[0].chunk_id
-
-        results = await asyncio.gather(*[worker() for _ in range(4)])
-
-        assert results == [0, 0, 0, 0]
-        async with maker() as s:
-            rows = (
-                (
-                    await s.execute(
-                        sa_select(VideoChunk).where(
-                            VideoChunk.dataset_item_id == item_id
+                for attempt in range(50):
+                    try:
+                        item = await db.get(
+                            DatasetItem, item_id, populate_existing=True
                         )
+                        authority = await video_authority(db, item, register=False)
+                        generation = await db.get(
+                            VideoDerivativeOutput,
+                            item.video_output_id,
+                            populate_existing=True,
+                        )
+                        spec = (
+                            video_contract.frame_spec(generation, 5, 320, "webp")
+                            if kind == "frame"
+                            else video_contract.chunk_spec(generation, 0)
+                        )
+                        output, _ = await video_contract.prepare(
+                            db, item_id, authority, kind, spec=spec
+                        )
+                        identifier = output.id
+                        await db.commit()
+                        return identifier
+                    except DBAPIError as exc:
+                        if not storage_access.unavailable(exc):
+                            raise
+                    except ContentError as exc:
+                        if exc.code not in {
+                            "storage_original_busy",
+                            "storage_maintenance_busy",
+                            "content_busy",
+                        }:
+                            raise
+                    await db.rollback()
+                    await asyncio.sleep(0.005)
+                raise AssertionError("bounded NOWAIT contention retries exhausted")
+
+        identifiers = await asyncio.gather(
+            *(worker() for _ in range(4)), return_exceptions=True
+        )
+        # Settle every competing connection before teardown, even on a failure.
+        for result in identifiers:
+            if isinstance(result, BaseException):
+                raise result
+        assert len(set(identifiers)) == 1
+        async with maker() as db:
+            model = VideoFrameCache if kind == "frame" else VideoChunk
+            slots = list(
+                await db.scalars(select(model).where(model.dataset_item_id == item_id))
+            )
+            outputs = list(
+                await db.scalars(
+                    select(VideoDerivativeOutput).where(
+                        VideoDerivativeOutput.dataset_item_id == item_id,
+                        VideoDerivativeOutput.kind == kind,
                     )
                 )
-                .scalars()
-                .all()
             )
-            assert len(rows) == 1
+            assert len(slots) == len(outputs) == 1
+            assert slots[0].output_id == outputs[0].id == identifiers[0]
+            assert outputs[0].state == "building" and outputs[0].lease_token is None
     finally:
         await _cleanup_video_item(maker, item_id, dataset_id, user_id)
+
+
+async def test_prepare_frame_concurrent_requests_keep_one_attempt(test_engine):
+    await _concurrent_video_prepare(test_engine, "frame")
+
+
+async def test_prepare_chunk_concurrent_requests_keep_one_attempt(test_engine):
+    await _concurrent_video_prepare(test_engine, "chunk")
 
 
 async def test_ensure_segments_concurrent_insert_does_not_raise(
