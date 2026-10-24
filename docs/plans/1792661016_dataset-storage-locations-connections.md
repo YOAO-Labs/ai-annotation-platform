@@ -1046,3 +1046,17 @@ README、CHANGELOG Unreleased、用户／API／架构文档同步；OpenAPI导�
 ## 下一片范围 — 点云质检Worker原件输入
 
 只读盘点确认点云质检仍沿create_quality_run／build_source_snapshot → point_cloud_quality Worker → execute_scan → \_read_normalized_pointcloud／\_read_pointcloud按当前datasets_bucket读取PCD，并按路径与轴约定缓存。下一片先定稿冻结原件owner／内容／逻辑位置、后台持续reviewer权限及准确任务可见性、取消／代次与真实解析收尾的合同；不能借用AL的manager权限替代既有REVIEW_WRITE，也不能为旧快照按当前owner补造证据。保持256MiB、5000 Task／20000标注、ASCII／非压缩binary PCD及ISO轴归一化；相机只读标定／尺寸，像素与派生链另片。实施前进一步复核当前调用者、历史结果兼容与发布事务，未将盘点称为该消费者已迁移。
+
+## E02-B13-B3-C Design — 点云质检Worker原件输入与统一发布
+
+基线 `062bb12db` 的两路只读复核确认：质检仍按当前datasets_bucket和路径读取PCD，缓存键仅路径／轴约定，异常宽泛吞为skip，逐标注／轨迹提交问题且末端无来源／取消复核。本片同时接权威原件和结果发布事务，不能只替换GET；保持256MiB、5000 Task／20000标注、ASCII／非压缩binary PCD、ISO轴归一化及相机仅标定／尺寸的边界。
+
+新scope声明original_contract=1，各现有pointcloud输入固定安全原件owner／内容UUID／SHA／大小／逻辑位置收据；保存桶、端点与Gate代次只由本次canonical解析固定。未知／不支持输入可保留明确skip但零原件I/O，不能猜当前桶；已有Scene解析仍依赖direct／primary Item，不新增独立Task的Scene注册。缓存包含内容身份与轴约定，命中仍复核当前原件、轴、权限和Gate。读取、解析、归一化与真实关闭都由耐久访问许可和显式两槽覆盖，取消／超时等待实际线程，未知收尾保持责任。
+
+保留REVIEW_WRITE及准确Task可见性；project／scene范围仍限manager，task／annotation范围保留reviewer。该入口目前没有API Key scope要求，不因复用AL／训练helper新增datasets或tasks scope。HTTP捕获准确原请求凭证，后台委派记录放AsyncJob隐藏payload，持续核对账号、原Key指纹与项目职责／Task可见性，不保存Bearer或依赖JWT短寿命。新singleflight包含原件合同与委派身份，后来的请求不改写旧运行授权。
+
+Job→Run短锁原子认领pending并固定Celery任务绑定；计算阶段只保存有界finding候选、更新进度，真实原件收尾前不写Issue。末端以同取消分支的Job→Run顺序锁定，刷新授权、任务与完整来源／配置／标注快照、所有已读OriginalSource／Gate，然后统一upsert问题、完成Run／Job和通知，同一事务提交。异常先rollback，再新事务登记失败／stale／取消，保留已取消终态和既有人工复核，不能提交半轮新问题。来源锁覆盖Task、Scene、相关标注／轨迹／区间／pose、Dataset及canonical原件；保持按现有写入协议的短事务，不在远端I/O期间持有业务锁。
+
+旧completed结果继续作为历史读取，不回填原件事实；缺少合同的旧pending／running不得回源，标为stale。新问题证据保存安全原件收据与轴，现有staleness按Task去重核对owner／逻辑位置／大小及轴变化；旧原件相关问题缺少事实时明确stale，不能混入当前治理样本，纯轨迹历史保持。无数据库迁移、依赖、配置、镜像或版本变化。
+
+主树实现服务／Worker／API取消围栏、新合同与回归、文档及真实验收；隔离树升级现有PCD夹具和内调用，不修改生产。使用新且验证所有权的test／e2e模式做实际PCD字节、MinIO、HTTP／Celery和当前质检页面验收；保留人工3100/8100、两Worker及Beat和11表／24对象／12文件指纹。正常hooks提交、精确清理后记录Outcome；完整E02/B13与整套epic仍未完成。

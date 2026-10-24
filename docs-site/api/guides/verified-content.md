@@ -113,6 +113,18 @@ Dataset原件通过Task的直接DatasetItem关联或唯一 `primary_lidar` 关�
 
 认证使用 Bearer。浏览器应通过带认证头的请求取得 Blob，再管理 object URL 的取消与释放；不能直接把这些 API 路径赋给普通图片 src。原地引用数据集的管理预览与工作台已接入这条链路；object URL 按登录会话、任务和请求代次退休并回收。
 
+## 点云质检的原件输入
+
+创建仍使用 `POST /projects/{project_id}/point-cloud-quality/runs`，运行和问题查询路径保持不变。创建要求当前 `review.write` 能力及准确 Task 可见性；项目／Scene 范围仍限项目管理者，任务／标注范围允许审核员。此链路没有新增 API Key scope 要求：只有 `annotations:read` 的 Key 也可在满足上述项目职责和任务可见性的前提下发起检查，无需增加 `tasks:read` 或 `datasets:read`。
+
+新运行在内部范围中声明 `original_contract=1`，为已有 PCD 输入固定原件 owner、内容 UUID、SHA-256、精确大小和逻辑位置 ID，并保存坐标约定。读取使用原件记录保存的位置，完整核对字节，不根据当前 datasets 桶、路径或历史 `content_hash` 猜测对象。问题证据中的 `pointcloud_original` 仅含安全身份收据；桶、端点、凭据和后台 Key 指纹不通过该证据返回。原 Key 指纹保存在后台任务的私有授权字段中，普通 AsyncJob 响应隐藏该字段；Key 轮换、scope 或期限改变会使原委派失效，后台不保存 Bearer。
+
+单个 PCD 最多 256 MiB，独立两槽覆盖完整读取、PCD 解析与坐标归一化到真实文件关闭；复制 120 秒、传输 30 秒、解析与归一化 30 秒为合作式期限。取消／超时等待实际线程和句柄收尾，关闭未知时保留准入额度与维护许可，不能将期限理解为硬墙钟保证。每轮仍限 5,000 个 Task、20,000 条 3D 与相机标注；只支持 ASCII／非压缩 binary PCD，相机只参与标定和尺寸计算，不读取相机像素。
+
+缺失、不支持或无法读取／解析的 PCD 在运行摘要记录明确跳过；权限／原 Key 失效、绑定或维护代次变化不能降级成普通跳过。全部物理收尾后再复核权限、Task 可见性、原件、坐标约定、完整来源与配置，并在同一事务提交本轮问题、Run／Job 结果及通知。取消或检查失败回滚本轮问题写入，保留既有人工复核。
+
+旧 completed 结果保留历史读取；缺少原件合同的旧 pending／running 在派发或重放时标为 `stale`，不按当前 owner 补造身份或读取原件。旧原件相关问题缺少证据时也会标为过期，不参与当前规则治理样本；纯轨迹历史继续按其原证据判断。
+
 ## 已登记目录引用
 
 Task DTO 新增 `storage_mode=managed|reference` 和可空 `content_sha256`。引用任务的 file_path 是平台内部引用标识，不是 S3 key，也不能拼接路径。已登记内容固定为 Item→Source/Run/Entry→SHA-256；来源改名或暂停后恢复不会改变内容身份，修改定位配置或停用位置/来源时拒绝读取；实际读取来源时还要求 API 锚点。

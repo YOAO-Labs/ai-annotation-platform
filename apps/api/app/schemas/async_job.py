@@ -42,6 +42,7 @@ class AsyncJobOut(BaseModel):
                 "output_authority",
                 "prediction_authority",
                 "repair_authority",
+                "point_cloud_quality_authority",
             }
         }
 

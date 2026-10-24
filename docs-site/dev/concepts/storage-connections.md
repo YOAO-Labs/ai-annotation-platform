@@ -51,6 +51,18 @@ ManagedOriginalCreation显式区分dataset/task作用域。Task分配保存proje
 
 HTTP 权限证明与后台持续授权分开：原请求复核准确 JWT／Key，后台保存并核对原 Key proof 指纹，范围仍为原三个 scope。最终创建与接纳检查复用已取得的业务锁，不在辅助复核中提交 Job／Batch。Worker 准备输入时保持异步会话，以 claim／generation／status guard 限制读回与交付；源读取、PNG 写回／完整读回及真实关闭都先 drain，未知关闭保留许可。已有 PNG 只核对自身输出 owner，旧无原件事实的规格不能回源重建或新增接纳，历史报告和拒绝仍保持。
 
+### 点云质检原件与统一发布
+
+`point_cloud_quality.originals` 为既有质检 Worker 提供 PCD 输入适配。新范围声明 `original_contract=1`，已有 pointcloud 记录固定安全原件收据：owner_kind、内容 UUID、完整 SHA-256、大小与逻辑 location_id。轴约定随来源快照冻结，未指定时使用 `iso_8855`；当前桶、路径、旧 content_hash 或派生物不构成原件身份。每次沿 `original_sources.resolve_task` 解析保存位置并复核 direct／primary 关系，物理位置和 Gate 代次只属于本次操作。缓存以内容收据及轴约定为键，命中仍检查当前权限、原件和 Gate。
+
+创建请求捕获准确 JWT／Key；后台委派在 AsyncJob 私有 `point_cloud_quality_authority` 中保存 actor、Key ID 和 Key proof 的不可逆指纹，并核对 Job／Run／项目／创建者关系。后台持续读取当前账号、原 Key 和项目职责，不持久保存 Bearer，也不沿用 JWT 的短寿命。授权保持 `REVIEW_WRITE` 与准确 Task 可见性，project／scene 范围另限 manager，不复用训练的管理者授权，也不新增 API Key scopes。singleflight 包含委派身份，后来的请求不改写已有运行的授权。
+
+读取复用 `managed_original_reader` 的完整条件捕获，单 PCD 256 MiB、独立两槽；复制 120 秒、传输 30 秒、解析与归一化 30 秒为合作式期限，超时和取消 drain 真实线程。临时文件实际关闭后才释放额度与耐久许可，未知关闭保留责任。缺失、未支持或读取／解析失败可产生明确 skip；权限、绑定、原件关系或 Gate 变化终止整轮，不能被宽泛异常吞成 skip。既有 5,000 Task／20,000 标注以及 ASCII／非压缩 binary PCD 预算保持，相机仅使用标定与尺寸。
+
+Job→Run 短锁原子领取 pending 并固定 Celery 身份；计算阶段只收集有界 finding 候选与更新进度，不写 Issue。所有实际读取与解析收尾后，末端锁定当前授权、Task、Scene、标注、轨迹、区间、pose、Dataset 和 canonical 原件事实，并重核完整来源／配置摘要。最终 Issue upsert、Run／Job 结果和通知共同提交；提交前再次检查自然期限。取消使用相同 Job→Run 顺序，异常先 rollback 本轮问题再登记终态，既有人工复核不被半轮结果覆盖。业务锁不跨远端读取。
+
+旧 completed 继续作为历史读取；缺少合同的旧 pending／running 在派发或重放时转为 stale，零原件 I/O，不批量回填或自动迁移静置记录。新问题保存安全原件收据及轴，staleness 按 Task 去重复核 owner、内容、逻辑位置和轴变化；旧原件相关问题缺少事实时明确过期，纯轨迹历史沿原合同保留。此适配不新增独立 Task 的 Scene 注册，不开放其他原件消费者或完整用途切换。
+
 ### 认证通用原件交付
 
 浏览器公共读取模块 `apps/web/src/api/originals.ts` 只构造Task/Item/精确camera link的认证请求，核对身份中的完整下载路径，不给任意URL附加Bearer。原件下载共用两路可取消排队，覆盖完整响应体，前景可提升预取；只有明确容量不足才有限重试。资源owner按账号/session划分，同session令牌刷新后在途旧凭据结果最多重试一次，不能覆盖新凭据；跨账号、session及不完整的跨标签凭据停止读取。该公共层不建立原件缓存，各显示消费者仍须管理自己的内容版本、地址与释放。

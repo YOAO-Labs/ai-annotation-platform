@@ -551,6 +551,13 @@ async def cancel_async_job(
         return {"status": "cancelled", "id": str(job_id)}
 
     if job.kind == "point_cloud_quality":
+        job = await async_job_svc.lock_job(db, job_id)
+        if job is None or job.status not in {"pending", "running"}:
+            raise HTTPException(
+                409, detail="point cloud quality is no longer cancellable"
+            )
+        if not await _can_access_job(db, job=job, user=current_user):
+            raise HTTPException(403, detail="not your job")
         if job.celery_task_id:
             try:
                 from app.workers.celery_app import celery_app
