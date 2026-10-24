@@ -820,6 +820,24 @@ API继续既有content与content-identity URI，支持独立Task图片和primary
 
 验证明确覆盖无Creation的已核验历史、旧未核验零I/O、同键异桶陷阱、managed多位置/缓存角色、TaskOriginal及direct/primary同一/冲突/link-only、reference普通标注员、读取期间关联/权限/Batch/Key/Gate改变、条件忽略/206/错metadata、截断/超长/损坏/末端替换/真实关闭、重复取消与未知收尾/槽释放。真实TCP/MinIO核对固定桶内容及拒读，源销毁后的离线恢复通过实际Task/Item内容读取证明目标当前观察有效且历史不变。只用已验证一次性test DB，人工3100/8100、两Worker/Beat、24对象/12文件和11业务指纹保持；正常hooks、相关检查、docs build与diff通过后提交Outcome并按归属清理。回退代码不改既有归属/历史，不能恢复当前桶猜读后门；完整用途切换仍关闭。
 
+## E02-B13-B2-A1 Design — 认证通用原件下载基础
+
+浏览器盘点基于 `a83f6e997`：托管图片还接受 BMP/TIFF/GIF/SVG，点云完整解析 PCD，相机有面板、CPU/GPU 上色和邻帧预取；不能统一套用 B1 的单帧 JPEG/PNG/WebP、64MiB 图片解码合同。本片先增加可独立验证的认证完整二进制接口，不替换尚未适配 Bearer 的 DTO、原生标签或签名 URL；这些旧消费者仍是 B2-A2/B2-B 的明确缺口，不能据此宣布浏览器迁移或完整 B13 完成。
+
+新增 Task 主原件、精确 TaskDatasetItemLink 相机原件及 DatasetItem 的身份/完整下载接口。身份包含 owner/content UUID、SHA、精确大小、媒体类别和平台相对下载路径，标明位置可用性尚未探测，不暴露端点、桶或对象键；身份查询零物理 I/O。下载必须提交同一 content UUID 和 SHA。Task 使用当前任务可见性，相机要求该 Task 下精确 link UUID、camera\_ 角色与 image Item，不接受任意 Item；DatasetItem 要求当前 Dataset 管理权限及路径 dataset_id 一致。原地引用继续使用既有认证图片合同，新通用接口明确拒绝，不扩大引用媒体能力。
+
+```text
+Authenticated routes -> current credentials + Task/Item/link source snapshot
+                     -> durable Location admission -> strict binary capture
+                     -> credentials/relation/source/Gate recheck -> owned response
+```
+
+复用冻结来源、保存位置、当前目标条件读取和完整 SHA/大小核验，不按当前用途桶猜读，不依赖历史 Creation 版本选择目标。User/Key、Project/Member、Batch/Task、link/Item/Asset/Location/Gate 的短锁在对象 I/O 前释放；许可后与交付前重核原请求凭证、自然期限、同一关系与 Gate。相机冻结全部 Task 关系及精确链接，允许主原件缺失时单独解析合法相机，但拒绝独立 owner 与 Dataset 链接冲突。
+
+通用下载单文件上限 512MiB、独立两槽，最多 1GiB 已声明大小的同时暂存，额度覆盖完整复制、响应和真实关闭；B1 原四槽与图片合同保持。复制与响应分别使用 120 秒合作式期限；取消/超时必须等待实际线程及句柄收尾，不把期限描述为硬墙钟保证。响应为 application/octet-stream、attachment、no-store、nosniff，提供准确 Content-Length/SHA/ETag，拒绝 Range，不以 304 或 HEAD 绕过核验；512MiB 以上明确 413，原生长视频准备、能力凭据、Range/seek 与临时表示复用由 B2-B 专门处理。无新增配置、依赖、服务、凭据或迁移。
+
+本片预计超过八文件，分离通用 reader/响应、关系/授权编排与主树路由/文档/集成验证。验证覆盖保存桶同键陷阱、非图片字节/空文件、TaskOriginal/direct/primary/camera、路径和 link 越权、旧 owner/SHA、未知历史、读取间凭证/关系/Gate 变化、两槽隔离、超限零 I/O、取消/发送失败/真实关闭与原图片回归。使用已验证一次性 test 命名空间及真实 TCP/MinIO；本片没有 UI 修改，不重复视觉矩阵。人工环境和原业务/原件保持，清理精确测试资源。回退只撤销新增入口，不删除原件责任或重开旧上传旁路。
+
 ## E02-B13-B1 Outcome — 原件解析与认证图片读取
 
 主集成 `15df36577`，关系解析 `79727fe0e`，物理reader与图片适配 `90841c746`，入口/恢复验收 `798fe4cae`，引用许可回归 `ecf10cd8a`；旧RLE夹具修正 `f6f81ed33`、`862dbada6`。没有新增迁移、依赖、环境变量或镜像重建，迁移头保持0231。
