@@ -412,6 +412,11 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "GET /api/v1/files/tasks/{task_id}/links/{link_id}/original" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/datasets/{dataset_id}/items/{item_id}/original-identity" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/datasets/{dataset_id}/items/{item_id}/original" = { status = "excluded", reason = "workbench-internal" }
+"POST /api/v1/files/tasks/{task_id}/original-playback" = { status = "excluded", reason = "workbench-internal" }
+"POST /api/v1/datasets/{dataset_id}/items/{item_id}/original-playback" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/media/original-playback/{lease_id}" = { status = "excluded", reason = "workbench-internal" }
+"DELETE /api/v1/files/tasks/{task_id}/original-playback/{lease_id}" = { status = "excluded", reason = "workbench-internal" }
+"DELETE /api/v1/datasets/{dataset_id}/items/{item_id}/original-playback/{lease_id}" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/files/tasks/{task_id}/file-url" = { status = "excluded", reason = "workbench-internal" }
 "POST /api/v1/files/upload-init" = { status = "excluded", reason = "workbench-internal" }
 "POST /api/v1/files/upload-complete/{task_id}" = { status = "excluded", reason = "workbench-internal" }

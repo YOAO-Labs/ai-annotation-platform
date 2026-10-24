@@ -160,3 +160,4 @@
 - [0105](0105-opt-in-pure-addition-sync.md) — 周期计划按明确策略自动接纳纯新增轮次
 
 - [0106](0106-reviewed-source-selection-changes.md) — 扫描选择规则通过影响预览变更，保留旧业务读取
+- [0107](0107-scoped-native-video-stages.md) — 原生视频通过路径 Cookie 读取有界完整核验暂存

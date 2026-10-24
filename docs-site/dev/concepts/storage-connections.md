@@ -47,6 +47,18 @@ ManagedOriginalCreation显式区分dataset/task作用域。Task分配保存proje
 
 `original_binary_response` 复用严格 reader，单文件512MiB、独立两槽，槽覆盖复制与响应到真实文件关闭，声明大小的最大同时暂存为1GiB。匿名临时文件不产生命名缓存；响应前断连、取消、超时及发送失败等待在途线程收尾。复制和响应各120秒为合作式期限，真实收尾可能更长。octet-stream attachment 不执行图片解码，也不支持 Range/HEAD 或条件304；大文件明确413，不隐式回退签名地址。既有图片四槽独立保留，原生视频 Range 仍使用独立链路。
 
+### 视频原件临时表示
+
+`original_binary.authorize_original / recheck_original / capture_authorized`为完整下载与视频准备共用原Authority和保存来源合同。`original_playback`只接托管video，Bearer准备完整核验；`original_playback_registry`按Authority/session/资源/完整来源保存进程内匿名stage及独立短租约。能力秘密只在准确路径的HttpOnly/SameSite=Strict Cookie中发送，JSON与media_path不含秘密，不保存原JWT/API Key。session是客户端资源owner，不授予服务端权限。
+
+每次native GET/HEAD先取得响应pin，重核原凭证、当前User/Key/scope、Task可见性或Dataset管理权限、同一源和Gate，再同步重核租约仍有效，才返回200/206/HEAD/范围错误。既有Vite代理会改Host，浏览器同源判断同时采用Fetch Metadata；跨站与同站异源媒体请求拒绝。`original_playback_response`用os.pread独立偏移，各响应取消后drain真实线程再unpin，不关闭其他消费者的文件。完整SHA证明来自准备时的全量捕获，单段响应不伪称重新完整核验远端。
+
+单stage5GiB、两stage、最多8响应，每stage32租约；准备900秒、transport30秒、响应120秒为合作式期限。租约300秒，stage最迟3600秒退休，30秒reaper与lifespan关闭负责收尾。先退休、禁止新pin，真实读/关闭完成后释放槽；未知操作或关闭保留本进程额度。同键在途准备明确429，ready复用仍在所有await后重核权限/期限。没有持久副本或迁移表，API重启后临时表示消失。
+
+此基础API只资格化当前单Uvicorn实例，其他实例或重启后的410必须重新Bearer准备；多实例不共享本地文件，不按每个Range重新复制远端文件。现有视频DTO/manifest、转码/精确帧派生及相关Worker仍有独立固定位置接入工作，完整用途切换保持关闭。原件暂存不能替代派生物自己的owner、内容回执或恢复协议。
+
+方案与取舍记录于[ADR0107](/dev/adr/0107-scoped-native-video-stages)。
+
 非视频 DTO 与点云 manifest 只提供延迟身份路径，未知历史不导致整页列取失败。显示消费者按账号/session、资源及内容 UUID/SHA 管理 Blob、Bitmap、RGBA 与 GPU 资源；取消一个共享消费者不终止仍有前景消费者的读取。图片预取最多保留两份、原始字节共64MiB，前景读取仍受512MiB单文件与既有解码预算约束。普通切帧保留就绪几何至原子替换，owner退休则销毁旧资源并取消待写回视角。SVG 使用不透明的 data URL，普通位图使用可撤销 Blob URL；格式探测只决定显示 MIME，不转换原件。必需金字塔预览不触发完整原件下载。缓存不提供当前在线或持续授权的证明，原生视频与完整用途切换仍独立推进。
 
 ### 存储连接器

@@ -4,7 +4,7 @@ Routes own HTTP serialization. Physical capture and response ownership stay in
 original_binary_response; this module owns current authority and source checks.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 import uuid
 
@@ -93,6 +93,47 @@ async def _current(db, resource, proof):
     return await _source(db, resource, actor), key
 
 
+@dataclass(frozen=True)
+class AuthorizedOriginal:
+    resource: Resource
+    proof: object = field(repr=False)
+    source: original_sources.OriginalSource
+    key: tuple | None = field(repr=False)
+
+
+async def authorize_original(
+    db,
+    resource,
+    actor,
+    *,
+    request,
+    api_key_id=None,
+    expected_content_id=None,
+    expected_sha256=None,
+):
+    """Freeze current authority and source, releasing all business locks."""
+    proof = await _credentials(db, actor, request, api_key_id)
+    source, key = await _current(db, resource, proof)
+    if (
+        expected_content_id is not None and source.content_id != expected_content_id
+    ) or (expected_sha256 is not None and source.sha256 != expected_sha256):
+        raise ContentError("content_binding_changed")
+    await db.commit()
+    access.check_clock(proof, key)
+    return AuthorizedOriginal(resource, proof, source, key)
+
+
+async def recheck_original(db, context):
+    """Reauthorize a frozen source without retaining locks across local I/O."""
+    current, key = await _current(db, context.resource, context.proof)
+    if key != context.key:
+        raise HTTPException(403, {"code": "api_key_authority_revoked"})
+    if current != context.source:
+        raise ContentError("content_binding_changed")
+    await db.commit()
+    access.check_clock(context.proof, key)
+
+
 async def public_identity(db, resource, actor, request, api_key_id=None):
     """Return saved identity only; neither probe nor claim physical availability."""
     proof = await _credentials(db, actor, request, api_key_id)
@@ -121,21 +162,25 @@ async def snapshot(
     api_key_id=None,
 ):
     """Return one complete verified stage; its caller must transfer or close it."""
-    proof = await _credentials(db, actor, request, api_key_id)
-    source, key = await _current(db, resource, proof)
-    if source.content_id != expected_content_id or source.sha256 != expected_sha256:
-        raise ContentError("content_binding_changed")
-    await db.commit()
-    access.check_clock(proof, key)
+    context = await authorize_original(
+        db,
+        resource,
+        actor,
+        request=request,
+        api_key_id=api_key_id,
+        expected_content_id=expected_content_id,
+        expected_sha256=expected_sha256,
+    )
+    from app.services.original_binary_response import capture_download
 
-    async def validate():
-        current, current_key = await _current(db, resource, proof)
-        if current_key != key:
-            raise HTTPException(403, {"code": "api_key_authority_revoked"})
-        if current != source:
-            raise ContentError("content_binding_changed")
+    return await capture_authorized(db, context, capture_download)
 
-    from app.services.original_binary_response import capture_download, close_stage
+
+async def capture_authorized(db, context, capture):
+    """Capture one frozen original with its caller's explicit physical budget."""
+    from app.services.original_binary_response import close_stage
+
+    source = context.source
 
     stage = None
     try:
@@ -150,10 +195,8 @@ async def snapshot(
             purpose,
             expected_revision=source.maintenance_revision,
         ):
-            await validate()
-            await db.commit()
-            access.check_clock(proof, key)
-            stage = await capture_download(
+            await recheck_original(db, context)
+            stage = await capture(
                 ObjectSpec(
                     source.endpoint_url,
                     source.bucket,
@@ -162,9 +205,7 @@ async def snapshot(
                     source.size_bytes,
                 )
             )
-        await validate()
-        await db.commit()
-        access.check_clock(proof, key)
+        await recheck_original(db, context)
         return stage
     except BaseException:
         if stage is not None:

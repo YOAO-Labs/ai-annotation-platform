@@ -27,6 +27,7 @@ from app.api.v1 import (
     dataset_quality_review,
     files,
     originals,
+    original_playback,
     groups,
     guide_assets,
     invitations,
@@ -76,6 +77,7 @@ from app.api.v1 import (
 
 api_router = APIRouter()
 api_router.include_router(originals.router, tags=["originals"])
+api_router.include_router(original_playback.router, tags=["originals"])
 api_router.include_router(model_catalog.router, tags=["model-catalog"])
 api_router.include_router(admin_backend_operations.router)
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])

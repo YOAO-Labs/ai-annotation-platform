@@ -30905,6 +30905,73 @@
         "title": "OriginalIdentity",
         "type": "object"
       },
+      "OriginalPlaybackLease": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "lease_id": {
+            "format": "uuid",
+            "title": "Lease Id",
+            "type": "string"
+          },
+          "media_path": {
+            "title": "Media Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_id",
+          "media_path",
+          "expires_at"
+        ],
+        "title": "OriginalPlaybackLease",
+        "type": "object"
+      },
+      "OriginalPlaybackPrepare": {
+        "additionalProperties": false,
+        "properties": {
+          "content_id": {
+            "format": "uuid",
+            "title": "Content Id",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_id",
+          "sha256",
+          "session_id"
+        ],
+        "title": "OriginalPlaybackPrepare",
+        "type": "object"
+      },
+      "OriginalPlaybackRelease": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "OriginalPlaybackRelease",
+        "type": "object"
+      },
       "PasswordChange": {
         "properties": {
           "new_password": {
@@ -60413,6 +60480,12 @@
       "HTTPBearer": {
         "scheme": "bearer",
         "type": "http"
+      },
+      "OriginalPlaybackCookie": {
+        "description": "Short-lived capability scoped to this exact video lease path; obtain through Bearer preparation.",
+        "in": "cookie",
+        "name": "aap_video_lease",
+        "type": "apiKey"
       }
     }
   },
@@ -69813,6 +69886,145 @@
         ]
       }
     },
+    "/api/v1/datasets/{dataset_id}/items/{item_id}/original-playback": {
+      "post": {
+        "operationId": "prepare_item_original_api_v1_datasets__dataset_id__items__item_id__original_playback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OriginalPlaybackPrepare"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OriginalPlaybackLease"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Prepare Item Original",
+        "tags": [
+          "originals"
+        ]
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/items/{item_id}/original-playback/{lease_id}": {
+      "delete": {
+        "operationId": "release_item_original_api_v1_datasets__dataset_id__items__item_id__original_playback__lease_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "lease_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lease Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OriginalPlaybackRelease"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Release Item Original",
+        "tags": [
+          "originals"
+        ]
+      }
+    },
     "/api/v1/datasets/{dataset_id}/items/{item_id}/preview": {
       "get": {
         "operationId": "get_dataset_item_preview_api_v1_datasets__dataset_id__items__item_id__preview_get",
@@ -72620,6 +72832,125 @@
         ]
       }
     },
+    "/api/v1/files/tasks/{task_id}/original-playback": {
+      "post": {
+        "operationId": "prepare_task_original_api_v1_files_tasks__task_id__original_playback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OriginalPlaybackPrepare"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OriginalPlaybackLease"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Prepare Task Original",
+        "tags": [
+          "originals"
+        ]
+      }
+    },
+    "/api/v1/files/tasks/{task_id}/original-playback/{lease_id}": {
+      "delete": {
+        "operationId": "release_task_original_api_v1_files_tasks__task_id__original_playback__lease_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "lease_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lease Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OriginalPlaybackRelease"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Release Task Original",
+        "tags": [
+          "originals"
+        ]
+      }
+    },
     "/api/v1/files/upload-complete/{task_id}": {
       "post": {
         "operationId": "upload_complete_api_v1_files_upload_complete__task_id__post",
@@ -74855,6 +75186,108 @@
         "summary": "Rotate My Key",
         "tags": [
           "api-keys"
+        ]
+      }
+    },
+    "/api/v1/media/original-playback/{lease_id}": {
+      "get": {
+        "operationId": "read_original_video_api_v1_media_original_playback__lease_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lease_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lease Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Verified original video representation"
+          },
+          "206": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Single byte range"
+          },
+          "410": {
+            "description": "Lease expired, retired or belongs to another API process"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OriginalPlaybackCookie": []
+          }
+        ],
+        "summary": "Read Original Video",
+        "tags": [
+          "originals"
+        ]
+      },
+      "head": {
+        "operationId": "read_original_video_api_v1_media_original_playback__lease_id__head",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lease_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lease Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authorized representation headers without a body"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OriginalPlaybackCookie": []
+          }
+        ],
+        "summary": "Read Original Video",
+        "tags": [
+          "originals"
         ]
       }
     },

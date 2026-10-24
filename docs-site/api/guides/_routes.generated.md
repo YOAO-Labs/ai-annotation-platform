@@ -531,6 +531,16 @@
 | GET | `/notification-preferences` |
 | PUT | `/notification-preferences` |
 
+## `original_playback.py`
+
+| Method | Path |
+|---|---|
+| POST | `/files/tasks/{task_id}/original-playback` |
+| POST | `/datasets/{dataset_id}/items/{item_id}/original-playback` |
+| DELETE | `/files/tasks/{task_id}/original-playback/{lease_id}` |
+| DELETE | `/datasets/{dataset_id}/items/{item_id}/original-playback/{lease_id}` |
+| GET | `/media/original-playback/{lease_id}` |
+
 ## `originals.py`
 
 | Method | Path |
@@ -1053,4 +1063,4 @@
 
 ---
 
-_共 96 模块 / 611 路由_
+_共 97 模块 / 616 路由_

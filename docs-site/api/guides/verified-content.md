@@ -46,7 +46,31 @@ last_reviewed: 2026-10-24
 
 响应固定 `application/octet-stream`、安全固定文件名 `attachment`、`Cache-Control: no-store`、`X-Content-Type-Options: nosniff`，包含准确 `Content-Length`、SHA强ETag和 `X-Content-SHA256`。单文件最多512MiB，超限413且不读取对象；同时两份暂存，满额429。复制与发送各120秒为合作式期限，取消和超时会等待真实线程/句柄收尾，不能理解为硬墙钟保证。响应开始前也会监听客户端断开，取消复制并等待收尾；晚到的快照仍须关闭。暂存额度覆盖响应至真实文件关闭，与原图片核验四槽独立。
 
-本接口拒绝 Range（416），不提供 HEAD（405）或条件304快捷返回。BMP/TIFF/GIF/SVG、点云、视频和空文件均保持已核验原始字节，但是否能由浏览器解码是独立能力；超过512MiB的视频需后续播放方案，不能先整段转Blob作为默认播放。原地引用返回409 `reference_requires_verified_content`，继续使用下文既有图片接口，不扩大引用格式合同。未知、未核验、多原件位置或冲突关系明确拒绝，无签名URL降级。
+本接口拒绝 Range（416），不提供 HEAD（405）或条件304快捷返回。BMP/TIFF/GIF/SVG、点云、视频和空文件均保持已核验原始字节，但是否能由浏览器解码是独立能力；视频播放可使用下文独立准备协议，不能先整段转Blob作为默认播放。原地引用返回409 `reference_requires_verified_content`，继续使用下文既有图片接口，不扩大引用格式合同。未知、未核验、多原件位置或冲突关系明确拒绝，无签名URL降级。
+
+## 视频原件准备与范围读取
+
+这组接口为原生媒体提供可复用的托管视频原件表示。先用Bearer准备，收到的相对地址可作为同源 `<video src>`；浏览器自动发送限定租约路径的HttpOnly Cookie。地址和JSON中不含能力秘密或主凭证。现有视频工作台、转码代理和精确帧服务仍使用各自链路，尚未由这组接口替换；原件字节保持不变，不承诺浏览器支持其容器或编码。
+
+| 方法       | 路径                                                                  | 授权与行为                                                                        |
+| ---------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| POST       | `/files/tasks/{task_id}/original-playback`                            | `tasks:read`及当前Task可见性，准备其托管视频原件                                  |
+| POST       | `/datasets/{dataset_id}/items/{item_id}/original-playback`            | `datasets:read`及当前Dataset管理权限，核对路径归属                                |
+| GET / HEAD | `/media/original-playback/{lease_id}`                                 | 准备所得路径Cookie，以及每次重新核对的原Authority、关系、内容身份、位置和维护修订 |
+| DELETE     | `/files/tasks/{task_id}/original-playback/{lease_id}`                 | Bearer、本人账号与准确资源/session，释放租约                                      |
+| DELETE     | `/datasets/{dataset_id}/items/{item_id}/original-playback/{lease_id}` | Bearer、本人账号与准确资源/session，释放租约                                      |
+
+POST提交 `content_id`、小写64位 `sha256` 和客户端登录会话的UUID `session_id`，多余字段拒绝。前两项来自认证身份接口；session只划分客户端资源，不是服务端权限证明。响应仅含 `lease_id / media_path / expires_at`，附 `aap_video_lease` Cookie：host-only、HttpOnly、SameSite=Strict，Path为准确media_path，HTTPS时Secure。自然期限不超过300秒或原凭证期限。非video为415，未知归属或旧内容为409，reference保持其既有读取合同。
+
+首次准备按保存位置完整核对条件、SHA、精确大小、EOF及真实关闭，再复核当前授权与Gate。同Authority/session/资源/冻结来源的ready表示可复用，每次准备创建独立租约；正在准备时返回429 `video_playback_preparing`，不会再复制同一远端原件。GET/HEAD从已核验的本地匿名文件读取，不访问当前用途桶或隐式重建暂存。原User/Key、JWT自然期限/blacklist/代次、scope、Task/Item关系及Gate必须仍有效；授权等待后还会重核租约是否过期或退休，HEAD和范围错误也不绕过授权。
+
+GET支持完整200及单段206：`bytes=start-end`、`bytes=start-`和`bytes=-suffix`，末端截断到真实大小。强ETag为 `"sha256:<SHA>"`，If-Range仅精确匹配该值才返回206；弱ETag、日期或不匹配值忽略Range并返回完整200。HEAD忽略Range、返回完整长度且无正文。未知range unit和合法多范围忽略并返回完整200；畸形bytes范围400，越界416附 `Content-Range: bytes */size`。空表示的正后缀范围返回完整空200。Range头最多512字符；If-Range失败时不再求值Range。
+
+成功响应为 `application/octet-stream`，含准确Content-Length、Content-Range（仅206）、`Accept-Ranges: bytes`、强ETag、`X-Content-SHA256`、no-store/nosniff及CORP same-origin。能力仅用于GET/HEAD，不放入URL、日志或业务元数据；跨站/跨源的浏览器请求拒绝。DELETE携带 `{"session_id":"<原会话UUID>"}`；准确本人租约释放成功204并清对应Cookie，错误资源/session或他人账号404，已过期或不存在410。
+
+每API进程最多两个stage、单个5GiB，声明暂存上限10GiB，另最多8个活动响应及每stage32个租约。容量429附 `Retry-After: 1`。准备900秒、远端transport30秒、单响应120秒均为合作式期限，实际线程收尾可能更长；这些额度与512MiB完整下载、图片快照、持久缓存分别计量。租约固定300秒，表示最迟3600秒退休，重复prepare可在原表示有效期内取得新租约。30秒回收器和API关闭收尾会先停止新读，再等待活动范围和真实文件关闭；未知关闭继续占额。
+
+当前暂存为单API进程资源。重启、reload、到期或命中没有该租约的其他实例返回410 `video_playback_expired`；客户端需重新Bearer准备，不能反复重试同一media_path。此协议不提供跨实例共享暂存或集群总预算；既有转码/帧/chunk具有独立字节事实，不使用原件SHA为派生表示背书。
 
 ## 图片任务
 
