@@ -127,7 +127,7 @@ def test_lifecycle_schema_and_native_resource_match_the_closed_abi():
     assert schema["x-creation-relation"]["columns"] == list(ASYNC_JOB_ROW_COLUMNS)
     assert (
         schema["x-creation-relation"]["initialization"]["retained_project_id"]
-        == "project_id (database-managed)"
+        == "NULL (database-managed)"
     )
     assert schema["x-lifecycle"]["flush_envelope"]["required_fields"] == [
         "schema",
@@ -156,7 +156,7 @@ def test_lifecycle_schema_and_native_resource_match_the_closed_abi():
 
     assert "CREATE VIEW aap_jobs_v1.async_job_creation" in sql
     assert "pg_catalog.has_table_privilege(" in sql
-    assert "job.retained_project_id IS NOT DISTINCT FROM job.project_id" in sql
+    assert "job.retained_project_id IS NULL" in sql
     assert "WITH LOCAL CHECK OPTION" in sql
     assert "CREATE FUNCTION aap_jobs_v1.apply_lifecycle(" in sql
     for name in schema["x-postgresql-functions"]:

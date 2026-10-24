@@ -45,6 +45,18 @@ last_reviewed: 2026-10-24
 | `CELERY_GPU_CONCURRENCY` | `2` | GPU/CPU 预标 worker 并发 (docker-compose celery-worker-gpu / celery-worker-cpu 读取)。 GPU 低并发避免多预标并发打爆显存; CPU 可较高并发。 |
 | `CELERY_CPU_CONCURRENCY` | `4` | — |
 
+## 可选 Jobs 私有 Celery owner；URL 留空时 API 使用现有内嵌 broker。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `JOBS_QUEUE_URL` | `—` | 私有 HTTP 服务没有宿主机端口，仅供同一 Compose 网络内的 API 调用。 |
+| `JOBS_QUEUE_TOKEN` | `—` | — |
+| `JOBS_QUEUE_TOKEN_FILE` | `—` | — |
+| `JOBS_QUEUE_BROKER_URL` | `—` | 独立 Jobs owner 只读取 broker 和服务 bearer，不接收 API、数据库或 Identity 凭据。 |
+| `JOBS_QUEUE_BROKER_URL_FILE` | `—` | — |
+| `JOBS_QUEUE_HOST` | `127.0.0.1` | — |
+| `JOBS_QUEUE_PORT` | `8190` | — |
+
 ## 对象存储 (MinIO / S3 兼容)
 
 | 变量 | 默认值 | 说明 |

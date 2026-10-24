@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import asyncio
 from datetime import datetime, timezone
 import json
 import os
+from pathlib import Path
+import shutil
+import subprocess
 import uuid
 
 import pytest
@@ -17,6 +21,39 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.db.jobs_lifecycle import _TRACE
 from app.db.models.async_job import AsyncJob
 from app.services import async_job as async_job_svc
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the verifier-owned strict Jobs lifecycle LOGIN",
+)
+async def test_independent_node_consumes_lifecycle_capabilities(
+    test_engine, record_property
+):
+    _jobs_lifecycle_url(test_engine)
+    node = shutil.which("node")
+    assert node is not None
+    root = Path(__file__).resolve().parents[3]
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            node,
+            str(root / "apps/jobs/conformance/node/lifecycle_acceptance.mjs"),
+            "--live",
+        ],
+        cwd=root,
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(result.stdout.strip().splitlines()[-1])
+    assert receipt["status"] == "passed"
+    assert receipt["functionCapabilities"] == 8
+    assert receipt["rowColumns"] == 15
+    record_property("jobs_lifecycle_node_consumer", json.dumps(receipt))
 
 
 def _job(**overrides) -> AsyncJob:
@@ -293,6 +330,14 @@ async def test_dispatch_failure_preserves_claimed_state_cache_and_no_autoflush(
     claimed = await async_job_svc.create_job(db_session, kind="audit_archive")
     dispatch_error = await async_job_svc.create_job(db_session, kind="audit_archive")
     rollback_job = await async_job_svc.create_job(db_session, kind="audit_archive")
+    legacy = await async_job_svc.create_job(db_session, kind="audit_archive")
+    await db_session.scalar(
+        update(AsyncJob)
+        .where(AsyncJob.id == legacy.id, AsyncJob.status == "pending")
+        .values(status="failed", error_message="x" * 4000)
+        .returning(AsyncJob.id)
+        .execution_options(synchronize_session="fetch")
+    )
 
     await db_session.execute(
         update(AsyncJob)
@@ -318,16 +363,22 @@ async def test_dispatch_failure_preserves_claimed_state_cache_and_no_autoflush(
         db_session, dispatch_error.id, error="x" * 4001
     )
     assert dispatch_error.status == "failed"
-    assert dispatch_error.error_message == "x" * 4000
+    # Fetch synchronization leaves an unloaded nullable attribute unloaded.
+    assert dispatch_error.error_message == legacy.error_message
+    fresh_failure = await async_job_svc.get_job(
+        db_session, dispatch_error.id, populate_existing=True
+    )
+    assert fresh_failure.error_message == "x" * 4000
 
+    rollback_job_id = rollback_job.id
     savepoint = await db_session.begin_nested()
     assert await async_job_svc.mark_dispatch_failed(
-        db_session, rollback_job.id, error="rolled back"
+        db_session, rollback_job_id, error="rolled back"
     )
     assert rollback_job.status == "failed"
     await savepoint.rollback()
     restored = await async_job_svc.get_job(
-        db_session, rollback_job.id, populate_existing=True
+        db_session, rollback_job_id, populate_existing=True
     )
     assert restored.status == "pending"
 
@@ -376,6 +427,21 @@ async def test_partial_progress_error_and_rollback_clear_lifecycle_trace(
     assert persisted.result == {"written_before_error": True}
     assert persisted.progress_pct == 0
     assert _TRACE not in sa_inspect(job).info
+
+    with pytest.raises(TypeError):
+        await async_job_svc.update_progress(
+            db_session,
+            job.id,
+            object(),
+            result={"prefix_survives": True},
+            extra_payload=object(),
+        )
+    await db_session.flush()
+    persisted = await async_job_svc.get_job(db_session, job.id, populate_existing=True)
+    assert persisted.result == {"prefix_survives": True}
+    await async_job_svc.update_progress(db_session, job.id, " １２ ")
+    await db_session.flush()
+    assert job.progress_pct == 12
 
     owner_sessions = async_sessionmaker(test_engine, expire_on_commit=False)
     async with owner_sessions() as setup:

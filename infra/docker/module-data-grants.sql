@@ -3320,4 +3320,20 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid),
     aap_workspace_v1.actor_project_memberships(uuid),
     aap_workspace_project_query_v1.project_search_scope(uuid,text)
     TO :"jobs_owner";
+-- Jobs owns lifecycle writes; existing producers retain their current ACLs.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.async_jobs TO :"jobs_owner";
+GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER VIEW aap_jobs_v1.async_job_creation OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.read_job(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.jobs_by_execution_id(text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.delete_batch_predict_jobs(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._jobs_lifecycle_is_truthy(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._jobs_lifecycle_integer(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.apply_lifecycle(uuid,jsonb) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
 COMMIT;

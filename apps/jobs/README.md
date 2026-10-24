@@ -1,4 +1,32 @@
-# Jobs public notification scope facts
+# Jobs owner contracts
+
+## Borrowed lifecycle writes
+
+`JobsLifecycleManager` owns the existing generic lifecycle rules. The API keeps
+its ORM identities and caller-owned transaction. Creation retains the original
+full flush and compiled INSERT/defaults/RETURNING through the fixed
+`aap_jobs_v1.async_job_creation` relation; all dirty Job rows use one native
+`apply_lifecycle` update at their original mapper flush position. The net column
+mask preserves UPDATE OF triggers, partial flush and default timestamp expiry.
+Ordered commands retain partial writes when a later Python conversion raises.
+Payload and result remain producer projections with native JSON values.
+
+The native contract also provides fixed row/execution-ID reads, video-summary
+insertion, pending-only dispatch failure, batch cancellation/deletion and
+terminal retention deletion. Bulk operations use actual affected IDs to retain
+the pinned SQLAlchemy fetch synchronization and rollback behavior; they do not
+commit. Domain execution leases and business authorization stay with their
+existing owners.
+
+The strict `jobs-lifecycle-grants.sql` profile permits only this creation
+relation and eight public functions. Compatibility initializers require the
+caller's preexisting private INSERT right; legacy column edits and explicit
+timestamps require the corresponding private UPDATE plus primary-key SELECT.
+These checks resolve the actual PostgreSQL invoker, never a client JSON field.
+The API retains private Jobs access for consumers not yet migrated. This is a
+capability slice, not complete Jobs credential closure or runtime recovery.
+
+## Public notification scope facts
 
 `aap-jobs` publishes the fixed, read-only `aap_jobs_v1.notification_scope_facts`
 relation for consumers that need only an async job's identity, kind, and retained

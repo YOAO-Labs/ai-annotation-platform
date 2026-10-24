@@ -25,6 +25,7 @@ from worktree_resources import (
     INFERENCE_ROUTING_RUNTIME_CAPABILITIES,
     NOTIFICATION_RUNTIME_CAPABILITIES,
     JOBS_LIST_RUNTIME_CAPABILITIES,
+    JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
     VIDEO_RUNTIME_CAPABILITIES,
 )
 
@@ -441,7 +442,10 @@ class BucketUpgradeTests(unittest.TestCase):
             self.assertIn(signature, normalized)
         for signature in NOTIFICATION_RUNTIME_CAPABILITIES:
             self.assertIn(signature, normalized)
-        for signature in JOBS_LIST_RUNTIME_CAPABILITIES:
+        for signature in (
+            *JOBS_LIST_RUNTIME_CAPABILITIES,
+            *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
+        ):
             self.assertIn(signature, normalized)
         self.assertNotIn(
             "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)",
@@ -672,8 +676,14 @@ class BucketUpgradeTests(unittest.TestCase):
         )
         self.assertIn(
             "GRANT EXECUTE ON FUNCTION "
-            + ", ".join(JOBS_LIST_RUNTIME_CAPABILITIES)
+            + ", ".join(
+                (*JOBS_LIST_RUNTIME_CAPABILITIES, *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES)
+            )
             + ' TO "app"',
+            statements,
+        )
+        self.assertIn(
+            'GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation TO "app"',
             statements,
         )
         self.assertIn(

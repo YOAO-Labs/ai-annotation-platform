@@ -140,6 +140,16 @@ AUDIT_RUNTIME_CAPABILITIES = (
     "aap_audit_v1.append_events(jsonb)",
     "aap_audit_v1.query_events(pg_catalog.jsonb)",
 )
+JOBS_LIFECYCLE_RUNTIME_CAPABILITIES = (
+    "aap_jobs_v1.read_job(uuid)",
+    "aap_jobs_v1.jobs_by_execution_id(text)",
+    "aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)",
+    "aap_jobs_v1.apply_lifecycle(uuid,jsonb)",
+    "aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text)",
+    "aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz)",
+    "aap_jobs_v1.delete_batch_predict_jobs(uuid)",
+    "aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])",
+)
 JOBS_LIST_RUNTIME_CAPABILITIES = (
     "aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)",
     "aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)",
@@ -957,7 +967,9 @@ class LocalResources:
                 INFERENCE_ROUTING_RUNTIME_CAPABILITIES
             )
             notification_function_grant = ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
-            jobs_list_function_grant = ", ".join(JOBS_LIST_RUNTIME_CAPABILITIES)
+            jobs_function_grant = ", ".join(
+                (*JOBS_LIST_RUNTIME_CAPABILITIES, *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES)
+            )
             notification_delivery_read_check = " AND ".join(
                 f"pg_catalog.has_function_privilege(:role, '{signature}', 'EXECUTE')"
                 for signature in NOTIFICATION_DELIVERY_READ_CAPABILITIES
@@ -1254,7 +1266,12 @@ class LocalResources:
                     f"GRANT EXECUTE ON FUNCTION {audit_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {identity_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {notification_function_grant} TO {role}",
-                    f"GRANT EXECUTE ON FUNCTION {jobs_list_function_grant} TO {role}",
+                    f"GRANT EXECUTE ON FUNCTION {jobs_function_grant} TO {role}",
+                    f"GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation TO {role}",
+                    "REVOKE ALL ON FUNCTION aap_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[]), "
+                    "aap_jobs_v1._jobs_lifecycle_is_truthy(jsonb), "
+                    "aap_jobs_v1._jobs_lifecycle_integer(jsonb) "
+                    f"FROM {role}, PUBLIC",
                     "REVOKE ALL ON FUNCTION "
                     "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text) "
                     f"FROM {role}, PUBLIC",

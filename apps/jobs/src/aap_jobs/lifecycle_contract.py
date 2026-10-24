@@ -299,7 +299,7 @@ def jobs_lifecycle_schema() -> dict[str, Any]:
             "columns": list(ASYNC_JOB_ROW_COLUMNS),
             "check_option": (
                 "strict inserts require pending status, zero progress, empty result, "
-                "no terminal fields, and retained_project_id equal to project_id"
+                "no terminal fields, and retained_project_id NULL"
             ),
             "legacy_insert_bypass": (
                 "preserves the original initializer behavior only for callers that "
@@ -312,7 +312,7 @@ def jobs_lifecycle_schema() -> dict[str, Any]:
                 "started_at": None,
                 "completed_at": None,
                 "error_message": None,
-                "retained_project_id": "project_id (database-managed)",
+                "retained_project_id": "NULL (database-managed)",
             },
         },
         "x-row-columns": list(ASYNC_JOB_ROW_COLUMNS),
@@ -339,8 +339,9 @@ def jobs_lifecycle_schema() -> dict[str, Any]:
                 "operations": list(LIFECYCLE_OPERATIONS),
                 "projection_fields": ["payload", "result"],
                 "changed_fields": "net ORM field history, in stable mapper order",
-                "updated_at": "database now() unless explicitly overridden",
+                "updated_at": "database now(); explicit override requires original private column UPDATE and primary-key SELECT",
                 "partial_write_prefixes": True,
+                "arguments": "successful Python scalar conversions are normalized; unreached optional arguments are null",
                 "jsonb_null": "preserve JSON null separately from SQL NULL",
             },
             "status_guards": {
@@ -357,7 +358,7 @@ def jobs_lifecycle_schema() -> dict[str, Any]:
                 "state_source": "caller ORM snapshots; no fresh status re-read",
             },
             "legacy_changes": (
-                "accepted only for fields the original invoker can UPDATE directly; "
+                "requires original invoker primary-key SELECT and UPDATE on every changed column; "
                 "never authorizes through client JSON"
             ),
         },

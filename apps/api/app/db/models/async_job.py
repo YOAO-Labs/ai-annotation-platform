@@ -17,6 +17,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.jobs_lifecycle import install_jobs_owner_mapping
 
 
 class AsyncJobKind(str, enum.Enum):
@@ -113,3 +114,6 @@ class AsyncJob(Base):
         Index("ix_async_jobs_project_kind_status", "project_id", "kind", "status"),
         Index("ix_async_jobs_celery_task", "celery_task_id"),
     )
+
+
+install_jobs_owner_mapping(AsyncJob)

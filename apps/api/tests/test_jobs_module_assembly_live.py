@@ -394,7 +394,7 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 {"ack": first_ack, "task_signature": signature},
             )
 
-            await worker.stop()
+            worker.stop()
             worker = None
             _assert_owned_broker_target(sender)
             snapshot.write_bytes(
@@ -439,9 +439,6 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                         object_store_buckets=resources["buckets"],
                         queue_name="default",
                     )
-                    clone_worker.start()
-                    await _wait_worker_ready(sender, clone_worker)
-
                     async with httpx.AsyncClient(
                         base_url=stack.api_origin,
                         trust_env=False,
@@ -468,6 +465,8 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                             "queue_size": 1,
                             "unacknowledged": 0,
                         }
+                        clone_worker.start()
+                        await _wait_worker_ready(sender, clone_worker)
                         restored_delivery = sender.AsyncResult(restored_execution_id)
                         restored_result = await asyncio.to_thread(
                             restored_delivery.get, timeout=120, propagate=False

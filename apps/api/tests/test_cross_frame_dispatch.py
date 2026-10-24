@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 import sys
 import uuid
 
@@ -10,7 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.v1.tasks import cross_frame_jobs
-from app.db.models.async_job import AsyncJobStatus
+from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.services.cross_frame_job import JOB_KIND
 from app.workers import cross_frame_job
 
@@ -40,7 +40,7 @@ def _install_queue(monkeypatch, dispatch_job):
 async def test_dispatch_predeclares_execution_id_and_preserves_existing_binding(
     monkeypatch,
 ):
-    job = SimpleNamespace(id=uuid.uuid4(), celery_task_id="legacy-execution-id")
+    job = AsyncJob(id=uuid.uuid4(), celery_task_id="legacy-execution-id")
     db = _FakeSession(job)
     requests = []
 
@@ -68,7 +68,7 @@ async def test_dispatch_predeclares_execution_id_and_preserves_existing_binding(
 
 @pytest.mark.asyncio
 async def test_unknown_dispatch_result_does_not_overwrite_a_claimed_job(monkeypatch):
-    job = SimpleNamespace(
+    job = AsyncJob(
         id=uuid.uuid4(), celery_task_id=None, status=AsyncJobStatus.PENDING.value
     )
     db = _FakeSession(job)
@@ -119,7 +119,7 @@ async def test_unknown_dispatch_result_does_not_overwrite_a_claimed_job(monkeypa
 
 @pytest.mark.asyncio
 async def test_dispatch_failure_notifies_only_after_pending_transition(monkeypatch):
-    job = SimpleNamespace(
+    job = AsyncJob(
         id=uuid.uuid4(), celery_task_id=None, status=AsyncJobStatus.PENDING.value
     )
     db = _FakeSession(job)
@@ -166,7 +166,7 @@ async def test_dispatch_failure_notifies_only_after_pending_transition(monkeypat
 async def test_worker_rejects_terminal_job_before_running_or_domain_work(
     monkeypatch, status
 ):
-    job = SimpleNamespace(id=uuid.uuid4(), kind=JOB_KIND, status=status)
+    job = AsyncJob(id=uuid.uuid4(), kind=JOB_KIND, status=status)
     db = _FakeSession(job)
     marked_running = []
 

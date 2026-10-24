@@ -65,7 +65,7 @@ last_reviewed: 2026-10-24
 | Insights：查询及保存视图                            | 已有本地只读组合和投影                                                                        | 尚未完成全量 owner 读取合同迁移                                                                            | 完整独立运行未验收                                                                                                                                | 跨 owner 批量快照／投影、授权／新鲜度／删除语义及保存视图写入待收口                                                                                                                                                                                                                                                                                              |
 | Jobs：通知范围事实                                  | 三列公开关系、原生类型及版本化合同已集成                                                      | 通知筛选和批量范围读取已迁移，保留授权及 autoflush                                                         | [日聚合与 Jobs 事实](#support-daily-and-jobs-facts)：父线 27 项组合案例及真实 LOGIN／Node、40 个 Unicode 字符的 kind、完整 0323 往返通过          | 本组操作的限定本地资格闭合；当前 API 离线工件通过，普通 API 其他作业仍需私表；不关闭完整 Jobs／冷进程恢复                                                                                                                                                                                                                                                        |
 | Jobs：列表查询                                      | 两项固定 page／total 与原生行合同已集成；成员资格保留当前 Identity 事实                       | GET 列表迁移，保留独立语句、缓存／autoflush、caller 事务与 Workspace 补充                                  | [列表 owner](#jobs-list-query-owner)：十四项不同 Native／旧 API 案例、实际受限 HTTP／Node 及完整迁移往返通过                                      | 本查询 Native 操作与 API／Node 调用边界闭合；冷 API 业务、完整 Jobs 和恢复仍待验收，详情／取消／重试另按下行跟踪                                                                                                                                                                                                                                                 |
-| Jobs：非视频作业控制与恢复                          | 建题和视频已有选定账本／能力                                                                  | 其他队列仍携带 Python 注册名／参数                                                                         | 已有作业交接只覆盖选定消费者                                                                                                                      | 通用查询／取消确认、队列执行合同与其他领域恢复、完整工件／凭据待闭合                                                                                                                                                                                                                                                                                             |
+| Jobs：通用生命周期与队列交接                        | 通用策略、固定创建／八项 Native 能力及可选私网队列 owner 已集成                               | 通用 helper 保留 Session／flush／缓存；首个队列调用方为跨帧传播                                            | [生命周期与队列](#jobs-lifecycle-queue)：二十二项当前 Native／受限 LOGIN／Node 与实际消费回归通过；冷队列／完整组合仍待验收                       | API 兼容私表权限、其余 producer、取消完成确认、领域恢复和当前冷工件仍待闭合；训练／资产扩展继续暂缓                                                                                                                                                                                                                                                              |
 | Audit：同事务业务事件追加                           | 既有 typed owner 保留；通用追加独立包、版本化合同与固定 SQL 已实现                            | AuditService 与普通追加构造器已迁移；保留 caller 提交／回滚、快照和 ORM 缓存，无追加后私表回读             | [追加 owner](#audit-append-owner)：12 项 PG、20 项纯检查及受限临时 owner／Node 通过；完整追加授权与 Node 已在独占 PostgreSQL 验收                 | 当前 LAN 分区树仍归 API，严格配置会拒绝该布局；维护所有权、未来分区权限及组合工件待收口，本组不代表完整 Audit                                                                                                                                                                                                                                                    |
 | Audit：HTTP 请求元数据                              | 响应后 Celery 与同步回退使用相同追加 owner；超长 request ID 仅在此元数据中省略                | middleware／worker 保留原响应、短 ID、取消及孤儿 actor 匿名重试                                            | [元数据边界](#audit-http-metadata)：11 项聚焦检查；既有三次真实 Celery 资格单列，不叠加                                                           | broker 不可用、重复／丢失、提交结果不明和恢复仍需真实验收；业务审计 request ID 的独立边界尚未修复                                                                                                                                                                                                                                                                |
 | Audit：查询、筛选与导出                             | 全局列表／导出使用固定查询 owner；项目范围通过公开事件关系组合                                | super-admin 全局与 project-admin 范围已迁移，保留筛选、游标、总数和导出顺序                                | [全局查询](#audit-global-query-owner)资格保持；[读取组合](#support-read-relations)补充项目隔离及合法复合行键原生回归                              | 剩余读取、冷进程真实消费及完整模块继续验收；不得提前撤销所有 Audit 私表 SELECT                                                                                                                                                                                                                                                                                   |
@@ -1748,6 +1748,46 @@ Identity admission 的纯合同逐字节移入无环共享包，旧路径导出�
 三次原始失败保留：夹具给 token helper 传 UUID 对象、误用普通数据账号作 Identity 认证，以及 Node 文本 ACL 探针在无 Identity schema USAGE 时提前报错。修正分别先通过最小实际调用、数据源选择和独占 PostgreSQL 复现；认证改用原有单独凭据，Node 保留全局 OID 检查和真实拒绝访问探针，未扩大权限。汇总 `.worktree/jobs-list-query-qualification.json` 绑定 33 项原始证据，SHA-256 为 `3bd897aaa24a0897710776267be73bdfe190e5e999b5d25cf0dd4e29c97816ee`；十四项资格由保留的十三项与修正后的一项组成，另保留三份原始失败收据。
 
 API 镜像源码检查点 `e888f17` 的非 editable 安装、资源与导入资格保留，2,068 项实际安装／应用／迁移／CLI 文件仍与当前源码一致；两项已修正的 QA 文件与原 COPY 清单有差异，不能称为当前全量 COPY 匹配。该镜像资格限离线安装、资源与导入，冷 API 业务请求仍待验收。列表操作的限定本地边界已闭合；其余操作、完整恢复、另一语言提供方、日常采用、远程 CI 与生产容量继续按台账跟踪。
+
+## Jobs 生命周期与队列交接 {#jobs-lifecycle-queue}
+
+通用 `create`、运行／进度／结果、完成／失败／取消与取消请求规则移入 Jobs 包，
+API 保留原方法签名、ORM 对象、缓存与 caller 事务。固定创建关系保留原 INSERT 的
+默认值、RETURNING、upsert 和全量 flush；每个实际变脏的 Job 按原 mapper 顺序执行
+一次 Native 更新，字段掩码保留 UPDATE OF 触发器、部分 flush 与时间戳过期行为。
+方法中途的转换异常仍保留已赋值前缀，payload／result 保持领域投影与原生 JSON。
+
+迁移 `0327` 安装创建关系和八项公开能力：按 ID／执行 ID 读取、视频摘要插入、
+生命周期应用、仅 pending 的派发失败、批次取消／删除及终态历史清理。
+`jobs_lifecycle_client` 仅有创建关系与这些函数的权限；不接收私表／列权限、
+helper、其他模块能力或角色成员资格。已有私表 INSERT 调用方保留原初始化方式；
+直接字段修改与显式时间戳按真实 PostgreSQL invoker 原有的主键 SELECT 和列 UPDATE
+权限检查。普通 API 其他读写和暂缓模块仍需兼容权限，本切片不提前撤销。
+
+可选 `aap-jobs-queue/v1` 私网服务只持 broker URL 与专用 bearer，复用原 Celery
+JSON 路由及发布重试设置。首个调用方为跨帧作业：执行 ID 在第一次提交前固定，
+派发异常只能修改数据库中仍 pending 的行，worker 在业务写入前拒绝终态作业。
+HTTP 不自动重试或回退；`accepted` 只证明 broker 接收，`terminate=False` 只请求撤销。
+提交与派发之间仍有原有故障窗口，不新增 outbox、幂等投递或完成确认保证。
+
+创建探针在独占 PostgreSQL 中验证默认值、RETURNING、重复插入、原生 JSON 和失败
+Session 回滚要求。首次 Native 十三项旧服务回归中十一项通过，两项结果／payload
+投影失败保留原收据；修正最终投影后，两项最小复验通过，3,898 项源码输入未变。
+随后补齐最终调用方字段优先级、显式时间戳权限和无写入命令清理。
+原始收据分别为 `.worktree/jobs-creation-relation-probe-first.json`、
+`.worktree/jobs-lifecycle-native-first.json` 与 `.worktree/jobs-lifecycle-native-second.json`。
+当前生命周期能力已通过二十二项 PostgreSQL 案例，零失败／错误／跳过，3,902 项输入
+运行期间未变。它们覆盖严格 LOGIN、独立 Node 的十五列与八函数 ABI、原生 JSON、
+最终调用方字段优先级、显式时间戳权限、部分 flush／错误前缀、缓存与 rollback，及
+原有视频摘要并发重投和批次重置实际调用方。完整 0327→0189→0327、冻结函数体、
+授权重施与资源清理通过。第三次原始收据中一项新缓存断言失败保留；用原 SQLAlchemy
+写法证实未加载可空字段的旧缓存行为后，先定向复验，再以规范化 scalar 参数运行
+当前完整组合；未改变产品缓存行为，也不把重复运行相加。
+汇总 `.worktree/jobs-lifecycle-native-qualification.json` 的 SHA-256 为
+`12c18e60f8653a2e39708835ac88e7f9bc7f56fe0972dd2d81430c9c8822dc51`。
+
+冷队列、API／worker 工件、完整组合与数据库恢复仍待验收，不关闭完整 Jobs。
+训练／主动学习和资产的数据集／存储扩展继续等待功能合并；Go 仍只作实验。
 
 ## Notifications 即时发布与模块组合 {#notification-publication-owner}
 

@@ -11,19 +11,31 @@ their own precedence.
 from __future__ import annotations
 
 import contextlib
-import logging
 import uuid
 from collections.abc import Collection
 from datetime import datetime, timezone
 from typing import AsyncIterator
 
-from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from aap_jobs.lifecycle import JobsLifecycleManager
 
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
+from app.services.jobs_lifecycle_data import JobsLifecyclePostgresData
 
-logger = logging.getLogger(__name__)
+
+def _manager(db):
+    return JobsLifecycleManager(
+        JobsLifecyclePostgresData(db), clock=lambda: datetime.now(timezone.utc)
+    )
+
+
+async def get_job(
+    db: AsyncSession, job_id: uuid.UUID, *, populate_existing: bool = False
+) -> AsyncJob | None:
+    return await JobsLifecyclePostgresData(db).get_job(
+        job_id, populate_existing=populate_existing
+    )
 
 
 async def create_job(
@@ -36,17 +48,13 @@ async def create_job(
     celery_task_id: str | None = None,
 ) -> AsyncJob:
     """v0.10.16 · 创建 async_jobs 行。调用方负责 commit。"""
-    job = AsyncJob(
+    return await _manager(db).create_job(
         kind=kind,
         user_id=user_id,
         project_id=project_id,
-        payload=payload or {},
+        payload=payload,
         celery_task_id=celery_task_id,
-        status=AsyncJobStatus.PENDING.value,
     )
-    db.add(job)
-    await db.flush()
-    return job
 
 
 async def ensure_video_tracker_summary(
@@ -70,20 +78,15 @@ async def ensure_video_tracker_summary(
     } or (payload.get("video_tracker_job_id") != str(tracker_job_id)):
         raise ValueError("invalid video tracker summary")
     payload = {**payload, "video_execution_protocol": "aap-video-execution-data/v1"}
-    await db.execute(
-        pg_insert(AsyncJob)
-        .values(
-            id=tracker_job_id,
-            kind=kind,
-            user_id=user_id,
-            project_id=project_id,
-            payload=payload,
-            celery_task_id=celery_task_id,
-            status=AsyncJobStatus.PENDING.value,
-        )
-        .on_conflict_do_nothing(index_elements=[AsyncJob.id])
+    await JobsLifecyclePostgresData(db).insert_video_summary(
+        id=tracker_job_id,
+        kind=kind,
+        user_id=user_id,
+        project_id=project_id,
+        payload=payload,
+        celery_task_id=celery_task_id,
     )
-    summary = await db.get(AsyncJob, tracker_job_id, populate_existing=True)
+    summary = await get_job(db, tracker_job_id, populate_existing=True)
     if summary is None or (
         summary.kind != kind
         or summary.user_id != user_id
@@ -102,83 +105,39 @@ async def delete_batch_predict_jobs(db: AsyncSession, batch_id: uuid.UUID) -> in
     The status transition lets durable result owners revoke execution leases and
     retire pending snapshots before the guarded history delete runs.
     """
-    batch_filter = (
-        AsyncJob.kind == AsyncJobKind.BATCH_PREDICT.value,
-        AsyncJob.payload["batch_id"].astext == str(batch_id),
+    return await JobsLifecyclePostgresData(db).delete_batch_predict_jobs(
+        batch_id, completed_at=datetime.now(timezone.utc)
     )
-    await db.execute(
-        update(AsyncJob)
-        .where(
-            *batch_filter,
-            AsyncJob.status.in_(
-                (AsyncJobStatus.PENDING.value, AsyncJobStatus.RUNNING.value)
-            ),
-        )
-        .values(
-            status=AsyncJobStatus.CANCELLED.value,
-            completed_at=datetime.now(timezone.utc),
-        )
-        .execution_options(synchronize_session="fetch")
-    )
-    result = await db.execute(
-        delete(AsyncJob)
-        .where(*batch_filter)
-        .execution_options(synchronize_session="fetch")
-    )
-    return int(result.rowcount or 0)
 
 
 async def delete_terminal_jobs_before(
     db: AsyncSession, cutoff: datetime, *, statuses: Collection[str]
 ) -> list[uuid.UUID]:
     """Delete selected terminal jobs older than cutoff; caller owns commit."""
-    result = await db.execute(
-        delete(AsyncJob)
-        .where(
-            AsyncJob.status.in_(statuses),
-            AsyncJob.created_at < cutoff,
-            # Accepted imports replay through their retained Jobs receipt.
-            or_(
-                AsyncJob.kind != AsyncJobKind.DATASET_IMPORT.value,
-                AsyncJob.payload["import_protocol"].astext.is_distinct_from(
-                    "aap-dataset-import/v1"
-                ),
-            ),
-        )
-        .returning(AsyncJob.id)
+    return await JobsLifecyclePostgresData(db).delete_terminal_jobs_before(
+        cutoff, statuses=statuses
     )
-    return list(result.scalars().all())
 
 
 async def mark_running(
     db: AsyncSession, job_id: uuid.UUID, *, celery_task_id: str | None = None
 ) -> None:
     """v0.10.16 · pending → running，记录 started_at。幂等。"""
-    job = await db.get(AsyncJob, job_id)
-    if job is None:
-        return
-    if job.status == AsyncJobStatus.PENDING.value:
-        job.status = AsyncJobStatus.RUNNING.value
-        job.started_at = datetime.now(timezone.utc)
-    if celery_task_id and not job.celery_task_id:
-        job.celery_task_id = celery_task_id
+    job = await get_job(db, job_id)
+    if job is not None:
+        _manager(db).mark_running(job, celery_task_id=celery_task_id)
 
 
 def bind_execution_id(job: AsyncJob, execution_id: str | None) -> None:
     """Set or clear the execution ID; the caller owns lookup, commit, and ordering."""
-    job.celery_task_id = execution_id
-
-
-def _merge_payload(job: AsyncJob, updates: dict) -> None:
-    job.payload = {**(job.payload or {}), **updates}
+    _manager(None).bind_execution_id(job, execution_id)
 
 
 async def update_payload(db: AsyncSession, job_id: uuid.UUID, updates: dict) -> None:
     """Merge job-specific payload fields without committing."""
-    job = await db.get(AsyncJob, job_id)
-    if job is None:
-        return
-    _merge_payload(job, updates)
+    job = await get_job(db, job_id)
+    if job is not None:
+        _manager(db).update_payload(job, updates)
 
 
 async def update_progress(
@@ -190,40 +149,27 @@ async def update_progress(
     result: dict | None = None,
 ) -> None:
     """Write clamped progress, merge supplied payload, and replace supplied result."""
-    job = await db.get(AsyncJob, job_id)
-    if job is None:
-        return
-    if result is not None:
-        job.result = result
-    job.progress_pct = max(0, min(100, int(pct)))
-    if extra_payload:
-        _merge_payload(job, extra_payload)
+    job = await get_job(db, job_id)
+    if job is not None:
+        _manager(db).update_progress(
+            job, pct, extra_payload=extra_payload, result=result
+        )
 
 
 async def replace_result(db: AsyncSession, job_id: uuid.UUID, *, result: dict) -> None:
     """Replace the result projection without changing the job lifecycle."""
-    job = await db.get(AsyncJob, job_id)
+    job = await get_job(db, job_id)
     if job is not None:
-        job.result = result
+        _manager(db).replace_result(job, result=result)
 
 
 async def mark_complete(
     db: AsyncSession, job_id: uuid.UUID, *, result: dict | None = None
 ) -> None:
     """v0.10.16 · 完成态。幂等：若已 cancelled/failed 不覆盖。"""
-    job = await db.get(AsyncJob, job_id)
-    if job is None:
-        return
-    if job.status in {
-        AsyncJobStatus.CANCELLED.value,
-        AsyncJobStatus.FAILED.value,
-    }:
-        return
-    job.status = AsyncJobStatus.COMPLETED.value
-    job.progress_pct = 100
-    job.completed_at = datetime.now(timezone.utc)
-    if result is not None:
-        job.result = result
+    job = await get_job(db, job_id)
+    if job is not None:
+        _manager(db).mark_complete(job, result=result)
 
 
 async def mark_dispatch_failed(
@@ -235,21 +181,9 @@ async def mark_dispatch_failed(
     pending. A worker that has claimed or settled the job keeps its state.
     The caller owns commit.
     """
-    changed = await db.scalar(
-        update(AsyncJob)
-        .where(
-            AsyncJob.id == job_id,
-            AsyncJob.status == AsyncJobStatus.PENDING.value,
-        )
-        .values(
-            status=AsyncJobStatus.FAILED.value,
-            completed_at=datetime.now(timezone.utc),
-            error_message=(error or "")[:4000],
-        )
-        .returning(AsyncJob.id)
-        .execution_options(synchronize_session="fetch")
+    return await JobsLifecyclePostgresData(db).mark_dispatch_failed(
+        job_id, failed_at=datetime.now(timezone.utc), error=(error or "")[:4000]
     )
-    return changed is not None
 
 
 async def mark_failed(
@@ -264,19 +198,9 @@ async def mark_failed(
     B-45 · 可选 result：当 batch_predict 全部子项失败需标记 job 为 failed 时，
     仍要把统计（success/failed_count、failed_prediction_ids）写进 result，
     以便前端失败重试链路可用。"""
-    job = await db.get(AsyncJob, job_id)
-    if job is None:
-        return
-    if job.status in {
-        AsyncJobStatus.COMPLETED.value,
-        AsyncJobStatus.CANCELLED.value,
-    }:
-        return
-    job.status = AsyncJobStatus.FAILED.value
-    job.completed_at = datetime.now(timezone.utc)
-    job.error_message = (error or "")[:4000]
-    if result is not None:
-        job.result = result
+    job = await get_job(db, job_id)
+    if job is not None:
+        _manager(db).mark_failed(job, error=error, result=result)
 
 
 async def mark_cancelled(
@@ -296,44 +220,26 @@ async def mark_cancelled(
     different status collection, or ``None`` to write regardless of status.
     The caller owns commit and any terminal notification.
     """
-    job = await db.get(AsyncJob, job_id)
+    job = await get_job(db, job_id)
     if job is None:
         return None
-    if allowed_statuses is not None and job.status not in allowed_statuses:
-        return job
-    job.status = AsyncJobStatus.CANCELLED.value
-    job.completed_at = datetime.now(timezone.utc)
-    if progress_pct is not None:
-        job.progress_pct = max(0, min(100, int(progress_pct)))
-    if result is not None:
-        job.result = result
-    return job
+    return _manager(db).mark_cancelled(
+        job, result=result, allowed_statuses=allowed_statuses, progress_pct=progress_pct
+    )
 
 
 async def request_cancel(db: AsyncSession, job_id: uuid.UUID) -> None:
     """v0.10.51 · 请求协作取消，调用方负责终态转换。"""
-    job = await db.get(AsyncJob, job_id)
-    if job is None:
-        return
-    if job.status not in {AsyncJobStatus.PENDING.value, AsyncJobStatus.RUNNING.value}:
-        return
-    job.payload = {
-        **(job.payload or {}),
-        "cancel_requested": True,
-        "cancel_requested_at": datetime.now(timezone.utc).isoformat(),
-    }
+    job = await get_job(db, job_id)
+    if job is not None:
+        _manager(db).request_cancel(job)
 
 
 async def find_by_celery_task_id(
     db: AsyncSession, celery_task_id: str
 ) -> AsyncJob | None:
     """v0.10.16 · Celery signals 兜底用，通过 task_id 反查 async_job。"""
-    if not celery_task_id:
-        return None
-    res = await db.execute(
-        select(AsyncJob).where(AsyncJob.celery_task_id == celery_task_id)
-    )
-    return res.scalar_one_or_none()
+    return await JobsLifecyclePostgresData(db).find_by_execution_id(celery_task_id)
 
 
 @contextlib.asynccontextmanager
@@ -350,22 +256,11 @@ async def track_job(
 
     适合短任务（无中间进度上报）。长任务用 create_job + 显式 update_progress。
     """
-    job = await create_job(
-        db,
+    async with _manager(db).track_job(
         kind=kind,
         user_id=user_id,
         project_id=project_id,
         payload=payload,
         celery_task_id=celery_task_id,
-    )
-    await mark_running(db, job.id)
-    await db.flush()
-    try:
+    ) as job:
         yield job
-    except Exception as e:
-        await mark_failed(db, job.id, error=str(e))
-        await db.flush()
-        raise
-    else:
-        await mark_complete(db, job.id)
-        await db.flush()

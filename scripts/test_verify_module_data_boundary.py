@@ -20,8 +20,15 @@ from verify_module_data_boundary import (
 import verify_module_data_boundary as verifier
 
 
-def test_notifications_module_cold_case_selects_api_bootstrap_credentials():
-    selected = {"tests/test_notifications_module_assembly_live.py"}
+@pytest.mark.parametrize(
+    "test_path",
+    [
+        "tests/test_notifications_module_assembly_live.py",
+        "tests/test_jobs_module_assembly_live.py",
+    ],
+)
+def test_module_cold_case_selects_api_bootstrap_credentials(test_path):
+    selected = {test_path}
     tree = ast.parse(inspect.getsource(verifier.main))
     condition = next(
         node.test
@@ -45,7 +52,24 @@ def test_notifications_module_cold_case_selects_api_bootstrap_credentials():
     )
 
 
-def test_jobs_list_query_login_has_only_fixed_reads_and_no_temporary_grant(monkeypatch):
+@pytest.mark.parametrize(
+    "role,functions,artifact",
+    [
+        (
+            verifier.JOBS_LIST_QUERY_ROLE,
+            verifier.JOBS_LIST_QUERY_FUNCTIONS,
+            "0326_jobs_list_query",
+        ),
+        (
+            verifier.JOBS_LIFECYCLE_ROLE,
+            verifier.JOBS_LIFECYCLE_FUNCTIONS,
+            "0327_jobs_lifecycle",
+        ),
+    ],
+)
+def test_jobs_capability_logins_have_no_temporary_grant(
+    monkeypatch, role, functions, artifact
+):
     captured = []
     monkeypatch.setattr(
         verifier, "_psql", lambda *args, **kwargs: captured.append(kwargs["sql"])
@@ -58,16 +82,16 @@ def test_jobs_list_query_login_has_only_fixed_reads_and_no_temporary_grant(monke
     verifier._create_module_roles(**arguments)
     sql = captured[0]
     assert (
-        "CREATE ROLE jobs_list_query_client LOGIN PASSWORD 'fixture-value' "
+        f"CREATE ROLE {role} LOGIN PASSWORD 'fixture-value' "
         "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
     ) in sql
-    assert verifier.JOBS_LIST_QUERY_ROLE in verifier.MODULE_ROLES
+    assert role in verifier.MODULE_ROLES
     temporary_grant = sql.split("GRANT TEMPORARY ON DATABASE", 1)[1]
-    assert verifier.JOBS_LIST_QUERY_ROLE not in temporary_grant
-    assert "0326_jobs_list_query.sql" in verifier.SQL_ARTIFACTS
-    assert "0326_jobs_list_query.schema.json" in verifier.SCHEMA_ARTIFACTS
-    for signature in verifier.JOBS_LIST_QUERY_FUNCTIONS:
-        assert verifier.FUNCTION_BODY_ARTIFACTS[signature] == "0326_jobs_list_query.sql"
+    assert role not in temporary_grant
+    assert artifact + ".sql" in verifier.SQL_ARTIFACTS
+    assert artifact + ".schema.json" in verifier.SCHEMA_ARTIFACTS
+    for signature in functions:
+        assert verifier.FUNCTION_BODY_ARTIFACTS[signature] == artifact + ".sql"
 
 
 def test_installed_body_uses_named_function_in_multi_function_resource(

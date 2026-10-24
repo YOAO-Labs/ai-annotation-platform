@@ -168,8 +168,20 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb),
     aap_notifications_v1.read_state_command(jsonb),
     aap_notifications_v1.delete_command(pg_catalog.jsonb),
     aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer),
-    aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
+    aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text),
+    aap_jobs_v1.read_job(uuid),
+    aap_jobs_v1.jobs_by_execution_id(text),
+    aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text),
+    aap_jobs_v1.apply_lifecycle(uuid,jsonb),
+    aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text),
+    aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz),
+    aap_jobs_v1.delete_batch_predict_jobs(uuid),
+    aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])
     TO :"application_role";
+GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation TO :"application_role";
+REVOKE ALL ON FUNCTION aap_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[]),
+    aap_jobs_v1._jobs_lifecycle_is_truthy(jsonb),
+    aap_jobs_v1._jobs_lifecycle_integer(jsonb) FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION
     aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
     FROM :"application_role", PUBLIC;

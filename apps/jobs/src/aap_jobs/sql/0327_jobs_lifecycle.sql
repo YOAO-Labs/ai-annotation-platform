@@ -25,7 +25,7 @@ WHERE pg_catalog.has_table_privilege(
        job.status = 'pending'
        AND job.progress_pct = 0
        AND job.result = '{}'::pg_catalog.jsonb
-       AND job.retained_project_id IS NOT DISTINCT FROM job.project_id
+       AND job.retained_project_id IS NULL
        AND job.started_at IS NULL
        AND job.completed_at IS NULL
        AND job.error_message IS NULL
@@ -1151,6 +1151,24 @@ BEGIN
     IF v_invoker IS NULL OR v_invoker = 'none' THEN
         v_invoker := SESSION_USER;
     END IF;
+    IF v_updated_at_override_present
+       AND (NOT pg_catalog.has_column_privilege(
+                v_invoker, 'public.async_jobs', 'updated_at', 'UPDATE'
+            ) OR NOT pg_catalog.has_column_privilege(
+                v_invoker, 'public.async_jobs', 'id', 'SELECT'
+            )) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '42501',
+            MESSAGE = 'jobs_lifecycle_legacy_write_not_allowed';
+    END IF;
+    IF p_change -> 'legacy_changes' <> '{}'::jsonb
+       AND NOT pg_catalog.has_column_privilege(
+           v_invoker, 'public.async_jobs', 'id', 'SELECT'
+       ) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '42501',
+            MESSAGE = 'jobs_lifecycle_legacy_write_not_allowed';
+    END IF;
     FOR v_field IN
         SELECT key FROM pg_catalog.jsonb_object_keys(p_change -> 'legacy_changes') AS keys(key)
     LOOP
@@ -1168,8 +1186,8 @@ BEGIN
     END LOOP;
 
     v_patch :=
-        (p_change -> 'legacy_changes')
-        || v_lifecycle_values
+        v_lifecycle_values
+        || (p_change -> 'legacy_changes')
         || (p_change -> 'projection_changes');
 
     FOREACH v_field IN ARRAY v_changed_fields LOOP
