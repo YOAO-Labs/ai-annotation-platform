@@ -47,7 +47,8 @@ class Storage:
 
     @staticmethod
     def seed(world, bucket, key, raw, metadata, *, version=None):
-        version = version or str(uuid.uuid4())
+        if version is None:
+            version = str(uuid.uuid4()) if world.versioning == "Enabled" else "null"
         world.versions.setdefault((bucket, key), {})[version] = (
             raw,
             deepcopy(metadata),
@@ -68,7 +69,7 @@ class Storage:
             raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
         raw = Body.read()
         assert len(raw) == ContentLength
-        self.seed(
+        version = self.seed(
             self.world,
             Bucket,
             Key,
@@ -77,10 +78,13 @@ class Storage:
             version=self.world.headers.get("VersionId")
             or ("null" if "VersionId" in self.world.headers else None),
         )
+        # The PUT response belongs to this write, even if another version becomes
+        # current before the caller receives the acknowledgement.
+        written = self._head(Bucket, Key, version)
         self.world.puts.append((Bucket, Key))
         if self.world.after_put:
             self.world.after_put()
-        return {**self._head(Bucket, Key), "ResponseMetadata": {"HTTPStatusCode": 200}}
+        return written
 
     def _value(self, bucket, key, version=None):
         current = self.world.current_versions.get((bucket, key), "null")
@@ -137,10 +141,13 @@ class Storage:
 
     def list_object_versions(self, *, Bucket, Prefix, **kwargs):
         rows = []
-        for (bucket, key), raw in self.world.objects.items():
+        identities = set(self.world.versions) | set(self.world.objects)
+        for bucket, key in sorted(identities):
             if bucket != Bucket or not key.startswith(Prefix):
                 continue
-            versions = self.world.versions.get((bucket, key), {"null": (raw, {})})
+            versions = self.world.versions.get((bucket, key)) or {
+                "null": (self.world.objects[bucket, key], {})
+            }
             for version in versions:
                 facts = self._head(bucket, key, version)
                 rows.append(
@@ -149,6 +156,9 @@ class Storage:
                         "Size": facts["ContentLength"],
                         "ETag": facts["ETag"],
                         "VersionId": version,
+                        "IsLatest": (bucket, key) in self.world.objects
+                        and self.world.current_versions.get((bucket, key), "null")
+                        == version,
                     }
                 )
         if self.world.extra_version and rows:
@@ -157,7 +167,12 @@ class Storage:
             "ResponseMetadata": {"HTTPStatusCode": 200},
             "IsTruncated": False,
             "Versions": rows,
-            "DeleteMarkers": self.world.delete_markers,
+            "DeleteMarkers": [
+                {key: value for key, value in marker.items() if key != "Bucket"}
+                for marker in self.world.delete_markers
+                if marker.get("Bucket", Bucket) == Bucket
+                and marker["Key"].startswith(Prefix)
+            ],
         }
 
     def delete_object(self, *, Bucket, Key, VersionId, IfMatch):
@@ -811,6 +826,132 @@ async def test_new_put_requires_enabled_saved_bucket_before_any_write(world, sta
     assert not world.puts and not world.objects and not world.signed_versions
     assert all(client.closed for client in world.clients)
     await current.close()
+
+
+async def test_suspending_versioning_after_probe_retains_unverified_null_put(world):
+    current = await inputs(world)
+    world.started, world.release = threading.Event(), threading.Event()
+    pending = asyncio.create_task(
+        current.upload_crop(SimpleNamespace(id=current.record.task_id), 0, b"crop")
+    )
+    try:
+        assert await asyncio.to_thread(world.started.wait, 3)
+        assert world.versioning_reads == [current.record.bucket]
+        assert world.versioning == "Enabled" and not world.objects
+        world.versioning = "Suspended"
+        world.release.set()
+        with pytest.raises(ContentError, match="immutable_version_required"):
+            await pending
+        saved = deepcopy((await lease(world, current.record.id)).inventory)
+        entry = next(iter(saved["objects"].values()))
+        assert entry["state"] == "planned" and entry["version_id"] is None
+        assert set(next(iter(world.versions.values()))) == {"null"}
+        assert world.objects and not world.signed_versions
+        assert all(client.closed for client in world.clients)
+    finally:
+        world.release.set()
+        await asyncio.gather(pending, return_exceptions=True)
+        await current.close()
+    row = await lease(world, current.record.id)
+    assert row.state == "cleanup_pending" and row.inventory == saved
+    assert row.error_code == "prediction_input_immutable_version_required"
+    assert world.objects and not world.deleted and not world.signed_versions
+
+
+async def test_put_receipt_stays_on_its_version_when_acknowledgement_loses_current(
+    world,
+):
+    current = await inputs(world)
+    replacements = []
+
+    def replace_current():
+        identity = world.puts[-1]
+        replacements.append(Storage.seed(world, *identity, b"foreign-new-current", {}))
+
+    world.after_put = replace_current
+    await current.upload_crop(SimpleNamespace(id=current.record.task_id), 0, b"crop")
+    row = await lease(world, current.record.id)
+    relative, entry = next(iter(row.inventory["objects"].items()))
+    identity = current.record.bucket, current.prefix + relative
+    assert entry["state"] == "verified" and entry["version_id"] != replacements[0]
+    assert world.current_versions[identity] == replacements[0]
+    assert world.objects[identity] == b"foreign-new-current"
+    assert world.signed_versions == [entry["version_id"]]
+    assert all(version == entry["version_id"] for _, _, version in world.heads)
+    assert all(version == entry["version_id"] for _, _, version in world.reads)
+    await current.close()
+    assert not world.deleted and len(world.versions[identity]) == 2
+    assert (await lease(world, row.id)).inventory == row.inventory
+
+
+@pytest.mark.parametrize("foreign", [False, True])
+async def test_history_behind_delete_marker_is_listed_and_never_swept(world, foreign):
+    current = await inputs(world)
+    await current.upload_crop(SimpleNamespace(id=current.record.task_id), 0, b"crop")
+    row = await lease(world, current.record.id)
+    relative, entry = next(iter(row.inventory["objects"].items()))
+    key = current.prefix + ("unregistered.bin" if foreign else relative)
+    identity = current.record.bucket, key
+    historical = (
+        Storage.seed(world, *identity, b"unknown-history", {})
+        if foreign
+        else entry["version_id"]
+    )
+    marker = str(uuid.uuid4())
+    world.objects.pop(identity)
+    world.metadata.pop(identity)
+    world.current_versions[identity] = marker
+    world.delete_markers.append(
+        {"Bucket": identity[0], "Key": key, "VersionId": marker, "IsLatest": True}
+    )
+    versions = deepcopy(world.versions)
+    probe = Storage(world)
+    try:
+        listed = probe.list_object_versions(Bucket=identity[0], Prefix=current.prefix)
+        assert any(
+            item["Key"] == key
+            and item["VersionId"] == historical
+            and item["IsLatest"] is False
+            for item in listed["Versions"]
+        )
+        assert listed["DeleteMarkers"] == [
+            {"Key": key, "VersionId": marker, "IsLatest": True}
+        ]
+        assert not any(
+            item["Key"] == key
+            for item in probe.list_objects_v2(
+                Bucket=identity[0], Prefix=current.prefix
+            )["Contents"]
+        )
+    finally:
+        probe.close()
+    await current.close()
+    assert world.versions == versions and not world.deleted
+    after = await lease(world, row.id)
+    assert after.state == "cleanup_pending" and after.inventory == row.inventory
+    assert after.error_code == "prediction_input_unknown_object"
+
+
+async def test_neighbor_prefix_delete_marker_does_not_block_exact_cleanup(world):
+    current = await inputs(world)
+    await current.upload_crop(SimpleNamespace(id=current.record.task_id), 0, b"crop")
+    neighbor = current.record.bucket, current.prefix.rstrip("/") + "-neighbor/old.bin"
+    old = Storage.seed(world, *neighbor, b"neighbor-history", {})
+    world.objects.pop(neighbor)
+    world.metadata.pop(neighbor)
+    world.current_versions[neighbor] = "neighbor-marker"
+    world.delete_markers.append(
+        {
+            "Bucket": neighbor[0],
+            "Key": neighbor[1],
+            "VersionId": "neighbor-marker",
+            "IsLatest": True,
+        }
+    )
+    await current.close()
+    assert (await lease(world, current.record.id)).state == "deleted"
+    assert set(world.versions) == {neighbor} and old in world.versions[neighbor]
+    assert neighbor not in world.deleted
 
 
 @pytest.mark.parametrize("version", [None, "null"])
