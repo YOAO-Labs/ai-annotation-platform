@@ -410,8 +410,9 @@ async def video_item(db_session, super_admin):
 
 
 async def _business_pointer(db, item, row, kind):
-    if kind == "metadata":
-        item.video_output_id = row.id
+    if kind in {"metadata", "metadata_building"}:
+        column = "video_output_id" if kind == "metadata" else "video_building_output_id"
+        setattr(item, column, row.id)
         value = item
     elif kind == "frame":
         value = VideoFrameCache(
@@ -437,12 +438,16 @@ async def _business_pointer(db, item, row, kind):
     return value
 
 
-@pytest.mark.parametrize("kind", ["metadata", "frame", "chunk"])
+@pytest.mark.parametrize("kind", ["metadata", "metadata_building", "frame", "chunk"])
 async def test_business_reference_restricts_even_terminal_owner_deletion(
     db_session, video_item, kind
 ):
     _, item = video_item
-    row = await _new(db_session, dataset_item_id=item.id, kind=kind)
+    row = await _new(
+        db_session,
+        dataset_item_id=item.id,
+        kind="metadata" if kind == "metadata_building" else kind,
+    )
     await _business_pointer(db_session, item, row, kind)
     await _settled(db_session, row)
     with pytest.raises(IntegrityError):
@@ -455,8 +460,12 @@ async def test_dataset_cascade_retains_all_physical_inputs_and_publications(
 ):
     dataset, item = video_item
     rows = []
-    for kind in ("metadata", "frame", "chunk"):
-        row = await _new(db_session, dataset_item_id=item.id, kind=kind)
+    for kind in ("metadata", "metadata_building", "frame", "chunk"):
+        row = await _new(
+            db_session,
+            dataset_item_id=item.id,
+            kind="metadata" if kind == "metadata_building" else kind,
+        )
         await _ready(db_session, row)
         await _business_pointer(db_session, item, row, kind)
         rows.append(row)
@@ -481,10 +490,38 @@ async def test_dataset_cascade_retains_all_physical_inputs_and_publications(
     retained = (
         await db_session.scalars(select(Output).where(Output.id.in_(identifiers)))
     ).all()
-    assert len(retained) == 3
+    assert len(retained) == 4
     for row in retained:
         assert row.state == "ready"
         assert (row.original_ref, row.auth_ref, row.inventory) == expected[row.id]
+
+
+async def test_metadata_build_preserves_active_until_current_pointer_switch(
+    db_session, video_item
+):
+    _, item = video_item
+    active = await _new(db_session, dataset_item_id=item.id)
+    await _ready(db_session, active)
+    await _business_pointer(db_session, item, active, "metadata")
+    building = await _new(db_session, dataset_item_id=item.id)
+    await _business_pointer(db_session, item, building, "metadata_building")
+    await db_session.refresh(item)
+    assert item.video_output_id == active.id
+    assert item.video_building_output_id == building.id
+    await _ready(db_session, building)
+    await db_session.execute(
+        update(DatasetItem)
+        .where(DatasetItem.id == item.id)
+        .values(video_output_id=building.id, video_building_output_id=None)
+        .execution_options(synchronize_session=False)
+    )
+    await db_session.refresh(item)
+    assert item.video_output_id == building.id
+    assert item.video_building_output_id is None
+    assert (
+        await db_session.scalar(select(Output.state).where(Output.id == active.id))
+        == "ready"
+    )
 
 
 async def test_metadata_lineage_uuid_is_evidence_not_a_business_lifetime_fk(db_session):

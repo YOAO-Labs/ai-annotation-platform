@@ -128,6 +128,12 @@ class DatasetItem(Base):
         nullable=True,
         index=True,
     )
+    video_building_output_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("video_derivative_outputs.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     blurhash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
     # v0.14.0 · 跨 task 帧序基地;FK 到 scenes,SET NULL 容忍历史数据 / scene 删除

@@ -123,6 +123,11 @@ def upgrade():
     )
     for table, column, constraint in (
         ("dataset_items", "video_output_id", "fk_dataset_item_video_output"),
+        (
+            "dataset_items",
+            "video_building_output_id",
+            "fk_dataset_item_video_building_output",
+        ),
         ("video_frame_cache", "output_id", "fk_video_frame_cache_output"),
         ("video_chunks", "output_id", "fk_video_chunk_output"),
     ):
@@ -215,6 +220,7 @@ def downgrade():
         sa.text(
             "SELECT EXISTS (SELECT 1 FROM video_derivative_outputs) "
             "OR EXISTS (SELECT 1 FROM dataset_items WHERE video_output_id IS NOT NULL) "
+            "OR EXISTS (SELECT 1 FROM dataset_items WHERE video_building_output_id IS NOT NULL) "
             "OR EXISTS (SELECT 1 FROM video_frame_cache WHERE output_id IS NOT NULL) "
             "OR EXISTS (SELECT 1 FROM video_chunks WHERE output_id IS NOT NULL)"
         )
@@ -224,6 +230,11 @@ def downgrade():
         ("video_chunks", "output_id", "fk_video_chunk_output"),
         ("video_frame_cache", "output_id", "fk_video_frame_cache_output"),
         ("dataset_items", "video_output_id", "fk_dataset_item_video_output"),
+        (
+            "dataset_items",
+            "video_building_output_id",
+            "fk_dataset_item_video_building_output",
+        ),
     ):
         op.drop_index(f"ix_{table}_{column}", table_name=table)
         op.drop_constraint(constraint, table, type_="foreignkey")
