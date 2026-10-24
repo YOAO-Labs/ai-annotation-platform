@@ -216,4 +216,4 @@ TrainingDatasetVersion 继续归属于项目。由数据集发起冻结时，必
 6. 所有容量数值能解释来源、单位、统计时间、去重口径；未知总容量不显示 0 或伪造百分比。
 7. 旧数据连接器链接、数据集入口、权限提示和全局任务入口有兼容路径。
 
-交付物包括页面结构、组件状态矩阵、接口字段字典、交互原型、权限样例和回归用例。实现拆分见 [EPIC-08](../1792661016_dataset-workbench-quality.md)、[EPIC-09](../1792661016_dataset-storage-console-boundaries.md)、[EPIC-11](../1792661016_dataset-permissions-lifecycle.md)。
+交付物包括页面结构、组件状态矩阵、接口字段字典、交互原型、权限样例和回归用例。实现拆分见 [EPIC-08](../archive/1792661016_dataset-workbench-quality.md)、[EPIC-09](../1792661016_dataset-storage-console-boundaries.md)、[EPIC-11](../1792661016_dataset-permissions-lifecycle.md)。

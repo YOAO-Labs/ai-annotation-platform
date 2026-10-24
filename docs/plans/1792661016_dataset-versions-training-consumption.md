@@ -300,7 +300,7 @@ M1 必须让一个已关联项目的原地图片目录，通过统一 resolver �
 - 实际浏览器：当前工作树 3100/8100，刷新真实 general/export Worker 后，从项目负责人确认 3 个引用任务，预检显示 17,778 字节，创建版本后实际任务 ready；浏览冻结样本和标注、点击下载、现有新建训练入口可用。版本 `da621d70-54af-47d4-aa8a-7795a56d63f5`。随后专用来源覆盖 vehicle-1、移除 vehicle-2；浏览器仍显示原 vehicle-1 与固定框，API 校验全部 3 张原图、标签和 ZIP SHA 不变，2 个实时源读取明确拒绝，原标注保留。浏览器错误为空；未启动原生模型训练。
 - 正式文档：`docs-site/user-guide/online-learning/data-versions.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/dev/concepts/training-datasets.md`、`docs-site/api/guides/training-datasets.md`、`README.md`；`CHANGELOG.md` Unreleased 已更新。
 - 人工环境与专用演示数据继续保留，说明及固定摘要在忽略的 `.worktree/manual/README.md` / `training-fixture.json`。测试资源、报告、截图、专属浏览器会话按验证流程清理；不重建镜像、不推送、不分配发布版本。
-- 用户指定的后续 E08-A/E09-A 页面整合已完成，记录见 [E08 Outcome](1792661016_dataset-workbench-quality.md#outcome) 和 [E09 Outcome](1792661016_dataset-storage-console-boundaries.md#outcome)；后续质量、筛选和运维切片以各Epic当前Outcome为准，节点缓存仍遵守独立触发条件。
+- 用户指定的后续 E08-A/E09-A 页面整合已完成，记录见 [E08 Outcome](archive/1792661016_dataset-workbench-quality.md#outcome) 和 [E09 Outcome](1792661016_dataset-storage-console-boundaries.md#outcome)；后续质量、筛选和运维切片以各Epic当前Outcome为准，节点缓存仍遵守独立触发条件。
 
 ### E10-B1 / E08-B5：从筛选视图固定训练成员
 
