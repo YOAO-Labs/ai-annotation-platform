@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10 completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11 completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -650,7 +650,7 @@ CHANGELOG、开发测试指南和E2E清理合同已同步；Ruff/format、正常
 
 ## E02-B11 Design — 指南图片归属、共享引用与认证内容读取
 
-状态：现有代码盘点和两轮只读审查完成，设计定案；B10-A已集成，B11待实施。继续原整套实施/提交授权，不增加批准轮次或发布版本。实际入口为项目设置 `?section=annotation-guide`、Workbench GuidePanel和首页StartChecklistCard。旧init/complete没有独立上传责任，HEAD只检查大小，最终PUT URL可重放；删除先物删且吞错。复制向导默认复制正文和原键，但旧读取又限定当前项目前缀，复制图实际404。显式ProjectUpdate还允许任意JSON覆盖清单；正文autosave只写annotation_guide，不参与此问题。
+状态：已完成本地实施、验收与提交，结果见下方Outcome。继续原整套实施/提交授权，不增加批准轮次或发布版本。实际入口为项目设置 `?section=annotation-guide`、Workbench GuidePanel和首页StartChecklistCard。实施前旧init/complete没有独立上传责任，HEAD只检查大小，最终PUT URL可重放；删除先物删且吞错。复制向导默认复制正文和原键，但旧读取又限定当前项目前缀，复制图实际404。显式ProjectUpdate还允许任意JSON覆盖清单；正文autosave只写annotation_guide，不参与此问题。
 
 ### 交付边界与权威关系
 
@@ -687,3 +687,21 @@ Web useGuideAssets改认证raw上传及完整内容读取，复用silentPost/sil
 主树用已验证一次性test环境运行DB，实际18100/13100 HTTP/MinIO/Celery和浏览器验证上传、共享复制、删来源、坏内容恢复重试、URL退役及明暗/桌面/窄窗。离线演练先销毁合成源再向空目标恢复，覆盖三态、共享引用、无原项目/账号、未知legacy；不授予生产RPO/RTO。同步README/CHANGELOG、项目API、项目/工作台/入门/模板用户指南、存储架构与恢复部署、SDK项目通用字段兼容说明及coverage分类，不冒充新增一等SDK接口；生成OpenAPI/类型/路由索引，正常hooks、相关检查与diff通过。
 
 应用0228并刷新人工3100/8100的API、两个Worker和Beat，保留原24对象、12源文件及业务；无图片历史记录也必须核对新增空表与修订初值。未请求发布版本/依赖/共享配置/镜像重建。回退保留0228与独立责任，旧客户端升级认证内容接口，不重新开放最终键PUT。一次性资源、浏览器、探针、测试/构建缓存和已集成子树按归属清理。完整E02继续执行，完整用途切换、其他媒体/RLE/Task消费者和E10真实框架资格仍独立推进。
+
+## E02-B11 Outcome — 指南图片独立归属与项目共享引用
+
+本地实现已提交至 `d276ebe94`；主集成提交为 `7d3c60adb`，领域、流程、恢复、Web、seed与正式文档分别通过隔离树集成。0228增加独立GuideAssetUpload、ProjectGuideAsset和清单修订；原请求凭证证明只扩展允许角色参数，评论附件默认权限保持。五种原字节图片经raw上传、条件创建和完整内容回读后发布，同事务关联当前项目清单；内容认证读取保存位置，不返回存储URL。旧三个合法接口明确409升级。显式清单PATCH使用CAS，只允许当前条目子集与重排；原历史重复、无key及未知条目保留清理和复制能力，不因JSON或键前缀获得读取权。
+
+复制在全部backend网络检查后重新锁定源快照、可见性、正文、清单、修订及ready引用，创建独立目标引用。删图片、删项目或seed删除仅退役对应引用；仍有其它项目引用时图片继续可读。普通Worker新增周期任务，ready无引用先退休、后续才按保存位置物删，pending和未知历史保持。Web三个入口统一认证图片解析，按账号、会话、项目与实例隔离进行中请求和缓存；旧Blob在scope退役时全部释放。SVG原字节使用不透明data地址，编辑、源码、预览、表格及放大保持能力。
+
+本地API九套JUnit按(classname,name)合并后为570个唯一用例，最终全部通过；此前一项自然到期测试夹具和三项锁竞争探针夹具已修正并以同名回归通过覆盖，不重复计数。Web99、SDK合同4、恢复单测30、Markdown实际E2E19与归属E2E2全部通过，共724个去重用例。实际浏览器首次暴露并行上传、autosave和预览对Project行的短时NOWAIT竞争；仅普通单项目路径改为事务内1秒有界等待并在末端重核期限，跨项目复制、显式PATCH、项目删除及其它锁保持原规则。真实双连接测试覆盖短等成功、等待期间过期拒绝和长等409零物理写入，最终19项Markdown E2E无跳过或flaky。
+
+一次性18100/13100、MinIO与当前两类Worker完成七组HTTP检查：五MIME并发、中文空格及字面百分号、精确5MiB边界与非法请求零owner；旧合法接口409；未知规范键409且解除清单不物删；复制后删除原项目仍读全六图；同大小损坏409及修复重试、维护Gate暂停恢复；陈旧CAS拒绝后正常保留两图，真实GC准确删除另外四图。验收收尾公开删除目标项目，下一次实际GC删除余下两图并核对六个owner与引用均不存在。自建未知legacy仅按探针的精确键明确移除。seed清理遇到未知独立责任时正确409，未绕过保护，最终销毁整个已验证一次性mode。
+
+命名浏览器检查项目设置的明暗主题、1440×1000与390×844，三图均加载且无页面横向溢出；真实放大与Escape、同账号重新登录及旧Blob全部撤销通过。另以标注员打开首页开工清单，原项目已删除的副本仍显示PNG、SVG与表格重复图片。独立打开原始SVG的实测结果为origin=null、应用存储blocked；其中脚本运行仍处于不透明源，应用marker保持。Workbench GuidePanel有单测回归；本次保留副本没有任务，实际入口显示无任务，不冒称完成其真实画布验收。控制台无应用异常，预期注入错误之外相关请求正常。
+
+离线合成恢复先销毁源，再恢复空目标：159表、140行、49对象、9268字节、九桶，迁移头0228。五个指南owner与文件、四条引用、两个共享项目、已删除原项目/上传者、两个修订及一份未知legacy均保持；只映射bucket/identity，源与目标清理已独立核对。该结果仅为合成离线资格，不代表生产RPO/RTO、真实迁移目标或GPU/训练框架资格。
+
+OpenAPI、类型与605路由索引生成通过，正式API/用户/架构/恢复文档和SDK coverage同步；类型检查、Web lint、CSS tokens、文档检查、正常hooks及diff检查通过，lint有四条既存warning。人工3100/8100已应用0228，受控刷新两Worker和单独监督Beat；两Worker均注册72任务，路由与实际GC派发正常，Beat周期300秒。迁移前后及测试清理后均核对11张业务表指纹、24对象完整SHA与12源文件保持，新表为空、修订初值正确。未重建镜像或改变共享配置、依赖与版本。
+
+test/e2e进程停止，两个mode各自DB、专用Redis和九桶销毁后独立查验不存在；命名浏览器关闭，探针、日志、测试缓存及七棵已集成且干净的隔离树按归属清理。人工服务和工作树本地生成类型保留。完整E02继续active、完整用途切换关闭；下一片优先持久RLE，独立Task原件、已有Dataset位置的读取消费者、金字塔和视频派生分别收口。
