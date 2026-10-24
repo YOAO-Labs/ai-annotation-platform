@@ -517,3 +517,80 @@ async def test_fixture_cleanup_rejects_unretired_video_without_changing_rows(
             }
         ),
     )
+
+
+async def test_fixture_cleanup_frozen_function_rejects_actual_non_test_database(
+    test_engine, record_property
+):
+    _verify_postgres(test_engine.url)
+    name = "aap_jobs_guard_" + uuid.uuid4().hex[:12] + "_dev"
+    marker = "jobs-fixture-guard:" + uuid.uuid4().hex
+    async with test_engine.connect() as raw:
+        admin = await raw.execution_options(isolation_level="AUTOCOMMIT")
+        await admin.execute(text(f'CREATE DATABASE "{name}"'))
+        await admin.execute(text(f"COMMENT ON DATABASE \"{name}\" IS '{marker}'"))
+        identity = (
+            await admin.execute(
+                text(
+                    "SELECT oid,pg_catalog.pg_get_userbyid(datdba),"
+                    "pg_catalog.shobj_description(oid,'pg_database') "
+                    "FROM pg_catalog.pg_database WHERE datname=:name"
+                ),
+                {"name": name},
+            )
+        ).one()
+        assert tuple(identity)[1:] == (test_engine.url.username, marker)
+    probe = create_async_engine(
+        test_engine.url.set(database=name), hide_parameters=True
+    )
+    try:
+        async with probe.begin() as db:
+            assert await db.scalar(text("SELECT current_database()")) == name
+            await db.execute(text("CREATE SCHEMA aap_jobs_v1"))
+            sql = (
+                ROOT / "apps/api/alembic/sql/0330_jobs_fixture_cleanup.sql"
+            ).read_text()
+            for statement in sql.split("-- aap-statement-break"):
+                if statement.strip():
+                    await db.exec_driver_sql(statement.strip())
+        async with probe.begin() as db:
+            with pytest.raises(DBAPIError) as rejected:
+                await db.scalar(text(_CALL), {"ids": []})
+            assert _sqlstate(rejected.value) == "42501"
+            assert "Jobs fixture cleanup requires a test database" in str(
+                rejected.value.orig
+            )
+        record_property(
+            "jobs_fixture_cleanup_actual_non_test_database",
+            {
+                "actual_database": name,
+                "sqlstate": "42501",
+                "frozen_sql": True,
+                "before_workspace_or_job_table_access": True,
+            },
+        )
+    finally:
+        await probe.dispose()
+        async with test_engine.connect() as raw:
+            admin = await raw.execution_options(isolation_level="AUTOCOMMIT")
+            observed = (
+                await admin.execute(
+                    text(
+                        "SELECT oid,pg_catalog.pg_get_userbyid(datdba),"
+                        "pg_catalog.shobj_description(oid,'pg_database') "
+                        "FROM pg_catalog.pg_database WHERE datname=:name"
+                    ),
+                    {"name": name},
+                )
+            ).one()
+            assert tuple(observed) == tuple(identity)
+            assert (
+                await admin.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE datname=:name"
+                    ),
+                    {"name": name},
+                )
+                == 0
+            )
+            await admin.execute(text(f'DROP DATABASE "{name}"'))
