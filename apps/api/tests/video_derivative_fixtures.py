@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from sqlalchemy import select
 
 from app.db.models.dataset import DatasetItem, VideoFrameIndex
+from app.db.models.dataset_asset import DatasetAsset
 from app.services import storage_access
 from app.services import video_derivatives as core
 from app.services import video_derivative_objects as objects
@@ -30,15 +31,28 @@ def saved_url(output, relative):
 
 async def video_authority(db, item, *, register=True):
     if register:
-        item.file_size = len(RAW_VIDEO)
-        await db.flush()
-        await register_item_asset(
-            db,
-            item,
-            sha256=hashlib.sha256(RAW_VIDEO).hexdigest(),
-            size_bytes=len(RAW_VIDEO),
+        asset = await db.scalar(
+            select(DatasetAsset).where(DatasetAsset.dataset_item_id == item.id)
         )
-        await storage_access.ensure(db, LEGACY_LOCATION_ID)
+        if asset is None:
+            item.file_size = len(RAW_VIDEO)
+            await db.flush()
+            await register_item_asset(
+                db,
+                item,
+                sha256=hashlib.sha256(RAW_VIDEO).hexdigest(),
+                size_bytes=len(RAW_VIDEO),
+            )
+            await storage_access.ensure(db, LEGACY_LOCATION_ID)
+        else:
+            # Re-registration refreshes replica.verified_at, which is part of
+            # the immutable source receipt. A later fixture consumer must only
+            # read the already registered source and never rewrite its facts.
+            assert asset.media_type == "video"
+            assert asset.verification_state == "verified"
+            assert asset.checksum_algorithm == "sha256"
+            assert asset.checksum_value == hashlib.sha256(RAW_VIDEO).hexdigest()
+            assert asset.size_bytes == item.file_size == len(RAW_VIDEO)
     source = await originals.pin(db, "dataset_item", item.id)
     return await originals.delegated(
         db, originals.system_authorization("dataset_item", item.id, source)
