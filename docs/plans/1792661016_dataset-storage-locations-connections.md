@@ -801,3 +801,21 @@ README、CHANGELOG、API/用户/架构/存储桶和部署恢复说明同步，�
 人工3100/8100已应用0230/0231并由原拥有服务刷新。迁移前保留旧API服务子进程，验证后恢复reloader；启动收敛后doctor、两个Worker各72任务/准确队列、实际Guide清理与RLE dry-run、Beat五分钟及原UTC03:20调度正常。11业务表指纹、24对象完整SHA及12源文件保持，新增Task原件/Task作用域创建记录为空，既有Task指针保持NULL。没有重建镜像、安装依赖或修改共享配置/版本。
 
 三个一次性命名空间的数据库、Redis及合计27桶已独立查验不存在；三棵干净且patch等价的隔离树和分支移除，任务产物清理，人工服务及本地类型保留。完整E02和B13仍在执行，完整用途切换关闭。下一片B13-B先统一TaskOriginal、直接DatasetItem和primary_lidar的关系定位，接已有认证content/identity；随后覆盖媒体/大文件、推理、导出和冻结来源，不能按当前桶猜读或重复建立Dataset原件owner。
+
+## E02-B13-B1 Design — 原件关系解析与完整字节暂存
+
+基于干净HEAD `702cb8bf5`，三路审查确认当前content/quality仍按现行datasets桶过滤，裸GET没有维护许可；reference把直接外键当作唯一Task关联。B13-B继续覆盖全部原件消费者，本片先交付统一关系/固定位置、可供后续媒体使用的完整二进制暂存，以及现有认证图片/质检入口。没有接入的DTO/匿名file-url、ML/ROI、视频/点云/相机、金字塔、导出、训练/评估/AL冻结来源继续列为B13-B剩余项，不因新增helper或本片图片验收宣称完成。
+
+新增不提交调用者事务的original_sources解析器，返回冻结的关系与内容/位置事实。TaskOriginal要求Task/Project/路径精确一致且无任何Dataset关联；Dataset直接FK和primary_lidar同一Item接受，不同409；无direct但有primary可读，仅camera、无owner或未知位置409且零对象I/O。Dataset继续使用verified SHA/大小和唯一present managed_original位置，允许没有Creation的已核验历史；unverified回填、ETag、当前同名桶不升级为证据。多合格managed位置明确歧义，不任取一条；original_cache/preview不冒充原件。平台Location必须启用、配置可解释并与实际客户端端点一致，读取不依赖当前用途桶、不调用Creation.\_validate；可选Creation只保留历史来源，恢复后的桶/版本不要求等于源写入回执。
+
+reference内部复用同一Task关系判断并继续原task_authorizer及真实路径检查，不改变已有context字典/冻结训练证明，也不把Task读取改成数据集管理权限。末端按User/Key→Project/Member→Batch→Task→准确link/Item/Asset/Location短NOWAIT共享锁刷新实际权限与关系；解析器不自行commit。Task SHARE与既有link写触发器共同挡新增/更新，现有link本身也取共享锁以挡删除。业务锁不跨物理I/O，初始、许可取得后和交付前分别复核冻结源与Gate代次；冲突明确409，拒绝等待成环。
+
+纯物理managed_original_reader接收保存endpoint/bucket/key、SHA/精确大小及显式max_bytes/timeout，使用当前无VersionId HEAD、本次观察的IfMatch/有效目标VersionId GET、分块落本地TemporaryFile、完整SHA/大小和EOF、真实Body/client关闭、当前无VersionId末端HEAD。严格核HTTP200、元数据和条件能力；不支持条件的provider失败，不静默降级。源ETag/VersionId不作目标版本选择器。[S3 GetObject官方合同](https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/get_object.html)只提供条件传输，完整SHA仍由本地核验。四个二进制暂存槽、文件明确close、线程强引用/shield/drain和迟到结果关闭保留真实资源责任；未知关闭保留durable许可，不误记已排空。临时文件遵循[Python自动清理语义](https://docs.python.org/3.12/library/tempfile.html)，不新增持久副本表、缓存或依赖。
+
+既有content_snapshot保持PNG/JPEG/WebP、64MiB/32M像素和质量宽容规则，增加直接接管已核验文件的图片适配，避免二次下载或整包内存。二进制层不继承图片大小/10秒/15秒预算，后续大文件消费者显式给出自身预算；Range仍维持当前图片接口416，不能用片段摘要代替完整证明。取消必须等待SDK/解码线程和句柄真实收尾，文件未交付时释放本次槽；Response结束仍关闭文件。依据[asyncio取消合同](https://docs.python.org/3.12/library/asyncio-task.html#shielding-from-cancellation)保留任务强引用并drain，不增加重试层。
+
+API继续既有content与content-identity URI，支持独立Task图片和primary关联；identity显式区分dataset_asset/task_original，Dataset的asset_id保持，Task使用独立task_original_id且asset_id为空，禁止把TaskOriginal UUID伪称DatasetAsset。初始/末端复核原JWT或API Key、自然期限和当前可见性，包含viewer与当前Batch状态，不沿用上传的管理者限制。metadata identity保持original_availability=unchecked，不探测对象或声称在线。quality使用相同Dataset定位和严格文件，保留数据集管理/Worker原权限及冻结asset/SHA/size，reference仍走原来源/缓存合同。
+
+本片超过八文件及三个组件，建立三棵当前HEAD隔离树：关系/位置解析与reference关系测试；纯二进制reader、图片适配及严格provider/取消测试；新内容入口回归与恢复夹具。主树负责原请求/当前权限短锁、dataset_content与files接入、质检及旧合同回归、正式文档/生成类型/真实HTTP和Worker验收。流程为 `Task/Item关系+权限 -> 冻结源 -> 释放业务锁 -> durable许可/重核 -> 完整二进制暂存 -> 图片适配 -> 当前关系/凭证/Gate短锁重核 -> Response关闭`，没有新环境变量、外部凭据、服务、迁移或镜像重建。
+
+验证明确覆盖无Creation的已核验历史、旧未核验零I/O、同键异桶陷阱、managed多位置/缓存角色、TaskOriginal及direct/primary同一/冲突/link-only、reference普通标注员、读取期间关联/权限/Batch/Key/Gate改变、条件忽略/206/错metadata、截断/超长/损坏/末端替换/真实关闭、重复取消与未知收尾/槽释放。真实TCP/MinIO核对固定桶内容及拒读，源销毁后的离线恢复通过实际Task/Item内容读取证明目标当前观察有效且历史不变。只用已验证一次性test DB，人工3100/8100、两Worker/Beat、24对象/12文件和11业务指纹保持；正常hooks、相关检查、docs build与diff通过后提交Outcome并按归属清理。回退代码不改既有归属/历史，不能恢复当前桶猜读后门；完整用途切换仍关闭。
