@@ -27,6 +27,7 @@ _HEADERS = (
     "WebsiteRedirectLocation",
 )
 _OBJECT_FIELDS = {"bucket", "key", "file", "size_bytes", "sha256", "etag", "metadata"}
+_VERSIONED_OBJECT_FIELDS = _OBJECT_FIELDS | {"source_version_id"}
 _MANIFEST_FIELDS = {"schema", "bucket_roles", "database", "objects", "facts", "totals"}
 
 
@@ -279,31 +280,48 @@ def _pages(s3, method, bucket, limits):
     _fail("budget_exceeded", "Storage pagination budget exceeded.")
 
 
-def _current_only(s3, bucket, limits):
+def _current_only(s3, bucket, limits, *, allow_versioned=True):
     versioning = _call(s3, "get_bucket_versioning", Bucket=bucket)
-    if versioning.get("Status") is not None or versioning.get("MFADelete") == "Enabled":
+    enabled = versioning.get("Status") == "Enabled"
+    if (
+        versioning.get("Status") not in (None, "Enabled")
+        or versioning.get("MFADelete") not in (None, "Disabled")
+        or (enabled and not allow_versioned)
+    ):
         _fail(
             "unsupported_bucket_state",
-            "Versioned storage is outside this backup format.",
+            "Only unversioned or single-current-version source buckets are supported.",
         )
-    count = 0
+    versions = {}
     for page in _pages(s3, "list_object_versions", bucket, limits):
         if page.get("DeleteMarkers"):
             _fail(
                 "unsupported_bucket_state",
                 "Delete markers cannot be omitted from a backup.",
             )
-        for item in page.get("Versions", []):
-            count += 1
+        values = page.get("Versions", [])
+        if not isinstance(values, list) or any(
+            not isinstance(item, dict) for item in values
+        ):
+            _fail("storage_io", "Storage returned an invalid version inventory.")
+        for item in values:
+            key = _key(item.get("Key"))
+            if enabled and item.get("VersionId") is None:
+                _fail("storage_io", "A versioned source must name its current version.")
+            version = _version(item.get("VersionId"))
             if (
-                item.get("VersionId") not in (None, "null")
-                or item.get("IsLatest") is not True
+                item.get("IsLatest") is not True
+                or key in versions
+                or (version is not None and not enabled)
             ):
                 _fail(
                     "unsupported_bucket_state",
                     "Historical object versions are not supported.",
                 )
-            if count > limits.max_objects:
+            # An old null object can remain current after enabling versioning.
+            # Preserve that explicit source version instead of silently omitting it.
+            versions[key] = (version or "null") if enabled else None
+            if len(versions) > limits.max_objects:
                 _fail(
                     "budget_exceeded",
                     "Object version listing exceeded the object budget.",
@@ -314,6 +332,26 @@ def _current_only(s3, bucket, limits):
                 "unsupported_bucket_state",
                 "Unfinished multipart uploads prevent backup or restore.",
             )
+    return (
+        enabled,
+        versions,
+        {
+            "Status": versioning.get("Status"),
+            "MFADelete": versioning.get("MFADelete"),
+        },
+    )
+
+
+def _version(value):
+    if value in (None, "null"):
+        return None
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= 1024
+        or any(not 33 <= ord(character) <= 126 for character in value)
+    ):
+        _fail("invalid_manifest", "Object version observations must be safe strings.")
+    return value
 
 
 def _key(value):
@@ -393,12 +431,12 @@ def _metadata(value, *, frozen=False):
     return result
 
 
-def _head(s3, bucket, key):
+def _head(s3, bucket, key, *, versioned=False):
     value = _call(s3, "head_object", Bucket=bucket, Key=key)
-    if value.get("VersionId") not in (None, "null") or value.get("DeleteMarker"):
+    if value.get("DeleteMarker"):
         _fail(
             "unsupported_bucket_state",
-            "Only current unversioned objects can be backed up.",
+            "Delete markers cannot be backed up as current content.",
         )
     if value.get("ObjectLockMode") or value.get("ObjectLockLegalHoldStatus") == "ON":
         _fail(
@@ -409,13 +447,23 @@ def _head(s3, bucket, key):
         "size_bytes": _integer(value.get("ContentLength")),
         "etag": _etag(value.get("ETag")),
         "metadata": _metadata(value),
+        "source_version_id": (_version(value.get("VersionId")) or "null")
+        if versioned
+        else _version(value.get("VersionId")),
     }
 
 
-def _inventory(s3, roles, limits, *, empty=False):
+def _inventory(
+    s3, roles, limits, *, empty=False, allow_versioned=True, configurations=None
+):
     records, total = {}, 0
     for bucket in sorted(set(roles.values())):
-        _current_only(s3, bucket, limits)
+        versioned, versions, configuration = _current_only(
+            s3, bucket, limits, allow_versioned=allow_versioned
+        )
+        if configurations is not None:
+            configurations[bucket] = configuration
+        listed = set()
         for page in _pages(s3, "list_objects_v2", bucket, limits):
             for value in page.get("Contents", []):
                 if empty:
@@ -430,20 +478,26 @@ def _inventory(s3, roles, limits, *, empty=False):
                         "duplicate_object",
                         "Storage listed one physical object more than once.",
                     )
+                listed.add(key)
                 size = _integer(value.get("Size"))
                 if len(records) >= limits.max_objects or size > limits.max_object_bytes:
                     _fail("budget_exceeded", "Object backup budget exceeded.")
                 total += size
                 if total > limits.max_total_bytes:
                     _fail("budget_exceeded", "Total object backup budget exceeded.")
-                observed = _head(s3, bucket, key)
-                if observed["size_bytes"] != size or observed["etag"] != _etag(
-                    value.get("ETag")
+                observed = _head(s3, bucket, key, versioned=versioned)
+                if (
+                    key not in versions
+                    or observed["source_version_id"] != versions[key]
+                    or observed["size_bytes"] != size
+                    or observed["etag"] != _etag(value.get("ETag"))
                 ):
                     _fail(
                         "source_changed", "An object changed between listing and HEAD."
                     )
                 records[identity] = {"bucket": bucket, "key": key, **observed}
+        if listed != set(versions):
+            _fail("source_changed", "Version and current-object inventories differ.")
     return [records[key] for key in sorted(records)]
 
 
@@ -459,6 +513,11 @@ def _body(s3, record, output, limits):
         Bucket=record["bucket"],
         Key=record["key"],
         IfMatch=record["etag"],
+        **(
+            {"VersionId": record["source_version_id"]}
+            if record.get("source_version_id") is not None
+            else {}
+        ),
     )
     body = response.get("Body")
     if not hasattr(body, "read"):
@@ -468,6 +527,8 @@ def _body(s3, record, output, limits):
             _integer(response.get("ContentLength")) != record["size_bytes"]
             or _etag(response.get("ETag")) != record["etag"]
             or _metadata(response) != record["metadata"]
+            or _version(response.get("VersionId"))
+            != _version(record.get("source_version_id"))
         ):
             _fail(
                 "source_changed", "Object metadata changed before its content was read."
@@ -513,15 +574,22 @@ def create_generation(
                         "file": "database.dump",
                         **_copy(source, output, limits.max_dump_bytes, dump=True),
                     }
-        before = _inventory(s3, roles, limits)
+        before_configurations, after_configurations = {}, {}
+        before = _inventory(s3, roles, limits, configurations=before_configurations)
         objects = []
         with _directory(_path(directory) / "objects") as files:
             for observed in before:
                 filename = _object_file(observed["bucket"], observed["key"])
                 with _file(files, filename.split("/")[1], create=True) as output:
                     copied = _body(s3, observed, output, limits)
-                if _head(s3, observed["bucket"], observed["key"]) != {
-                    key: observed[key] for key in ("size_bytes", "etag", "metadata")
+                if _head(
+                    s3,
+                    observed["bucket"],
+                    observed["key"],
+                    versioned=observed["source_version_id"] is not None,
+                ) != {
+                    key: observed[key]
+                    for key in ("size_bytes", "etag", "metadata", "source_version_id")
                 }:
                     _fail(
                         "source_changed",
@@ -529,12 +597,15 @@ def create_generation(
                     )
                 objects.append({**observed, **copied, "file": filename})
             os.fsync(files)
-        if _inventory(s3, roles, limits) != before:
+        if (
+            _inventory(s3, roles, limits, configurations=after_configurations) != before
+            or after_configurations != before_configurations
+        ):
             _fail(
                 "source_changed", "The source object collection changed during backup."
             )
         manifest = {
-            "schema": 1,
+            "schema": 2,
             "bucket_roles": roles,
             "database": database,
             "objects": objects,
@@ -575,7 +646,7 @@ def _manifest(value, limits):
         not isinstance(value, dict)
         or set(value) != _MANIFEST_FIELDS
         or type(value["schema"]) is not int
-        or value["schema"] != 1
+        or value["schema"] not in (1, 2)
     ):
         _fail("invalid_manifest", "Unsupported generation manifest.")
     roles = _roles(value["bucket_roles"])
@@ -594,7 +665,8 @@ def _manifest(value, limits):
         _fail("budget_exceeded", "Generation object count budget exceeded.")
     identities, total = set(), 0
     for item in objects:
-        if not isinstance(item, dict) or set(item) != _OBJECT_FIELDS:
+        fields = _OBJECT_FIELDS if value["schema"] == 1 else _VERSIONED_OBJECT_FIELDS
+        if not isinstance(item, dict) or set(item) != fields:
             _fail("invalid_manifest", "An object descriptor is invalid.")
         if not isinstance(item["bucket"], str) or item["bucket"] not in set(
             roles.values()
@@ -615,6 +687,8 @@ def _manifest(value, limits):
             _fail("budget_exceeded", "Generation object byte budget exceeded.")
         _digest(item["sha256"])
         _etag(item["etag"])
+        if value["schema"] == 2:
+            _version(item["source_version_id"])
         if _metadata(item["metadata"], frozen=True) != item["metadata"]:
             _fail("invalid_manifest", "Object metadata is not canonical.")
     totals = {
@@ -716,7 +790,7 @@ def restore_objects(directory, *, s3, bucket_roles, limits=Limits()):
     manifest = verify_generation(directory, limits=limits)
     roles = _roles(bucket_roles)
     mapping = _mapping(manifest["bucket_roles"], roles)
-    _inventory(s3, roles, limits, empty=True)
+    _inventory(s3, roles, limits, empty=True, allow_versioned=False)
     with _directory(_path(directory) / "objects") as files:
         for item in manifest["objects"]:
             with _file(files, item["file"].split("/")[1]) as stream:
@@ -743,7 +817,7 @@ def restore_objects(directory, *, s3, bucket_roles, limits=Limits()):
                     **({"Body": stream} if item["size_bytes"] else {}),
                     **metadata,
                 )
-    restored = _inventory(s3, roles, limits)
+    restored = _inventory(s3, roles, limits, allow_versioned=False)
     expected = {
         (mapping[item["bucket"]], item["key"]): item for item in manifest["objects"]
     }

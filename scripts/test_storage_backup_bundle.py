@@ -53,6 +53,7 @@ class FakeS3:
         self.calls = []
         self.reads = []
         self.puts = []
+        self.get_requests = []
         self.on_get = None
         self.on_close = None
         self.put_corruption = False
@@ -76,12 +77,21 @@ class FakeS3:
 
     def get_bucket_versioning(self, *, Bucket):
         self.calls.append(("versioning", Bucket))
-        return {"Status": self.versioning[Bucket]} if Bucket in self.versioning else {}
+        value = self.versioning.get(Bucket)
+        return (
+            deepcopy(value)
+            if isinstance(value, dict)
+            else ({"Status": value} if value else {})
+        )
 
     def list_object_versions(self, *, Bucket, KeyMarker=None, VersionIdMarker=None):
         self.calls.append(("versions", Bucket))
         values = [
-            {"Key": key, "VersionId": "null", "IsLatest": True}
+            {
+                "Key": key,
+                "VersionId": self.objects[Bucket][key].get("VersionId", "null"),
+                "IsLatest": True,
+            }
             for key in sorted(self.objects[Bucket])
         ] + self.history.get(Bucket, [])
         offset = int(KeyMarker or "0")
@@ -127,10 +137,20 @@ class FakeS3:
         self.calls.append(("head", Bucket))
         return self._head(Bucket, Key)
 
-    def get_object(self, *, Bucket, Key, IfMatch):
+    def get_object(self, *, Bucket, Key, IfMatch, VersionId=None):
         self.calls.append(("get", Bucket))
+        self.get_requests.append(
+            {
+                "Bucket": Bucket,
+                "Key": Key,
+                "IfMatch": IfMatch,
+                **({"VersionId": VersionId} if VersionId is not None else {}),
+            }
+        )
         head = self._head(Bucket, Key)
-        if IfMatch != head["ETag"]:
+        if IfMatch != head["ETag"] or (
+            VersionId is not None and VersionId != head.get("VersionId", "null")
+        ):
             raise RuntimeError("credential-material-must-not-escape")
         data = self.objects[Bucket][Key]["data"]
         if self.on_get:
@@ -450,12 +470,29 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(self.s3.puts, [])
 
     def test_versioned_history_deleted_and_multipart_sources_are_rejected(self):
-        variants = ("enabled", "suspended", "history", "deleted", "multipart")
+        variants = (
+            "suspended",
+            "mfa",
+            "history",
+            "deleted",
+            "multipart",
+            "duplicate-current",
+        )
         for index, variant in enumerate(variants):
             with self.subTest(variant=variant):
                 self.directory = self.root / f"unsupported-{index}"
-                if variant in {"enabled", "suspended"}:
+                if variant == "suspended":
                     self.s3.versioning[self.shared] = variant.title()
+                elif variant == "mfa":
+                    self.s3.versioning[self.shared] = {
+                        "Status": "Enabled",
+                        "MFADelete": "Enabled",
+                    }
+                elif variant == "duplicate-current":
+                    self.s3.versioning[self.shared] = "Enabled"
+                    self.s3.history[self.shared] = [
+                        {"Key": "large.bin", "VersionId": "other", "IsLatest": True}
+                    ]
                 elif variant == "history":
                     self.s3.history[self.shared] = [
                         {"Key": "old", "VersionId": "v1", "IsLatest": False}
@@ -478,10 +515,12 @@ class BundleTests(unittest.TestCase):
     def test_unsupported_target_state_is_rejected_before_every_put(self):
         self.create()
         last = sorted(set(self.target.values()))[-1]
-        for variant in ("versioning", "multipart", "history"):
+        for variant in ("versioning", "enabled", "multipart", "history"):
             with self.subTest(variant=variant):
                 if variant == "versioning":
                     self.s3.versioning[last] = "Suspended"
+                elif variant == "enabled":
+                    self.s3.versioning[last] = "Enabled"
                 elif variant == "multipart":
                     self.s3.uploads[last] = [{"Key": "pending", "UploadId": "x"}]
                 else:
@@ -499,6 +538,138 @@ class BundleTests(unittest.TestCase):
                 self.s3.versioning.clear()
                 self.s3.uploads.clear()
                 self.s3.history.clear()
+
+    def test_single_current_versions_and_legacy_null_are_pinned_and_restore_content_only(
+        self,
+    ):
+        self.s3.versioning[self.shared] = "Enabled"
+        for index, key in enumerate(sorted(self.s3.objects[self.shared])):
+            if index:
+                self.s3.objects[self.shared][key]["VersionId"] = (
+                    f"source-version-{index}"
+                )
+        source = deepcopy(self.s3.objects[self.shared])
+        manifest = self.create()
+        self.assertEqual(manifest["schema"], 2)
+        self.assertEqual(verify_generation(self.directory), manifest)
+        versions = {row["key"]: row["source_version_id"] for row in manifest["objects"]}
+        self.assertEqual(
+            versions,
+            {key: value.get("VersionId", "null") for key, value in source.items()},
+        )
+        self.assertTrue(
+            all(
+                request["VersionId"] == versions[request["Key"]]
+                for request in self.s3.get_requests
+            )
+        )
+        restore_objects(self.directory, s3=self.s3, bucket_roles=self.target)
+        for key, value in source.items():
+            self.assertEqual(
+                self.s3.objects[self.target["MINIO_BUCKET"]][key],
+                {name: field for name, field in value.items() if name != "VersionId"},
+            )
+        self.assertEqual(
+            manifest,
+            verify_generation(self.directory),
+            "Restore cannot rewrite source versions into destination receipts",
+        )
+
+    def test_old_unversioned_manifest_still_verifies_and_restores(self):
+        self.create()
+
+        def historical(value):
+            value["schema"] = 1
+            for item in value["objects"]:
+                item.pop("source_version_id")
+
+        self.rewrite_manifest(historical)
+        self.assertEqual(verify_generation(self.directory)["schema"], 1)
+        restore_objects(self.directory, s3=self.s3, bucket_roles=self.target)
+        self.assertEqual(
+            self.s3.objects[self.target["MINIO_BUCKET"]], self.s3.objects[self.shared]
+        )
+
+    def test_same_bytes_new_version_and_late_history_never_publish_completion(self):
+        for index, mutation in enumerate(
+            ("new-version", "new-history", "configuration")
+        ):
+            with self.subTest(mutation=mutation):
+                self.directory = self.root / f"changed-version-{index}"
+                self.s3.versioning[self.shared] = "Enabled"
+                key = sorted(self.s3.objects[self.shared])[0]
+                self.s3.objects[self.shared][key]["VersionId"] = "initial"
+
+                def mutate():
+                    if mutation == "new-version":
+                        self.s3.objects[self.shared][key]["VersionId"] = "replacement"
+                    elif mutation == "new-history":
+                        self.s3.history[self.shared] = [
+                            {"Key": key, "VersionId": "older", "IsLatest": False}
+                        ]
+                    else:
+                        empty = self.source["MINIO_EXPORT_BUCKET"]
+                        self.s3.versioning[empty] = "Enabled"
+
+                self.s3.on_close = mutate
+                with self.assertRaises(BackupError):
+                    self.create()
+                self.assertFalse((self.directory / "COMPLETE.json").exists())
+                self.s3.history.clear()
+                self.s3.versioning.clear()
+
+    def test_version_observation_tampering_is_rejected_locally(self):
+        self.create()
+        raw = (self.directory / "manifest.json").read_bytes()
+        for version in (True, 17, "", "unsafe\nversion", "x" * 1025):
+            with self.subTest(version=version):
+                self.rewrite_manifest(
+                    lambda value: value["objects"][0].update(source_version_id=version)
+                )
+                before = len(self.s3.calls)
+                self.assert_error(
+                    "invalid_manifest",
+                    restore_objects,
+                    self.directory,
+                    s3=self.s3,
+                    bucket_roles=self.target,
+                )
+                self.assertEqual(len(self.s3.calls), before)
+                (self.directory / "manifest.json").write_bytes(raw)
+
+    def test_get_must_report_the_pinned_source_version(self):
+        self.s3.versioning[self.shared] = "Enabled"
+        for item in self.s3.objects[self.shared].values():
+            item["VersionId"] = "current-version"
+        original_get = self.s3.get_object
+        bodies = []
+
+        def changed_response(**params):
+            response = original_get(**params)
+            bodies.append(response["Body"])
+            return {**response, "VersionId": "different-version"}
+
+        with patch.object(self.s3, "get_object", side_effect=changed_response):
+            self.assert_error("source_changed", self.create)
+        self.assertFalse((self.directory / "COMPLETE.json").exists())
+        self.assertTrue(bodies and all(body.closed for body in bodies))
+
+    def test_version_inventory_cannot_omit_current_objects(self):
+        self.s3.versioning[self.shared] = "Enabled"
+        original_list = self.s3.list_object_versions
+
+        def omitted(**params):
+            response = original_list(**params)
+            return (
+                {**response, "Versions": []}
+                if params["Bucket"] == self.shared
+                else response
+            )
+
+        with patch.object(self.s3, "list_object_versions", side_effect=omitted):
+            self.assert_error("source_changed", self.create)
+        self.assertFalse((self.directory / "COMPLETE.json").exists())
+        self.assertEqual(self.s3.get_requests, [])
 
     def test_source_changes_and_duplicate_pagination_cannot_publish_completion(self):
         self.s3.on_get = lambda: self.s3.add(self.shared, "new-late", b"late")

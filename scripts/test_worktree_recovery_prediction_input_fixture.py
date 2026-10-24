@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 import hashlib
 import io
+import os
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -21,6 +23,8 @@ from worktree_recovery_prediction_inputs import (
     _guard,
     _seed_case,
     _verify_physical,
+    _verify_historical_rejections,
+    enable_owned_import_versioning,
     owner_identifier,
     seed_prediction_inputs,
 )
@@ -278,53 +282,43 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frozen.storage_ref["bucket"], "saved")
 
     def test_physical_verification_uses_saved_owner_and_keeps_planned_absent(self):
-        from app.services import prediction_inputs
-
         storage = SimpleNamespace(client=Mock())
         storage.client.head_object.side_effect = absent()
         record = SimpleNamespace(
             id=uuid.uuid4(), bucket="saved-target", storage_ref={"key_prefix": "exact/"}
         )
         objects = {
-            "original/hash.png": {
-                "state": "verified",
-                "version_id": None,
-                "write_nonce": str(uuid.uuid4()),
-            },
-            "crops/0-hash.jpg": {
-                "state": "planned",
-                "etag": None,
-                "version_id": None,
-                "write_nonce": str(uuid.uuid4()),
-            },
+            "original/hash.png": {"state": "verified", "version_id": "historical"},
+            "crops/0-hash.jpg": {"state": "planned", "etag": None, "version_id": None},
         }
         frozen = deepcopy(objects)
-        with patch.object(prediction_inputs, "_read", Mock()) as read:
+        with patch(
+            "worktree_recovery_prediction_inputs._read_restored_content"
+        ) as read:
             self.assertEqual(_verify_physical(storage, record, objects), (1, 1))
         self.assertEqual(
             read.call_args.args[:4],
             (
                 storage.client,
-                "saved-target",
+                record,
                 "exact/original/hash.png",
                 objects["original/hash.png"],
             ),
         )
-        self.assertEqual(read.call_args.kwargs, {"lease_id": record.id})
         storage.client.head_object.assert_called_once_with(
             Bucket="saved-target", Key="exact/crops/0-hash.jpg"
         )
         self.assertEqual(objects, frozen)
         storage.client.head_object.side_effect = None
-        with patch.object(prediction_inputs, "_read", Mock()):
+        with patch("worktree_recovery_prediction_inputs._read_restored_content"):
             with self.assertRaisesRegex(AssertionError, "must remain absent"):
                 _verify_physical(storage, record, objects)
         storage.client.head_object.side_effect = RuntimeError("transport failure")
-        with patch.object(prediction_inputs, "_read", Mock()):
+        with patch("worktree_recovery_prediction_inputs._read_restored_content"):
             with self.assertRaisesRegex(RuntimeError, "transport failure"):
                 _verify_physical(storage, record, objects)
 
-    def test_real_reader_checks_complete_bytes_and_ownership_metadata(self):
+    def test_restored_current_reader_checks_bytes_metadata_and_observed_version(self):
         from app.services.content_snapshot import ContentError
 
         raw = b"tiny verified image fixture"
@@ -337,77 +331,278 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
                 "state": "verified",
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "size_bytes": len(raw),
-                "etag": '"saved-etag"',
-                "version_id": None,
+                "etag": '"historical-etag"',
+                "version_id": "historical-version",
                 "write_nonce": nonce,
+                "media_type": "image/png",
             }
         }
-        observation = {
-            "ContentLength": len(raw),
-            "ETag": '"saved-etag"',
-            "ResponseMetadata": {"HTTPStatusCode": 200},
-            "Metadata": {
-                "aap-prediction-lease": str(identifier),
-                "aap-prediction-write": nonce,
-            },
-        }
-        for tamper in (
-            None,
-            "same-length",
-            "trailing",
-            "wrong-write",
-            "wrong-lease",
-            "changed-etag",
-        ):
-            with self.subTest(tamper=tamper):
-                payload = b"X" * len(raw) if tamper == "same-length" else raw
-                if tamper == "trailing":
-                    payload += b"X"
-                body = io.BytesIO(payload)
-                get = deepcopy(observation)
-                if tamper == "wrong-write":
-                    get["Metadata"]["aap-prediction-write"] = str(uuid.uuid4())
-                if tamper == "wrong-lease":
-                    get["Metadata"]["aap-prediction-lease"] = str(uuid.uuid4())
-                if tamper == "changed-etag":
-                    get["ETag"] = '"new-etag"'
-                client = SimpleNamespace(
-                    head_object=Mock(return_value=deepcopy(observation)),
-                    get_object=Mock(return_value={**get, "Body": body}),
-                )
-                if tamper is None:
-                    self.assertEqual(
-                        _verify_physical(
-                            SimpleNamespace(client=client), record, objects
-                        ),
-                        (1, 0),
+        before = deepcopy(objects)
+        for version in (None, "null", "restored-new-version"):
+            observation = {
+                "ContentLength": len(raw),
+                "ETag": '"target-etag"',
+                "ContentType": "image/png",
+                "ResponseMetadata": {"HTTPStatusCode": 200},
+                "Metadata": {
+                    "aap-prediction-lease": str(identifier),
+                    "aap-prediction-write": nonce,
+                },
+                **({"VersionId": version} if version is not None else {}),
+            }
+            for tamper in (
+                None,
+                "same-length",
+                "trailing",
+                "wrong-write",
+                "wrong-lease",
+                "changed-etag",
+                "changed-version",
+                "changed-metadata",
+                "replacement-after-read",
+            ):
+                with self.subTest(version=version, tamper=tamper):
+                    payload = b"X" * len(raw) if tamper == "same-length" else raw
+                    if tamper == "trailing":
+                        payload += b"X"
+                    body = io.BytesIO(payload)
+                    get, after = deepcopy(observation), deepcopy(observation)
+                    if tamper == "wrong-write":
+                        get["Metadata"]["aap-prediction-write"] = str(uuid.uuid4())
+                    if tamper == "wrong-lease":
+                        get["Metadata"]["aap-prediction-lease"] = str(uuid.uuid4())
+                    if tamper == "changed-etag":
+                        get["ETag"] = '"new-etag"'
+                    if tamper == "changed-version":
+                        get["VersionId"] = "unexpected-version"
+                    if tamper == "changed-metadata":
+                        get["CacheControl"] = "changed"
+                    if tamper == "replacement-after-read":
+                        after["VersionId"] = "replacement"
+                    client = SimpleNamespace(
+                        head_object=Mock(side_effect=[deepcopy(observation), after]),
+                        get_object=Mock(return_value={**get, "Body": body}),
                     )
-                    client.get_object.assert_called_once_with(
-                        Bucket="saved",
-                        Key="exact/original/hash.png",
-                        IfMatch='"saved-etag"',
-                    )
-                    self.assertEqual(client.head_object.call_count, 2)
-                else:
-                    with self.assertRaises(ContentError):
-                        _verify_physical(
-                            SimpleNamespace(client=client), record, objects
+                    if tamper is None:
+                        self.assertEqual(
+                            _verify_physical(
+                                SimpleNamespace(client=client), record, objects
+                            ),
+                            (1, 0),
                         )
-                self.assertTrue(body.closed)
+                        client.get_object.assert_called_once_with(
+                            Bucket="saved",
+                            Key="exact/original/hash.png",
+                            IfMatch='"target-etag"',
+                            **({"VersionId": version} if version is not None else {}),
+                        )
+                        self.assertEqual(client.head_object.call_count, 2)
+                    else:
+                        with self.assertRaises(ContentError):
+                            _verify_physical(
+                                SimpleNamespace(client=client), record, objects
+                            )
+                    self.assertTrue(body.closed)
+                    self.assertEqual(objects, before)
 
-    def test_versioned_receipt_is_rejected_without_rewriting_it(self):
-        storage = SimpleNamespace(client=Mock())
-        record = SimpleNamespace(bucket="saved", storage_ref={"key_prefix": "exact/"})
+    def test_historical_receipt_and_cleanup_rejections_never_rewrite_or_delete(self):
+        from app.services import prediction_inputs
+        from app.services.content_snapshot import ContentError
+
+        record = SimpleNamespace(
+            id=uuid.uuid4(), bucket="saved", storage_ref={"key_prefix": "exact/"}
+        )
         objects = {
-            "original/hash.png": {"state": "verified", "version_id": "old-version"}
+            "original/hash.png": {
+                "state": "verified",
+                "version_id": "historical-version",
+            }
         }
         before = deepcopy(objects)
-        with self.assertRaisesRegex(
-            AssertionError, "Versioned input recovery is unavailable"
+        storage = SimpleNamespace(client=Mock())
+        missing = ClientError(
+            {
+                "Error": {"Code": "NoSuchVersion"},
+                "ResponseMetadata": {"HTTPStatusCode": 404},
+            },
+            "HeadObject",
+        )
+        with (
+            patch.object(prediction_inputs, "_read", side_effect=missing) as read,
+            patch.object(
+                prediction_inputs,
+                "_delete_known",
+                side_effect=ContentError("prediction_input_immutable_version_required"),
+            ) as delete,
         ):
-            _verify_physical(storage, record, objects)
+            self.assertEqual(
+                _verify_historical_rejections(storage, record, objects), (1, 1)
+            )
+        self.assertEqual(read.call_args.kwargs, {"lease_id": record.id})
+        self.assertEqual(read.call_args.args[3]["version_id"], "historical-version")
+        with self.assertRaisesRegex(AssertionError, "before any DELETE"):
+            delete.call_args.args[0].client.delete_object()
+        storage.client.delete_object.assert_not_called()
         self.assertEqual(objects, before)
-        storage.client.get_object.assert_not_called()
+        with patch.object(
+            prediction_inputs, "_read", side_effect=RuntimeError("transport failure")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "transport failure"):
+                _verify_historical_rejections(storage, record, objects)
+        with patch.object(prediction_inputs, "_read", return_value={}):
+            with self.assertRaisesRegex(AssertionError, "cannot resume"):
+                _verify_historical_rejections(storage, record, objects)
+
+    def test_actual_owner_cleanup_rejects_restored_null_version_before_delete(self):
+        from app.services import prediction_inputs
+
+        identifier = uuid.uuid4()
+        prefix = prediction_inputs.input_prefix(identifier)
+        raw = b"verified"
+        entry = {
+            "state": "verified",
+            "version_id": "old-version",
+            "etag": '"same-etag"',
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "size_bytes": len(raw),
+            "media_type": "image/png",
+            "write_nonce": str(uuid.uuid4()),
+        }
+        record = SimpleNamespace(
+            id=identifier, bucket="saved", storage_ref={"key_prefix": prefix}
+        )
+        item = {
+            "Key": prefix + "original/hash.png",
+            "Size": len(raw),
+            "ETag": '"same-etag"',
+        }
+        response = {"ResponseMetadata": {"HTTPStatusCode": 200}, "IsTruncated": False}
+        client = Mock()
+        client.head_object.side_effect = ClientError(
+            {
+                "Error": {"Code": "NoSuchVersion"},
+                "ResponseMetadata": {"HTTPStatusCode": 404},
+            },
+            "HeadObject",
+        )
+        client.list_objects_v2.return_value = {**response, "Contents": [item]}
+        client.list_object_versions.return_value = {
+            **response,
+            "Versions": [{**item, "VersionId": "null", "IsLatest": True}],
+        }
+        objects = {"original/hash.png": entry}
+        before = deepcopy(objects)
+        self.assertEqual(
+            _verify_historical_rejections(
+                SimpleNamespace(client=client), record, objects
+            ),
+            (1, 1),
+        )
+        self.assertEqual(
+            client.head_object.call_args.kwargs["VersionId"], "old-version"
+        )
+        client.delete_object.assert_not_called()
+        client.get_object.assert_not_called()
+        self.assertEqual(objects, before)
+
+    def test_enable_versioning_requires_exact_owned_test_bucket_before_mutation(self):
+        from app.config import settings
+        from worktree_env import WorktreeError
+        from worktree_resources import OWNER_TAG
+
+        root = Path("/tmp/explicit-fixture-root")
+        resources = {
+            "owner": "aap-worktree:fixture:test:owned",
+            "buckets": {"MINIO_IMPORT_BUCKET": "exact-owned-import"},
+        }
+        for failure in (
+            None,
+            "mode",
+            "settings",
+            "storage",
+            "owner",
+            "duplicate-owner",
+            "suspended",
+            "mfa",
+        ):
+            with self.subTest(failure=failure):
+                client = Mock()
+                tags = [{"Key": OWNER_TAG, "Value": resources["owner"]}]
+                if failure == "owner":
+                    tags[0]["Value"] = "foreign"
+                if failure == "duplicate-owner":
+                    tags *= 2
+                client.get_bucket_tagging.return_value = {"TagSet": tags}
+                initial = (
+                    {"Status": "Suspended"}
+                    if failure == "suspended"
+                    else ({"MFADelete": "Enabled"} if failure == "mfa" else {})
+                )
+                client.get_bucket_versioning.side_effect = [
+                    initial,
+                    {"Status": "Enabled"},
+                ]
+                storage = SimpleNamespace(
+                    client=client,
+                    import_bucket="foreign"
+                    if failure == "storage"
+                    else "exact-owned-import",
+                )
+                with (
+                    patch.dict(
+                        os.environ,
+                        {"AAP_WORKTREE_MODE": "dev" if failure == "mode" else "test"},
+                    ),
+                    patch.object(
+                        settings,
+                        "minio_import_bucket",
+                        "foreign" if failure == "settings" else "exact-owned-import",
+                    ),
+                    patch(
+                        "worktree_env.load_identity", return_value={"id": "fixture"}
+                    ) as load,
+                    patch("worktree_env.topology", return_value=resources) as topology,
+                ):
+                    if failure:
+                        with self.assertRaises(WorktreeError):
+                            enable_owned_import_versioning(storage, root=root)
+                        client.put_bucket_versioning.assert_not_called()
+                    else:
+                        enable_owned_import_versioning(storage, root=root)
+                        load.assert_called_once_with(root)
+                        topology.assert_called_once_with(
+                            root, {"id": "fixture"}, "test"
+                        )
+                        client.get_bucket_tagging.assert_called_once_with(
+                            Bucket="exact-owned-import"
+                        )
+                        client.put_bucket_versioning.assert_called_once_with(
+                            Bucket="exact-owned-import",
+                            VersioningConfiguration={"Status": "Enabled"},
+                        )
+
+    def test_already_enabled_owned_bucket_is_only_observed(self):
+        from app.config import settings
+        from worktree_resources import OWNER_TAG
+
+        resources = {"owner": "exact", "buckets": {"MINIO_IMPORT_BUCKET": "owned"}}
+        client = Mock()
+        client.get_bucket_tagging.return_value = {
+            "TagSet": [{"Key": OWNER_TAG, "Value": "exact"}]
+        }
+        client.get_bucket_versioning.return_value = {"Status": "Enabled"}
+        with (
+            patch.dict(os.environ, {"AAP_WORKTREE_MODE": "test"}),
+            patch.object(settings, "minio_import_bucket", "owned"),
+            patch("worktree_env.load_identity", return_value={}),
+            patch("worktree_env.topology", return_value=resources),
+        ):
+            enable_owned_import_versioning(
+                SimpleNamespace(client=client, import_bucket="owned"),
+                root="/tmp/actual-root",
+            )
+        client.put_bucket_versioning.assert_not_called()
+        self.assertEqual(client.get_bucket_versioning.call_count, 2)
 
     async def test_unknown_close_retains_permits_and_still_attempts_other_closes(self):
         from app.services import prediction_originals as originals, storage_access

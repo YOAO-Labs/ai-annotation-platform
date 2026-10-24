@@ -5,14 +5,17 @@ real original upload, then raises a known synthetic exception before its crop's
 conditional PUT. A real same-purpose permit defers close-time deletion; every
 Snapshot, client and permit closes before the backup fingerprint is captured.
 This is inline component qualification, not HTTP, Celery or live-crash evidence.
-Current-object backup cannot preserve historical S3 version IDs. The fixture
-therefore explicitly requires unversioned receipts and never rewrites inventory,
-source proof or deadlines to make a relocated owner executable again.
+Current-object backup preserves content and ownership metadata, not historical
+S3 version IDs. Recovery verifies those bytes separately and rejects the old
+execution and cleanup receipts without rewriting inventory, proof or deadlines.
 """
 
 from copy import deepcopy
 from datetime import timedelta
+import hashlib
 import io
+import os
+from pathlib import Path
 from types import SimpleNamespace
 import uuid
 
@@ -20,6 +23,46 @@ CASES = ("verified", "planned")
 QUALIFICATION = (
     "offline-inline-components; synthetic crop interruption; no queue resume"
 )
+
+
+def enable_owned_import_versioning(storage, *, root):
+    """Enable only the exact verified test fixture bucket, before its first PUT."""
+    from app.config import settings
+    from worktree_env import WorktreeError, load_identity, topology
+    from worktree_resources import OWNER_TAG
+
+    if os.environ.get("AAP_WORKTREE_MODE") != "test":
+        raise WorktreeError("Test mode is required for fixture bucket versioning")
+    root = Path(root)
+    resources = topology(root, load_identity(root), "test")
+    bucket = resources["buckets"]["MINIO_IMPORT_BUCKET"]
+    if bucket != settings.minio_import_bucket or bucket != storage.import_bucket:
+        raise WorktreeError("Only this fixture's owned import bucket may change")
+    client = storage.client
+    tags = client.get_bucket_tagging(Bucket=bucket).get("TagSet")
+    if not isinstance(tags, list) or [
+        tag.get("Value")
+        for tag in tags
+        if isinstance(tag, dict) and tag.get("Key") == OWNER_TAG
+    ] != [resources["owner"]]:
+        raise WorktreeError("The actual S3 bucket owner must match")
+    configuration = client.get_bucket_versioning(Bucket=bucket)
+    if configuration.get("Status") not in (None, "Enabled") or configuration.get(
+        "MFADelete"
+    ) not in (None, "Disabled"):
+        raise WorktreeError(
+            "Suspended or MFA-protected fixture buckets are unsupported"
+        )
+    if configuration.get("Status") != "Enabled":
+        client.put_bucket_versioning(
+            Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}
+        )
+    after = client.get_bucket_versioning(Bucket=bucket)
+    if after.get("Status") != "Enabled" or after.get("MFADelete") not in (
+        None,
+        "Disabled",
+    ):
+        raise WorktreeError("Fixture bucket versioning could not be verified")
 
 
 def owner_identifier(case):
@@ -209,6 +252,76 @@ def _frozen_owner(row):
     return SimpleNamespace(**{name: deepcopy(getattr(row, name)) for name in fields})
 
 
+def _read_restored_content(client, record, key, entry, deadline):
+    """Qualify current restored bytes without adopting their new locator version."""
+    from app.services import prediction_inputs, storage_access
+    from storage_backup_bundle import _metadata
+
+    prediction_inputs._deadline(deadline)
+    head = client.head_object(Bucket=record.bucket, Key=key)
+    prediction_inputs._http(head)
+    prediction_inputs._owned(head, record.id, entry)
+    etag, version = head.get("ETag"), prediction_inputs._version(head)
+    if (
+        not prediction_inputs._header(etag)
+        or type(head.get("ContentLength")) is not int
+        or head["ContentLength"] != entry["size_bytes"]
+        or head.get("ContentType") != entry["media_type"]
+        or head.get("DeleteMarker")
+    ):
+        prediction_inputs.reject("integrity_mismatch")
+    metadata = _metadata(head)
+    params = {"Bucket": record.bucket, "Key": key, "IfMatch": etag}
+    if head.get("VersionId") is not None:
+        params["VersionId"] = version or "null"
+    response = client.get_object(**params)
+    body = response.get("Body") if isinstance(response, dict) else None
+    if body is None:
+        prediction_inputs.reject("integrity_mismatch")
+    with storage_access.closing_registered(body):
+        prediction_inputs._http(response)
+        prediction_inputs._owned(response, record.id, entry)
+        if (
+            response.get("ETag") != etag
+            or prediction_inputs._version(response) != version
+            or type(response.get("ContentLength")) is not int
+            or response["ContentLength"] != entry["size_bytes"]
+            or _metadata(response) != metadata
+            or response.get("DeleteMarker")
+        ):
+            prediction_inputs.reject("integrity_mismatch")
+        size, digest = 0, hashlib.sha256()
+        while True:
+            prediction_inputs._deadline(deadline)
+            block = body.read(
+                min(prediction_inputs.CHUNK_BYTES, entry["size_bytes"] - size + 1)
+            )
+            if type(block) is not bytes:
+                prediction_inputs.reject("integrity_mismatch")
+            if not block:
+                break
+            size += len(block)
+            if size > entry["size_bytes"]:
+                prediction_inputs.reject("integrity_mismatch")
+            digest.update(block)
+        if size != entry["size_bytes"] or digest.hexdigest() != entry["sha256"]:
+            prediction_inputs.reject("integrity_mismatch")
+    prediction_inputs._deadline(deadline)
+    # Current HEAD also detects a replacement that appeared after the pinned GET.
+    after = client.head_object(Bucket=record.bucket, Key=key)
+    prediction_inputs._http(after)
+    prediction_inputs._owned(after, record.id, entry)
+    if (
+        after.get("ETag") != etag
+        or prediction_inputs._version(after) != version
+        or type(after.get("ContentLength")) is not int
+        or after["ContentLength"] != entry["size_bytes"]
+        or _metadata(after) != metadata
+        or after.get("DeleteMarker")
+    ):
+        prediction_inputs.reject("integrity_mismatch")
+
+
 def _verify_physical(storage, record, objects):
     from botocore.exceptions import ClientError
     from app.services import prediction_inputs
@@ -218,16 +331,9 @@ def _verify_physical(storage, record, objects):
     verified = planned = 0
     for relative, entry in objects.items():
         key = record.storage_ref["key_prefix"] + relative
-        assert entry["version_id"] is None, "Versioned input recovery is unavailable"
         if entry["state"] == "verified":
-            prediction_inputs._read(
-                storage.client,
-                record.bucket,
-                key,
-                entry,
-                deadline,
-                lease_id=record.id,
-            )
+            assert entry["version_id"] not in (None, "null")
+            _read_restored_content(storage.client, record, key, entry, deadline)
             verified += 1
         else:
             assert entry["state"] == "planned" and entry["etag"] is None
@@ -244,6 +350,72 @@ def _verify_physical(storage, record, objects):
                 raise AssertionError("The synthetic pre-PUT crop must remain absent")
             planned += 1
     return verified, planned
+
+
+class _NoDeleteClient:
+    def __init__(self, client):
+        self._client = client
+
+    def __getattr__(self, name):
+        return getattr(self._client, name)
+
+    def delete_object(self, **_params):
+        raise AssertionError("Recovery must reject cleanup before any DELETE")
+
+
+def _verify_historical_rejections(storage, record, objects):
+    from botocore.exceptions import ClientError
+    from app.services import prediction_inputs
+    from app.services.content_snapshot import ContentError
+    import time
+
+    before = deepcopy(objects)
+    rejected = 0
+
+    def expect_rejection(call):
+        try:
+            call()
+        except ClientError as exc:
+            assert exc.response["Error"]["Code"] in {"NoSuchVersion", "404", "NotFound"}
+            assert exc.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+        except ContentError as exc:
+            assert exc.code in {
+                "prediction_input_immutable_version_required",
+                "prediction_input_integrity_mismatch",
+                "prediction_input_unknown_object",
+            }
+        else:
+            raise AssertionError("Historical versions cannot resume after relocation")
+
+    for relative, entry in objects.items():
+        if entry["state"] == "verified":
+            expect_rejection(
+                lambda: prediction_inputs._read(
+                    storage.client,
+                    record.bucket,
+                    record.storage_ref["key_prefix"] + relative,
+                    entry,
+                    time.monotonic() + prediction_inputs.IO_SECONDS,
+                    lease_id=record.id,
+                )
+            )
+            rejected += 1
+    expect_rejection(
+        lambda: prediction_inputs._delete_known(
+            SimpleNamespace(client=_NoDeleteClient(storage.client)),
+            record,
+            objects,
+        )
+    )
+    assert objects == before, "Recovery cannot rewrite historical receipts"
+    return rejected, 1
+
+
+def _verify_case(storage, record, objects):
+    return (
+        *_verify_physical(storage, record, objects),
+        *_verify_historical_rejections(storage, record, objects),
+    )
 
 
 async def verify_prediction_inputs(db):
@@ -278,7 +450,7 @@ async def verify_prediction_inputs(db):
     )
     assert len(rows) == len(CASES)
     by_owner = {row.owner_id: row for row in rows}
-    verified = planned = rejected = 0
+    verified = planned = rejected = receipt_rejected = cleanup_rejected = 0
     for case in CASES:
         record = _frozen_owner(by_owner[owner_identifier(case)])
         assert record.contract_version == 2 and record.owner_kind == "predict_test"
@@ -334,10 +506,12 @@ async def verify_prediction_inputs(db):
             counts = await originals.physical(
                 prediction_inputs._using_storage,
                 record,
-                lambda storage: _verify_physical(storage, record, objects),
+                lambda storage: _verify_case(storage, record, objects),
             )
             verified += counts[0]
             planned += counts[1]
+            receipt_rejected += counts[2]
+            cleanup_rejected += counts[3]
         except BaseException as exc:
             failure = exc
             raise
@@ -345,6 +519,7 @@ async def verify_prediction_inputs(db):
             await originals.close_permit(permit, failure)
         assert permit._settled
     assert (verified, planned, rejected) == (3, 1, 2)
+    assert (receipt_rejected, cleanup_rejected) == (3, 2)
     return {
         "prediction_input_qualification": QUALIFICATION,
         "legacy_unpinned_prediction_inputs": len(legacy),
@@ -352,6 +527,9 @@ async def verify_prediction_inputs(db):
         "verified_prediction_input_objects": verified,
         "planned_prediction_input_objects": planned,
         "relocated_prediction_source_proofs_rejected": rejected,
+        "relocated_prediction_input_receipts_rejected": receipt_rejected,
+        "relocated_prediction_input_cleanup_rejected": cleanup_rejected,
+        "prediction_input_current_content_verified": True,
         "prediction_input_receipts_rewritten": False,
         "prediction_input_queue_resumed": False,
         "prediction_input_versioned_recovery_qualified": False,
