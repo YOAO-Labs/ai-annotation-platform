@@ -226,7 +226,8 @@ async def test_restricted_api_and_node_consume_jobs_list_capabilities(
 
     consumer_url = make_url(os.environ["AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL"])
     list_url = make_url(os.environ["AAP_MODULE_DATA_JOBS_LIST_QUERY_URL"])
-    for url in (consumer_url, list_url):
+    auth_url = make_url(os.environ["AAP_MODULE_DATA_IDENTITY_AUTH_URL"])
+    for url in (consumer_url, list_url, auth_url):
         assert (url.host, url.port, url.database) == (
             test_engine.url.host,
             test_engine.url.port,
@@ -235,6 +236,7 @@ async def test_restricted_api_and_node_consume_jobs_list_capabilities(
         assert url.database.endswith("_test")
     assert consumer_url.username == "identity_api_consumer"
     assert list_url.username == "jobs_list_query_client"
+    assert auth_url.username == "identity_auth_client"
     engine = create_async_engine(
         consumer_url.set(drivername="postgresql+asyncpg"), hide_parameters=True
     )
@@ -253,7 +255,13 @@ async def test_restricted_api_and_node_consume_jobs_list_capabilities(
             yield session
 
     app.dependency_overrides[get_db] = request_session
-    app.dependency_overrides[get_identity_gateway] = lambda: IdentityGateway()
+    gateway = IdentityGateway(
+        auth_database_url=auth_url.set(drivername="postgresql").render_as_string(
+            hide_password=False
+        )
+    )
+    assert not gateway.uses_caller_session(object())
+    app.dependency_overrides[get_identity_gateway] = lambda: gateway
     try:
         async with _committed_identity_scope_world(test_engine) as world:
             actor = IdentityActorStatus(
