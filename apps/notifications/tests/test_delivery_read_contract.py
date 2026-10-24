@@ -85,6 +85,13 @@ def test_delivery_read_contract_and_frozen_sql_are_identical():
     assert "aap_workspace_v1.actor_project_memberships" in package_sql
     assert "aap_workspace_project_query_v1.project_search_scope" in package_sql
     assert "aap_jobs_v1.notification_scope_facts" in package_sql
+    assert (
+        package_sql.count(
+            "(item.value - 'project_id' - 'user_id') <> '{}'::pg_catalog.jsonb"
+        )
+        == 4
+    )
+    assert "jsonb_object_length" not in package_sql
 
 
 @pytest.mark.parametrize("payload", [None, {}, [], [1, "x"], "x", 7, True])

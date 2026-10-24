@@ -84,7 +84,7 @@ BEGIN
         WHERE CASE
             WHEN pg_catalog.jsonb_typeof(item.value) IS DISTINCT FROM 'object'
                 THEN true
-            ELSE pg_catalog.jsonb_object_length(item.value) <> 2
+            ELSE (item.value - 'project_id' - 'user_id') <> '{}'::pg_catalog.jsonb
               OR NOT (item.value ?& ARRAY['project_id', 'user_id']::text[])
               OR pg_catalog.jsonb_typeof(item.value->'project_id') IS DISTINCT FROM 'string'
               OR pg_catalog.jsonb_typeof(item.value->'user_id') IS DISTINCT FROM 'string'
@@ -146,7 +146,7 @@ BEGIN
         WHERE CASE
             WHEN pg_catalog.jsonb_typeof(item.value) IS DISTINCT FROM 'object'
                 THEN true
-            ELSE pg_catalog.jsonb_object_length(item.value) <> 2
+            ELSE (item.value - 'project_id' - 'user_id') <> '{}'::pg_catalog.jsonb
               OR NOT (item.value ?& ARRAY['project_id', 'user_id']::text[])
               OR pg_catalog.jsonb_typeof(item.value->'project_id') IS DISTINCT FROM 'string'
               OR pg_catalog.jsonb_typeof(item.value->'user_id') IS DISTINCT FROM 'string'
@@ -209,7 +209,7 @@ BEGIN
         WHERE CASE
             WHEN pg_catalog.jsonb_typeof(item.value) IS DISTINCT FROM 'object'
                 THEN true
-            ELSE pg_catalog.jsonb_object_length(item.value) <> 2
+            ELSE (item.value - 'project_id' - 'user_id') <> '{}'::pg_catalog.jsonb
               OR NOT (item.value ?& ARRAY['project_id', 'user_id']::text[])
               OR pg_catalog.jsonb_typeof(item.value->'project_id') IS DISTINCT FROM 'string'
               OR pg_catalog.jsonb_typeof(item.value->'user_id') IS DISTINCT FROM 'string'
@@ -268,7 +268,7 @@ BEGIN
         WHERE CASE
             WHEN pg_catalog.jsonb_typeof(item.value) IS DISTINCT FROM 'object'
                 THEN true
-            ELSE pg_catalog.jsonb_object_length(item.value) <> 2
+            ELSE (item.value - 'project_id' - 'user_id') <> '{}'::pg_catalog.jsonb
               OR NOT (item.value ?& ARRAY['project_id', 'user_id']::text[])
               OR pg_catalog.jsonb_typeof(item.value->'project_id') IS DISTINCT FROM 'string'
               OR pg_catalog.jsonb_typeof(item.value->'user_id') IS DISTINCT FROM 'string'

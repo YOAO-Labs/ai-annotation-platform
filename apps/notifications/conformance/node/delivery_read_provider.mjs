@@ -74,6 +74,15 @@ async function selfCheck() {
     (packageSql.match(/SET search_path = pg_catalog, pg_temp/g) ?? []).length,
     functions.length,
   );
+  assert.equal(
+    (
+      packageSql.match(
+        /\(item\.value - 'project_id' - 'user_id'\)\s+<> '\{\}'::pg_catalog\.jsonb/g,
+      ) ?? []
+    ).length,
+    4,
+  );
+  assert.equal(packageSql.includes("jsonb_object_length"), false);
   for (const privateRelation of [
     "public.notifications",
     "public.async_jobs",
@@ -118,7 +127,7 @@ async function verifyDeliveryReadRole() {
     assert.equal(identity.rows[0].login_role, expectedRole);
 
     const executePrivileges = await client.query(
-      "SELECT p.proname, pg_catalog.pg_get_function_identity_arguments(p.oid) AS arguments, " +
+      "SELECT p.proname, pg_catalog.oidvectortypes(p.proargtypes) AS arguments, " +
         "p.prosecdef, p.provolatile, p.proconfig, " +
         "pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE') AS can_execute " +
         "FROM pg_catalog.pg_proc AS p " +
