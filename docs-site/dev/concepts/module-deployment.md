@@ -84,7 +84,7 @@ last_reviewed: 2026-10-25
 | Audit／Insights：汇总与分析投影                     | 日聚合公开关系与固定并发刷新已集成，MV 由 Audit owner 持有                                    | 月报已迁移；尾段保留公开事件关系，维护保留原提交边界                                                       | [日聚合与 Jobs 事实](#support-daily-and-jobs-facts)：父线 27 项混合案例、真实 LOGIN／Node、固定刷新与完整 0323 往返通过                           | 本组操作的限定本地资格闭合；当前 API 离线工件通过，冷维护进程、独立凭据及完整生命周期仍待收口；Go 仅实验                                                                                                                                                                                                                                                         |
 | Audit：分区、保留与冷归档                           | 月分区、对象上传后删分区及归档读取已有实现                                                    | 维护任务和归档查询仍在主 API／Celery                                                                       | 独立维护工件、专用 DB／归档凭据及恢复未验收                                                                                                       | 证明上传／删分区中断、重启、孤儿对象和已删分区恢复；本轮不扩大归档或资产存储改造                                                                                                                                                                                                                                                                                 |
 | Audit：独立工件、凭据与恢复                         | audit_code 与固定 SQL 能力已有基础                                                            | 普通运行角色及完整操作尚未收口                                                                             | 整模块未验收；七组能力分别跟踪，案例数不替代模块门槛                                                                                              | 完成独立构建／启动／健康、消费者切换、受限凭据、故障恢复和回退                                                                                                                                                                                                                                                                                                   |
-| Notifications：独立工件、凭据与恢复                 | 完整 Python owner、固定数据合同及独立 publisher／socket 已实现，代码缺口复核后冻结实现范围    | 既有 SQL 操作、API 即时发布薄绑定和原 WS 地址均已迁移                                                      | [即时发布与模块组合](#notification-publication-owner)：当前冷工件、1 项组合案例及完整 PG 备份恢复通过                                             | 实现范围已冻结；限定本地发布／组合／恢复资格保留，集中做整模块门槛审计和主工作树采用；完整替代语言 owner 与生产容量未验证                                                                                                                                                                                                                                        |
+| Notifications：独立工件、凭据与恢复                 | 完整 Python owner、固定数据合同及独立 publisher／socket 已实现，代码缺口复核后冻结实现范围    | 既有 SQL 操作、API 即时发布薄绑定和原 WS 地址均已迁移                                                      | [即时发布与模块组合](#notification-publication-owner)：当前冷工件、1 项组合案例及完整 PG 备份恢复通过                                             | 采用候选已提交 `7af05ae77`／`e19247554`，补齐共享准入、权限、SDK 与部署文档；[候选检查点](#notifications-primary-adoption-candidate)保留原资格并区分新基础检查。集中模块验收及合回未完成；0307–0325 历史含资产回收变更，未应用日常库；完整替代语言 owner 与生产容量未验证                                                                                        |
 | Notifications：偏好读取／局部更新／静音             | 独立包与版本化合同、固定 SQL owner 及新行策略已实现                                           | GET／PUT 与通知静音消费者已迁移，保留 autoflush、事务及提交后同步                                          | [偏好 owner](#notification-preferences-owner)：36 项真实 API、受限角色与 Node 同合同检查、0311 迁移往返通过                                       | 操作资格保持；[模块组合与恢复](#notification-publication-owner)补充当前工件、发布故障及完整 PG 恢复；完整替代语言 owner 与主环境采用另行跟踪                                                                                                                                                                                                                     |
 | Notifications：普通同事务追加                       | `aap-notification-append/v1` 与固定 SQL owner 已实现                                          | notify／notify_many 已迁移，保留静音预检、去重顺序、ORM 缓存及完整 flush／原提交边界                       | [通知追加](#notification-append-owner)：55 项聚焦 API、11 项包检查及真实受限 API／单事务 Node 通过                                                | 操作资格保持；[模块组合与恢复](#notification-publication-owner)补充当前工件、发布故障及完整 PG 恢复；完整替代语言 owner 与主环境采用另行跟踪                                                                                                                                                                                                                     |
 | Notifications：单条／全部已读                       | 固定 `read_state_command(jsonb)` 与版本化合同已实现                                           | 两个服务入口迁移；保留用户隔离、404／数量、caller 时间、ORM 缓存及原提交后同步                             | [已读 owner](#notification-read-state-owner)：8 项不同受控数据库／API／缓存案例、受限 Node 和 0316 往返通过                                       | 操作资格保持；[模块组合与恢复](#notification-publication-owner)补充当前工件、发布故障及完整 PG 恢复；完整替代语言 owner 与主环境采用另行跟踪                                                                                                                                                                                                                     |
@@ -2235,3 +2235,31 @@ SHA-256 为 `2e897bcd9bc34343468a1859e0550bb838120449f61e54e0aee207210ac84caf`�
 完整实现范围包括固定 PostgreSQL 数据能力、调用方事务绑定、即时发布、持久 publisher、WebSocket owner、现有 API／worker 适配及独立运行工件。代码缺口复核未发现阻止当前 Python 模块独立构建／部署的明确实现缺口；Identity、Workspace 和 Jobs 依赖通过公开能力组合，API 中的通知 UPDATE／DELETE 语句仅用于本地 ORM 缓存同步，不执行私表写入。现有已通过证据继续保留，本次不新增服务层或验收循环。
 
 实现冻结收据为 `.worktree/notifications-implementation-freeze.json`；它是只读代码复核，不是新的模块验收结果。后续按模块集中完成门槛审计及主工作树采用；不把替代语言完整提供方或生产容量视为本次已完成事项。
+
+## Notifications 主工作树采用候选 {#notifications-primary-adoption-candidate}
+
+独立采用候选以主工作树 `5421fa1af` 为基线，绑定提交 `7af05ae77` 与依赖闭合提交
+`e19247554` 已保存，候选工作树干净。完整 Python owner、即时／持久 publisher、socket、
+API／worker 兼容入口、共享 Identity 准入和 actor-status、分离凭据、SDK 原生 JSONB
+payload 及部署文档均已具备；只读装配复核未发现剩余部署接线缺口。主工作树未合入，
+日常数据库、运行进程与独立拓扑均未切换，不扩大 Go 或暂缓的训练／资产业务。
+
+候选完整保留 `0307 → 0325` 的十九项线性迁移，五十七份历史文件逐字节匹配已接受
+源码 `43468b130`，没有挑选、改号或引入 `0326` 后的 Jobs 改造。该链包含 Workspace、
+Audit 及视频输入保留，`0313` 会改变资产垃圾领取围栏；这项采用影响须与最新功能合并
+及既定资产暂缓范围一起处理，不能当成纯 Notifications 数据库升级直接应用日常库。
+候选保留主工作树原 Jobs 读取，避免把尚未闭合的 Jobs 模块整体带入。
+
+已有 Notifications 发布／组合／完整 PG 恢复资格继续保留：原收据的六十二份记录
+本轮重新核对哈希一致；候选 Notifications 运行源码与原接受源码逐字节相同，仅旧资源
+测试对最小 uvicorn 依赖的断言修正。当前基础批次通过包内二百二十四项不同案例
+（初轮二百二十三项通过，修正后仅重跑失败的一项）、Identity 准入四十八项、SDK／CLI／
+OpenAPI 五十项，以及候选本地导入／类型身份、三份锁文件、迁移图和授权结构检查。
+Notifications 定向 API 架构为两项通过、一项已移除旧模块跳过；宽范围检查停在主基线
+未改动的 Workspace import 边界，失败记录保留，不沿该问题扩大本轮范围。基础检查
+不替代候选整模块集中验收，没有重跑冷工件、迁移往返或完整恢复。
+
+本地检查点 `.worktree/notifications-primary-adoption-checkpoint.json` 的 SHA-256 为
+`0801ea51768914f39d25b18dc064baa69794cef0af1f40240e167c1b7e37bfbb`，绑定候选完整源码
+差异、原资格和原始成功／失败记录。实现候选已交付；集中验收、主工作树合回、数据库
+采用和日常拓扑切换仍是各自独立状态，不新增验收前置项或无关 Runtime 修复。
