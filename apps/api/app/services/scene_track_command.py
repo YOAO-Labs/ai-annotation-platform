@@ -3,33 +3,39 @@
 from __future__ import annotations
 
 from collections import Counter
-import copy
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 import hashlib
 import json
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from aap_labeling.scene_track_command_contract import (
+    SceneTrackCommandFailure,
+    SceneTrackCommandOperation,
+    SceneTrackCommandUnavailable,
+    scene_track_command,
+)
+from aap_labeling.scene_track_command_data import SceneTrackCommandDataClient
 
 from app.db.models.annotation import Annotation
 from app.db.models.scene_track import (
     SceneTrack,
     SceneTrackInterval,
-    SceneTrackOperation,
 )
 from app.db.models.task import Task
 from app.schemas.scene_track import SceneTrackCommandRequest
-from app.services.annotation_evidence import (
-    lock_tasks_for_evidence,
-    record_annotation_actors_for_tasks,
-)
+from app.services.annotation_evidence import record_annotation_actors_for_tasks
 from app.services.track_operation import SceneTrackContext, resolve_scene_track_context
 
 
 MAX_COMMAND_MEMBERS = 5000
+_SCENE_TRACK_COMMAND_STEP = text(
+    "SELECT aap_labeling_v1.scene_track_command(CAST(:request AS jsonb))"
+)
 
 
 def _error(status_code: int, reason: str, message: str) -> HTTPException:
@@ -86,6 +92,19 @@ class PreparedSceneTrackCommand:
             if task_id is not None:
                 task_ids.add(task_id)
         return frozenset(task_ids)
+
+
+@dataclass(frozen=True)
+class SceneTrackOperationReceipt:
+    id: uuid.UUID
+    kind: str
+    status: str
+    created_at: datetime
+    completed_at: datetime
+    response_json: dict
+    before_state: dict | None
+    after_state: dict | None
+    task_ids: tuple[uuid.UUID, ...]
 
 
 def _canonical_request(request: SceneTrackCommandRequest) -> dict:
@@ -184,7 +203,6 @@ async def _load_track(
     *,
     context: SceneTrackContext,
     track_id: str,
-    for_update: bool,
 ) -> LoadedCommandTrack:
     query = (
         select(SceneTrack)
@@ -192,8 +210,6 @@ async def _load_track(
         .where(SceneTrack.scene_id == context.scene_id)
         .where(SceneTrack.track_id == track_id)
     )
-    if for_update:
-        query = query.with_for_update().execution_options(populate_existing=True)
     track = (await db.execute(query)).scalar_one_or_none()
     if track is None:
         raise _error(404, "track_not_found", "3D Scene Track was not found")
@@ -212,13 +228,6 @@ async def _load_track(
         .order_by(Annotation.id)
         .limit(MAX_COMMAND_MEMBERS + 1)
     )
-    if for_update:
-        interval_query = interval_query.with_for_update().execution_options(
-            populate_existing=True
-        )
-        member_query = member_query.with_for_update().execution_options(
-            populate_existing=True
-        )
     intervals = tuple((await db.execute(interval_query)).scalars())
     members = tuple((await db.execute(member_query)).scalars())
     if len(members) > MAX_COMMAND_MEMBERS:
@@ -330,38 +339,12 @@ async def prepare_scene_track_command(
     *,
     anchor_task: Task,
     request: SceneTrackCommandRequest,
-    for_update: bool = False,
 ) -> PreparedSceneTrackCommand:
     context = await resolve_scene_track_context(db, anchor_task)
-    if for_update:
-        # Keep the global Task -> SceneTrack/Annotation lock order. Lock the
-        # union of every involved track's member tasks in one stable order
-        # before any Track row lock, so swapped primary/secondary merges cannot
-        # deadlock.
-        involved_track_ids = [request.track_id]
-        if request.secondary_track_id is not None:
-            involved_track_ids.append(request.secondary_track_id)
-        member_task_ids = (
-            (
-                await db.execute(
-                    select(Annotation.task_id)
-                    .join(SceneTrack, SceneTrack.id == Annotation.scene_track_id)
-                    .where(
-                        SceneTrack.scene_id == context.scene_id,
-                        SceneTrack.track_id.in_(involved_track_ids),
-                    )
-                    .distinct()
-                )
-            )
-            .scalars()
-            .all()
-        )
-        await lock_tasks_for_evidence(db, member_task_ids, nowait=True)
     primary = await _load_track(
         db,
         context=context,
         track_id=request.track_id,
-        for_update=for_update,
     )
     secondary = None
     if request.secondary_track_id is not None:
@@ -369,7 +352,6 @@ async def prepare_scene_track_command(
             db,
             context=context,
             track_id=request.secondary_track_id,
-            for_update=for_update,
         )
 
     tracks = [primary, *([secondary] if secondary is not None else [])]
@@ -651,115 +633,261 @@ def _member_state(row: Annotation) -> dict:
     }
 
 
-async def _capture_state(
-    db: AsyncSession, *, context: SceneTrackContext, track_ids: set[str]
-) -> dict:
-    tracks = list(
-        (
-            await db.execute(
-                select(SceneTrack)
-                .where(SceneTrack.project_id == context.project_id)
-                .where(SceneTrack.scene_id == context.scene_id)
-                .where(SceneTrack.track_id.in_(sorted(track_ids)))
-                .order_by(SceneTrack.track_id)
-            )
-        ).scalars()
-    )
-    result: dict[str, dict] = {}
-    for track in tracks:
-        intervals = list(
-            (
-                await db.execute(
-                    select(SceneTrackInterval)
-                    .where(SceneTrackInterval.scene_track_id == track.id)
-                    .order_by(SceneTrackInterval.start_frame, SceneTrackInterval.id)
-                )
-            ).scalars()
-        )
-        members = list(
-            (
-                await db.execute(
-                    select(Annotation)
-                    .where(Annotation.scene_track_id == track.id)
-                    .where(Annotation.was_cancelled.is_(False))
-                    .order_by(Annotation.id)
-                )
-            ).scalars()
-        )
-        result[track.track_id] = {
-            "id": str(track.id),
-            "track_id": track.track_id,
-            "class_name": track.class_name,
-            "presence_mode": track.presence_mode,
-            "attributes": copy.deepcopy(track.attributes or {}),
-            "attributes_meta": copy.deepcopy(track.attributes_meta or {}),
-            "revision": int(track.revision or 1),
-            "retired_at": track.retired_at.isoformat() if track.retired_at else None,
-            "intervals": [_interval_state(row) for row in intervals],
-            "members": [_member_state(row) for row in members],
+def _write_snapshot(prepared: PreparedSceneTrackCommand) -> list[dict]:
+    tracks = [prepared.primary]
+    if prepared.secondary is not None:
+        tracks.append(prepared.secondary)
+    return [
+        {
+            "id": track.track.id,
+            "track_id": track.track.track_id,
+            "revision": int(track.track.revision or 1),
+            "presence_mode": track.track.presence_mode,
+            "retired_at": track.track.retired_at,
+            "intervals": [_interval_state(row) for row in track.intervals],
+            "members": [_member_state(row) for row in track.members],
         }
-    return {"tracks": result}
+        for track in tracks
+    ]
 
 
-async def _replace_intervals(
+def _interval_sets(prepared: PreparedSceneTrackCommand) -> list[dict]:
+    return [
+        {
+            "track_id": track_id,
+            "intervals": [
+                {
+                    "start_frame": row.start_frame,
+                    "end_frame": row.end_frame,
+                    "source": row.source,
+                }
+                for row in specs
+            ],
+        }
+        for track_id, specs in prepared.after_intervals.items()
+    ]
+
+
+def _apply_native_request(
+    prepared: PreparedSceneTrackCommand,
+    *,
+    expected_snapshot_token: str,
+    actor_id: uuid.UUID,
+    idempotency_key: str,
+):
+    return scene_track_command(
+        "apply",
+        project_id=prepared.context.project_id,
+        scene_id=prepared.context.scene_id,
+        actor_id=actor_id,
+        idempotency_key=idempotency_key,
+        request_digest=request_digest(prepared.request),
+        expected_snapshot_token=expected_snapshot_token,
+        command=prepared.request.model_dump(mode="json"),
+        preview=preview_payload(prepared),
+        snapshot=_write_snapshot(prepared),
+        after_intervals=_interval_sets(prepared),
+        created_track_id=prepared.created_track_id,
+        target_task_id=next(
+            (
+                task_id
+                for task_id, frame in prepared.context.task_to_frame.items()
+                if frame == prepared.request.resume_frame
+            ),
+            None,
+        ),
+        created_track_attributes=prepared.primary.track.attributes or {},
+        created_track_attributes_meta=prepared.primary.track.attributes_meta or {},
+    )
+
+
+async def _scene_track_command_data(
+    db: AsyncSession, request, *, autoflush: bool = True
+):
+    if autoflush and db.autoflush:
+        await db.flush()
+
+    async def execute(request_json: str):
+        return await db.scalar(_SCENE_TRACK_COMMAND_STEP, {"request": request_json})
+
+    try:
+        return await SceneTrackCommandDataClient(execute).command(request)
+    except SceneTrackCommandFailure as exc:
+        raise _error(exc.status_code, exc.reason, exc.message) from exc
+    except SceneTrackCommandUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail={"reason": "scene_track_command_unavailable"},
+        ) from None
+
+
+async def lock_scene_track_command(
     db: AsyncSession,
     *,
-    track: SceneTrack,
-    specs: tuple[IntervalSpec, ...],
-    actor_id: uuid.UUID,
-    operation_id: uuid.UUID,
+    context: SceneTrackContext,
+    request: SceneTrackCommandRequest,
 ) -> None:
-    current = list(
-        (
-            await db.execute(
-                select(SceneTrackInterval)
-                .where(SceneTrackInterval.scene_track_id == track.id)
-                .with_for_update()
-            )
-        ).scalars()
+    track_ids = [request.track_id]
+    if request.secondary_track_id is not None:
+        track_ids.append(request.secondary_track_id)
+    result = await _scene_track_command_data(
+        db,
+        scene_track_command(
+            "lock",
+            project_id=context.project_id,
+            scene_id=context.scene_id,
+            track_ids=track_ids,
+            resume_frame=request.resume_frame,
+            target_task_id=next(
+                (
+                    task_id
+                    for task_id, frame in context.task_to_frame.items()
+                    if frame == request.resume_frame
+                ),
+                None,
+            ),
+        ),
+        autoflush=False,
     )
-    for row in current:
-        await db.delete(row)
-    await db.flush()
-    for spec in specs:
-        db.add(
-            SceneTrackInterval(
-                id=uuid.uuid4(),
-                scene_track_id=track.id,
-                start_frame=spec.start_frame,
-                end_frame=spec.end_frame,
-                source=spec.source,
-                version=1,
-                created_by=actor_id,
-                operation_id=operation_id,
-            )
+    if result.locked is not True:
+        raise HTTPException(
+            status_code=503,
+            detail={"reason": "scene_track_command_unavailable"},
         )
-    await db.flush()
 
 
-def _copy_resume_member(
-    *, source: Annotation, target_task_id: uuid.UUID, actor_id: uuid.UUID
-) -> Annotation:
-    return Annotation(
-        id=uuid.uuid4(),
-        task_id=target_task_id,
-        project_id=source.project_id,
-        user_id=actor_id,
-        source="manual",
-        annotation_type=source.annotation_type,
-        tool_unit_id=source.tool_unit_id,
-        class_name=source.class_name,
-        geometry=copy.deepcopy(source.geometry),
-        track_id=source.track_id,
-        scene_track_id=source.scene_track_id,
-        temporal_role="keyframe",
-        attributes=copy.deepcopy(source.attributes or {}),
-        attributes_meta=copy.deepcopy(source.attributes_meta or {}),
-        z_order=source.z_order,
-        is_active=True,
-        is_hidden=False,
-        version=1,
+async def replay_scene_track_command(
+    db: AsyncSession,
+    *,
+    scene_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    idempotency_key: str,
+    digest: str,
+):
+    return await _scene_track_command_data(
+        db,
+        scene_track_command(
+            "replay",
+            scene_id=scene_id,
+            actor_id=actor_id,
+            idempotency_key=idempotency_key,
+            request_digest=digest,
+        ),
     )
+
+
+async def inspect_scene_track_operation(
+    db: AsyncSession, *, scene_id: uuid.UUID, operation_id: uuid.UUID
+):
+    return await _scene_track_command_data(
+        db,
+        scene_track_command("inspect", scene_id=scene_id, operation_id=operation_id),
+    )
+
+
+async def list_scene_track_operations(
+    db: AsyncSession,
+    *,
+    scene_id: uuid.UUID,
+    track_id: str,
+    limit: int,
+    committed_only: bool = False,
+    exclude_reverts: bool = False,
+):
+    result = await _scene_track_command_data(
+        db,
+        scene_track_command(
+            "list",
+            scene_id=scene_id,
+            track_id=track_id,
+            limit=limit,
+            committed_only=committed_only,
+            exclude_reverts=exclude_reverts,
+        ),
+    )
+    assert result.operations is not None
+    return result.operations
+
+
+def _operation_receipt(
+    operation: SceneTrackCommandOperation,
+    *,
+    before_state: dict | None = None,
+    after_state: dict | None = None,
+) -> SceneTrackOperationReceipt:
+    return SceneTrackOperationReceipt(
+        id=operation.id,
+        kind=operation.kind,
+        status=operation.status,
+        created_at=operation.created_at,
+        completed_at=operation.completed_at,
+        response_json=operation.response_json,
+        before_state=before_state,
+        after_state=after_state,
+        task_ids=tuple(operation.task_ids),
+    )
+
+
+def _sync_scene_track_command_cache(db: AsyncSession, result) -> None:
+    before_state = result.before_state or {}
+    after_state = result.after_state or {}
+    before_tracks = before_state.get("tracks", {})
+    tracks = after_state.get("tracks", {})
+    before_members = {
+        member["id"]: member
+        for state in before_tracks.values()
+        for member in state.get("members", [])
+    }
+    members = {
+        member["id"]: member
+        for state in tracks.values()
+        for member in state.get("members", [])
+    }
+    replaced_tracks = set(result.replaced_track_ids)
+
+    for instance in list(db.sync_session.identity_map.values()):
+        if isinstance(instance, SceneTrack):
+            state = tracks.get(instance.track_id)
+            previous = before_tracks.get(instance.track_id)
+            if state is None or previous is None or str(instance.id) != state["id"]:
+                continue
+            changed_fields = []
+            for field in (
+                "class_name",
+                "presence_mode",
+                "attributes",
+                "attributes_meta",
+                "revision",
+                "retired_at",
+            ):
+                if previous.get(field) == state.get(field):
+                    continue
+                changed_fields.append(field)
+            if changed_fields:
+                db.sync_session.expire(instance, [*changed_fields, "updated_at"])
+        elif isinstance(instance, Annotation):
+            state = members.get(str(instance.id))
+            previous = before_members.get(str(instance.id))
+            if state is None or previous is None:
+                continue
+            changed_fields = []
+            for field in (
+                "track_id",
+                "scene_track_id",
+                "class_name",
+                "is_active",
+                "is_hidden",
+                "temporal_role",
+                "version",
+            ):
+                if previous.get(field) == state.get(field):
+                    continue
+                changed_fields.append(field)
+            if changed_fields:
+                db.sync_session.expire(instance, [*changed_fields, "updated_at"])
+        elif isinstance(instance, SceneTrackInterval):
+            if instance.scene_track_id in replaced_tracks:
+                db.sync_session.expunge(instance)
 
 
 async def apply_scene_track_command(
@@ -769,25 +897,7 @@ async def apply_scene_track_command(
     expected_snapshot_token: str,
     actor_id: uuid.UUID,
     idempotency_key: str,
-) -> tuple[SceneTrackOperation, dict]:
-    digest = request_digest(prepared.request)
-    existing = (
-        await db.execute(
-            select(SceneTrackOperation)
-            .where(SceneTrackOperation.scene_id == prepared.context.scene_id)
-            .where(SceneTrackOperation.actor_id == actor_id)
-            .where(SceneTrackOperation.idempotency_key == idempotency_key)
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        if existing.request_digest != digest:
-            raise _error(
-                409,
-                "idempotency_key_reused",
-                "idempotency key was already used for a different command",
-            )
-        return existing, copy.deepcopy(existing.response_json)
-
+) -> tuple[SceneTrackOperationReceipt, dict]:
     if prepared.snapshot_token != expected_snapshot_token:
         raise _error(
             409,
@@ -804,197 +914,35 @@ async def apply_scene_track_command(
             "keyframe or sample members require explicit confirmation",
         )
 
-    operation_id = uuid.uuid4()
-    before_ids = set(prepared.before_intervals)
-    before_state = await _capture_state(
-        db, context=prepared.context, track_ids=before_ids
-    )
-    operation = SceneTrackOperation(
-        id=operation_id,
-        scene_id=prepared.context.scene_id,
-        actor_id=actor_id,
-        kind=prepared.request.kind,
-        idempotency_key=idempotency_key,
-        request_digest=digest,
-        snapshot_token=prepared.snapshot_token,
-        source_revisions=prepared.source_revisions,
-        result_revisions={},
-        before_state=before_state,
-        after_state={},
-        inverse_payload={"restore": before_state},
-        response_json={},
-        status="committed",
-    )
-    db.add(operation)
-    await db.flush()
-
-    primary_track = prepared.primary.track
-    affected_track_ids = set(prepared.after_intervals)
-    created_track: SceneTrack | None = None
-    resume_task_id: uuid.UUID | None = None
-    if prepared.request.kind == "split":
-        assert prepared.created_track_id is not None
-        created_track = SceneTrack(
-            id=uuid.uuid4(),
-            project_id=primary_track.project_id,
-            scene_id=primary_track.scene_id,
-            track_id=prepared.created_track_id,
-            class_name=primary_track.class_name,
-            presence_mode="explicit",
-            attributes=copy.deepcopy(primary_track.attributes or {}),
-            attributes_meta=copy.deepcopy(primary_track.attributes_meta or {}),
-            revision=1,
-            created_by=actor_id,
-        )
-        db.add(created_track)
-        await db.flush()
-        assert prepared.request.frame_index is not None
-        for row in prepared.primary.members:
-            if _frame_for(prepared.context, row) > prepared.request.frame_index:
-                row.track_id = created_track.track_id
-                row.scene_track_id = created_track.id
-            row.version = int(row.version or 1) + 1
-        primary_track.revision = int(primary_track.revision or 1) + 1
-        primary_track.presence_mode = "explicit"
-        await _replace_intervals(
-            db,
-            track=primary_track,
-            specs=prepared.after_intervals[primary_track.track_id],
-            actor_id=actor_id,
-            operation_id=operation_id,
-        )
-        await _replace_intervals(
-            db,
-            track=created_track,
-            specs=prepared.after_intervals[created_track.track_id],
-            actor_id=actor_id,
-            operation_id=operation_id,
-        )
-
-    elif prepared.request.kind == "merge":
-        assert prepared.secondary is not None
-        secondary_track = prepared.secondary.track
-        for row in prepared.primary.members:
-            row.version = int(row.version or 1) + 1
-        for row in prepared.secondary.members:
-            row.track_id = primary_track.track_id
-            row.scene_track_id = primary_track.id
-            row.version = int(row.version or 1) + 1
-        primary_track.revision = int(primary_track.revision or 1) + 1
-        primary_track.presence_mode = "explicit"
-        secondary_track.revision = int(secondary_track.revision or 1) + 1
-        secondary_track.presence_mode = "explicit"
-        secondary_track.retired_at = datetime.now(timezone.utc)
-        await _replace_intervals(
-            db,
-            track=primary_track,
-            specs=prepared.after_intervals[primary_track.track_id],
-            actor_id=actor_id,
-            operation_id=operation_id,
-        )
-        await _replace_intervals(
-            db,
-            track=secondary_track,
-            specs=(),
-            actor_id=actor_id,
-            operation_id=operation_id,
-        )
-
-    elif prepared.request.kind in {"mark_absent", "terminate"}:
-        for row in prepared.affected_members:
-            row.is_active = False
-            row.is_hidden = True
-            row.version = int(row.version or 1) + 1
-        primary_track.revision = int(primary_track.revision or 1) + 1
-        primary_track.presence_mode = "explicit"
-        await _replace_intervals(
-            db,
-            track=primary_track,
-            specs=prepared.after_intervals[primary_track.track_id],
-            actor_id=actor_id,
-            operation_id=operation_id,
-        )
-
-    else:
-        assert prepared.request.kind == "resume"
-        assert prepared.request.resume_frame is not None
-        target_task_id = next(
-            task_id
-            for task_id, frame in prepared.context.task_to_frame.items()
-            if frame == prepared.request.resume_frame
-        )
-        source = prepared.affected_members[0]
-        resume_task_id = target_task_id
-        db.add(
-            _copy_resume_member(
-                source=source, target_task_id=target_task_id, actor_id=actor_id
-            )
-        )
-        primary_track.revision = int(primary_track.revision or 1) + 1
-        primary_track.presence_mode = "explicit"
-        await _replace_intervals(
-            db,
-            track=primary_track,
-            specs=prepared.after_intervals[primary_track.track_id],
-            actor_id=actor_id,
-            operation_id=operation_id,
-        )
-
-    await db.flush()
-    # A2 · every scene-track member write is annotation-phase work by the actor.
-    scene_affected_tasks = {member.task_id for member in prepared.affected_members}
-    scene_affected_tasks |= {member.task_id for member in prepared.primary.members}
-    if prepared.secondary is not None:
-        scene_affected_tasks |= {
-            member.task_id for member in prepared.secondary.members
-        }
-    if resume_task_id is not None:
-        scene_affected_tasks.add(resume_task_id)
-    await record_annotation_actors_for_tasks(
-        db, scene_affected_tasks, actor_id, nowait=True
-    )
-    result_revisions: dict[str, int] = {}
-    tracks_for_result = [primary_track]
-    if prepared.secondary is not None:
-        tracks_for_result.append(prepared.secondary.track)
-    if created_track is not None:
-        tracks_for_result.append(created_track)
-    for track in tracks_for_result:
-        result_revisions[track.track_id] = int(track.revision or 1)
-    after_state = await _capture_state(
+    result = await _scene_track_command_data(
         db,
-        context=prepared.context,
-        track_ids=affected_track_ids,
+        _apply_native_request(
+            prepared,
+            expected_snapshot_token=expected_snapshot_token,
+            actor_id=actor_id,
+            idempotency_key=idempotency_key,
+        ),
     )
-    response = {
-        "contract_version": 1,
-        "kind": prepared.request.kind,
-        "scene_id": str(prepared.context.scene_id),
-        "scene_name": prepared.context.scene_name,
-        "track_id": primary_track.track_id,
-        "secondary_track_id": prepared.request.secondary_track_id,
-        "frame_index": prepared.request.frame_index,
-        "resume_frame": prepared.request.resume_frame,
-        "source_revisions": prepared.source_revisions,
-        "before_intervals": interval_specs_as_response(prepared.before_intervals),
-        "after_intervals": interval_specs_as_response(prepared.after_intervals),
-        "affected_members": {
-            "total": len(prepared.affected_members),
-            "by_temporal_role": prepared.impact_by_role,
-            "frames": list(prepared.impact_frames),
-            "requires_confirmation": prepared.requires_confirmation,
-        },
-        "snapshot_token": prepared.snapshot_token,
-        "operation_id": str(operation.id),
-        "status": "committed",
-        "created_track_id": created_track.track_id if created_track else None,
-        "result_revisions": result_revisions,
-    }
-    operation.result_revisions = result_revisions
-    operation.after_state = after_state
-    operation.response_json = response
+    _sync_scene_track_command_cache(db, result)
     await db.flush()
-    return operation, response
+    if not result.found:
+        await record_annotation_actors_for_tasks(
+            db, result.task_ids, actor_id, nowait=True
+        )
+        await db.flush()
+    if result.operation is None or result.response_json is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"reason": "scene_track_command_unavailable"},
+        )
+    return (
+        _operation_receipt(
+            result.operation,
+            before_state=result.before_state,
+            after_state=result.after_state,
+        ),
+        result.response_json,
+    )
 
 
 def interval_specs_as_response(
@@ -1045,252 +993,38 @@ def preview_payload(prepared: PreparedSceneTrackCommand) -> dict:
 async def revert_scene_track_operation(
     db: AsyncSession,
     *,
-    operation: SceneTrackOperation,
+    scene_id: uuid.UUID,
+    operation_id: uuid.UUID,
     actor_id: uuid.UUID,
     idempotency_key: str,
-) -> tuple[SceneTrackOperation, dict]:
-    existing = (
-        await db.execute(
-            select(SceneTrackOperation)
-            .where(SceneTrackOperation.scene_id == operation.scene_id)
-            .where(SceneTrackOperation.actor_id == actor_id)
-            .where(SceneTrackOperation.idempotency_key == idempotency_key)
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        if existing.kind != "revert" or existing.request_digest != str(operation.id):
-            raise _error(
-                409,
-                "idempotency_key_reused",
-                "idempotency key was already used for a different command",
-            )
-        return existing, copy.deepcopy(existing.response_json)
-    if operation.kind == "revert":
-        raise _error(
-            409, "revert_of_revert_unsupported", "revert operations cannot be reverted"
-        )
-    if operation.status != "committed":
-        raise _error(
-            409, "operation_already_reverted", "operation was already reverted"
-        )
-
-    before_tracks: dict[str, dict] = operation.before_state.get("tracks", {})
-    after_tracks: dict[str, dict] = operation.after_state.get("tracks", {})
-    # Keep Task -> SceneTrack/Annotation order: lock the member task rows before
-    # locking the Track rows below.
-    revert_task_ids: set[uuid.UUID] = set()
-    for tracks in (before_tracks, after_tracks):
-        for state in tracks.values():
-            for member in state.get("members", []):
-                raw = member.get("task_id")
-                if not raw:
-                    continue
-                try:
-                    revert_task_ids.add(uuid.UUID(str(raw)))
-                except (ValueError, AttributeError, TypeError):
-                    continue
-    await lock_tasks_for_evidence(db, revert_task_ids, nowait=True)
-    all_track_ids = set(before_tracks) | set(after_tracks)
-    current_tracks = list(
-        (
-            await db.execute(
-                select(SceneTrack)
-                .where(SceneTrack.scene_id == operation.scene_id)
-                .where(SceneTrack.track_id.in_(sorted(all_track_ids)))
-                .order_by(SceneTrack.track_id)
-                .with_for_update()
-            )
-        ).scalars()
-    )
-    current_by_key = {row.track_id: row for row in current_tracks}
-    for track_id, expected_revision in operation.result_revisions.items():
-        track = current_by_key.get(track_id)
-        if track is None or int(track.revision or 1) != int(expected_revision):
-            raise _error(
-                409,
-                "operation_revert_stale",
-                "Scene Track changed after this operation and cannot be reverted safely",
-            )
-    expected_members = {
-        member["id"]: member
-        for state in after_tracks.values()
-        for member in state.get("members", [])
-    }
-    member_ids = [uuid.UUID(value) for value in expected_members]
-    current_members = (
-        list(
-            (
-                await db.execute(
-                    select(Annotation)
-                    .where(Annotation.id.in_(member_ids))
-                    .order_by(Annotation.id)
-                    .with_for_update()
-                )
-            ).scalars()
-        )
-        if member_ids
-        else []
-    )
-    current_member_by_id = {str(row.id): row for row in current_members}
-    for member_id, expected in expected_members.items():
-        row = current_member_by_id.get(member_id)
-        if row is None or int(row.version or 1) != int(expected["version"]):
-            raise _error(
-                409,
-                "operation_revert_stale",
-                "Scene Track member changed after this operation",
-            )
-
-    revert_id = uuid.uuid4()
-    revert = SceneTrackOperation(
-        id=revert_id,
-        scene_id=operation.scene_id,
-        actor_id=actor_id,
-        kind="revert",
-        idempotency_key=idempotency_key,
-        request_digest=str(operation.id),
-        snapshot_token=operation.snapshot_token,
-        source_revisions=operation.result_revisions,
-        result_revisions={},
-        before_state=operation.after_state,
-        after_state={},
-        inverse_payload={"operation_id": str(operation.id)},
-        response_json={},
-        status="committed",
-    )
-    db.add(revert)
-    await db.flush()
-
-    # Restore or recreate the Tracks that existed before the command.
-    restored_by_key: dict[str, SceneTrack] = {}
-    for track_id, state in before_tracks.items():
-        track = current_by_key.get(track_id)
-        if track is None:
-            raise _error(
-                409,
-                "operation_revert_track_missing",
-                "a required Scene Track was deleted after the operation",
-            )
-        track.class_name = state["class_name"]
-        track.presence_mode = state.get("presence_mode", "inferred")
-        track.attributes = copy.deepcopy(state.get("attributes") or {})
-        track.attributes_meta = copy.deepcopy(state.get("attributes_meta") or {})
-        track.retired_at = (
-            datetime.fromisoformat(state["retired_at"])
-            if state.get("retired_at")
-            else None
-        )
-        track.revision = int(track.revision or 1) + 1
-        restored_by_key[track_id] = track
-
-    # A split-created Track has no before state. Remove its intervals after members move back,
-    # then retire it instead of deleting audit-visible identity.
-    for track_id, track in current_by_key.items():
-        if track_id not in before_tracks:
-            track.revision = int(track.revision or 1) + 1
-            track.retired_at = datetime.now(timezone.utc)
-
-    before_member_states = {
-        member["id"]: member
-        for state in before_tracks.values()
-        for member in state.get("members", [])
-    }
-    all_member_ids = set(before_member_states) | set(expected_members)
-    all_rows = (
-        list(
-            (
-                await db.execute(
-                    select(Annotation)
-                    .where(
-                        Annotation.id.in_(
-                            [uuid.UUID(value) for value in all_member_ids]
-                        )
-                    )
-                    .order_by(Annotation.id)
-                    .with_for_update()
-                )
-            ).scalars()
-        )
-        if all_member_ids
-        else []
-    )
-    by_member_id = {str(row.id): row for row in all_rows}
-    for member_id, state in before_member_states.items():
-        row = by_member_id.get(member_id)
-        if row is None:
-            raise _error(
-                409,
-                "operation_revert_member_missing",
-                "a required Scene Track member was deleted after the operation",
-            )
-        target_track = restored_by_key[state["track_id"]]
-        row.track_id = state["track_id"]
-        row.scene_track_id = target_track.id
-        row.class_name = state["class_name"]
-        row.is_active = bool(state["is_active"])
-        row.is_hidden = bool(state["is_hidden"])
-        row.temporal_role = state["temporal_role"]
-        row.version = int(row.version or 1) + 1
-
-    # Resume creates one member absent from before_state; keep it as inactive history.
-    for member_id in set(expected_members) - set(before_member_states):
-        row = by_member_id.get(member_id)
-        if row is not None:
-            row.is_active = False
-            row.is_hidden = True
-            row.version = int(row.version or 1) + 1
-
-    for track_id, track in current_by_key.items():
-        state = before_tracks.get(track_id)
-        specs = (
-            tuple(
-                IntervalSpec(item["start_frame"], item.get("end_frame"), item["source"])
-                for item in state.get("intervals", [])
-            )
-            if state is not None
-            else ()
-        )
-        await _replace_intervals(
-            db,
-            track=track,
-            specs=specs,
+) -> tuple[SceneTrackOperationReceipt, dict]:
+    result = await _scene_track_command_data(
+        db,
+        scene_track_command(
+            "revert",
+            scene_id=scene_id,
+            operation_id=operation_id,
             actor_id=actor_id,
-            operation_id=revert_id,
-        )
-
-    operation.status = "reverted"
-    operation.reverted_by_operation_id = revert.id
-    result_revisions = {
-        track_id: int(track.revision or 1) for track_id, track in current_by_key.items()
-    }
-    context_track = next(iter(current_by_key.values()))
-    context = SceneTrackContext(
-        project_id=context_track.project_id,
-        scene_id=operation.scene_id,
-        scene_name=None,
-        anchor_frame=0,
-        task_to_frame={},
+            idempotency_key=idempotency_key,
+        ),
     )
-    after_state = await _capture_state(
-        db, context=context, track_ids=set(current_by_key)
-    )
-    original_response = copy.deepcopy(operation.response_json)
-    response = {
-        **original_response,
-        "kind": "revert",
-        "operation_id": str(revert.id),
-        "status": "committed",
-        "created_track_id": None,
-        "source_revisions": operation.result_revisions,
-        "result_revisions": result_revisions,
-        "before_intervals": original_response.get("after_intervals", {}),
-        "after_intervals": original_response.get("before_intervals", {}),
-    }
-    revert.result_revisions = result_revisions
-    revert.after_state = after_state
-    revert.response_json = response
-    await record_annotation_actors_for_tasks(
-        db, {row.task_id for row in all_rows}, actor_id, nowait=True
-    )
+    _sync_scene_track_command_cache(db, result)
     await db.flush()
-    return revert, response
+    if not result.found:
+        await record_annotation_actors_for_tasks(
+            db, result.task_ids, actor_id, nowait=True
+        )
+        await db.flush()
+    if result.operation is None or result.response_json is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"reason": "scene_track_command_unavailable"},
+        )
+    return (
+        _operation_receipt(
+            result.operation,
+            before_state=result.before_state,
+            after_state=result.after_state,
+        ),
+        result.response_json,
+    )

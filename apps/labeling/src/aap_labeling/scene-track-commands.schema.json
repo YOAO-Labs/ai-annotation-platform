@@ -1,0 +1,1309 @@
+{
+  "$defs": {
+    "ApplySceneTrackCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-scene-track-commands/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "apply",
+          "title": "Action",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "maxLength": 128,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        },
+        "expected_snapshot_token": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Snapshot Token",
+          "type": "string"
+        },
+        "command": {
+          "$ref": "#/$defs/SceneTrackCommandInput"
+        },
+        "preview": {
+          "$ref": "#/$defs/SceneTrackPreview"
+        },
+        "snapshot": {
+          "items": {
+            "$ref": "#/$defs/TrackSnapshot"
+          },
+          "title": "Snapshot",
+          "type": "array"
+        },
+        "after_intervals": {
+          "items": {
+            "$ref": "#/$defs/TrackIntervalSet"
+          },
+          "title": "After Intervals",
+          "type": "array"
+        },
+        "created_track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created Track Id"
+        },
+        "target_task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Task Id"
+        },
+        "created_track_attributes": {
+          "title": "Created Track Attributes"
+        },
+        "created_track_attributes_meta": {
+          "title": "Created Track Attributes Meta"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "project_id",
+        "scene_id",
+        "actor_id",
+        "idempotency_key",
+        "request_digest",
+        "expected_snapshot_token",
+        "command",
+        "preview",
+        "snapshot",
+        "after_intervals",
+        "created_track_id",
+        "target_task_id",
+        "created_track_attributes",
+        "created_track_attributes_meta"
+      ],
+      "title": "ApplySceneTrackCommand",
+      "type": "object"
+    },
+    "InspectSceneTrackOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-scene-track-commands/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "inspect",
+          "title": "Action",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "scene_id", "operation_id"],
+      "title": "InspectSceneTrackOperation",
+      "type": "object"
+    },
+    "IntervalSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "start_frame": {
+          "minimum": 0,
+          "title": "Start Frame",
+          "type": "integer"
+        },
+        "end_frame": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "End Frame"
+        },
+        "source": {
+          "enum": ["legacy_envelope", "manual", "imported", "derived"],
+          "title": "Source",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": ["id", "start_frame", "end_frame", "source", "version"],
+      "title": "IntervalSnapshot",
+      "type": "object"
+    },
+    "IntervalSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "start_frame": {
+          "minimum": 0,
+          "title": "Start Frame",
+          "type": "integer"
+        },
+        "end_frame": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "End Frame"
+        },
+        "source": {
+          "enum": ["legacy_envelope", "manual", "imported", "derived"],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": ["start_frame", "end_frame", "source"],
+      "title": "IntervalSpec",
+      "type": "object"
+    },
+    "ListSceneTrackOperations": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-scene-track-commands/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "list",
+          "title": "Action",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "track_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Track Id",
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 400,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "committed_only": {
+          "title": "Committed Only",
+          "type": "boolean"
+        },
+        "exclude_reverts": {
+          "title": "Exclude Reverts",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "scene_id",
+        "track_id",
+        "limit",
+        "committed_only",
+        "exclude_reverts"
+      ],
+      "title": "ListSceneTrackOperations",
+      "type": "object"
+    },
+    "LockSceneTrackCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-scene-track-commands/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "lock",
+          "title": "Action",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "track_ids": {
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Track Ids",
+          "type": "array"
+        },
+        "resume_frame": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resume Frame"
+        },
+        "target_task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Task Id"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "project_id",
+        "scene_id",
+        "track_ids",
+        "resume_frame",
+        "target_task_id"
+      ],
+      "title": "LockSceneTrackCommand",
+      "type": "object"
+    },
+    "MemberSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "temporal_role": {
+          "title": "Temporal Role",
+          "type": "string"
+        },
+        "sensor_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Role"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "task_id",
+        "track_id",
+        "scene_track_id",
+        "class_name",
+        "is_active",
+        "temporal_role",
+        "sensor_role"
+      ],
+      "title": "MemberSnapshot",
+      "type": "object"
+    },
+    "PreviewImpact": {
+      "additionalProperties": false,
+      "properties": {
+        "total": {
+          "title": "Total",
+          "type": "integer"
+        },
+        "by_temporal_role": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "By Temporal Role",
+          "type": "object"
+        },
+        "frames": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Frames",
+          "type": "array"
+        },
+        "requires_confirmation": {
+          "title": "Requires Confirmation",
+          "type": "boolean"
+        }
+      },
+      "required": ["total", "by_temporal_role", "frames", "requires_confirmation"],
+      "title": "PreviewImpact",
+      "type": "object"
+    },
+    "PreviewInterval": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "start_frame": {
+          "minimum": 0,
+          "title": "Start Frame",
+          "type": "integer"
+        },
+        "end_frame": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "End Frame"
+        },
+        "source": {
+          "enum": ["legacy_envelope", "manual", "imported", "derived"],
+          "title": "Source",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": ["id", "start_frame", "end_frame", "source", "version"],
+      "title": "PreviewInterval",
+      "type": "object"
+    },
+    "ReplaySceneTrackCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-scene-track-commands/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "replay",
+          "title": "Action",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "maxLength": 128,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Digest",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "scene_id", "actor_id", "idempotency_key", "request_digest"],
+      "title": "ReplaySceneTrackCommand",
+      "type": "object"
+    },
+    "RevertSceneTrackOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-scene-track-commands/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "const": "revert",
+          "title": "Action",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "maxLength": 128,
+          "minLength": 8,
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "scene_id", "operation_id", "actor_id", "idempotency_key"],
+      "title": "RevertSceneTrackOperation",
+      "type": "object"
+    },
+    "SceneTrackCommandData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SceneTrackCommandOperation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "response_json": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response Json"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "found": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Found"
+        },
+        "operations": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SceneTrackCommandOperation"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operations"
+        },
+        "locked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locked"
+        },
+        "before_state": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before State"
+        },
+        "after_state": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After State"
+        },
+        "request_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Digest"
+        },
+        "replaced_track_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Replaced Track Ids",
+          "type": "array"
+        }
+      },
+      "title": "SceneTrackCommandData",
+      "type": "object"
+    },
+    "SceneTrackCommandError": {
+      "additionalProperties": false,
+      "properties": {
+        "status_code": {
+          "title": "Status Code",
+          "type": "integer"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": ["status_code", "reason", "message"],
+      "title": "SceneTrackCommandError",
+      "type": "object"
+    },
+    "SceneTrackCommandInput": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["split", "merge", "mark_absent", "resume", "terminate"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "track_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Track Id",
+          "type": "string"
+        },
+        "secondary_track_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secondary Track Id"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame Index"
+        },
+        "resume_frame": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resume Frame"
+        },
+        "source_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Annotation Id"
+        },
+        "confirm_member_deactivation": {
+          "title": "Confirm Member Deactivation",
+          "type": "boolean"
+        }
+      },
+      "required": ["kind", "track_id", "source_annotation_id", "confirm_member_deactivation"],
+      "title": "SceneTrackCommandInput",
+      "type": "object"
+    },
+    "SceneTrackCommandOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["split", "merge", "mark_absent", "resume", "terminate", "revert"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["committed", "reverted"],
+          "title": "Status",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        },
+        "response_json": {
+          "additionalProperties": true,
+          "title": "Response Json",
+          "type": "object"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "status",
+        "created_at",
+        "completed_at",
+        "response_json",
+        "task_ids"
+      ],
+      "title": "SceneTrackCommandOperation",
+      "type": "object"
+    },
+    "SceneTrackCommandReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-scene-track-commands/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SceneTrackCommandData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SceneTrackCommandError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["schema", "action", "ok", "data", "error"],
+      "title": "SceneTrackCommandReply",
+      "type": "object"
+    },
+    "SceneTrackPreview": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["split", "merge", "mark_absent", "resume", "terminate"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "scene_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Name"
+        },
+        "track_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Track Id",
+          "type": "string"
+        },
+        "secondary_track_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Secondary Track Id"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        },
+        "resume_frame": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resume Frame"
+        },
+        "source_revisions": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Source Revisions",
+          "type": "object"
+        },
+        "before_intervals": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/PreviewInterval"
+            },
+            "type": "array"
+          },
+          "title": "Before Intervals",
+          "type": "object"
+        },
+        "after_intervals": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/PreviewInterval"
+            },
+            "type": "array"
+          },
+          "title": "After Intervals",
+          "type": "object"
+        },
+        "affected_members": {
+          "$ref": "#/$defs/PreviewImpact"
+        },
+        "snapshot_token": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "scene_id",
+        "scene_name",
+        "track_id",
+        "secondary_track_id",
+        "frame_index",
+        "resume_frame",
+        "source_revisions",
+        "before_intervals",
+        "after_intervals",
+        "affected_members",
+        "snapshot_token"
+      ],
+      "title": "SceneTrackPreview",
+      "type": "object"
+    },
+    "TrackIntervalSet": {
+      "additionalProperties": false,
+      "properties": {
+        "track_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Track Id",
+          "type": "string"
+        },
+        "intervals": {
+          "items": {
+            "$ref": "#/$defs/IntervalSpec"
+          },
+          "title": "Intervals",
+          "type": "array"
+        }
+      },
+      "required": ["track_id", "intervals"],
+      "title": "TrackIntervalSet",
+      "type": "object"
+    },
+    "TrackSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "track_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Track Id",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "presence_mode": {
+          "enum": ["inferred", "explicit"],
+          "title": "Presence Mode",
+          "type": "string"
+        },
+        "retired_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retired At"
+        },
+        "intervals": {
+          "items": {
+            "$ref": "#/$defs/IntervalSnapshot"
+          },
+          "title": "Intervals",
+          "type": "array"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/MemberSnapshot"
+          },
+          "title": "Members",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "track_id",
+        "revision",
+        "presence_mode",
+        "retired_at",
+        "intervals",
+        "members"
+      ],
+      "title": "TrackSnapshot",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "apply": "#/$defs/ApplySceneTrackCommand",
+          "inspect": "#/$defs/InspectSceneTrackOperation",
+          "list": "#/$defs/ListSceneTrackOperations",
+          "lock": "#/$defs/LockSceneTrackCommand",
+          "replay": "#/$defs/ReplaySceneTrackCommand",
+          "revert": "#/$defs/RevertSceneTrackOperation"
+        },
+        "propertyName": "action"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/LockSceneTrackCommand"
+        },
+        {
+          "$ref": "#/$defs/ReplaySceneTrackCommand"
+        },
+        {
+          "$ref": "#/$defs/ApplySceneTrackCommand"
+        },
+        {
+          "$ref": "#/$defs/InspectSceneTrackOperation"
+        },
+        {
+          "$ref": "#/$defs/ListSceneTrackOperations"
+        },
+        {
+          "$ref": "#/$defs/RevertSceneTrackOperation"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/SceneTrackCommandReply"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-scene-track-commands/v1",
+  "x-postgresql-functions": {
+    "aap_labeling_v1.scene_track_command(jsonb)": {
+      "argument_types": ["jsonb"],
+      "returns": "jsonb",
+      "owner": "labeling",
+      "security_definer": true,
+      "caller_transaction_required": true,
+      "dependencies": ["aap_assets_v1.spatial_item_references"],
+      "actions": ["lock", "replay", "apply", "inspect", "list", "revert"],
+      "fixed_targets": [
+        "public.tasks",
+        "public.task_dataset_item_links",
+        "aap_assets_v1.spatial_item_references",
+        "public.scene_tracks",
+        "public.scene_track_intervals",
+        "public.annotations",
+        "public.scene_track_operations"
+      ],
+      "table_access": {
+        "public.tasks": {
+          "select": ["id", "dataset_item_id"]
+        },
+        "public.task_dataset_item_links": {
+          "select": ["task_id", "dataset_item_id", "role"]
+        },
+        "aap_assets_v1.spatial_item_references": {
+          "select": ["item_id", "scene_id", "frame_index"]
+        },
+        "public.scene_tracks": {
+          "select": [
+            "id",
+            "project_id",
+            "scene_id",
+            "track_id",
+            "class_name",
+            "presence_mode",
+            "attributes",
+            "attributes_meta",
+            "revision",
+            "created_by",
+            "retired_at",
+            "created_at",
+            "updated_at"
+          ],
+          "insert": [
+            "id",
+            "project_id",
+            "scene_id",
+            "track_id",
+            "class_name",
+            "presence_mode",
+            "attributes",
+            "attributes_meta",
+            "revision",
+            "created_by"
+          ],
+          "update": [
+            "class_name",
+            "presence_mode",
+            "revision",
+            "retired_at",
+            "attributes",
+            "attributes_meta",
+            "updated_at"
+          ]
+        },
+        "public.scene_track_intervals": {
+          "select": ["id", "scene_track_id", "start_frame", "end_frame", "source", "version"],
+          "insert": [
+            "id",
+            "scene_track_id",
+            "start_frame",
+            "end_frame",
+            "source",
+            "version",
+            "created_by",
+            "operation_id"
+          ],
+          "delete": true
+        },
+        "public.annotations": {
+          "select": [
+            "id",
+            "task_id",
+            "project_id",
+            "user_id",
+            "source",
+            "annotation_type",
+            "tool_unit_id",
+            "class_name",
+            "geometry",
+            "track_id",
+            "scene_track_id",
+            "temporal_role",
+            "sensor_role",
+            "attributes",
+            "attributes_meta",
+            "z_order",
+            "is_active",
+            "is_hidden",
+            "version",
+            "was_cancelled",
+            "is_locked"
+          ],
+          "insert": [
+            "id",
+            "task_id",
+            "project_id",
+            "user_id",
+            "source",
+            "annotation_type",
+            "tool_unit_id",
+            "class_name",
+            "geometry",
+            "track_id",
+            "scene_track_id",
+            "temporal_role",
+            "attributes",
+            "attributes_meta",
+            "z_order",
+            "is_active",
+            "is_hidden",
+            "version",
+            "was_cancelled",
+            "ground_truth",
+            "is_locked"
+          ],
+          "update": [
+            "track_id",
+            "scene_track_id",
+            "class_name",
+            "temporal_role",
+            "is_active",
+            "is_hidden",
+            "version",
+            "updated_at"
+          ]
+        },
+        "public.scene_track_operations": {
+          "select": [
+            "id",
+            "scene_id",
+            "actor_id",
+            "kind",
+            "idempotency_key",
+            "request_digest",
+            "snapshot_token",
+            "source_revisions",
+            "result_revisions",
+            "before_state",
+            "after_state",
+            "inverse_payload",
+            "response_json",
+            "status",
+            "reverted_by_operation_id",
+            "created_at",
+            "completed_at"
+          ],
+          "insert": [
+            "id",
+            "scene_id",
+            "actor_id",
+            "kind",
+            "idempotency_key",
+            "request_digest",
+            "snapshot_token",
+            "source_revisions",
+            "result_revisions",
+            "before_state",
+            "after_state",
+            "inverse_payload",
+            "response_json",
+            "status"
+          ],
+          "update": [
+            "result_revisions",
+            "after_state",
+            "response_json",
+            "status",
+            "reverted_by_operation_id"
+          ]
+        }
+      },
+      "sequences": []
+    }
+  }
+}

@@ -6,7 +6,7 @@ from collections import Counter
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import or_, select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
@@ -16,11 +16,7 @@ from app.api.v1.tasks._shared import (
 )
 from app.db.models.project import Project
 from app.db.models.annotation import Annotation
-from app.db.models.scene_track import (
-    SceneTrack,
-    SceneTrackInterval,
-    SceneTrackOperation,
-)
+from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import get_db, get_current_user
@@ -59,8 +55,12 @@ from app.services.scene_track_domain import diagnose_scene_tracks
 from app.services.scene_track_command import (
     PreparedSceneTrackCommand,
     apply_scene_track_command,
+    inspect_scene_track_operation,
+    list_scene_track_operations as read_scene_track_operations,
+    lock_scene_track_command,
     prepare_scene_track_command,
     preview_payload,
+    replay_scene_track_command,
     request_digest,
     revert_scene_track_operation,
 )
@@ -70,24 +70,8 @@ from app.services.identity_contracts import IdentityActorFacts
 router = APIRouter()
 
 
-def _operation_track_filter(track_id: str):
-    response = SceneTrackOperation.response_json
-    return or_(
-        response["track_id"].as_string() == track_id,
-        response["secondary_track_id"].as_string() == track_id,
-        response["created_track_id"].as_string() == track_id,
-    )
-
-
-def _operation_task_ids(operation: SceneTrackOperation) -> set[uuid.UUID]:
-    task_ids: set[uuid.UUID] = set()
-    for snapshot in (operation.before_state, operation.after_state):
-        for state in snapshot.get("tracks", {}).values():
-            for member in state.get("members", []):
-                task_id = member.get("task_id")
-                if task_id:
-                    task_ids.add(uuid.UUID(task_id))
-    return task_ids
+def _operation_task_ids(operation) -> set[uuid.UUID]:
+    return set(operation.task_ids)
 
 
 async def _filter_visible_operations(
@@ -95,9 +79,9 @@ async def _filter_visible_operations(
     *,
     project: Project,
     current_user: User | IdentityActorFacts,
-    operations: list[SceneTrackOperation],
+    operations: list,
     access: ProjectAccess | None = None,
-) -> list[SceneTrackOperation]:
+) -> list:
     operation_tasks = {
         operation.id: _operation_task_ids(operation) for operation in operations
     }
@@ -206,18 +190,13 @@ async def get_scene_track_detail(
             commands.append("split")
     else:
         commands.append("resume")
-    recent_operations = list(
-        (
-            await db.execute(
-                select(SceneTrackOperation)
-                .where(SceneTrackOperation.scene_id == context.scene_id)
-                .where(_operation_track_filter(track_id))
-                .where(SceneTrackOperation.status == "committed")
-                .where(SceneTrackOperation.kind != "revert")
-                .order_by(SceneTrackOperation.created_at.desc())
-                .limit(20)
-            )
-        ).scalars()
+    recent_operations = await read_scene_track_operations(
+        db,
+        scene_id=context.scene_id,
+        track_id=track_id,
+        limit=20,
+        committed_only=True,
+        exclude_reverts=True,
     )
     recent_operations = await _filter_visible_operations(
         db,
@@ -456,36 +435,25 @@ async def execute_scene_track_command(
         data.model_dump(exclude={"snapshot_token", "idempotency_key"})
     )
     context = await resolve_scene_track_context(db, anchor_task)
-    await db.execute(
-        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-        {
-            "key": (
-                f"aap:scene-track-command:{context.scene_id}:"
-                f"{current_user.id}:{data.idempotency_key}"
-            )
-        },
+    replay = await replay_scene_track_command(
+        db,
+        scene_id=context.scene_id,
+        actor_id=current_user.id,
+        idempotency_key=data.idempotency_key,
+        digest=request_digest(command),
     )
-    existing = (
-        await db.execute(
-            select(SceneTrackOperation)
-            .where(SceneTrackOperation.scene_id == context.scene_id)
-            .where(SceneTrackOperation.actor_id == current_user.id)
-            .where(SceneTrackOperation.idempotency_key == data.idempotency_key)
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        if existing.request_digest != request_digest(command):
-            raise _track_error(
-                409,
-                "idempotency_key_reused",
-                "idempotency key was already used for a different command",
+    if replay.found:
+        if replay.response_json is None:
+            raise HTTPException(
+                status_code=503,
+                detail={"reason": "scene_track_command_unavailable"},
             )
-        return SceneTrackCommandResultOut.model_validate(existing.response_json)
+        return SceneTrackCommandResultOut.model_validate(replay.response_json)
+    await lock_scene_track_command(db, context=context, request=command)
     prepared = await prepare_scene_track_command(
         db,
         anchor_task=anchor_task,
         request=command,
-        for_update=True,
     )
     await _assert_prepared_mutable(
         db,
@@ -543,16 +511,11 @@ async def list_scene_track_operations(
     )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    rows = list(
-        (
-            await db.execute(
-                select(SceneTrackOperation)
-                .where(SceneTrackOperation.scene_id == context.scene_id)
-                .where(_operation_track_filter(track_id))
-                .order_by(SceneTrackOperation.created_at.desc())
-                .limit(limit * 4)
-            )
-        ).scalars()
+    rows = await read_scene_track_operations(
+        db,
+        scene_id=context.scene_id,
+        track_id=track_id,
+        limit=limit * 4,
     )
     matched = (
         await _filter_visible_operations(
@@ -596,20 +559,16 @@ async def revert_scene_track_command(
     )
     task_access.assert_task_editable(anchor_task, current_user.id, access=access)
     context = await resolve_scene_track_context(db, anchor_task)
-    operation = (
-        await db.execute(
-            select(SceneTrackOperation)
-            .where(SceneTrackOperation.id == operation_id)
-            .where(SceneTrackOperation.scene_id == context.scene_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    inspection = await inspect_scene_track_operation(
+        db, scene_id=context.scene_id, operation_id=operation_id
+    )
+    operation = inspection.operation
     if operation is None:
         raise _track_error(
             404, "operation_not_found", "Scene Track operation was not found"
         )
 
-    task_ids = _operation_task_ids(operation) or {anchor_task.id}
+    task_ids = set(operation.task_ids) or {anchor_task.id}
     project = await get_workspace_project(
         db, actor_id=None, project_id=anchor_task.project_id
     )
@@ -633,7 +592,8 @@ async def revert_scene_track_command(
 
     revert_operation, response = await revert_scene_track_operation(
         db,
-        operation=operation,
+        scene_id=context.scene_id,
+        operation_id=operation_id,
         actor_id=current_user.id,
         idempotency_key=data.idempotency_key,
     )
@@ -807,16 +767,19 @@ async def execute_track_operation(
         prepared=prepared,
         access=access,
     )
+    command_request = SceneTrackCommandRequest(
+        kind=operation.operation,
+        track_id=operation.primary_track_id,
+        secondary_track_id=operation.secondary_track_id,
+        frame_index=operation.split_after_frame,
+    )
+    await lock_scene_track_command(
+        db, context=prepared.context, request=command_request
+    )
     command = await prepare_scene_track_command(
         db,
         anchor_task=anchor_task,
-        request=SceneTrackCommandRequest(
-            kind=operation.operation,
-            track_id=operation.primary_track_id,
-            secondary_track_id=operation.secondary_track_id,
-            frame_index=operation.split_after_frame,
-        ),
-        for_update=True,
+        request=command_request,
     )
     await _assert_prepared_mutable(
         db,
