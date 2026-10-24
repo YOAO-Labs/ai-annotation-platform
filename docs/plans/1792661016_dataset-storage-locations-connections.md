@@ -767,3 +767,19 @@ GC只枚举独立owner，补充当前有效Annotation版本的区域审阅scope�
 API、用户、架构、恢复说明、README与CHANGELOG同步；OpenAPI快照检查、文档构建、Ruff/format、正常hooks及完整提交范围diff检查通过。本片未改UI，不重复浏览器视觉矩阵。人工3100/8100已应用0229，在两Worker及队列空闲时由原拥有服务刷新；两Worker各72任务、实际RLE只读清理派发、指南清理、Beat与doctor正常，RLE原UTC03:20调度保持。11张业务表指纹、24对象完整SHA与12源文件保持，新表为空。没有重建镜像、安装依赖或修改共享配置与版本。
 
 一次性test及恢复源/目标三个命名空间的数据库、Redis、合计27桶已独立查验不存在；五棵干净且patch等价的隔离树和分支移除，任务产物清理，保留人工服务、工作树身份和本地生成类型。完整E02仍active、完整用途切换关闭；后续推进独立Task原件、已有Dataset位置消费者、金字塔与视频派生，不重复建立已有Dataset原件归属。
+
+## E02-B13 Design — Task 原件与既有 Dataset 位置消费者
+
+基于 `3e70255ef` 的三路只读盘点，独立Task生产写入只有 `/files/upload-init` 和 `upload-complete`；ZIP、目录与连接导入仍归DatasetItem。旧直传直接签最终annotations键，完成仅HEAD，无完整SHA和耐久写入责任；同时缺显式项目管理授权。NULL dataset_item_id不能直接视为独立原件：历史点云可能通过TaskDatasetItemLink关联primary_lidar。DatasetAsset/Location继续承担已有Dataset原件归属，不新建重复owner。
+
+按两个可独立验证的片段实施，但不把第一片视为完整B13或用途切换就绪。B13-A先关闭独立Task直传的最终键覆写和归属缺口；B13-B统一所有Task/Dataset原件消费者，处理固定位置、未知历史和大文件/Range。后者覆盖DTO/file-url、视频/多相机manifest、ML与Worker、金字塔源、导出/训练/AL/样本源；不能只替换几个helper。64MiB图片snapshot不能直接套用于视频与点云。历史原件的显式接管需精确端点/桶/键、全字节核验、当前授权和门禁，不依据file_path、ETag或当前同名桶自动认领。当前全部用途切换保持关闭。
+
+B13-A复用ManagedOriginalCreation独立事务、条件multipart创建、完整回读、取消drain与未知收尾记录。显式新增owner_kind=dataset/task，Dataset记录继续保存原dataset_id；Task记录dataset_id为空，保存独立project_id/task_id，禁止伪造Dataset。历史Creation不改写；原终态不可变、独立记录不级联、不授予独占物删权。Task最终键采用独立受保护命名空间和随机creation UUID，浏览器只获import暂存键PUT。重复/仍有效的暂存签名不能覆盖已接受最终对象。条件写依据既有Amazon S3官方协议，使用现有writer而不添加重试层或第二套物理写入器。
+
+新TaskOriginal仅保存独立已核验原件的当前位置和内容/写入回执，引用Creation证据而不FK业务Task/Project/User。Task通过可空original_id与之关联；既有行保持空。当前物理位置与不可变Creation历史分开，受限离线恢复只映射当前位置的bucket/identity；禁止借修改Creation伪造目标环境写入。创建失败、发布回滚或源Task/Project删除均不抹除Creation责任；已完成但未绑定owner保留。没有新增原件GC或自动接管历史。
+
+init与complete要求tasks:write和当前项目管理身份，复用现有原请求JWT/API key证明与短NOWAIT授权锁。init在分配和业务提交/签暂存URL前复核；complete由原上传发起者完成，重核项目、Task、原凭证、当前可见性和Gate。I/O期间释放业务锁；末端以短锁重核同一Task快照与配置，再原子关联owner和pending状态。并发完成、删除、权限/凭证撤销或Gate变化拒绝发布，已写候选保留责任；不补偿删除。未知旧uploading没有Creation则明确409，不HEAD当前桶猜测接受。幂等成功仅允许同一已验证Creation/owner，不能因Task状态变化二次写入。
+
+本片超过八文件，分三个隔离树：Creation显式作用域与0230领域迁移；TaskOriginal领域/固定回执绑定与独立服务；恢复映射/夹具与测试。主树负责认证路由和原凭证复核、生产签名器保护、API合同/SDK分类、文档及集成验收。先完成类型、约束、不可变/禁止降级、旧Dataset回归；再覆盖暂存重放、最终同键冲突、完整回读损坏、未知收尾、竞争完成与删除/权限撤销、业务回滚后责任存续、点云关联排除和恢复映射。真实TCP API/MinIO必须验证写入回执与源删除后的责任，离线恢复先销毁源再验证当前位置映射与历史不变。
+
+主树使用已验证一次性test环境运行DB，不触及日常数据库。人工3100/8100在业务空闲后应用新增迁移并刷新所属Worker，核对72任务、两Worker/Beat和原24对象、12源文件及11业务表指纹。无UI变更不重复视觉矩阵；不更改共享env、依赖、镜像、部署目标和版本。正式文档、CHANGELOG、API快照及相关检查随实现提交；清理测试资源和干净已集成隔离树。回退保留新增归属/历史证据，禁止重新开放最终键PUT。
