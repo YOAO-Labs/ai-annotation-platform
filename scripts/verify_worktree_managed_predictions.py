@@ -71,6 +71,15 @@ def require(value, message):
         raise WorktreeError(message)
 
 
+def exact_version(value):
+    return (
+        isinstance(value, str)
+        and value != "null"
+        and 0 < len(value) <= 1024
+        and all(32 < ord(char) < 127 for char in value)
+    )
+
+
 def verified_environment():
     """Check actual markers, all target overrides and the existing migration head."""
     from app.config import settings
@@ -255,6 +264,12 @@ class CPUBackend:
             }
             require(bool(query.get("x-amz-signature")), "输入不是实际签名 URL")
             require(0 < int(query["x-amz-expires"][0]) <= 3600, "签名期限错误")
+            versions = query.get("versionid", [])
+            require(
+                len(versions) == 1 and exact_version(versions[0]),
+                "输入 URL 未固定非 null 的准确版本",
+            )
+            version_id = versions[0]
             path = unquote(parsed.path).lstrip("/")
             match = re.fullmatch(
                 re.escape(self.bucket)
@@ -268,6 +283,12 @@ class CPUBackend:
             ) as client:
                 with client.stream("GET", task["file_path"]) as response:
                     require(response.status_code == 200, "真实 MinIO 输入下载失败")
+                    require(
+                        response.headers.get("x-amz-version-id") == version_id,
+                        "真实 GET 返回版本与签名 URL 不同",
+                    )
+                    etag = response.headers.get("etag")
+                    require(isinstance(etag, str) and bool(etag), "真实 GET 缺少 ETag")
                     raw = bytearray()
                     for block in response.iter_bytes():
                         raw.extend(block)
@@ -322,6 +343,8 @@ class CPUBackend:
                         "sha256": digest,
                         "size_bytes": len(raw),
                         "dimensions": dimensions,
+                        "version_id": version_id,
+                        "etag": etag,
                     }
                 )
                 gated = self.gated and model == "detect"
@@ -474,11 +497,33 @@ class Worker:
         }
 
 
-def lifecycle_and_conditionals(storage, run_id):
-    """Exercise the actual SDK/MinIO conditional delete, without altering a lease."""
+def lifecycle_and_versions(storage, run_id, resources):
+    """Qualify immutable version ownership, independently of DELETE IfMatch."""
     from botocore.exceptions import ClientError
 
     storage.ensure_all_buckets()
+    owned = resources.resources
+    expected_bucket = owned["buckets"]["MINIO_IMPORT_BUCKET"]
+    require(
+        owned["mode"] == "test"
+        and os.environ.get("AAP_WORKTREE_MODE") == "test"
+        and storage.import_bucket == expected_bucket,
+        "拒绝更改非本工作树 test 导入桶的版本控制",
+    )
+    require(
+        require_owner(
+            expected_bucket, resources.bucket_info(expected_bucket), owned["owner"]
+        ),
+        "导入桶实际归属未确认，拒绝开启版本控制",
+    )
+    storage.client.put_bucket_versioning(
+        Bucket=expected_bucket, VersioningConfiguration={"Status": "Enabled"}
+    )
+    require(
+        storage.client.get_bucket_versioning(Bucket=expected_bucket).get("Status")
+        == "Enabled",
+        "owned test 导入桶版本控制未实际启用",
+    )
     try:
         rules = storage.client.get_bucket_lifecycle_configuration(
             Bucket=storage.import_bucket
@@ -507,56 +552,157 @@ def lifecycle_and_conditionals(storage, run_id):
             ),
             "导入桶生命周期绕过 prediction input 所有权",
         )
-    key, raw = (
-        "prediction-acceptance/" + run_id + "/conditional.bin",
-        b"conditional-probe",
-    )
-    response = storage.client.put_object(
-        Bucket=storage.import_bucket,
-        Key=key,
-        Body=raw,
-        IfNoneMatch="*",
-        ContentType="application/octet-stream",
-    )
-    etag = response["ETag"]
-    try:
+    key = "prediction-acceptance/" + run_id + "/versioned.bin"
+    versions = {}
+
+    def listed():
+        response = storage.client.list_object_versions(
+            Bucket=expected_bucket, Prefix=key
+        )
+        require(
+            not response.get("IsTruncated") and not response.get("DeleteMarkers"),
+            "版本探针出现额外页或删除标记",
+        )
+        rows = response.get("Versions", [])
+        require(
+            len(rows) <= 2
+            and all(
+                row["Key"] == key and exact_version(row.get("VersionId"))
+                for row in rows
+            ),
+            "版本探针出现未知对象或版本",
+        )
+        return rows
+
+    def put(raw, *, first=False):
+        response = storage.client.put_object(
+            Bucket=expected_bucket,
+            Key=key,
+            Body=raw,
+            ContentType="application/octet-stream",
+            **({"IfNoneMatch": "*"} if first else {}),
+        )
+        identity = response.get("VersionId")
+        require(
+            exact_version(identity) and identity not in versions,
+            "版本探针 PUT 未返回新的非 null VersionId",
+        )
+        versions[identity] = {"etag": response["ETag"], "raw": raw}
+        return identity
+
+    def read(identity, *, current=False):
+        expected = versions[identity]
+        response = storage.client.get_object(
+            Bucket=expected_bucket,
+            Key=key,
+            IfMatch=expected["etag"],
+            **({} if current else {"VersionId": identity}),
+        )
+        with response["Body"] as body:
+            require(
+                response.get("VersionId") == identity
+                and response["ETag"] == expected["etag"]
+                and response["ContentLength"] == len(expected["raw"])
+                and body.read(len(expected["raw"]) + 1) == expected["raw"]
+                and body.read(1) == b"",
+                "版本探针未完整读取预期准确版本",
+            )
+
+    def absent(identity):
         try:
-            storage.client.delete_object(
-                Bucket=storage.import_bucket,
-                Key=key,
-                VersionId="null",
-                IfMatch='"00000000000000000000000000000000"',
+            storage.client.head_object(
+                Bucket=expected_bucket, Key=key, VersionId=identity
             )
         except ClientError as exc:
             require(
-                exc.response["ResponseMetadata"]["HTTPStatusCode"] == 412,
-                "错误 ETag DELETE 未返回 412",
+                exc.response["ResponseMetadata"]["HTTPStatusCode"] == 404,
+                "版本探针删除后的准确版本状态不明确",
             )
         else:
-            raise WorktreeError("真实 MinIO 未实施条件 DELETE")
-        fetched = storage.client.get_object(
-            Bucket=storage.import_bucket, Key=key, IfMatch=etag
-        )
-        with fetched["Body"] as body:
-            require(
-                body.read(len(raw) + 1) == raw and body.read(1) == b"",
-                "条件 DELETE 拒绝后字节发生变化",
-            )
-    finally:
+            raise WorktreeError("已删除的准确版本仍可读取")
+
+    def delete(identity):
+        # IfMatch is supplementary; immutable VersionId supplies ownership.
         storage.client.delete_object(
-            Bucket=storage.import_bucket, Key=key, VersionId="null", IfMatch=etag
+            Bucket=expected_bucket,
+            Key=key,
+            VersionId=identity,
+            IfMatch=versions[identity]["etag"],
         )
+
+    require(not listed(), "拒绝覆盖既有版本探针对象")
     try:
-        storage.client.head_object(Bucket=storage.import_bucket, Key=key)
+        first = put(b"versioned-probe-original", first=True)
+        read(first)
+        read(first, current=True)
+        nonexistent = str(uuid.uuid4())
+        require(nonexistent not in versions, "探针版本身份冲突")
+        try:
+            storage.client.delete_object(
+                Bucket=expected_bucket,
+                Key=key,
+                VersionId=nonexistent,
+                IfMatch=versions[first]["etag"],
+            )
+        except ClientError as exc:
+            require(
+                exc.response["ResponseMetadata"]["HTTPStatusCode"] == 404,
+                "不存在版本的 DELETE 未按准确版本语义处理",
+            )
+        read(first)
+        read(first, current=True)
+        require(
+            {row["VersionId"] for row in listed()} == {first},
+            "删除不存在版本影响了已知版本",
+        )
+        second = put(b"versioned-probe-later-different-bytes")
+        read(first)
+        read(second, current=True)
+        require(
+            {row["VersionId"] for row in listed()} == {first, second},
+            "同 key 两版本未完整保留",
+        )
+        delete(first)
+        absent(first)
+        read(second)
+        read(second, current=True)
+        require(
+            {row["VersionId"] for row in listed()} == {second},
+            "精确删除旧版本影响了新版本",
+        )
+        delete(second)
+        absent(second)
+        require(not listed(), "探针仍存在版本或删除标记")
+    finally:
+        # Retain unknown responses for namespace-owner inspection; never infer a
+        # version from current HEAD and never use an unversioned DELETE fallback.
+        rows = listed()
+        require(
+            {row["VersionId"] for row in rows} <= set(versions),
+            "探针存在未知版本，拒绝盲删",
+        )
+        for row in rows:
+            identity = row["VersionId"]
+            read(identity)
+            delete(identity)
+            absent(identity)
+        require(not listed(), "版本探针清理未完成")
+    try:
+        storage.client.head_object(Bucket=expected_bucket, Key=key)
     except ClientError as exc:
         require(
             exc.response["ResponseMetadata"]["HTTPStatusCode"] == 404,
-            "条件删除后的对象状态不明确",
+            "精确版本删除后的当前对象状态不明确",
         )
     else:
-        raise WorktreeError("正确 ETag DELETE 后对象仍存在")
+        raise WorktreeError("全部已知版本删除后对象仍存在")
     return {
-        "conditional_delete": "wrong-etag-412-and-correct-etag-deleted",
+        "bucket_versioning": "enabled-only-for-verified-owned-test-import",
+        "delete_ownership": "immutable-non-null-exact-version-id",
+        "if_match": "not-qualified-as-ownership-prior-live-minio-ignored-it",
+        "nonexistent_version_delete_preserved_original": True,
+        "old_version_delete_preserved_current_version_and_bytes": True,
+        "probe_versions_and_delete_markers": 0,
         "import_expiration_overlap": False,
         "import_lifecycle_rule_count": len(rules),
     }
@@ -966,6 +1112,7 @@ async def check_prediction(factory, case, job):
 
 
 async def cleanup_inputs(factory, storage, worker, jobs, backend):
+    from botocore.exceptions import ClientError
     from sqlalchemy import select, func
     from app.db.models.prediction_input import PredictionInputLease
     from app.db.models.storage_maintenance import StorageOperation
@@ -1019,14 +1166,52 @@ async def cleanup_inputs(factory, storage, worker, jobs, backend):
                     require(
                         all(
                             entry["state"] == "verified"
+                            and exact_version(entry.get("version_id"))
                             for entry in row.inventory["objects"].values()
                         ),
-                        "完成作业留下未确认输入",
+                        "完成作业留下未确认或 null 版本输入",
                     )
+                    for relative, entry in row.inventory["objects"].items():
+                        downloads = [
+                            event
+                            for event in backend.events
+                            if event["lease_id"] == str(row.id)
+                            and event["relative"] == relative
+                        ]
+                        require(
+                            downloads
+                            and all(
+                                event["version_id"] == entry["version_id"]
+                                and event["etag"] == entry["etag"]
+                                and event["sha256"] == entry["sha256"]
+                                and event["size_bytes"] == entry["size_bytes"]
+                                for event in downloads
+                            ),
+                            "真实签名 URL/GET 与冻结版本收据不一致",
+                        )
+                        try:
+                            await asyncio.to_thread(
+                                storage.client.head_object,
+                                Bucket=row.bucket,
+                                Key=prefix + relative,
+                                VersionId=entry["version_id"],
+                            )
+                        except ClientError as exc:
+                            require(
+                                exc.response["ResponseMetadata"]["HTTPStatusCode"]
+                                == 404,
+                                "墓碑准确版本的物理状态不明确",
+                            )
+                        else:
+                            raise WorktreeError("临时输入墓碑仍可读取其冻结版本")
                 return {
                     "deleted_tombstones": len(rows),
                     "unsettled_operations": 0,
                     "temporary_objects_and_versions": 0,
+                    "signed_get_versions_equal_frozen_receipts": True,
+                    "nonnull_receipt_versions": sum(
+                        len(row.inventory["objects"]) for row in rows
+                    ),
                     "maintenance_dispatches": dispatched,
                 }
             due = max(
@@ -1477,8 +1662,8 @@ def main():
 
                 storage = StorageService()
                 report["phase"] = "real-minio-contract"
-                report["storage_contract"] = lifecycle_and_conditionals(
-                    storage, report["run_id"]
+                report["storage_contract"] = lifecycle_and_versions(
+                    storage, report["run_id"], resources
                 )
                 backend = CPUBackend(
                     f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}",
