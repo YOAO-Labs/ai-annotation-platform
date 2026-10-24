@@ -5,7 +5,9 @@ import uuid
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import create_engine, event
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from app.db.models.notification import Notification
 from app.services.identity_contracts import IdentityActorStatus
@@ -47,6 +49,47 @@ class _QuerySession:
 
 def test_inbox_global_job_kind_policy_matches_existing_jobs_contract():
     assert frozenset(INBOX_GLOBAL_ASYNC_JOB_KINDS) == GLOBAL_ASYNC_JOB_KINDS
+
+
+@pytest.mark.asyncio
+async def test_count_adapter_maps_named_native_count_columns_through_orm_loader():
+    class Base(DeclarativeBase):
+        pass
+
+    class CountRow(Base):
+        __tablename__ = "inbox_count_projection"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+
+    engine = create_engine("sqlite://")
+
+    @event.listens_for(engine, "before_cursor_execute", retval=True)
+    def substitute_fixed_functions(
+        connection, cursor, statement, parameters, context, executemany
+    ):
+        if "inbox_total_count" in statement:
+            return "SELECT 7 AS inbox_total_count", ()
+        if "inbox_unread_count" in statement:
+            return "SELECT 3 AS inbox_unread_count", ()
+        return statement, parameters
+
+    session = Session(engine)
+
+    class _BorrowedSession:
+        async def scalar(self, statement, params=None):
+            return session.scalar(statement, params)
+
+        async def execute(self, statement, params=None):
+            return session.execute(statement, params)
+
+    try:
+        inbox = NotificationInboxQueryPostgresData(_BorrowedSession(), CountRow)
+
+        assert await inbox.total_count(uuid.uuid4(), "employee") == 7
+        assert await inbox.unread_count(uuid.uuid4(), "employee") == 3
+    finally:
+        session.close()
+        engine.dispose()
 
 
 @pytest.mark.asyncio

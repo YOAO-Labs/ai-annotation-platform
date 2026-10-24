@@ -52,7 +52,9 @@ class NotificationInboxQueryPostgresData:
         return list(result.scalars().all())
 
     async def total_count(self, actor_id, platform_role: str) -> int:
-        statement = select(func.count(self.notification_model.id)).from_statement(
+        statement = select(
+            func.count(self.notification_model.id).label("inbox_total_count")
+        ).from_statement(
             text(
                 "SELECT aap_notifications_v1.inbox_total_count("
                 "CAST(:actor_id AS pg_catalog.uuid), "
@@ -66,7 +68,9 @@ class NotificationInboxQueryPostgresData:
         return int(value or 0)
 
     async def unread_count(self, actor_id, platform_role: str) -> int:
-        statement = select(func.count(self.notification_model.id)).from_statement(
+        statement = select(
+            func.count(self.notification_model.id).label("inbox_unread_count")
+        ).from_statement(
             text(
                 "SELECT aap_notifications_v1.inbox_unread_count("
                 "CAST(:actor_id AS pg_catalog.uuid), "
