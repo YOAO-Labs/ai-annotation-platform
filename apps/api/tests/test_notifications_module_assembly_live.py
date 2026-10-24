@@ -884,7 +884,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         )
                         assert len(pending_rows) == 2
                         notification_ids = [
-                            uuid.UUID(row["id"]) for row in pending_rows
+                            uuid.UUID(str(row["id"])) for row in pending_rows
                         ]
                         async with seed() as db:
                             pending_notifications = list(
@@ -1015,7 +1015,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                     clone_maker, operation_id, "done"
                                 )
                                 assert {
-                                    uuid.UUID(row["notification_id"])
+                                    uuid.UUID(str(row["notification_id"]))
                                     for row in done_rows
                                 } == set(notification_ids)
                                 assert all(
