@@ -1,0 +1,1255 @@
+{
+  "$defs": {
+    "CandidateTrackCount": {
+      "additionalProperties": false,
+      "properties": {
+        "member_count": {
+          "title": "Member Count",
+          "type": "integer"
+        },
+        "track_id": {
+          "title": "Track Id",
+          "type": "string"
+        }
+      },
+      "required": ["track_id", "member_count"],
+      "title": "CandidateTrackCount",
+      "type": "object"
+    },
+    "CandidateTrackCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "candidate_track_counts",
+          "title": "Action",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "exclude_track_id": {
+          "title": "Exclude Track Id",
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 81,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "project_id",
+        "task_ids",
+        "class_name",
+        "exclude_track_id",
+        "limit"
+      ],
+      "title": "CandidateTrackCounts",
+      "type": "object"
+    },
+    "LoadCommandTrack": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "load_command_track",
+          "title": "Action",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "track_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Track Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "project_id", "scene_id", "track_id"],
+      "title": "LoadCommandTrack",
+      "type": "object"
+    },
+    "LoadSceneCameraCache": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "load_scene_camera_cache",
+          "title": "Action",
+          "type": "string"
+        },
+        "annotation_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Annotation Ids",
+          "type": "array"
+        },
+        "scene_track_id": {
+          "format": "uuid",
+          "title": "Scene Track Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "scene_track_id", "annotation_ids"],
+      "title": "LoadSceneCameraCache",
+      "type": "object"
+    },
+    "LoadSceneDiagnostics": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "load_scene_diagnostics",
+          "title": "Action",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "project_id", "scene_id"],
+      "title": "LoadSceneDiagnostics",
+      "type": "object"
+    },
+    "LoadSceneTrackCache": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "load_scene_track_cache",
+          "title": "Action",
+          "type": "string"
+        },
+        "scene_track_id": {
+          "format": "uuid",
+          "title": "Scene Track Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "scene_track_id"],
+      "title": "LoadSceneTrackCache",
+      "type": "object"
+    },
+    "LoadTimelineTrack": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "load_timeline_track",
+          "title": "Action",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "track_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Track Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "project_id", "scene_id", "track_id"],
+      "title": "LoadTimelineTrack",
+      "type": "object"
+    },
+    "LoadTrackDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "load_track_detail",
+          "title": "Action",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "track_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Track Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "project_id", "scene_id", "track_id"],
+      "title": "LoadTrackDetail",
+      "type": "object"
+    },
+    "ResolvePrimaryLink": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "resolve_primary_link",
+          "title": "Action",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "task_id"],
+      "title": "ResolvePrimaryLink",
+      "type": "object"
+    },
+    "ResolveTaskFrames": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "resolve_task_frames",
+          "title": "Action",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "action", "task_ids"],
+      "title": "ResolveTaskFrames",
+      "type": "object"
+    },
+    "SceneAnnotationRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_type": {
+          "title": "Annotation Type",
+          "type": "string"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        },
+        "geometry": {
+          "title": "Geometry"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "is_hidden": {
+          "title": "Is Hidden",
+          "type": "boolean"
+        },
+        "is_locked": {
+          "title": "Is Locked",
+          "type": "boolean"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Track Id"
+        },
+        "sensor_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sensor Role"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "temporal_role": {
+          "title": "Temporal Role",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "was_cancelled": {
+          "title": "Was Cancelled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "project_id",
+        "source",
+        "annotation_type",
+        "class_name",
+        "geometry",
+        "track_id",
+        "scene_track_id",
+        "sensor_role",
+        "temporal_role",
+        "is_active",
+        "was_cancelled",
+        "is_locked",
+        "is_hidden",
+        "version",
+        "created_at",
+        "frame_index"
+      ],
+      "title": "SceneAnnotationRecord",
+      "type": "object"
+    },
+    "SceneCameraCacheRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": ["id", "class_name", "version", "updated_at"],
+      "title": "SceneCameraCacheRecord",
+      "type": "object"
+    },
+    "SceneFrameTask": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_index": {
+          "title": "Frame Index",
+          "type": "integer"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["frame_index", "task_id"],
+      "title": "SceneFrameTask",
+      "type": "object"
+    },
+    "SceneFrameTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "scene_frame_tasks",
+          "title": "Action",
+          "type": "string"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "scene_id"],
+      "title": "SceneFrameTasks",
+      "type": "object"
+    },
+    "SceneReadData": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_summaries": {
+          "items": {
+            "$ref": "#/$defs/TimelineAnnotationSummary"
+          },
+          "title": "Annotation Summaries",
+          "type": "array"
+        },
+        "camera_members": {
+          "items": {
+            "$ref": "#/$defs/SceneCameraCacheRecord"
+          },
+          "title": "Camera Members",
+          "type": "array"
+        },
+        "candidate_counts": {
+          "items": {
+            "$ref": "#/$defs/CandidateTrackCount"
+          },
+          "title": "Candidate Counts",
+          "type": "array"
+        },
+        "frame_tasks": {
+          "items": {
+            "$ref": "#/$defs/SceneFrameTask"
+          },
+          "title": "Frame Tasks",
+          "type": "array"
+        },
+        "frames": {
+          "items": {
+            "$ref": "#/$defs/TaskSceneFrame"
+          },
+          "title": "Frames",
+          "type": "array"
+        },
+        "intervals": {
+          "items": {
+            "$ref": "#/$defs/SceneTrackIntervalRecord"
+          },
+          "title": "Intervals",
+          "type": "array"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/SceneAnnotationRecord"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "primary_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Primary Item Id"
+        },
+        "timeline_tasks": {
+          "items": {
+            "$ref": "#/$defs/TimelineTask"
+          },
+          "title": "Timeline Tasks",
+          "type": "array"
+        },
+        "track": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SceneTrackRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "track_cache": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SceneTrackCacheRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tracks": {
+          "items": {
+            "$ref": "#/$defs/SceneTrackRecord"
+          },
+          "title": "Tracks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "primary_item_id",
+        "frames",
+        "frame_tasks",
+        "timeline_tasks",
+        "annotation_summaries",
+        "track",
+        "tracks",
+        "track_cache",
+        "camera_members",
+        "intervals",
+        "members",
+        "candidate_counts"
+      ],
+      "title": "SceneReadData",
+      "type": "object"
+    },
+    "SceneReadReply": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/SceneReadData"
+        },
+        "request": {
+          "discriminator": {
+            "mapping": {
+              "candidate_track_counts": "#/$defs/CandidateTrackCounts",
+              "load_command_track": "#/$defs/LoadCommandTrack",
+              "load_scene_camera_cache": "#/$defs/LoadSceneCameraCache",
+              "load_scene_diagnostics": "#/$defs/LoadSceneDiagnostics",
+              "load_scene_track_cache": "#/$defs/LoadSceneTrackCache",
+              "load_timeline_track": "#/$defs/LoadTimelineTrack",
+              "load_track_detail": "#/$defs/LoadTrackDetail",
+              "lock_track_members": "#/$defs/TrackMemberRows",
+              "read_track_members": "#/$defs/TrackMemberRows",
+              "resolve_primary_link": "#/$defs/ResolvePrimaryLink",
+              "resolve_task_frames": "#/$defs/ResolveTaskFrames",
+              "scene_frame_tasks": "#/$defs/SceneFrameTasks",
+              "timeline_annotation_summaries": "#/$defs/TimelineAnnotationSummaries",
+              "timeline_tasks": "#/$defs/TimelineTasks"
+            },
+            "propertyName": "action"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ResolvePrimaryLink"
+            },
+            {
+              "$ref": "#/$defs/ResolveTaskFrames"
+            },
+            {
+              "$ref": "#/$defs/SceneFrameTasks"
+            },
+            {
+              "$ref": "#/$defs/TimelineTasks"
+            },
+            {
+              "$ref": "#/$defs/TimelineAnnotationSummaries"
+            },
+            {
+              "$ref": "#/$defs/LoadCommandTrack"
+            },
+            {
+              "$ref": "#/$defs/LoadTrackDetail"
+            },
+            {
+              "$ref": "#/$defs/LoadTimelineTrack"
+            },
+            {
+              "$ref": "#/$defs/LoadSceneDiagnostics"
+            },
+            {
+              "$ref": "#/$defs/LoadSceneTrackCache"
+            },
+            {
+              "$ref": "#/$defs/LoadSceneCameraCache"
+            },
+            {
+              "$ref": "#/$defs/TrackMemberRows"
+            },
+            {
+              "$ref": "#/$defs/CandidateTrackCounts"
+            }
+          ],
+          "title": "Request"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "request", "data"],
+      "title": "SceneReadReply",
+      "type": "object"
+    },
+    "SceneTrackCacheRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": ["id", "class_name", "revision", "updated_at"],
+      "title": "SceneTrackCacheRecord",
+      "type": "object"
+    },
+    "SceneTrackIntervalRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "end_frame": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "End Frame"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "scene_track_id": {
+          "format": "uuid",
+          "title": "Scene Track Id",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "start_frame": {
+          "title": "Start Frame",
+          "type": "integer"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": ["id", "scene_track_id", "start_frame", "end_frame", "source", "version"],
+      "title": "SceneTrackIntervalRecord",
+      "type": "object"
+    },
+    "SceneTrackRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "title": "Attributes"
+        },
+        "attributes_meta": {
+          "title": "Attributes Meta"
+        },
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "presence_mode": {
+          "title": "Presence Mode",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "retired_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retired At"
+        },
+        "revision": {
+          "title": "Revision",
+          "type": "integer"
+        },
+        "scene_id": {
+          "format": "uuid",
+          "title": "Scene Id",
+          "type": "string"
+        },
+        "track_id": {
+          "title": "Track Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "scene_id",
+        "track_id",
+        "class_name",
+        "presence_mode",
+        "attributes",
+        "attributes_meta",
+        "revision",
+        "retired_at"
+      ],
+      "title": "SceneTrackRecord",
+      "type": "object"
+    },
+    "TaskSceneFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "frame_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Index"
+        },
+        "item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Item Id"
+        },
+        "scene_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Id"
+        },
+        "scene_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scene Name"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id", "item_id", "scene_id", "scene_name", "frame_index"],
+      "title": "TaskSceneFrame",
+      "type": "object"
+    },
+    "TimelineAnnotationSummaries": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "timeline_annotation_summaries",
+          "title": "Action",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Track Id"
+        }
+      },
+      "required": ["schema", "action", "task_ids", "track_id"],
+      "title": "TimelineAnnotationSummaries",
+      "type": "object"
+    },
+    "TimelineAnnotationSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_count": {
+          "title": "Annotation Count",
+          "type": "integer"
+        },
+        "selected_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selected Annotation Id"
+        },
+        "selected_class_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selected Class Name"
+        },
+        "selected_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selected Source"
+        },
+        "selected_temporal_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selected Temporal Role"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "annotation_count",
+        "selected_annotation_id",
+        "selected_source",
+        "selected_class_name",
+        "selected_temporal_role"
+      ],
+      "title": "TimelineAnnotationSummary",
+      "type": "object"
+    },
+    "TimelineTask": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "format": "uuid",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["item_id", "task_id", "status"],
+      "title": "TimelineTask",
+      "type": "object"
+    },
+    "TimelineTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "timeline_tasks",
+          "title": "Action",
+          "type": "string"
+        },
+        "item_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Item Ids",
+          "type": "array"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "action", "project_id", "item_ids"],
+      "title": "TimelineTasks",
+      "type": "object"
+    },
+    "TrackMemberRows": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": ["read_track_members", "lock_track_members"],
+          "title": "Action",
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 20001,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-scene-read/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "track_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 80,
+          "minItems": 1,
+          "title": "Track Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "action", "project_id", "track_ids", "limit"],
+      "title": "TrackMemberRows",
+      "type": "object"
+    }
+  },
+  "$id": "aap-labeling-scene-read/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "candidate_track_counts": "#/$defs/CandidateTrackCounts",
+          "load_command_track": "#/$defs/LoadCommandTrack",
+          "load_scene_camera_cache": "#/$defs/LoadSceneCameraCache",
+          "load_scene_diagnostics": "#/$defs/LoadSceneDiagnostics",
+          "load_scene_track_cache": "#/$defs/LoadSceneTrackCache",
+          "load_timeline_track": "#/$defs/LoadTimelineTrack",
+          "load_track_detail": "#/$defs/LoadTrackDetail",
+          "lock_track_members": "#/$defs/TrackMemberRows",
+          "read_track_members": "#/$defs/TrackMemberRows",
+          "resolve_primary_link": "#/$defs/ResolvePrimaryLink",
+          "resolve_task_frames": "#/$defs/ResolveTaskFrames",
+          "scene_frame_tasks": "#/$defs/SceneFrameTasks",
+          "timeline_annotation_summaries": "#/$defs/TimelineAnnotationSummaries",
+          "timeline_tasks": "#/$defs/TimelineTasks"
+        },
+        "propertyName": "action"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ResolvePrimaryLink"
+        },
+        {
+          "$ref": "#/$defs/ResolveTaskFrames"
+        },
+        {
+          "$ref": "#/$defs/SceneFrameTasks"
+        },
+        {
+          "$ref": "#/$defs/TimelineTasks"
+        },
+        {
+          "$ref": "#/$defs/TimelineAnnotationSummaries"
+        },
+        {
+          "$ref": "#/$defs/LoadCommandTrack"
+        },
+        {
+          "$ref": "#/$defs/LoadTrackDetail"
+        },
+        {
+          "$ref": "#/$defs/LoadTimelineTrack"
+        },
+        {
+          "$ref": "#/$defs/LoadSceneDiagnostics"
+        },
+        {
+          "$ref": "#/$defs/LoadSceneTrackCache"
+        },
+        {
+          "$ref": "#/$defs/LoadSceneCameraCache"
+        },
+        {
+          "$ref": "#/$defs/TrackMemberRows"
+        },
+        {
+          "$ref": "#/$defs/CandidateTrackCounts"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/SceneReadReply"
+    }
+  ],
+  "x-postgresql-functions": {
+    "aap_labeling_v1.scene_read_query(jsonb)": {
+      "actions": [
+        "resolve_primary_link",
+        "resolve_task_frames",
+        "scene_frame_tasks",
+        "timeline_tasks",
+        "timeline_annotation_summaries",
+        "load_command_track",
+        "load_track_detail",
+        "load_timeline_track",
+        "load_scene_diagnostics",
+        "load_scene_track_cache",
+        "load_scene_camera_cache",
+        "read_track_members",
+        "lock_track_members",
+        "candidate_track_counts"
+      ],
+      "argument_types": ["jsonb"],
+      "caller_transaction_required": true,
+      "dependencies": ["aap_assets_v1.spatial_item_references"],
+      "fixed_targets": [
+        "public.tasks",
+        "public.task_dataset_item_links",
+        "public.annotations",
+        "public.scene_tracks",
+        "public.scene_track_intervals",
+        "aap_assets_v1.spatial_item_references"
+      ],
+      "owner": "labeling",
+      "returns": "jsonb",
+      "security_definer": true,
+      "sequences": [],
+      "table_access": {
+        "aap_assets_v1.spatial_item_references": {
+          "select": ["item_id", "scene_id", "frame_index", "scene_name"]
+        },
+        "public.annotations": {
+          "select": [
+            "id",
+            "task_id",
+            "project_id",
+            "source",
+            "annotation_type",
+            "class_name",
+            "geometry",
+            "track_id",
+            "scene_track_id",
+            "sensor_role",
+            "temporal_role",
+            "is_active",
+            "was_cancelled",
+            "is_locked",
+            "is_hidden",
+            "version",
+            "created_at",
+            "updated_at"
+          ]
+        },
+        "public.scene_track_intervals": {
+          "select": ["id", "scene_track_id", "start_frame", "end_frame", "source", "version"]
+        },
+        "public.scene_tracks": {
+          "select": [
+            "id",
+            "project_id",
+            "scene_id",
+            "track_id",
+            "class_name",
+            "presence_mode",
+            "attributes",
+            "attributes_meta",
+            "revision",
+            "retired_at",
+            "updated_at"
+          ]
+        },
+        "public.task_dataset_item_links": {
+          "select": ["task_id", "dataset_item_id", "role"]
+        },
+        "public.tasks": {
+          "select": ["id", "project_id", "status", "dataset_item_id"]
+        }
+      }
+    }
+  }
+}

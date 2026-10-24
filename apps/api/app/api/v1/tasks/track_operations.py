@@ -15,8 +15,6 @@ from app.api.v1.tasks._shared import (
     require_task_annotation_write,
 )
 from app.db.models.project import Project
-from app.db.models.annotation import Annotation
-from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import get_db, get_current_user
@@ -52,6 +50,7 @@ from app.services.track_operation import (
     resolve_scene_track_context,
 )
 from app.services.scene_track_domain import diagnose_scene_tracks
+from app.services.labeling_scene_read import read_scene_data
 from app.services.scene_track_command import (
     PreparedSceneTrackCommand,
     apply_scene_track_command,
@@ -110,37 +109,18 @@ async def get_scene_track_detail(
     anchor_task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, anchor_task, current_user.id)
     context = await resolve_scene_track_context(db, anchor_task)
-    track = (
-        await db.execute(
-            select(SceneTrack)
-            .where(SceneTrack.project_id == context.project_id)
-            .where(SceneTrack.scene_id == context.scene_id)
-            .where(SceneTrack.track_id == track_id)
-            .where(SceneTrack.retired_at.is_(None))
-        )
-    ).scalar_one_or_none()
+    scene_data = await read_scene_data(
+        db,
+        "load_track_detail",
+        project_id=context.project_id,
+        scene_id=context.scene_id,
+        track_id=track_id,
+    )
+    track = scene_data.track
     if track is None:
         raise _track_error(404, "track_not_found", "3D Scene Track was not found")
-    intervals = list(
-        (
-            await db.execute(
-                select(SceneTrackInterval)
-                .where(SceneTrackInterval.scene_track_id == track.id)
-                .order_by(SceneTrackInterval.start_frame)
-            )
-        ).scalars()
-    )
-    members = list(
-        (
-            await db.execute(
-                select(Annotation)
-                .where(Annotation.scene_track_id == track.id)
-                .where(Annotation.is_active.is_(True))
-                .where(Annotation.was_cancelled.is_(False))
-                .order_by(Annotation.task_id, Annotation.id)
-            )
-        ).scalars()
-    )
+    intervals = scene_data.intervals
+    members = scene_data.members
     member_task_ids = {member.task_id for member in members}
     project = await get_workspace_project(
         db, actor_id=None, project_id=anchor_task.project_id

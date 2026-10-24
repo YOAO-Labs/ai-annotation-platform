@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes, make_transient_to_detached
 from sqlalchemy.orm.util import identity_key
@@ -25,9 +25,9 @@ from app.db.models.annotation import Annotation
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from app.services.labeling_scene import (
-    get_scene_frame_task_map,
     resolve_task_scene_frames,
 )
+from app.services.labeling_scene_read import read_scene_data
 
 
 TEMPORAL_ROLES = frozenset({"keyframe", "derived", "sample"})
@@ -264,48 +264,15 @@ async def diagnose_scene_tracks(
     scene_id: uuid.UUID,
     limit: int = 200,
 ) -> SceneTrackDiagnosticReport:
-    tracks = list(
-        (
-            await db.execute(
-                select(SceneTrack)
-                .where(SceneTrack.project_id == project_id)
-                .where(SceneTrack.scene_id == scene_id)
-                .where(SceneTrack.retired_at.is_(None))
-                .order_by(SceneTrack.track_id)
-            )
-        ).scalars()
+    result = await read_scene_data(
+        db,
+        "load_scene_diagnostics",
+        project_id=project_id,
+        scene_id=scene_id,
     )
-    intervals = list(
-        (
-            await db.execute(
-                select(SceneTrackInterval)
-                .join(SceneTrack, SceneTrack.id == SceneTrackInterval.scene_track_id)
-                .where(SceneTrack.project_id == project_id)
-                .where(SceneTrack.scene_id == scene_id)
-                .order_by(
-                    SceneTrackInterval.scene_track_id,
-                    SceneTrackInterval.start_frame,
-                )
-            )
-        ).scalars()
-    )
-    frame_tasks = await get_scene_frame_task_map(db, scene_id)
-    task_frames = {task_id: frame for frame, task_id in frame_tasks.items()}
-    members = list(
-        (
-            await db.execute(
-                select(Annotation)
-                .where(Annotation.project_id == project_id)
-                .where(Annotation.task_id.in_(task_frames))
-                .where(Annotation.annotation_type == "box_3d")
-                .where(Annotation.track_id.is_not(None))
-                .where(Annotation.is_active.is_(True))
-                .where(Annotation.was_cancelled.is_(False))
-                .order_by(Annotation.track_id, Annotation.task_id, Annotation.id)
-            )
-        ).scalars()
-    )
-
+    tracks = result.tracks
+    intervals = result.intervals
+    members = result.members
     tracks_by_id = {track.id: track for track in tracks}
     intervals_by_track: dict[uuid.UUID, list[SceneTrackInterval]] = defaultdict(list)
     for interval in intervals:
@@ -346,7 +313,9 @@ async def diagnose_scene_tracks(
 
     frame_identity_counts: Counter[tuple[uuid.UUID, int]] = Counter()
     for member in members:
-        frame_index = task_frames[member.task_id]
+        frame_index = member.frame_index
+        if frame_index is None:
+            raise RuntimeError("Scene read omitted a diagnostic member frame")
         if member.scene_track_id is None:
             add(
                 "member_unlinked",

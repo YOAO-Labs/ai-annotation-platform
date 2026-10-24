@@ -8,12 +8,15 @@ import json
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import attributes
+from sqlalchemy.orm.util import identity_key
 
+from aap_labeling.scene_read_contract import SceneAnnotationRecord
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.schemas.track_operation import TrackOperationRequest, TrackSummary
+from app.services.labeling_scene_read import read_scene_data
 from app.services.labeling_scene import (
     get_scene_frame_task_map,
     resolve_task_scene_frames,
@@ -45,7 +48,7 @@ class SceneTrackContext:
 @dataclass(frozen=True)
 class ValidatedTrack:
     summary: TrackSummary
-    rows: tuple[Annotation, ...]
+    rows: tuple[SceneAnnotationRecord, ...]
     frames: frozenset[int]
     task_ids: frozenset[uuid.UUID]
 
@@ -97,34 +100,31 @@ async def resolve_scene_track_context(
     )
 
 
-def _track_query(
-    *,
-    context: SceneTrackContext,
-    track_ids: list[str],
-):
-    return (
-        select(Annotation)
-        .where(Annotation.project_id == context.project_id)
-        .where(Annotation.track_id.in_(track_ids))
-        .where(Annotation.is_active.is_(True))
-        .where(Annotation.was_cancelled.is_(False))
-        .order_by(Annotation.id)
-    )
-
-
 async def _load_rows(
     db: AsyncSession,
     *,
     context: SceneTrackContext,
     track_ids: list[str],
     for_update: bool,
-) -> list[Annotation]:
-    query = _track_query(context=context, track_ids=track_ids).limit(
-        MAX_TRACK_MEMBERS + 1
+) -> list[SceneAnnotationRecord]:
+    result = await read_scene_data(
+        db,
+        "lock_track_members" if for_update else "read_track_members",
+        project_id=context.project_id,
+        track_ids=track_ids,
+        limit=MAX_TRACK_MEMBERS + 1,
     )
+    rows = list(result.members)
     if for_update:
-        query = query.with_for_update().execution_options(populate_existing=True)
-    rows = list((await db.execute(query)).scalars())
+        for row in rows:
+            instance = db.sync_session.identity_map.get(
+                identity_key(Annotation, ident=row.id)
+            )
+            if instance is None:
+                continue
+            for field, value in row.model_dump(mode="python").items():
+                if field != "frame_index":
+                    attributes.set_committed_value(instance, field, value)
     if len(rows) > MAX_TRACK_MEMBERS:
         raise _error(
             422,
@@ -138,7 +138,7 @@ def _validate_track(
     *,
     context: SceneTrackContext,
     track_id: str,
-    rows: list[Annotation],
+    rows: list[SceneAnnotationRecord],
 ) -> ValidatedTrack:
     track_rows = [row for row in rows if row.track_id == track_id]
     if not track_rows:
@@ -163,7 +163,7 @@ def _validate_track(
             "track members must share one class before identity changes",
         )
 
-    frame_rows: dict[int, Annotation] = {}
+    frame_rows: dict[int, SceneAnnotationRecord] = {}
     for row in track_rows:
         frame_index = context.task_to_frame.get(row.task_id)
         if frame_index is None:
@@ -347,22 +347,16 @@ async def list_structural_merge_candidates(
 
     scan_limit = min(MAX_CANDIDATE_SCAN, max(limit * 4, limit))
     scene_task_ids = list(context.task_to_frame)
-    count_rows = (
-        await db.execute(
-            select(Annotation.track_id, func.count(Annotation.id))
-            .where(Annotation.project_id == context.project_id)
-            .where(Annotation.task_id.in_(scene_task_ids))
-            .where(Annotation.is_active.is_(True))
-            .where(Annotation.was_cancelled.is_(False))
-            .where(Annotation.geometry["type"].astext == "box_3d")
-            .where(Annotation.class_name == primary.summary.class_name)
-            .where(Annotation.track_id.is_not(None))
-            .where(Annotation.track_id != primary_track_id)
-            .group_by(Annotation.track_id)
-            .order_by(Annotation.track_id)
-            .limit(scan_limit + 1)
-        )
-    ).all()
+    counts = await read_scene_data(
+        db,
+        "candidate_track_counts",
+        project_id=context.project_id,
+        task_ids=scene_task_ids,
+        class_name=primary.summary.class_name,
+        exclude_track_id=primary_track_id,
+        limit=scan_limit + 1,
+    )
+    count_rows = [(row.track_id, row.member_count) for row in counts.candidate_counts]
     truncated = len(count_rows) > scan_limit
     candidate_ids = [
         str(track_id)
@@ -376,11 +370,14 @@ async def list_structural_merge_candidates(
             truncated=truncated,
         )
 
-    candidate_query = _track_query(
-        context=context,
+    candidate_result = await read_scene_data(
+        db,
+        "read_track_members",
+        project_id=context.project_id,
         track_ids=candidate_ids,
-    ).limit(MAX_CANDIDATE_ROWS + 1)
-    candidate_rows = list((await db.execute(candidate_query)).scalars())
+        limit=MAX_CANDIDATE_ROWS + 1,
+    )
+    candidate_rows = list(candidate_result.members)
     if len(candidate_rows) > MAX_CANDIDATE_ROWS:
         truncated = True
         candidate_rows = candidate_rows[:MAX_CANDIDATE_ROWS]

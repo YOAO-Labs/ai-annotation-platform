@@ -10,7 +10,7 @@ import json
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_labeling.scene_track_command_contract import (
@@ -20,6 +20,11 @@ from aap_labeling.scene_track_command_contract import (
     scene_track_command,
 )
 from aap_labeling.scene_track_command_data import SceneTrackCommandDataClient
+from aap_labeling.scene_read_contract import (
+    SceneAnnotationRecord,
+    SceneTrackIntervalRecord,
+    SceneTrackRecord,
+)
 
 from app.db.models.annotation import Annotation
 from app.db.models.scene_track import (
@@ -29,6 +34,7 @@ from app.db.models.scene_track import (
 from app.db.models.task import Task
 from app.schemas.scene_track import SceneTrackCommandRequest
 from app.services.annotation_evidence import record_annotation_actors_for_tasks
+from app.services.labeling_scene_read import read_scene_data
 from app.services.track_operation import SceneTrackContext, resolve_scene_track_context
 
 
@@ -54,9 +60,9 @@ class IntervalSpec:
 
 @dataclass(frozen=True)
 class LoadedCommandTrack:
-    track: SceneTrack
-    intervals: tuple[SceneTrackInterval, ...]
-    members: tuple[Annotation, ...]
+    track: SceneTrackRecord
+    intervals: tuple[SceneTrackIntervalRecord, ...]
+    members: tuple[SceneAnnotationRecord, ...]
 
 
 @dataclass(frozen=True)
@@ -69,7 +75,7 @@ class PreparedSceneTrackCommand:
     source_revisions: dict[str, int]
     before_intervals: dict[str, tuple[IntervalSpec, ...]]
     after_intervals: dict[str, tuple[IntervalSpec, ...]]
-    affected_members: tuple[Annotation, ...]
+    affected_members: tuple[SceneAnnotationRecord, ...]
     impact_frames: tuple[int, ...]
     impact_by_role: dict[str, int]
     requires_confirmation: bool
@@ -126,7 +132,7 @@ def request_digest(request: SceneTrackCommandRequest) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def _frame_for(context: SceneTrackContext, annotation: Annotation) -> int:
+def _frame_for(context: SceneTrackContext, annotation: SceneAnnotationRecord) -> int:
     frame = context.task_to_frame.get(annotation.task_id)
     if frame is None:
         raise _error(
@@ -204,32 +210,21 @@ async def _load_track(
     context: SceneTrackContext,
     track_id: str,
 ) -> LoadedCommandTrack:
-    query = (
-        select(SceneTrack)
-        .where(SceneTrack.project_id == context.project_id)
-        .where(SceneTrack.scene_id == context.scene_id)
-        .where(SceneTrack.track_id == track_id)
+    result = await read_scene_data(
+        db,
+        "load_command_track",
+        project_id=context.project_id,
+        scene_id=context.scene_id,
+        track_id=track_id,
     )
-    track = (await db.execute(query)).scalar_one_or_none()
+    track = result.track
     if track is None:
         raise _error(404, "track_not_found", "3D Scene Track was not found")
     if track.retired_at is not None:
         raise _error(409, "track_retired", "retired Scene Track cannot be changed")
 
-    interval_query = (
-        select(SceneTrackInterval)
-        .where(SceneTrackInterval.scene_track_id == track.id)
-        .order_by(SceneTrackInterval.start_frame, SceneTrackInterval.id)
-    )
-    member_query = (
-        select(Annotation)
-        .where(Annotation.scene_track_id == track.id)
-        .where(Annotation.was_cancelled.is_(False))
-        .order_by(Annotation.id)
-        .limit(MAX_COMMAND_MEMBERS + 1)
-    )
-    intervals = tuple((await db.execute(interval_query)).scalars())
-    members = tuple((await db.execute(member_query)).scalars())
+    intervals = tuple(result.intervals)
+    members = tuple(result.members)
     if len(members) > MAX_COMMAND_MEMBERS:
         raise _error(
             422,
@@ -305,11 +300,11 @@ def _snapshot_token(
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def _active_members(track: LoadedCommandTrack) -> list[Annotation]:
+def _active_members(track: LoadedCommandTrack) -> list[SceneAnnotationRecord]:
     return [row for row in track.members if row.is_active]
 
 
-def _active_primary_members(track: LoadedCommandTrack) -> list[Annotation]:
+def _active_primary_members(track: LoadedCommandTrack) -> list[SceneAnnotationRecord]:
     return [
         row
         for row in track.members
@@ -320,7 +315,7 @@ def _active_primary_members(track: LoadedCommandTrack) -> list[Annotation]:
 
 
 def _validate_single_active_member_per_frame(
-    context: SceneTrackContext, rows: list[Annotation]
+    context: SceneTrackContext, rows: list[SceneAnnotationRecord]
 ) -> None:
     seen: set[int] = set()
     for row in rows:
@@ -359,7 +354,7 @@ async def prepare_scene_track_command(
     primary_specs = _interval_specs(primary)
     before = {primary.track.track_id: primary_specs}
     after = dict(before)
-    affected: list[Annotation] = []
+    affected: list[SceneAnnotationRecord] = []
     impact_frames: list[int] = []
     created_track_id: str | None = None
 
@@ -608,7 +603,7 @@ async def prepare_scene_track_command(
     )
 
 
-def _interval_state(row: SceneTrackInterval) -> dict:
+def _interval_state(row: SceneTrackIntervalRecord) -> dict:
     return {
         "id": str(row.id),
         "start_frame": row.start_frame,
@@ -618,7 +613,7 @@ def _interval_state(row: SceneTrackInterval) -> dict:
     }
 
 
-def _member_state(row: Annotation) -> dict:
+def _member_state(row: SceneAnnotationRecord) -> dict:
     return {
         "id": str(row.id),
         "task_id": str(row.task_id),
