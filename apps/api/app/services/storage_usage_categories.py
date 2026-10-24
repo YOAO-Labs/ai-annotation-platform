@@ -135,7 +135,7 @@ FAMILIES = (
         "avatar_upload.AvatarUpload",
         "avatar_storage",
         "other_platform",
-        r"^([0-9a-f]{32})\.webp$",
+        r"^(?:(?:[^/]+/)*_aap_managed/avatars/)?([0-9a-f]{32})\.webp$",
         1,
         "object_key_for",
         ("token",),
@@ -482,6 +482,11 @@ async def classify(db, bucket, objects):
                     },
                 )
                 category, prefix = family.category, family.prefix
+                if family.service == "avatar_storage" and (
+                    owner.ref["endpoint_url"] != endpoint()
+                    or owner.ref["storage_identity"] != identity
+                ):
+                    continue
             owner_bucket = owner["bucket"] if isinstance(owner, dict) else owner.bucket
             if owner_bucket != bucket:
                 continue

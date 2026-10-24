@@ -41,6 +41,7 @@ export interface BucketsResponse {
   inventory_status: string | null;
   location_id: string;
   breakdown?: StorageUsageBreakdown | null;
+  uncovered_binding_purposes?: string[];
 }
 
 export type VideoAssetKind = "probe" | "poster" | "frame_timetable" | "chunk" | "frame";

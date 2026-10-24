@@ -116,6 +116,37 @@ async def test_saved_family_helpers_classify_actual_listed_size(index):
     db.execute.assert_awaited_once()
 
 
+@pytest.mark.parametrize("external_endpoint", [False, True])
+async def test_prefixed_avatar_saved_endpoint_prevents_same_bucket_key_alias(
+    external_endpoint,
+):
+    index = next(
+        index
+        for index, family in enumerate(categories.FAMILIES)
+        if family.service == "avatar_storage"
+    )
+    _, data, basename = family_case(index)
+    endpoint = (
+        "http://other.example:9000" if external_endpoint else categories.endpoint()
+    )
+    key = "team/_aap_managed/avatars/" + basename
+    data["storage_ref"].update(
+        schema=2,
+        location_id=str(uuid.uuid4()),
+        config_revision=2,
+        binding_generation=2,
+        endpoint_url=endpoint,
+        object_key=key,
+        storage_identity=managed_storage_identity(endpoint, "listed-bucket"),
+    )
+    db = SimpleNamespace(execute=AsyncMock(return_value=[(f"ref:{index}", data)]))
+    result = await categories.classify(db, "listed-bucket", [{"key": key, "size": 17}])
+    expected = "unclassified" if external_endpoint else "other_platform"
+    assert result["categories"][expected] == {"object_count": 1, "size_bytes": 17}
+    assert sum(item["size_bytes"] for item in result["categories"].values()) == 17
+    db.execute.assert_awaited_once()
+
+
 @pytest.mark.parametrize("bad", ["legacy", "endpoint", "bucket", "identity"])
 async def test_old_or_mismatched_pins_keep_listed_bytes_unclassified(bad):
     _, data, key = family_case(0)

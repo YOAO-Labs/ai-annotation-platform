@@ -1,6 +1,7 @@
 """Real independent ledger commits live only inside each test's owned schema."""
 
 import asyncio
+from copy import deepcopy
 import importlib.util
 import io
 from pathlib import Path
@@ -481,6 +482,63 @@ async def test_configuration_change_is_not_legacy_fallback_or_new_write(
         )
     with pytest.raises(ContentError):
         await create(db, row)
+    assert not client.calls
+
+
+@pytest.mark.parametrize("legacy_snapshot", [False, True])
+async def test_avatar_binding_generation_does_not_invalidate_original_creation(
+    creation_db, client, monkeypatch, legacy_snapshot
+):
+    db = creation_db
+    original_configuration = service._configuration
+    if legacy_snapshot:
+        # Allocate a real immutable ledger using the previously shipped snapshot
+        # shape, rather than rewriting its facts after allocation.
+        async def old_configuration(db, *, lock=False):
+            configuration = await original_configuration(db, lock=lock)
+            avatar_binding = await db.get(StorageBinding, "avatars")
+            configuration["buckets"]["avatars"] = service.storage_service.avatars_bucket
+            configuration["bindings"].append(
+                service._json(
+                    {
+                        column.key: getattr(avatar_binding, column.key)
+                        for column in StorageBinding.__table__.columns
+                    }
+                )
+            )
+            configuration["bindings"].sort(key=lambda binding: binding["purpose"])
+            return configuration
+
+        monkeypatch.setattr(service, "_configuration", old_configuration)
+    row = await allocation(db)
+    saved = deepcopy(row["configuration"])
+    assert ("avatars" in saved["buckets"]) is legacy_snapshot
+    monkeypatch.setattr(service, "_configuration", original_configuration)
+    await db.execute(
+        update(StorageBinding)
+        .where(StorageBinding.purpose == "avatars")
+        .values(generation=2)
+    )
+    await db.commit()
+    result = await create(db, row)
+    assert result.size_bytes == len(b"original")
+    current = await service._read(db, row["id"])
+    assert current["configuration"] == saved
+    assert current["input_fingerprint"] == service._digest(saved)
+    assert current["status"] == "verified"
+
+
+async def test_saved_original_configuration_fingerprint_is_still_verified(
+    creation_db, client
+):
+    db = creation_db
+    row = await allocation(db)
+    # A caller-provided ledger copy must not be able to hide tampering in a
+    # projected-away field; its original complete fingerprint is checked first.
+    changed = deepcopy(row)
+    changed["configuration"]["buckets"]["avatars"] = "forged-avatar-bucket"
+    with pytest.raises(ContentError, match="managed_original_configuration_changed"):
+        await service._validate(db, changed)
     assert not client.calls
 
 

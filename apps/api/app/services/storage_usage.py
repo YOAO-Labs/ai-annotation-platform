@@ -12,6 +12,8 @@ from sqlalchemy.dialects.postgresql import insert
 from app.config import settings
 from app.db.enums import UserRole
 from app.db.models.async_job import AsyncJob
+from app.db.models.dataset_asset import StorageBinding, StorageLocation
+from app.db.models.storage_connection import StorageConnection
 from app.db.models.storage_usage import (
     StorageUsageInventory as Inventory,
     StorageUsageSnapshot as Snapshot,
@@ -27,6 +29,7 @@ from app.services.dataset_assets import (
 )
 from app.services.dataset_content import key_authority
 from app.services.storage import storage_service
+from app.services.sources.s3_reference import S3Access
 from app.services.storage_usage_categories import summarize
 
 ACTIVE = {"pending", "running"}
@@ -69,6 +72,43 @@ async def authority(db, inventory):
         raise HTTPException(403, detail={"code": "access_revoked"})
     if inventory.scope != configured_scope() or await validate_legacy_bindings(db):
         raise HTTPException(409, detail={"code": "configuration_changed"})
+
+
+async def uncovered_bindings(db, scope):
+    """Compare saved configuration only; this read never probes an endpoint."""
+    endpoint = (
+        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+    ).rstrip("/")
+    buckets = {target["name"] for target in scope}
+    uncovered = set(PURPOSE_BUCKET_ATTRIBUTES)
+    for binding, location, connection in await db.execute(
+        select(StorageBinding, StorageLocation, StorageConnection)
+        .outerjoin(StorageLocation, StorageLocation.id == StorageBinding.location_id)
+        .outerjoin(
+            StorageConnection, StorageConnection.id == StorageLocation.connection_id
+        )
+        .where(StorageBinding.purpose.in_(PURPOSE_BUCKET_ATTRIBUTES))
+    ):
+        if location is None or location.kind != "s3" or binding.bucket not in buckets:
+            continue
+        if location.id == LEGACY_LOCATION_ID and location.connection_id is None:
+            config = location.config
+        elif (
+            connection is not None
+            and connection.kind == "s3"
+            and connection.scope == "global"
+            and connection.config.get("bucket") == binding.bucket
+        ):
+            config = connection.config
+        else:
+            continue
+        try:
+            if S3Access(config, b"", ()).endpoint == endpoint:
+                uncovered.discard(binding.purpose)
+        except (ValueError, KeyError, TypeError):
+            # Invalid configuration is unknown coverage, never evidence of zero.
+            continue
+    return sorted(uncovered)
 
 
 async def read_usage(db):
@@ -120,6 +160,7 @@ async def read_usage(db):
         location_id=LEGACY_LOCATION_ID,
         inventory_job_id=inventory.async_job_id if inventory else None,
         inventory_status=inventory.status if inventory else None,
+        uncovered_binding_purposes=await uncovered_bindings(db, scope),
         breakdown=summarize(
             [
                 (rows[target["key"]], item.status)

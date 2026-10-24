@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class BucketSummary(BaseModel):
@@ -72,6 +72,7 @@ class BucketsResponse(BaseModel):
     inventory_status: str | None = None
     location_id: uuid.UUID
     breakdown: StorageUsageBreakdown | None = None
+    uncovered_binding_purposes: list[str] = Field(default_factory=list)
 
 
 class UsageInventoryResponse(BaseModel):

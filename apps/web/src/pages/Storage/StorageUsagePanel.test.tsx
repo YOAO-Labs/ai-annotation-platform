@@ -112,6 +112,21 @@ it("displays successful zero without treating it as missing", () => {
   expect(screen.queryByText("未统计")).not.toBeInTheDocument();
   expect(screen.getByText("数据集原件、训练资产")).toBeInTheDocument();
 });
+it("keeps deployment-scope bytes distinct from uncovered current binding targets", () => {
+  mocks.query.mockReturnValue({
+    data: data({
+      total_size_bytes: 1024,
+      measured_bucket_count: 1,
+      uncovered_binding_purposes: ["avatars"],
+    }),
+  });
+  render(<StorageUsagePanel />);
+  expect(screen.getByText(/部署范围对象字节小计/)).toHaveTextContent("1 KiB");
+  expect(screen.getByText(/当前写入目标未覆盖/)).toHaveTextContent("头像");
+  expect(screen.getByText(/当前写入目标未覆盖/)).toHaveTextContent("旧部署桶中保留的对象继续统计");
+  expect(screen.getByText(/桶标签不代表当前写入绑定/)).toBeInTheDocument();
+  expect(mocks.start).not.toHaveBeenCalled();
+});
 it("retains old successful values, failure and measurement time", () => {
   const value = data({
     inventory_job_id: "failed-job",

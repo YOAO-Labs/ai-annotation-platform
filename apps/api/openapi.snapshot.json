@@ -6278,6 +6278,13 @@
               }
             ],
             "title": "Total Size Bytes"
+          },
+          "uncovered_binding_purposes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Uncovered Binding Purposes",
+            "type": "array"
           }
         },
         "required": [
@@ -45525,6 +45532,13 @@
               }
             ],
             "title": "Total Size Bytes"
+          },
+          "uncovered_binding_purposes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Uncovered Binding Purposes",
+            "type": "array"
           }
         },
         "required": [

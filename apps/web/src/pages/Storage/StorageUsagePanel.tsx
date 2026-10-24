@@ -94,7 +94,7 @@ function StorageUsageOwner() {
           <div className="min-w-0">
             <h2 className="text-sm font-semibold">平台对象占用</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              九种平台用途按实际桶去重。外部原件、历史版本和磁盘开销不在此统计范围。
+              按部署配置的九种用途桶去重，桶标签不代表当前写入绑定。未列入范围的位置与桶、历史版本和磁盘开销不在此统计范围。
             </p>
           </div>
           <Button
@@ -135,13 +135,22 @@ function StorageUsageOwner() {
                 个桶
               </span>
               <span>
-                对象字节{" "}
+                部署范围对象字节小计{" "}
                 <span className="tabular-nums font-medium">{bytes(data.total_size_bytes)}</span>
               </span>
               <span className="text-xs text-muted-foreground">
                 物理容量、可用空间与配额：未提供
               </span>
             </div>
+            {!!data.uncovered_binding_purposes?.length && (
+              <p role="status" className="px-4 pb-3 text-xs leading-relaxed text-muted-foreground">
+                当前写入目标未覆盖：
+                {data.uncovered_binding_purposes
+                  .map((purpose) => ROLES[purpose] ?? purpose)
+                  .join("、")}
+                。这些目标的对象未计入小计；旧部署桶中保留的对象继续统计。
+              </p>
+            )}
             {(active || failed || stale || data.inventory_status === "cancelled") && (
               <div role="status" className="flex flex-wrap items-center gap-3 px-4 pb-3 text-xs">
                 <Badge variant={failed ? "danger" : "outline"}>

@@ -119,6 +119,7 @@ async def _configuration(db, *, lock=False):
         )
         await db.execute(
             select(StorageBinding.purpose)
+            .where(StorageBinding.purpose != "avatars")
             .order_by(StorageBinding.purpose)
             .with_for_update(read=True)
         )
@@ -130,6 +131,7 @@ async def _configuration(db, *, lock=False):
     bindings = list(
         await db.scalars(
             select(StorageBinding)
+            .where(StorageBinding.purpose != "avatars")
             .order_by(StorageBinding.purpose)
             .execution_options(populate_existing=True)
         )
@@ -140,6 +142,7 @@ async def _configuration(db, *, lock=False):
             "buckets": {
                 purpose: getattr(storage_service, attr)
                 for purpose, attr in PURPOSE_BUCKET_ATTRIBUTES.items()
+                if purpose != "avatars"
             },
             "location": {
                 column.key: getattr(location, column.key)
@@ -195,12 +198,31 @@ async def _change(db, creation_id, expected, **values):
         return dict(row)
 
 
+def _original_configuration(configuration):
+    """Project old and current snapshots onto this writer's actual dependencies."""
+    return {
+        **configuration,
+        "buckets": {
+            purpose: bucket
+            for purpose, bucket in configuration.get("buckets", {}).items()
+            if purpose != "avatars"
+        },
+        "bindings": [
+            binding
+            for binding in configuration.get("bindings", [])
+            if binding.get("purpose") != "avatars"
+        ],
+    }
+
+
 async def _validate(db, row, *, lock=False):
+    saved = row["configuration"]
+    # Earlier immutable ledgers include avatars. Verify their original facts
+    # before comparing only the dependencies this original writer consumes.
+    if _digest(saved) != row["input_fingerprint"]:
+        reject("managed_original_configuration_changed")
     configuration = await _configuration(db, lock=lock)
-    if (
-        _digest(configuration) != row["input_fingerprint"]
-        or configuration != row["configuration"]
-    ):
+    if _original_configuration(configuration) != _original_configuration(saved):
         reject("managed_original_configuration_changed")
     await storage_access.check(
         db, row["location_id"], expected_revision=row["maintenance_revision"], lock=lock

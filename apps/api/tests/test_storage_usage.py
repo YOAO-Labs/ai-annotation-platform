@@ -13,7 +13,8 @@ from sqlalchemy import delete, select, inspect
 
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
-from app.db.models.dataset_asset import StorageBinding
+from app.db.models.dataset_asset import StorageBinding, StorageLocation
+from app.db.models.storage_connection import StorageConnection
 from app.db.models.storage_usage import (
     StorageUsageInventory as Inventory,
     StorageUsageSnapshot as Snapshot,
@@ -74,6 +75,59 @@ async def test_snapshot_reads_and_overview_never_touch_s3(
             item["object_count"] is None and item["status"] == "unknown"
             for item in data["items"]
         )
+        assert data["uncovered_binding_purposes"] == []
+
+
+@pytest.mark.parametrize(
+    "target_endpoint,target_bucket,uncovered",
+    [
+        (None, None, False),
+        (None, "new-avatar-bucket", True),
+        ("http://different.example:9000", None, True),
+    ],
+)
+async def test_current_binding_coverage_uses_endpoint_and_bucket_without_io(
+    ready, monkeypatch, target_endpoint, target_bucket, uncovered
+):
+    db, _ = ready
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Coverage reads must not access S3")
+
+    monkeypatch.setattr(svc.storage_service.client, "list_objects_v2", forbidden)
+    monkeypatch.setattr(svc.storage_service.client, "head_bucket", forbidden)
+    connection = StorageConnection(
+        name="Avatar coverage target",
+        kind="s3",
+        scope="global",
+        config={
+            "endpoint": target_endpoint or svc.settings.minio_endpoint,
+            "use_ssl": svc.settings.minio_use_ssl,
+            "bucket": target_bucket or svc.storage_service.avatars_bucket,
+            "base_prefix": "new-managed-prefix",
+        },
+        secret_enc=b"not-read-by-coverage",
+    )
+    db.add(connection)
+    await db.flush()
+    location = StorageLocation(
+        name="Avatar coverage location",
+        kind="s3",
+        config={},
+        connection_id=connection.id,
+    )
+    db.add(location)
+    await db.flush()
+    binding = await db.get(StorageBinding, "avatars")
+    binding.location_id = location.id
+    binding.bucket = connection.config["bucket"]
+    binding.generation = 2
+    await db.flush()
+    result = await svc.read_usage(db)
+    assert result.uncovered_binding_purposes == (["avatars"] if uncovered else [])
+    assert result.bucket_count == 9
+    assert svc.storage_service.avatars_bucket in {item.name for item in result.items}
+    assert result.total_size_bytes is None
 
 
 async def test_shared_bucket_multi_page_and_true_zero(ready, monkeypatch):
