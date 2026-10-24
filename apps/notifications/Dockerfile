@@ -2,6 +2,8 @@ FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 RUN python -m pip install --no-cache-dir uv==0.11.29
 WORKDIR /build
+COPY apps/_shared/identity_admission /_shared/identity_admission
+COPY apps/_shared/owner_data /_shared/owner_data
 COPY apps/notifications/pyproject.toml apps/notifications/uv.lock ./
 COPY apps/notifications/src ./src
 RUN uv sync --locked --no-dev --extra runtime --no-editable

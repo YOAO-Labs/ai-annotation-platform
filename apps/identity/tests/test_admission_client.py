@@ -101,13 +101,16 @@ def _install_http(monkeypatch, response):
 
 
 @pytest.mark.asyncio
-async def test_authenticate_uses_shared_protocol_and_scoped_bearer(monkeypatch):
+@pytest.mark.parametrize(
+    "base", ["https://identity.internal", "https://identity.internal/proxy/identity"]
+)
+async def test_authenticate_uses_shared_protocol_and_scoped_bearer(monkeypatch, base):
     principal = _principal()
     body = json.dumps(principal_reply(principal)).encode()
     response = _Stream(200, [body[:7], body[7:]])
     clients = _install_http(monkeypatch, response)
     remote = RemoteAdmissionClient(
-        origin="https://identity.internal/",
+        origin=base + "/",
         service_token="scoped-bearer",
         timeout_seconds=1.25,
     )
@@ -116,7 +119,7 @@ async def test_authenticate_uses_shared_protocol_and_scoped_bearer(monkeypatch):
     client = clients[0]
     assert client.request == {
         "method": "POST",
-        "url": "https://identity.internal/v1/identity/authenticate",
+        "url": base + "/v1/identity/authenticate",
         "json": {"token": "opaque-user-token"},
         "headers": {"Authorization": "Bearer scoped-bearer"},
     }
@@ -265,7 +268,6 @@ async def test_transport_timeout_and_cancellation_are_sanitized_and_closed(monke
     "origin",
     [
         "https://user:password@identity.internal",
-        "https://identity.internal/base",
         "https://identity.internal?",
         "https://identity.internal#",
         " https://identity.internal",

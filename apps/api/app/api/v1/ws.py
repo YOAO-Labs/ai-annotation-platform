@@ -3,6 +3,7 @@ import json
 import logging
 import uuid
 from typing import TYPE_CHECKING
+from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
 from redis.asyncio.connection import ConnectionPool
@@ -17,7 +18,6 @@ from app.services.identity_contracts import (
 )
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_gateway import get_identity_gateway
-from app.services.notification import channel_for
 
 if TYPE_CHECKING:
     from aap_identity.contract import Principal
@@ -81,54 +81,29 @@ async def _revalidate_project_stream(token: str, project_id: uuid.UUID) -> bool:
     return await _revalidate_project_access(project_id, str(actor.actor_id))
 
 
+async def _notification_authenticate(token: str):
+    return await _authenticate_socket_token(token, allow_api_key=False)
+
+
 async def _notification_message_allowed(token: str, data) -> bool:
-    """Per-message gate for the per-user notification socket.
+    from aap_notifications.websocket import notification_message_allowed
 
-    A row already published to Redis is re-resolved against the recipient's
-    current project access before it is forwarded; restricted rows whose access
-    was revoked are dropped.  Only the explicit ``notifications.sync`` control
-    frame is allowed without a verifiable row id; malformed or unidentifiable
-    payloads fail closed.
-    """
+    return await notification_message_allowed(
+        token,
+        data,
+        authenticate=_notification_authenticate,
+        open_delivery=_open_notification_delivery,
+        retry_seconds=_NOTIFICATION_GATE_RETRY_SECONDS,
+    )
 
-    actor = await _authenticate_socket_token(token, allow_api_key=False)
-    if actor is None:
-        return False
-    try:
-        raw = data.decode() if isinstance(data, bytes) else data
-        message = json.loads(raw)
-    except Exception:
-        return False
-    if not isinstance(message, dict):
-        return False
-    if message.get("type") == "notifications.sync":
-        return True
-    raw_id = message.get("id")
-    if not raw_id:
-        return False
-    try:
-        notification_id = uuid.UUID(str(raw_id))
-    except (TypeError, ValueError):
-        return False
+
+@asynccontextmanager
+async def _open_notification_delivery():
     from app.db.base import async_session
     from app.services.notification import NotificationService
 
     async with async_session() as db:
-        service = NotificationService(db)
-        # A notification row published before its creating transaction commits is
-        # briefly invisible to this separate session (READ COMMITTED); that must
-        # not be mistaken for a revoked delivery or the one real-time push is
-        # dropped.  Retry briefly while the row is missing; once the row is
-        # visible the deliverability answer is authoritative and still fails
-        # closed on revocation or bogus ids.
-        for attempt in range(4):
-            if await service.notification_by_id(notification_id) is not None:
-                return await service.notification_deliverable(
-                    notification_id, actor.actor_id
-                )
-            if attempt < 3:
-                await asyncio.sleep(_NOTIFICATION_GATE_RETRY_SECONDS)
-        return False
+        yield NotificationService(db)
 
 
 async def _revalidate_task_stream(token: str, task_id: uuid.UUID) -> bool:
@@ -572,44 +547,23 @@ async def notifications_socket(
     websocket: WebSocket,
     token: str = Query(...),
 ):
-    """v0.6.9 · 单用户通知 WS：握手时校验 JWT，订阅 notify:{user_id}。
+    """Keep the existing public binding for embedded or independent Notifications."""
+    if settings.notification_socket_url:
+        from app.services.notification_socket_bridge import proxy_notification_socket
 
-    DB 已持久化通知行；WS 用于在线推送，断线兜底走 30s 轮询。
-    v0.7.0：使用共享 Redis ConnectionPool + 30s 心跳。
-    """
-    try:
-        actor = await _authenticate_socket_token(token, allow_api_key=False)
-        if actor is None:
-            raise PermissionError("invalid credential")
-        user_id = str(actor.actor_id)
-        # Re-resolve the account: a disabled account with an unexpired token must
-        # not keep receiving restricted per-user deliveries.
-        if await _load_active_user(user_id) is None:
-            raise PermissionError("inactive account")
-    except Exception:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        await proxy_notification_socket(
+            websocket, token, settings.notification_socket_url
+        )
         return
 
-    await websocket.accept()
-    r = aioredis.Redis(connection_pool=_get_redis_pool())
-    pubsub = r.pubsub()
-    channel = channel_for(user_id)
-    try:
-        await pubsub.subscribe(channel)
-        await _run_pubsub_ws(
-            websocket,
-            pubsub,
-            allow_message=lambda data: _notification_message_allowed(token, data),
-        )
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        log.warning("notifications WS error user=%s err=%s", user_id, e)
-    finally:
-        try:
-            try:
-                await pubsub.unsubscribe(channel)
-            finally:
-                await pubsub.close()
-        except Exception:
-            pass
+    from aap_notifications.websocket import serve_notification_socket
+
+    await serve_notification_socket(
+        websocket,
+        token,
+        authenticate=_notification_authenticate,
+        active_actor=_load_active_user,
+        open_delivery=_open_notification_delivery,
+        redis_client=lambda: aioredis.Redis(connection_pool=_get_redis_pool()),
+        relay=_run_pubsub_ws,
+    )

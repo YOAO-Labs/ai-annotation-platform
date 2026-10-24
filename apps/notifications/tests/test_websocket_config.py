@@ -97,11 +97,12 @@ def test_socket_settings_redact_invalid_secret_file_content(
         "ftp://identity.internal",
         "http://user:pass@identity.internal",
         "http://identity.internal:invalid",
+        "http://identity.internal/prefix",
+        "http://identity.internal?token=secret",
+        "http://identity.internal#fragment",
     ],
 )
-def test_socket_settings_reject_identity_urls_with_invalid_authority(
-    monkeypatch, identity_url
-):
+def test_socket_settings_reject_invalid_identity_origins(monkeypatch, identity_url):
     _clear_socket_environment(monkeypatch)
     kwargs = _settings_kwargs()
     kwargs["identity_url"] = identity_url

@@ -1,0 +1,125 @@
+{
+  "$defs": {
+    "ActorStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        }
+      },
+      "required": ["actor_id", "is_active"],
+      "title": "ActorStatus",
+      "type": "object"
+    },
+    "ActorStatusData": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActorStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["actor"],
+      "title": "ActorStatusData",
+      "type": "object"
+    },
+    "ActorStatusFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "invalid_request",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "ActorStatusFailureDetail",
+      "type": "object"
+    },
+    "ActorStatusFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ActorStatusFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-actor-status/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "ActorStatusFailureReply",
+      "type": "object"
+    },
+    "ActorStatusRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-actor-status/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "actor_id"],
+      "title": "ActorStatusRequest",
+      "type": "object"
+    },
+    "ActorStatusSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ActorStatusData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-actor-status/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "ActorStatusSuccess",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-actor-status/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ActorStatusRequest"
+    },
+    {
+      "$ref": "#/$defs/ActorStatusSuccess"
+    },
+    {
+      "$ref": "#/$defs/ActorStatusFailureReply"
+    }
+  ]
+}

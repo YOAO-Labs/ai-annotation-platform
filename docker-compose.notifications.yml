@@ -1,0 +1,29 @@
+services:
+  notifications-socket:
+    image: aap-notifications-socket:local
+    build:
+      context: .
+      dockerfile: apps/notifications/Dockerfile.socket
+    environment:
+      NOTIFICATION_SOCKET_DATABASE_URL_FILE: /run/secrets/notification_socket_database_url
+      NOTIFICATION_SOCKET_REDIS_URL_FILE: /run/secrets/notification_socket_redis_url
+      NOTIFICATION_SOCKET_IDENTITY_URL: ${NOTIFICATION_SOCKET_IDENTITY_URL:-http://identity-admission:8170}
+      NOTIFICATION_SOCKET_IDENTITY_TOKEN_FILE: /run/secrets/notification_socket_identity_token
+    secrets:
+      - notification_socket_database_url
+      - notification_socket_redis_url
+      - notification_socket_identity_token
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+
+secrets:
+  notification_socket_database_url:
+    file: ${NOTIFICATION_SOCKET_DATABASE_URL_FILE:?Set Notifications delivery-read DSN file}
+  notification_socket_redis_url:
+    file: ${NOTIFICATION_SOCKET_REDIS_URL_FILE:?Set Notifications subscribe-only Redis DSN file}
+  notification_socket_identity_token:
+    file: ${NOTIFICATION_SOCKET_IDENTITY_TOKEN_FILE:?Set Identity admission-only bearer file}

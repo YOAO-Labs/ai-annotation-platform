@@ -62,8 +62,12 @@ class _Client:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "base", ["https://identity.internal", "https://identity.internal/proxy/identity"]
+)
 async def test_remote_gateway_uses_versioned_control_authenticated_protocol(
     monkeypatch,
+    base,
 ):
     principal = _principal()
     client = _Client(_Response(200, principal_reply(principal)))
@@ -72,7 +76,7 @@ async def test_remote_gateway_uses_versioned_control_authenticated_protocol(
         lambda **_kwargs: client,
     )
     gateway = IdentityGateway(
-        identity_url="https://identity.internal/",
+        identity_url=base + "/",
         identity_token="control-secret",
     )
 
@@ -80,7 +84,7 @@ async def test_remote_gateway_uses_versioned_control_authenticated_protocol(
 
     assert result == principal
     assert client.call == {
-        "url": "https://identity.internal/v1/identity/authenticate",
+        "url": base + "/v1/identity/authenticate",
         "json": {"token": "opaque-user-token"},
         "headers": {"Authorization": "Bearer control-secret"},
     }

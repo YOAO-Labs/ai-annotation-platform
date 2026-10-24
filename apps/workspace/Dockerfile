@@ -3,6 +3,7 @@ RUN python -m pip install --no-cache-dir uv==0.11.29
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_COMPILE_BYTECODE=1 UV_PYTHON_DOWNLOADS=never
 WORKDIR /build
 COPY apps/_shared/owner_data /_shared/owner_data
+COPY apps/_shared/identity_admission /_shared/identity_admission
 COPY apps/_shared/inference_contract /_shared/inference_contract
 COPY apps/_shared/workspace_contract /_shared/workspace_contract
 COPY apps/_shared/task_contract /_shared/task_contract

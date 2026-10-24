@@ -566,6 +566,40 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 Node peer 使用 `NOTIFICATION_DELIVERY_DATABASE_URL`、`_USER_ID`、`_NOTIFICATION_ID`、`_EXPECTED_ROLE` 及可选 `_PROJECT_ID`／`_JOB_ID`，全部只由隔离验收器提供，不新增应用环境配置或服务。真实受限账号、外部提交撤权、原 ORM 对照、当前冷工件及整模块资格见[投递读取台账](docs-site/dev/concepts/module-deployment.md#notification-delivery-read-owner)。
 
+### 独立 Notifications WebSocket
+
+`apps/notifications/Dockerfile.socket` 安装 `aap-notifications[websocket]`，入口为
+`aap-notifications-socket`。服务持有 JWT 准入、单独的当前账号活动检查、逐帧认证及
+投递授权、Redis 订阅、30 秒心跳与取消清理；原 publisher 命令仍单独运行。
+API 设置 `NOTIFICATION_SOCKET_URL=ws://notifications-socket:8180` 后，将原
+`/ws/notifications` 的文本和二进制消息直接转发给它。空值使用同一 owner 的内嵌
+装配；显式地址失效或拒绝握手时关闭连接，不回退本地 DB／Redis。SDK、Web 与反代
+继续使用 API 原地址。新服务 CLI 禁用访问日志，避免记录 query 中的用户 JWT。
+
+独立服务只需要三组秘密，每组直接值与 `_FILE` 二选一：
+
+- `NOTIFICATION_SOCKET_DATABASE_URL`：先应用既有 `0325` 和
+  `notification-delivery-read-grants.sql`，使用仅七函数的 LOGIN，无私表或视图读取。
+- `NOTIFICATION_SOCKET_REDIS_URL`：只允许 `notify:*` 的 SUBSCRIBE／UNSUBSCRIBE
+  和连接所需 PING／SELECT／CLIENT SETINFO；不授予 PUBLISH、key 或其他 channel 权限。
+- `NOTIFICATION_SOCKET_IDENTITY_TOKEN`：与 Identity 通用控制 token 不同的
+  admission-only bearer。`NOTIFICATION_SOCKET_IDENTITY_URL` 是私网 HTTP(S) 根 origin。
+
+Identity 配置可选 `IDENTITY_ADMISSION_TOKEN(_FILE)`，仅接受该 bearer 调用
+`/v1/identity/authenticate` 和 `/v1/identity/actor-status`。状态读取另设
+`IDENTITY_ACTOR_STATUS_DATABASE_URL(_FILE)`，使用
+`identity-actor-status-grants.sql` 的 `identity_actor_status_client`，只获得既有
+`read_actor_facts(uuid)`。它不扩展原 AUTH 五函数，不取锁或核对 admitted role；
+缺失账号返回 null，未配置／错误的状态数据源返回 503，不回退其他连接。
+
+可选 `docker-compose.notifications.yml` 与 `docker-compose.identity.yml` 放在同一
+Compose 私网，socket 不发布宿主端口。前者使用上述三组 `_FILE`；后者另用宿主
+selector `IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE` 与
+`IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE`。直接启动默认监听
+`127.0.0.1:8180`，可设 `NOTIFICATION_SOCKET_HOST`／`PORT`；镜像固定监听容器内部
+8180。`/health/live` 检查进程，`/health/ready` 检查数据库与 Redis，Identity 故障
+由握手／逐帧检查拒绝。独立冷运行与恢复资格仍按模块台账验证，日常环境未切换。
+
 ### Notifications 实时消息合同
 
 `apps/notifications` 发布 `aap-notification-realtime/v1` 和 `realtime_event.schema.json`，API 与 durable publisher 共用六个业务事件字段的构造，保留各自的日期字符串和 JSON 编码。合同不向既有帧增加 schema 字段，业务 type 与 sync reason 保持开放；原生 JSONB 的对象、数组、标量与 null 均可保留。通用 ping 仍属于 WebSocket 层。

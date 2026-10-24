@@ -9,6 +9,7 @@ from aap_notifications.websocket_runtime import create_app
 
 
 def test_standalone_app_factory_does_not_import_sibling_identity_client(monkeypatch):
+    admission_before = sys.modules.get("aap_identity_admission.client")
     monkeypatch.delenv("NOTIFICATION_SOCKET_DATABASE_URL", raising=False)
     settings = NotificationSocketSettings(
         database_url=SecretStr("postgresql://socket:secret@127.0.0.1/socket"),
@@ -24,4 +25,4 @@ def test_standalone_app_factory_does_not_import_sibling_identity_client(monkeypa
         ("/health/ready", "Route"),
         ("/ws/notifications", "WebSocketRoute"),
     ]
-    assert "aap_identity_admission.client" not in sys.modules
+    assert sys.modules.get("aap_identity_admission.client") is admission_before

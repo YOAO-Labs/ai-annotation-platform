@@ -38,7 +38,6 @@ def _endpoint(origin: str, path: str) -> str:
             or not parsed.hostname
             or parsed.username is not None
             or parsed.password is not None
-            or parsed.path not in {"", "/"}
             or parsed.query
             or parsed.fragment
             or "?" in origin

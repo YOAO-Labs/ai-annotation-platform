@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-24
 ---
 
 # 环境变量参考
@@ -516,6 +516,16 @@ last_reviewed: 2026-10-22
 | `NOTIFICATION_PUBLISH_DATABASE_URL_FILE` | `—` | — |
 | `NOTIFICATION_PUBLISH_REDIS_URL` | `—` | 独立 notification publisher 的 Redis DSN；与可选 Notifications 数据库 DSN 成对配置。 |
 | `NOTIFICATION_PUBLISH_REDIS_URL_FILE` | `—` | — |
+| `NOTIFICATION_SOCKET_URL` | `—` | 独立 Notifications WebSocket 的可选 API 绑定；留空时使用同一 owner 的内嵌装配。 配置私网 ws://notifications-socket:8180 后，故障不会回退本地数据库／Redis。 |
+| `NOTIFICATION_SOCKET_DATABASE_URL` | `—` | 独立 socket 的七函数只读 DSN、subscribe-only Redis 和 Identity admission-only bearer。 直接启动可用值或文件（二选一）；Compose 只使用文件且不发布宿主机端口。 |
+| `NOTIFICATION_SOCKET_DATABASE_URL_FILE` | `—` | — |
+| `NOTIFICATION_SOCKET_REDIS_URL` | `—` | — |
+| `NOTIFICATION_SOCKET_REDIS_URL_FILE` | `—` | — |
+| `NOTIFICATION_SOCKET_IDENTITY_URL` | `http://identity-admission:8170` | — |
+| `NOTIFICATION_SOCKET_IDENTITY_TOKEN` | `—` | — |
+| `NOTIFICATION_SOCKET_IDENTITY_TOKEN_FILE` | `—` | — |
+| `NOTIFICATION_SOCKET_HOST` | `127.0.0.1` | — |
+| `NOTIFICATION_SOCKET_PORT` | `8180` | — |
 | `IDENTITY_RECOVERY_DATABASE_URL` | `—` | API 内嵌恢复与 mail kick 的四组配置；每一对直接值／文件最多设置一项。 未配置 recovery DSN 时沿用调用方事务；配置 recovery DSN 后，MAIL 和 MAIL_SETTINGS DSN 必须同时指定。 两个 mail DSN 都留空时，内嵌 mail kick 复用应用连接；显式 DSN 只成对使用。 |
 | `IDENTITY_RECOVERY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RECOVERY_MAIL_KEY` | `—` | — |
@@ -548,6 +558,12 @@ last_reviewed: 2026-10-22
 | `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_TOKEN_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_ADMISSION_TOKEN` | `—` | 独立 Identity 的可选 admission-only bearer 与单函数状态 DSN；API 无需持有它们。 |
+| `IDENTITY_ADMISSION_TOKEN_FILE` | `—` | — |
+| `IDENTITY_ACTOR_STATUS_DATABASE_URL` | `—` | — |
+| `IDENTITY_ACTOR_STATUS_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_SIGNING_SECRET_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_EXPIRE_MINUTES` | `1440` | — |
 | `IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED` | `false` | — |

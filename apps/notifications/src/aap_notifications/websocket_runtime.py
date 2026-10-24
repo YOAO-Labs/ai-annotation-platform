@@ -110,15 +110,15 @@ def create_app(settings=None):
 
             async def authenticate(token):
                 from aap_identity_admission.contract import (
-                    IdentityCredentialRejected,
-                    IdentityGatewayUnavailable,
+                    IdentityFailure,
+                    IdentityUnavailable,
                 )
 
                 if token.startswith("ak_"):
                     return None
                 try:
                     return await admission.authenticate(token)
-                except (IdentityCredentialRejected, IdentityGatewayUnavailable):
+                except (IdentityFailure, IdentityUnavailable):
                     return None
 
             async def active_actor(actor_id):

@@ -32,6 +32,14 @@ The socket runtime requires exactly one of `NOTIFICATION_SOCKET_DATABASE_URL` or
 
 `Dockerfile` builds a non-editable runtime from this package's locked `runtime` extra and runs the same publisher entry point as a non-root user. It exposes no ports; provide the existing `NOTIFICATION_PUBLISH_*` settings through the runtime environment or secret files. The Identity image retains its old module and CLI as compatibility entry points.
 
+`Dockerfile.socket` independently installs the locked `websocket` extra and runs
+the socket entry point as the same non-root user. The optional
+`docker-compose.notifications.yml` joins the selected Compose private network
+without a host port. See the repository `DEV.md` for the API compatibility binding,
+admission-only Identity bearer and function-only PostgreSQL / subscribe-only Redis
+credentials. Run package checks with
+`uv run --project apps/notifications --locked --extra websocket --extra test python -m pytest`.
+
 `infra/docker/module-data-grants.sql` gives `notifications_code` the narrow notification write privileges needed by its owner functions. The preference grant script gives the existing API LOGIN and a function-only peer access to `preference_command(jsonb)`, then revokes direct preference-table access. The append grant script grants the API LOGIN and `notification_append_client` the append, read-state, and deletion functions; the peer also gets `preference_command(jsonb)` to compose policy and writes in one transaction. It revokes direct notification INSERT, UPDATE, and DELETE from the API LOGIN while retaining reads. Apply the strict grants only after the API and worker artifacts use the owner paths and old processes are drained.
 
 The bounded acceptance covers package contracts, Node peers over borrowed transactions, and focused API transaction tests. `scripts/verify_module_data_boundary.py` exercises the function-only roles, read-relation access, and API grants against owned disposable PostgreSQL resources. The view contract does not move Jobs scope or project authorization into Notifications.

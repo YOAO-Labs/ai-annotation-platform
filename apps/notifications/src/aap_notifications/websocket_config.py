@@ -76,6 +76,11 @@ class NotificationSocketSettings(BaseSettings):
                 and parsed.hostname is not None
                 and parsed.username is None
                 and parsed.password is None
+                and parsed.path in {"", "/"}
+                and not parsed.query
+                and not parsed.fragment
+                and "?" not in self.identity_url
+                and "#" not in self.identity_url
             )
         except ValueError:
             valid_identity_url = False

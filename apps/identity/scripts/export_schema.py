@@ -41,6 +41,11 @@ from aap_identity.actor_contract import (  # noqa: E402
     ActorContextRequest,
     ActorContextSuccess,
 )
+from aap_identity_admission.actor_status_contract import (  # noqa: E402
+    ActorStatusRequest,
+    ActorStatusSuccess,
+    ActorStatusFailureReply,
+)
 from aap_identity.account_lock_contract import (  # noqa: E402
     AccountLockReply,
     AccountLockRequest,
@@ -265,6 +270,18 @@ def main():
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     schemas = {
+        "../_shared/identity_admission/src/aap_identity_admission/protocol.schema.json": render_schema(
+            TypeAdapter(
+                AuthenticateRequest | PrincipalReply | FailureReply | CandidatesPage
+            ),
+            "aap-identity/v1",
+        ),
+        "../_shared/identity_admission/src/aap_identity_admission/actor_status.schema.json": render_schema(
+            TypeAdapter(
+                ActorStatusRequest | ActorStatusSuccess | ActorStatusFailureReply
+            ),
+            "aap-identity-actor-status/v1",
+        ),
         "src/aap_identity/protocol.schema.json": render_schema(
             TypeAdapter(
                 AuthenticateRequest | PrincipalReply | FailureReply | CandidatesPage

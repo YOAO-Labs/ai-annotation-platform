@@ -310,6 +310,10 @@ docker compose --profile monitoring up -d prometheus grafana
 [所有模块的部署与语言替换状态](./docs-site/dev/concepts/module-deployment.md)
 仍按完整运行工件、协议、权限与事务逐项验收。
 
+Notifications 可通过独立 WebSocket 服务持有认证、逐帧授权与 Redis 订阅，API 保留
+原 `/ws/notifications` 地址。可选部署和最小凭据配置见
+[DEV.md](./DEV.md#独立-notifications-websocket)；当前独立运行资格按模块台账记录。
+
 ## 开发工作流
 
 ```bash

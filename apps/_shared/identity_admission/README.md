@@ -9,3 +9,9 @@ only the admitted token to `/v1/identity/authenticate`; `actor_status` sends
 only an actor UUID to `/v1/identity/actor-status`. Both calls use the configured
 service bearer, ignore proxy environment variables, bound response bodies and
 timeouts, and sanitize transport failures.
+
+The packaged `protocol.schema.json` and `actor_status.schema.json` describe both
+wire contracts. Regenerate or check them with the existing
+`apps/identity/scripts/export_schema.py` command in the repository API environment.
+The remote client preserves configured HTTP(S) base paths for existing API
+bindings; the independent Notifications listener requires a root Identity origin.

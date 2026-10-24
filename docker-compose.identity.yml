@@ -37,6 +37,8 @@ services:
       IDENTITY_LOGIN_CAPTCHA_THRESHOLD: ${IDENTITY_RUNTIME_LOGIN_CAPTCHA_THRESHOLD:-5}
       IDENTITY_LOGIN_FAILED_WINDOW_SECONDS: ${IDENTITY_RUNTIME_LOGIN_FAILED_WINDOW_SECONDS:-3600}
       IDENTITY_TOKEN_FILE: /run/secrets/identity_token
+      IDENTITY_ADMISSION_TOKEN_FILE: ${IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE:+/run/secrets/identity_admission_token}
+      IDENTITY_ACTOR_STATUS_DATABASE_URL_FILE: ${IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE:+/run/secrets/identity_actor_status_database_url}
       IDENTITY_SIGNING_SECRET_FILE: /run/secrets/identity_signing_secret
     secrets:
       - identity_database_url
@@ -59,6 +61,8 @@ services:
       - identity_recovery_mail_key
       - identity_login_redis_url
       - identity_token
+      - identity_admission_token
+      - identity_actor_status_database_url
       - identity_signing_secret
     ports:
       - "127.0.0.1:8170:8170"
@@ -212,5 +216,9 @@ secrets:
     file: ${IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE:?Set Identity login-only Redis DSN file}
   identity_token:
     file: ${IDENTITY_RUNTIME_TOKEN_FILE:?Set Identity private bearer file}
+  identity_admission_token:
+    file: ${IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE:-/dev/null}
+  identity_actor_status_database_url:
+    file: ${IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE:-/dev/null}
   identity_signing_secret:
     file: ${IDENTITY_RUNTIME_SIGNING_SECRET_FILE:?Set Identity JWT signing secret file}

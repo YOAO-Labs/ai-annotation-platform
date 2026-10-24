@@ -19,6 +19,7 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `GET /ready`                                     | 原生策略和所配置能力的精确函数权限             |
 | `POST /v1/identity/authenticate`                 | JWT／API key 准入，返回 `aap-identity/v1` 主体 |
 | `POST /v1/identity/actor-context`                | 准入后读取当前主体的基础资料事实               |
+| `POST /v1/identity/actor-status`                 | 已准入账号的最小活动状态读取                   |
 | `POST /v1/identity/api-keys/execute`             | API key 列表、创建、修改、轮换和撤销           |
 | `POST /v1/identity/sessions/execute`             | 登录、刷新、登出和全端登出                     |
 | `POST /v1/identity/accounts/execute`             | 当前资料、改名、偏好、心跳、改密和头像引用     |
@@ -36,6 +37,28 @@ Identity 运行时提供认证准入、API key、核心会话、自助账户、�
 | `POST /v1/identity/deactivation/process-due`     | 分页处理已到期的自助注销申请                   |
 | `POST /v1/identity/recovery/execute`             | 开放注册、重置请求／消费、验证邮件重发／消费   |
 | `POST /v1/identity/recovery/registration-status` | 有效注册开关或 owner 部署默认值的只读查询      |
+
+## 限权准入与账号活动状态
+
+可选 `IDENTITY_ADMISSION_TOKEN(_FILE)` 必须与通用控制 token 不同，只能调用
+`/authenticate` 与 `/actor-status`；其他私有接口仍仅接受通用控制 bearer。
+Notifications 不持有通用控制凭据、签名密钥或 API 数据库凭据。共享
+`aap-identity-admission` 包保留原 Principal／异常类型的类身份；旧 Python 导入路径
+继续导出相同对象，远程客户端支持 API 已有的 HTTP(S) base path。
+
+`POST /v1/identity/actor-status` 请求精确为
+`{"schema":"aap-identity-actor-status/v1","actor_id":"<uuid>"}`。成功回复精确为
+`schema/ok/data`，`data.actor` 是 null 或 `{actor_id,is_active}`，`is_active` 必须是
+JSON boolean，返回的 UUID 必须匹配请求。它不验证 JWT、比较先前 role、加锁或写入；
+握手先认证再单独读取活动状态，保留“角色变化但账号仍活动”的原行为。
+
+仅此 endpoint 使用可选 `IDENTITY_ACTOR_STATUS_DATABASE_URL(_FILE)` 和既有
+`read_actor_facts(uuid)`。专用 LOGIN 由 `identity-actor-status-grants.sql` 授予一项
+EXECUTE，无表／列权限或其他 owner 能力，不扩大原 AUTH 五函数。
+未配置或不可用返回 HTTP 503；非法 JSON／闭合字段返回 HTTP 400 的
+`invalid_request` 失败封套；错误 bearer 返回 401。配置该数据源后 `/ready` 也检查
+它，未配置时不影响原能力就绪。原整模块资格覆盖原先配置的能力，本次新增接口的
+独立运行资格单独列于模块台账，不计入旧案例或能力数量。
 
 ## 认证后的主体上下文
 

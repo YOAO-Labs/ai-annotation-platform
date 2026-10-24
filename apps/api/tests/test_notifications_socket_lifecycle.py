@@ -32,7 +32,7 @@ async def test_notification_socket_releases_pubsub_after_partial_failure(
             nonlocal closed
             closed = True
 
-    actor = SimpleNamespace(actor_id=uuid4())
+    actor = SimpleNamespace(actor_id=uuid4(), is_active=True)
 
     async def authenticate(*_args, **_kwargs):
         return actor
