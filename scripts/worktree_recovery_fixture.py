@@ -405,12 +405,14 @@ def auxiliary_identifier(case):
     return uuid.uuid5(uuid.NAMESPACE_URL, f"aap:recovery-auxiliary-original:{case}")
 
 
-def auxiliary_content(kind):
-    """Small real five-channel LiDAR and PNG bytes; no execution claim."""
+def auxiliary_content(kind, case=None):
+    """Real LiDAR/PNG bytes plus one unbound empty raw; no execution claim."""
     if kind == "map":
         return task_original_content()
     if kind != "raw_lidar":
         raise ValueError("Unknown auxiliary fixture kind")
+    if case == "unbound_raw":
+        return b""
     import struct
 
     return struct.pack("<10f", 1, 2, 3, 0.25, 7, 4, 5, 6, 0.5, 8)
@@ -579,7 +581,7 @@ async def seed_auxiliary_originals(db, *, actor, project):
     await db.flush()
     for case in AUXILIARY_CASES:
         kind = "map" if case.endswith("map") else "raw_lidar"
-        contract, raw = auxiliary_contract(kind), auxiliary_content(kind)
+        contract, raw = auxiliary_contract(kind), auxiliary_content(kind, case)
         target_dataset = dataset
         if case == "deleted_map":
             target_dataset = Dataset(
@@ -666,6 +668,7 @@ async def verify_auxiliary_originals(db, *, storage):
     owners = list(await db.scalars(select(DatasetAuxiliaryOriginal)))
     assert len(owners) == 3
     by_id = {row.id: row for row in owners}
+    verified_empty_objects = 0
     for case, creation in creations_by_case.items():
         assert creation.owner_kind == "dataset_auxiliary"
         assert creation.bucket != storage.datasets_bucket
@@ -702,17 +705,18 @@ async def verify_auxiliary_originals(db, *, storage):
             assert creation.claimed_at is None and creation.operation_id is None
         else:
             kind = "map" if case.endswith("map") else "raw_lidar"
-            raw = auxiliary_content(kind)
-            assert (
-                _read_exact(
-                    storage,
-                    storage.datasets_bucket,
-                    creation.object_key,
-                    creation.sha256,
-                    creation.size_bytes,
-                )
-                == raw
+            raw = auxiliary_content(kind, case)
+            assert creation.sha256 == hashlib.sha256(raw).hexdigest()
+            assert creation.size_bytes == len(raw)
+            actual = _read_exact(
+                storage,
+                storage.datasets_bucket,
+                creation.object_key,
+                creation.sha256,
+                creation.size_bytes,
             )
+            assert actual == raw
+            verified_empty_objects += int(len(actual) == 0)
         # The immutable source attempt is not executable in the target context.
         saved = await creations._read(db, creation.id)
         try:
@@ -754,9 +758,11 @@ async def verify_auxiliary_originals(db, *, storage):
             storage, source.bucket, source.object_key, source.sha256, source.size_bytes
         ) == auxiliary_content(source.ownership_facts.kind)
     assert sources[1].content_id == shared.id
+    assert verified_empty_objects == 1
     return {
         "pinned_auxiliary_originals": 3,
         "verified_auxiliary_objects": 4,
+        "verified_empty_auxiliary_objects": verified_empty_objects,
         "shared_auxiliary_map_references": 2,
         "deleted_business_auxiliary_owners": 1,
         "unbound_verified_auxiliary_creations": 1,

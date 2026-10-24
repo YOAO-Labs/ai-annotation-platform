@@ -122,6 +122,11 @@ class AuxiliaryOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):
             {"sample", "sample_data", "calibrated_sensor", "sensor", "ego_pose"},
         )
         self.assertNotIn("source_storage_key", raw_contract)
+        self.assertEqual(auxiliary_content("raw_lidar", "unbound_raw"), b"")
+        self.assertEqual(auxiliary_content("raw_lidar", "current_raw"), raw)
+        self.assertEqual(
+            auxiliary_content("map", "shared_map"), auxiliary_content("map")
+        )
 
     async def test_seed_uses_real_creation_and_binding_boundaries(self):
         from app.db.models.dataset import Dataset, DatasetItem, Scene
@@ -138,7 +143,7 @@ class AuxiliaryOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):
             SimpleNamespace(id=uuid.uuid4()),
             SimpleNamespace(id=uuid.uuid4()),
         )
-        allocations, streams, publications = {}, [], {}
+        allocations, streams, publications, written = {}, [], {}, {}
 
         async def allocate(_db, **options):
             case = options["authority"].get("recovery_case", "platform_pcd")
@@ -156,6 +161,8 @@ class AuxiliaryOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(stream.closed)
             data = stream.read()
             streams.append(stream)
+            case = allocation["authority"].get("recovery_case", "platform_pcd")
+            written[case] = data
             self.assertEqual(len(data), allocation["max_bytes"])
             self.assertEqual(options["content_type"], allocation["content_type"])
             return SimpleNamespace(
@@ -201,6 +208,15 @@ class AuxiliaryOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):
         primary_allocate.assert_awaited_once()
         self.assertEqual(auxiliary_allocate.await_count, 5)
         self.assertEqual(write.await_count, 5)
+        self.assertEqual(written["unbound_raw"], b"")
+        self.assertEqual(allocations["unbound_raw"]["max_bytes"], 0)
+        self.assertEqual(
+            written["current_raw"], auxiliary_content("raw_lidar", "current_raw")
+        )
+        self.assertEqual(
+            {case for case, raw in written.items() if not raw}, {"unbound_raw"}
+        )
+        self.assertNotIn("unfinished_raw", written)
         self.assertEqual(set(allocations), {*AUXILIARY_CASES, "platform_pcd"})
         self.assertEqual(
             set(publications), {"current_raw", "shared_map", "deleted_map"}
@@ -261,7 +277,7 @@ class AuxiliaryOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):
         for case in AUXILIARY_CASES:
             kind = "map" if case.endswith("map") else "raw_lidar"
             identifier = uuid.uuid5(uuid.NAMESPACE_URL, "fixture-creation:" + case)
-            raw = auxiliary_content(kind)
+            raw = auxiliary_content(kind, case)
             row = SimpleNamespace(
                 id=identifier,
                 owner_kind="dataset_auxiliary",
@@ -369,7 +385,9 @@ class AuxiliaryOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(bucket, target)
             row = next(row for row in histories if row.object_key == key)
             case = row.authority["recovery_case"]
-            raw = auxiliary_content("map" if case.endswith("map") else "raw_lidar")
+            raw = auxiliary_content(
+                "map" if case.endswith("map") else "raw_lidar", case
+            )
             self.assertEqual((hashlib.sha256(raw).hexdigest(), len(raw)), (sha, size))
             return raw
 
@@ -396,11 +414,19 @@ class AuxiliaryOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await verify_auxiliary_originals(db, storage=storage)
         self.assertEqual(result["pinned_auxiliary_originals"], 3)
+        self.assertEqual(result["verified_auxiliary_objects"], 4)
+        self.assertEqual(result["verified_empty_auxiliary_objects"], 1)
         self.assertEqual(result["shared_auxiliary_map_references"], 2)
         self.assertEqual(
             result["auxiliary_recovery_qualification"], "offline-retained-bytes-only"
         )
         self.assertEqual(physical_read.call_count, 6)
+        empty_reads = [
+            call for call in physical_read.call_args_list if call.args[4] == 0
+        ]
+        self.assertEqual(len(empty_reads), 1)
+        self.assertEqual(empty_reads[0].args[2], cases["unbound_raw"].object_key)
+        self.assertEqual(empty_reads[0].args[3], hashlib.sha256(b"").hexdigest())
         self.assertEqual(storage.datasets_bucket, target)
         self.assertEqual((histories, owners), before)
         self.assertIs(
