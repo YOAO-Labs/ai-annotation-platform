@@ -244,6 +244,7 @@ export function useWorkbenchImageSource(
   const needsOriginal = !reference && selection?.kind === "single";
   const original = useOriginalImage(
     needsOriginal && task ? { kind: "task", taskId: task.id } : null,
+    mediaIdentity ?? task?.dataset_item_id ?? task?.id ?? null,
   );
   const source = needsOriginal
     ? original.url && selection?.kind === "single"

@@ -12,13 +12,13 @@ import { verifiedContentError } from "./useVerifiedImage";
 let addressVersion = 0;
 
 /** One image address belongs to a mounted session, resource and explicit attempt. */
-export function useOriginalImage(resource: OriginalResource | null) {
+export function useOriginalImage(resource: OriginalResource | null, sourceKey?: string | null) {
   const userId = useAuthStore((state) => state.user?.id);
   const sessionId = useAuthStore((state) => state.sessionId);
   const token = useAuthStore((state) => state.token);
   const [attempt, setAttempt] = useState(0);
   const resourceKey = resource ? JSON.stringify(resource) : null;
-  const identity = JSON.stringify([userId, sessionId, resourceKey, attempt]);
+  const identity = JSON.stringify([userId, sessionId, resourceKey, sourceKey ?? null, attempt]);
   const fence = useRef({ identity, active: true, epoch: 0 });
   if (fence.current.identity !== identity) {
     fence.current.active = false;

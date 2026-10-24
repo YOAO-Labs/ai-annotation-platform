@@ -99,6 +99,24 @@ describe("owned original image", () => {
     expect(result.current.error).toContain("浏览器无法解码");
     expect(releases[0]).toHaveBeenCalled();
   });
+  it("re-describes an explicit content binding change on the same Task without returning old bytes", async () => {
+    const { result, rerender } = renderHook(({ item }) => useOriginalImage(target, item), {
+      initialProps: { item: "first-item" },
+    });
+    await waitFor(() => expect(decodes).toHaveLength(1));
+    await act(async () => decodes[0].resolve());
+    expect(result.current.url).toBe("blob:image-1");
+    rerender({ item: "second-item" });
+    expect(result.current.url).toBeNull();
+    expect(releases[0]).toHaveBeenCalled();
+    await waitFor(() => expect(decodes).toHaveLength(2));
+    expect(vi.mocked(readOriginalImage).mock.calls.map(([resource]) => resource)).toEqual([
+      target,
+      target,
+    ]);
+    await act(async () => decodes[1].resolve());
+    expect(result.current.url).toBe("blob:image-2");
+  });
   it("fences the first StrictMode setup while publishing the live one", async () => {
     const { result } = renderHook(() => useOriginalImage(target), { wrapper: StrictMode });
     await waitFor(() => expect(decodes).toHaveLength(1));
