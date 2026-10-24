@@ -72,6 +72,59 @@ SMART_COPY_VIDEO_CODECS = {"h264", "avc1", "hevc", "h265"}
 THUMBNAIL_MAX_SOURCE_BYTES = 512 * 1024 * 1024
 
 
+def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
+    """Inspect the verified file without allocating or decoding its pixels."""
+    import gc
+
+    from app.services.image_pyramid import ImagePyramidError, validate_dimensions
+    from app.services.storage_access import mark_unsettled
+
+    try:
+        import pyvips
+    except ImportError as exc:
+        raise ImagePyramidError("generator_unavailable") from exc
+
+    image = None
+    try:
+        image = pyvips.Image.new_from_file(
+            f"/proc/self/fd/{stage.file.fileno()}",
+            access="sequential",
+            fail_on="error",
+        )
+        width, height = int(image.width), int(image.height)
+        orientation = image.get("orientation") if image.get_typeof("orientation") else 1
+        if type(orientation) is not int or not 1 <= orientation <= 8:
+            raise ImagePyramidError("decode_failed")
+        if orientation in {5, 6, 7, 8}:
+            width, height = height, width
+        validate_dimensions(width, height)
+        return width, height
+    except ImagePyramidError:
+        raise
+    except Exception as exc:
+        raise ImagePyramidError("decode_failed") from exc
+    finally:
+        try:
+            image = None
+            pyvips.cache_set_max(0)
+            pyvips.cache_set_max_mem(0)
+            pyvips.cache_set_max_files(0)
+            gc.collect()
+        except BaseException as exc:
+            raise mark_unsettled(exc)
+
+
+async def _pyramid_dimensions(db, kind, identifier) -> tuple[int, int]:
+    from app.services import image_pyramid_originals as originals
+
+    source = await originals.pin(db, kind, identifier)
+    authority = await originals.delegated(
+        db, originals.system_authorization(kind, identifier, source)
+    )
+    async with originals.media(db, authority, source) as stage:
+        return await originals.physical(_pyramid_dimensions_from_stage, stage)
+
+
 def _thumbnail_from_path(source_path: Path) -> tuple[bytes, str]:
     from PIL import Image, ImageOps
 
@@ -238,19 +291,25 @@ async def _generate_thumbnail(item_id: str) -> None:
 
             storage = StorageService()
             if item.width is None or item.height is None:
-                dimensions = storage.read_image_dimensions(
-                    item.file_path, bucket=storage.datasets_bucket
+                item.width, item.height = await _pyramid_dimensions(
+                    db, "dataset_item", item.id
                 )
-                if dimensions:
-                    item.width, item.height = dimensions
-                    await db.commit()
+                await db.commit()
             from app.services.image_pyramid import pyramid_eligible
 
             if pyramid_eligible(item.width, item.height):
                 if settings.image_pyramid_auto_generate:
+                    from app.services import image_pyramid_originals as originals
                     from app.workers.image_pyramid import enqueue_image_pyramid
 
-                    enqueue_image_pyramid("dataset_item", item.id)
+                    source = await originals.pin(db, "dataset_item", item.id)
+                    enqueue_image_pyramid(
+                        "dataset_item",
+                        item.id,
+                        delegation=originals.system_authorization(
+                            "dataset_item", item.id, source
+                        ),
+                    )
                 return
 
             try:
@@ -520,7 +579,7 @@ async def _backfill_media(dataset_id: str) -> None:
             await _generate_video_metadata(item_id)
 
 
-async def _generate_task_thumbnail(task_id: str) -> None:
+async def _generate_task_thumbnail(task_id: str, *, allow_pyramid: bool = True) -> None:
     from sqlalchemy.ext.asyncio import (
         create_async_engine,
         async_sessionmaker,
@@ -550,16 +609,29 @@ async def _generate_task_thumbnail(task_id: str) -> None:
             reject_reference(task.file_path)
 
             storage = StorageService()
-            dimensions = storage.read_image_dimensions(
-                task.file_path, bucket=storage.bucket
+            dimensions = (
+                await _pyramid_dimensions(db, "task", task.id)
+                if allow_pyramid
+                else storage.read_image_dimensions(
+                    task.file_path, bucket=storage.bucket
+                )
             )
             from app.services.image_pyramid import pyramid_eligible
 
             if dimensions and pyramid_eligible(*dimensions):
-                if settings.image_pyramid_auto_generate:
+                if allow_pyramid and settings.image_pyramid_auto_generate:
+                    from app.services import image_pyramid_originals as originals
                     from app.workers.image_pyramid import enqueue_image_pyramid
 
-                    enqueue_image_pyramid("task", task.id, force=True)
+                    source = await originals.pin(db, "task", task.id)
+                    enqueue_image_pyramid(
+                        "task",
+                        task.id,
+                        force=True,
+                        delegation=originals.system_authorization(
+                            "task", task.id, source
+                        ),
+                    )
                 return
             try:
                 head = storage.client.head_object(
@@ -598,7 +670,7 @@ async def _generate_task_thumbnail(task_id: str) -> None:
         await engine.dispose()
 
 
-async def _backfill_tasks(project_id: str) -> None:
+async def _backfill_tasks(project_id: str, *, allow_pyramid: bool = False) -> None:
     from sqlalchemy.ext.asyncio import (
         create_async_engine,
         async_sessionmaker,
@@ -627,7 +699,7 @@ async def _backfill_tasks(project_id: str) -> None:
     await engine.dispose()
 
     for tid in task_ids:
-        await _generate_task_thumbnail(tid)
+        await _generate_task_thumbnail(tid, allow_pyramid=allow_pyramid)
 
 
 def _normalize_video_codec(codec: str | None) -> str | None:
@@ -1100,8 +1172,8 @@ def backfill_media(self, dataset_id: str) -> None:
 
 
 @celery_app.task(bind=True, max_retries=1, queue="media")
-def backfill_tasks(self, project_id: str) -> None:
-    asyncio.run(_backfill_tasks(project_id))
+def backfill_tasks(self, project_id: str, allow_pyramid: bool = False) -> None:
+    asyncio.run(_backfill_tasks(project_id, allow_pyramid=allow_pyramid))
 
 
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=30, queue="media")

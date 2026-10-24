@@ -90,7 +90,6 @@ class LinkProjectResult:
 
 @dataclass(frozen=True)
 class DatasetDeleteCleanup:
-    pyramid_asset_ids: tuple[uuid.UUID, ...]
     directory_objects: tuple[tuple[str, str], ...] = ()
 
 
@@ -458,22 +457,6 @@ class DatasetService:
         from app.services.active_learning_pool import guard_source
 
         await guard_source(self.db, dataset_id=dataset_id)
-        from app.db.models.image_pyramid import ImagePyramidAsset
-
-        asset_ids = list(
-            (
-                await self.db.execute(
-                    select(ImagePyramidAsset.id)
-                    .join(
-                        DatasetItem,
-                        DatasetItem.id == ImagePyramidAsset.dataset_item_id,
-                    )
-                    .where(DatasetItem.dataset_id == dataset_id)
-                )
-            )
-            .scalars()
-            .all()
-        )
         from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
 
         directory_objects = tuple(
@@ -505,28 +488,17 @@ class DatasetService:
         await capture_managed_original_retirements(self.db, dataset_id=dataset_id)
         await self.db.delete(ds)
         await self.db.flush()
-        return DatasetDeleteCleanup(
-            pyramid_asset_ids=tuple(asset_ids), directory_objects=directory_objects
-        )
+        return DatasetDeleteCleanup(directory_objects=directory_objects)
 
     @staticmethod
     def cleanup_deleted_storage(cleanup: DatasetDeleteCleanup) -> None:
-        from app.services.image_pyramid import PYRAMID_PREFIX
-
         for bucket, key in cleanup.directory_objects:
             try:
                 storage_service.delete_object(key, bucket=bucket)
             except Exception:
                 log.exception("failed to clean directory preview %s", key)
 
-        for asset_id in cleanup.pyramid_asset_ids:
-            try:
-                storage_service.delete_prefix(
-                    f"{PYRAMID_PREFIX}/{asset_id}",
-                    bucket=storage_service.media_cache_bucket,
-                )
-            except Exception:  # noqa: BLE001
-                log.exception("failed to clean image pyramid asset %s", asset_id)
+        # Independent pyramid owners survive the Dataset cascade for durable GC.
 
     # ── Items ───────────────────────────────────────────────────────────────
 
@@ -571,17 +543,24 @@ class DatasetService:
                 continue
             d["file_url"] = None
             if item.thumbnail_path and not directory_owned:
-                try:
-                    thumbnail_bucket = storage_service.bucket_for_cache_key(
-                        item.thumbnail_path,
-                        default=storage_service.datasets_bucket,
+                if item.thumbnail_path.startswith("image-pyramids/"):
+                    from app.services.image_pyramid_objects import thumbnail_url
+
+                    d["thumbnail_url"] = await thumbnail_url(
+                        self.db, "dataset_item", item.id, item.thumbnail_path
                     )
-                    d["thumbnail_url"] = storage_service.generate_download_url(
-                        item.thumbnail_path,
-                        bucket=thumbnail_bucket,
-                    )
-                except Exception:
-                    d["thumbnail_url"] = None
+                else:
+                    try:
+                        thumbnail_bucket = storage_service.bucket_for_cache_key(
+                            item.thumbnail_path,
+                            default=storage_service.datasets_bucket,
+                        )
+                        d["thumbnail_url"] = storage_service.generate_download_url(
+                            item.thumbnail_path,
+                            bucket=thumbnail_bucket,
+                        )
+                    except Exception:
+                        d["thumbnail_url"] = None
             out.append(d)
         return out, total
 
@@ -668,8 +647,6 @@ class DatasetService:
         ds = await self.db.get(Dataset, item.dataset_id)
         if ds:
             ds.file_count = max((ds.file_count or 0) - 1, 0)
-        from app.db.models.image_pyramid import ImagePyramidAsset
-        from app.services.image_pyramid import PYRAMID_PREFIX
         from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
 
         previews = list(
@@ -693,22 +670,6 @@ class DatasetService:
             (row.bucket, row.object_key) for row in previews
         ]
 
-        asset_ids = list(
-            (
-                await self.db.execute(
-                    select(ImagePyramidAsset.id).where(
-                        ImagePyramidAsset.dataset_item_id == item.id
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for asset_id in asset_ids:
-            storage_service.delete_prefix(
-                f"{PYRAMID_PREFIX}/{asset_id}",
-                bucket=storage_service.media_cache_bucket,
-            )
         from app.services.managed_original_retirement import (
             capture_managed_original_retirements,
         )

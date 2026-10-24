@@ -724,8 +724,12 @@ def _task_with_url(
         original_identity_path = f"/api/v1/files/tasks/{task.id}/original-identity"
 
     thumbnail_url: str | None = None
-    if thumbnail_path:
-        # v0.10.17 · thumbnails/* 走 media-cache 桶,其它(如旧路径)按 helper 默认走 datasets
+    if thumbnail_path and thumbnail_path.startswith("image-pyramids/"):
+        # Only the asynchronous owner check may supply a pyramid thumbnail URL.
+        checked = getattr(task, "_image_pyramid_thumbnail", None)
+        if checked is not None and checked[0] == thumbnail_path:
+            thumbnail_url = checked[1]
+    elif thumbnail_path:
         thumb_bucket = storage_service.bucket_for_cache_key(
             thumbnail_path, default=bucket
         )
@@ -988,15 +992,24 @@ async def _attach_image_pyramids_batch(
     ],
 ) -> dict[uuid.UUID, ImagePyramidSummary]:
     from app.services.image_pyramid import pyramid_summary, task_pyramid_assets
+    from app.services.image_pyramid_objects import thumbnail_url
 
     assets = await task_pyramid_assets(db, tasks)
     result: dict[uuid.UUID, ImagePyramidSummary] = {}
     for task in tasks:
+        width, height, path, *_ = dimensions.get(
+            task.id, (None, None, None, None, None)
+        )
+        task._image_pyramid_thumbnail = None
+        if path and path.startswith("image-pyramids/"):
+            task._image_pyramid_thumbnail = (
+                path,
+                await thumbnail_url(db, "task", task.id, path),
+            )
         pair = assets.get(task.id)
         if pair is None:
             continue
         _, generation = pair
-        width, height, *_ = dimensions.get(task.id, (None, None, None, None, None))
         summary = pyramid_summary(generation, width=width, height=height)
         if summary is not None:
             result[task.id] = summary

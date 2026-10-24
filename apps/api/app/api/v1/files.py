@@ -154,7 +154,7 @@ async def backfill_project_thumbnails(
 ):
     from app.workers.media import backfill_tasks
 
-    task = backfill_tasks.delay(str(project_id))
+    task = backfill_tasks.delay(str(project_id), allow_pyramid=False)
     return {"status": "queued", "celery_task_id": task.id}
 
 

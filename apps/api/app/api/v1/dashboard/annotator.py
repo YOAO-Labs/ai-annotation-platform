@@ -493,7 +493,7 @@ async def my_batches(
             func.coalesce(DatasetItem.blurhash, Task.blurhash).label("blurhash")
         )
         cover_rows = await db.execute(
-            select(Task.batch_id, eff_thumb, eff_blur)
+            select(Task.batch_id, eff_thumb, eff_blur, Task.id)
             .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
             .where(
                 Task.batch_id.in_(batch_ids),
@@ -502,7 +502,7 @@ async def my_batches(
             .order_by(Task.batch_id, Task.created_at.asc())
             .distinct(Task.batch_id)
         )
-        cover_map = {row[0]: (row[1], row[2]) for row in cover_rows.all()}
+        cover_map = {row[0]: (row[1], row[2], row[3]) for row in cover_rows.all()}
 
     # v0.7.2 · 单值语义 — 一 batch 一审核员
     project_user_map: dict = {}
@@ -518,9 +518,19 @@ async def my_batches(
         per_proj = briefs_by_project.get(b.project_id, {})
         reviewer = per_proj.get(str(b.reviewer_id)) if b.reviewer_id else None
         in_progress_tasks = in_progress_map.get(b.id, 0)
-        cover_path, cover_blurhash = cover_map.get(b.id, (None, None))
+        cover_path, cover_blurhash, cover_task_id = cover_map.get(
+            b.id, (None, None, None)
+        )
         thumbnail_url: str | None = None
-        if cover_path:
+        if cover_path and cover_path.startswith("image-pyramids/"):
+            from app.services.image_pyramid_objects import (
+                thumbnail_url as pyramid_thumbnail_url,
+            )
+
+            thumbnail_url = await pyramid_thumbnail_url(
+                db, "task", cover_task_id, cover_path
+            )
+        elif cover_path:
             thumb_bucket = storage_service.bucket_for_cache_key(
                 cover_path, default=storage_service.bucket
             )
