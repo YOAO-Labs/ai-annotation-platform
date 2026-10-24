@@ -1,4 +1,4 @@
-"""Original credentials and short, ordered locks for comment attachment flows."""
+"""Original credentials and short, ordered locks for private file flows."""
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -24,11 +24,13 @@ from app.db.models.user import User
 from app.services import storage_access
 
 
-ALLOWED_ROLES = {
-    PlatformRole.SUPER_ADMIN,
-    PlatformRole.PROJECT_ADMIN,
-    PlatformRole.EMPLOYEE,
-}
+ALLOWED_ROLES = frozenset(
+    {
+        PlatformRole.SUPER_ADMIN,
+        PlatformRole.PROJECT_ADMIN,
+        PlatformRole.EMPLOYEE,
+    }
+)
 
 
 def now():
@@ -69,6 +71,7 @@ class Authority:
     key_id: uuid.UUID | None
     key_proof: tuple | None
     jwt: JwtProof | None
+    allowed_roles: frozenset[PlatformRole] = ALLOWED_ROLES
 
 
 def _presented(actor_id, request):
@@ -144,9 +147,9 @@ async def _jwt_current(proof):
     check_clock(proof)
 
 
-async def _actor(db, actor_id):
+async def _actor(db, actor_id, allowed_roles=ALLOWED_ROLES):
     actor = await locked(db, User, actor_id)
-    if actor is None or not actor.is_active or actor.role not in ALLOWED_ROLES:
+    if actor is None or not actor.is_active or actor.role not in allowed_roles:
         reject("comment_attachment_authority_revoked", 403)
     return actor
 
@@ -165,10 +168,11 @@ async def _key(db, actor_id, identifier):
     return key.key_hash, tuple(key.scopes or ()), key.expires_at
 
 
-async def lock_authority(db, actor, request):
+async def lock_authority(db, actor, request, *, allowed_roles=ALLOWED_ROLES):
     actor_id = actor.id
     key_id, scopes, token, jwt = _presented(actor_id, request)
-    actor = await _actor(db, actor_id)
+    allowed_roles = frozenset(allowed_roles)
+    actor = await _actor(db, actor_id, allowed_roles)
     key = await _key(db, actor_id, key_id)
     if key is not None:
         try:
@@ -177,13 +181,13 @@ async def lock_authority(db, actor, request):
             valid = False
         if not valid or key[1] != scopes:
             reject("api_key_authority_revoked", 403)
-    proof = Authority(actor_id, key_id, key, jwt)
+    proof = Authority(actor_id, key_id, key, jwt, allowed_roles)
     await _jwt_current(proof)
     return actor, proof
 
 
 async def reauthorize(db, proof):
-    actor = await _actor(db, proof.actor_id)
+    actor = await _actor(db, proof.actor_id, proof.allowed_roles)
     if await _key(db, proof.actor_id, proof.key_id) != proof.key_proof:
         reject("api_key_authority_revoked", 403)
     await _jwt_current(proof)
