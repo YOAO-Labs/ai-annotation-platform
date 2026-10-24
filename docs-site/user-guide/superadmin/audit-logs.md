@@ -1,9 +1,8 @@
 ---
 audience: [super_admin]
 type: reference
-since: v0.8.1
 status: stable
-last_reviewed: 2026-07-23
+last_reviewed: 2026-10-24
 ---
 
 # 审计日志
@@ -151,6 +150,14 @@ docker exec ai-annotation-platform-postgres-1 psql -U user -d annotation -c \
 ## 分区策略
 
 `audit_logs` 按月分区（[ADR 0007](../../dev/adr/archive/0007-audit-log-partitioning)）。运维上每月初由 cron 创建下月分区，旧分区可按合规策略归档/删除（默认保留 12 个月）。
+
+### 读取历史归档
+
+归档列表和内容接口仅限当前超级管理员使用。`GET /api/v1/audit-logs/archives` 只列出已完成发布的归档；未确认的写入保留待核对，不会作为可读归档显示。
+
+使用 `GET /api/v1/audit-logs/archives/{year}/{month}?limit=100&offset=0` 分页读取，单页最多 1000 行。每次请求都会完整核验归档后再返回指定页，末尾 `_partition_meta` 也是一行，因此 `total` 比审计事件数多一。
+
+历史归档按创建时保存的 bucket 和内容摘要读取，调整新归档的写入 bucket 不影响已有归档。缺少独立归属的旧归档会返回冲突，平台不会从当前 bucket 猜测读取。中途撤权、凭据到期、维护状态变化或内容损坏都会阻止返回，详见[审计归档 API](../../api/guides/audit-archives)。
 
 ## 写入侧约定
 
