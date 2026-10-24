@@ -130,15 +130,62 @@ def _export_annotation_copy(
     return cast(Annotation, SimpleNamespace(**data))
 
 
+MAX_PORTABLE_MASK_RUNS = 4_000_000
+MAX_PORTABLE_MASK_JSON_BYTES = 256 * 1024 * 1024
+
+
+class _PortableMaskObjects(dict):
+    def __init__(self):
+        super().__init__()
+        self.runs = 0
+        self.json_bytes = 2
+
+
 async def _collect_portable_mask_objects(
     geometry: dict,
     mask_objects: dict[str, dict],
 ) -> None:
-    """Load each referenced RLE once for an AAP portable envelope."""
+    """Load strict owners once, bounding cumulative Python and portable JSON size."""
+    runs = (
+        mask_objects.runs
+        if isinstance(mask_objects, _PortableMaskObjects)
+        else sum(len(value.get("counts", [])) for value in mask_objects.values())
+    )
+    size = (
+        mask_objects.json_bytes
+        if isinstance(mask_objects, _PortableMaskObjects)
+        else sum(
+            len(json.dumps(value).encode("utf-8")) + len(key) + 8
+            for key, value in mask_objects.items()
+        )
+        + 2
+    )
     for reference in collect_mask_references(geometry):
         digest = str(reference.get("sha256") or "")
-        if digest and digest not in mask_objects:
-            mask_objects[digest] = await load_coco_rle(reference)
+        if not digest or digest in mask_objects:
+            continue
+        declared = reference.get("runs")
+        if (
+            type(declared) is not int
+            or declared < 1
+            or runs + declared > MAX_PORTABLE_MASK_RUNS
+        ):
+            raise ValueError("portable mask expansion budget exceeded")
+        payload = await load_coco_rle(reference)
+        actual = len(payload.get("counts", []))
+        if actual != declared or runs + actual > MAX_PORTABLE_MASK_RUNS:
+            raise ValueError("portable mask expansion budget exceeded")
+        # The final envelope is indented too. Account with the same indentation
+        # and reserve the nested property's indentation for every emitted line.
+        encoded_size = len(digest.encode("utf-8")) + 8
+        for part in json.JSONEncoder(ensure_ascii=False, indent=2).iterencode(payload):
+            encoded_size += len(part.encode("utf-8")) + part.count("\n") * 4
+            if size + encoded_size > MAX_PORTABLE_MASK_JSON_BYTES:
+                raise ValueError("portable mask JSON budget exceeded")
+        runs, size = runs + actual, size + encoded_size
+        mask_objects[digest] = payload
+        if isinstance(mask_objects, _PortableMaskObjects):
+            mask_objects.runs, mask_objects.json_bytes = runs, size
 
 
 IMG_W, IMG_H = 1920, 1280
@@ -415,6 +462,9 @@ class ExportService:
         )
         result = await self.db.execute(pred_q)
         return list(result.scalars().all())
+
+    def item_for_task(self, task, items):
+        return items.get(task.dataset_item_id) if task.dataset_item_id else None
 
     async def _load_dataset_items(
         self, tasks: list[Task]
@@ -845,7 +895,7 @@ class ExportService:
         )
 
         def _dims_for(task: Task) -> tuple[int, int]:
-            item = items.get(task.dataset_item_id) if task.dataset_item_id else None
+            item = self.item_for_task(task, items)
             w = item.width if item and item.width else IMG_W
             h = item.height if item and item.height else IMG_H
             return w, h
@@ -1186,7 +1236,7 @@ class ExportService:
         batch_display_id = await self._aap_batch_display_id(batch_id)
 
         task_blocks: list[AAPTaskBlock] = []
-        mask_objects: dict[str, dict] = {}
+        mask_objects: dict[str, dict] = _PortableMaskObjects()
         for t in tasks:
             ann_entries: list[AAPAnnotationEntry] = []
             for ann in ann_by_task.get(t.id, []):

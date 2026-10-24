@@ -65,6 +65,7 @@ from app.services.exporting.lidar import (
 )
 from app.services.exporting.lidar_preflight import calibration_is_valid
 from app.services.exporting import lidar_fetch
+from app.services.exporting.image_fetch import FETCH_IMAGES_TEMPLATE
 from app.services.exporting.video import (
     FALLBACK_H,
     FALLBACK_W,
@@ -211,106 +212,7 @@ def relative_path_from_file_path(
     return dataset_relative_path(file_path, dataset_name)
 
 
-_FETCH_IMAGES_TEMPLATE = '''#!/usr/bin/env python3
-"""Verify embedded originals, then fetch managed images using expiring URLs."""
-import argparse
-import hashlib
-import json
-import os
-import sys
-import urllib.request
-from urllib.parse import urljoin, urlsplit
-from datetime import datetime, timezone
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def destination(relative):
-    parts = relative.replace(chr(92), "/").split("/")
-    if not relative or any(part in ("", ".", "..") for part in parts):
-        raise ValueError("invalid_archive_path")
-    path = os.path.realpath(os.path.join(HERE, *parts))
-    if os.path.commonpath((HERE, path)) != HERE:
-        raise ValueError("invalid_archive_path")
-    return path
-
-
-def verify_embedded(item):
-    paths = item.get("archive_paths") or [item["archive_path"]]
-    for relative in paths:
-        path = destination(relative)
-        digest, size = hashlib.sha256(), 0
-        with open(path, "rb") as stream:
-            while chunk := stream.read(256 * 1024):
-                size += len(chunk)
-                digest.update(chunk)
-        if size != item["size_bytes"] or digest.hexdigest() != item["sha256"]:
-            raise ValueError("embedded_content_mismatch")
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", help="Platform origin for same-origin managed URLs")
-    arguments = parser.parse_args()
-    with open(os.path.join(HERE, "images_manifest.json"), encoding="utf-8") as stream:
-        items = json.load(stream).get("images", [])
-    ok, fail, expired = 0, 0, False
-    # Embedded originals remain independently verifiable after managed URLs expire.
-    for item in items:
-        if item.get("storage_mode") != "embedded":
-            continue
-        try:
-            verify_embedded(item)
-            ok += 1
-            print("[ok] embedded SHA-256: %s" % item.get("rel_path", ""))
-        except Exception as exc:
-            fail += 1
-            print("[x] embedded verification failed: %s" % type(exc).__name__)
-    for item in items:
-        if item.get("storage_mode") == "embedded":
-            continue
-        relative, url = item.get("rel_path"), item.get("presigned_url")
-        if not relative or not url:
-            continue
-        temporary = None
-        try:
-            path = destination("images/" + relative)
-            if os.path.exists(path):
-                ok += 1
-                continue
-            expires_at = item.get("expires_at")
-            if expires_at and datetime.fromisoformat(expires_at) <= datetime.now(timezone.utc):
-                expired = True
-                fail += 1
-                print("[!] managed URL expired; export again: %s" % relative)
-                continue
-            if not urlsplit(url).scheme:
-                if not arguments.base_url:
-                    print("[x] relative managed URL requires --base-url https://your-platform")
-                    fail += 1
-                    continue
-                url = urljoin(arguments.base_url, url)
-            if urlsplit(url).scheme not in ("http", "https"):
-                raise ValueError("unsupported_download_protocol")
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            temporary = path + ".part"
-            urllib.request.urlretrieve(url, temporary)
-            os.replace(temporary, path)
-            ok += 1
-        except Exception as exc:
-            fail += 1
-            print("[x] download failed: %s" % type(exc).__name__)
-        finally:
-            if temporary and os.path.exists(temporary):
-                os.unlink(temporary)
-    print("[done] success %d, failed %d; images/" % (ok, fail))
-    return 2 if expired else (1 if fail else 0)
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
-
+_FETCH_IMAGES_TEMPLATE = FETCH_IMAGES_TEMPLATE
 
 _FETCH_POINTCLOUDS_TEMPLATE = lidar_fetch.FETCH_POINTCLOUDS_TEMPLATE
 _FETCH_LIDAR_IMAGES_TEMPLATE = lidar_fetch.FETCH_LIDAR_IMAGES_TEMPLATE
@@ -544,6 +446,7 @@ async def build_export_zip(
     video_scope: VideoExportScope | None = None,
     reference_media=None,
     lidar_media=None,
+    image_media=None,
     check_cancel: Callable[[], Awaitable[object]] | None = None,
 ) -> tuple[str, int, int]:
     """生成镜像目录 ZIP 到磁盘临时文件，返回 (zip 路径, label 文件数, size_bytes)。
@@ -557,24 +460,45 @@ async def build_export_zip(
     图像 targets ∈ {coco, yolo-det, yolo-obb, yolo-seg, aap_json}（`yolo` 兼容旧 = yolo-det）。
     VOC 走旧同步路径，不在此处。
     """
+    if image_media is not None and lidar_media is not None:
+        raise ValueError("image_export_inputs_changed")
     paths = (
-        {
-            task_id: reference_media.archive_path(task_id)
-            for task_id in reference_media.paths
-        }
-        if reference_media
-        else {}
+        image_media.media_paths
+        if image_media is not None
+        else (
+            {
+                task_id: reference_media.archive_path(task_id)
+                for task_id in reference_media.paths
+            }
+            if reference_media
+            else {}
+        )
     )
     svc = (
-        lidar_media.service(db)
-        if lidar_media is not None
-        else ExportService(db, task_ids=task_ids, media_paths=paths)
+        image_media.service(db)
+        if image_media is not None
+        else (
+            lidar_media.service(db)
+            if lidar_media is not None
+            else ExportService(db, task_ids=task_ids, media_paths=paths)
+        )
     )
     project = (
-        lidar_media.project
-        if lidar_media is not None
-        else await svc.db.get(Project, project_id)
+        image_media.project
+        if image_media is not None
+        else (
+            lidar_media.project
+            if lidar_media is not None
+            else await svc.db.get(Project, project_id)
+        )
     )
+
+    if image_media is not None and (
+        project.id != project_id
+        or project.data_type != "image"
+        or list(targets) != image_media.targets
+    ):
+        raise ValueError("image_export_inputs_changed")
 
     tmp_path = _new_zip_tempfile()
     try:
@@ -662,9 +586,13 @@ async def build_export_zip(
         file_count = 0
         total_tasks = 0
         now = datetime.now(timezone.utc)
-        expires_iso = datetime.fromtimestamp(
-            now.timestamp() + PRESIGN_EXPIRES_SECONDS, tz=timezone.utc
-        ).isoformat()
+        expires_iso = (
+            image_media.expires_at.isoformat()
+            if image_media is not None
+            else datetime.fromtimestamp(
+                now.timestamp() + PRESIGN_EXPIRES_SECONDS, tz=timezone.utc
+            ).isoformat()
+        )
 
         metadata = export_contracts(project, targets)
         if reference_media:
@@ -687,17 +615,15 @@ async def build_export_zip(
                     project_id, batch_id, with_annotations=True
                 ):
                     for t in tasks:
-                        item = (
-                            dataset_items.get(t.dataset_item_id)
-                            if t.dataset_item_id
-                            else None
-                        )
+                        item = svc.item_for_task(t, dataset_items)
                         for target in yolo_targets:
                             prefix = f"{target}/" if multi else ""
                             if check_cancel:
                                 await check_cancel()
                             rel = (
-                                splitext(reference_media.paths[t.id])[0]
+                                splitext(image_media.paths[t.id])[0]
+                                if image_media is not None
+                                else splitext(reference_media.paths[t.id])[0]
                                 if t.id in paths
                                 else _label_rel(t, item)
                             )
@@ -761,18 +687,27 @@ async def build_export_zip(
                     for t in tasks:
                         if check_cancel:
                             await check_cancel()
-                        item = (
-                            dataset_items.get(t.dataset_item_id)
-                            if t.dataset_item_id
-                            else None
-                        )
+                        item = svc.item_for_task(t, dataset_items)
                         entry = {
                             "task_id": str(t.id),
                             "dataset_item_id": str(item.id) if item else None,
                             "content_hash": item.content_hash if item else None,
                             "dataset_id": str(item.dataset_id) if item else None,
                         }
-                        if t.id in paths:
+                        from app.services.reference_keys import is_reference
+
+                        if is_reference(t.file_path):
+                            if (
+                                reference_media is None
+                                or t.id not in reference_media.paths
+                            ):
+                                raise ValueError("reference_export_authority_missing")
+                            if (
+                                image_media is not None
+                                and image_media.paths[t.id]
+                                != reference_media.paths[t.id]
+                            ):
+                                raise ValueError("image_export_inputs_changed")
                             from app.services.content_snapshot import MAX_BYTES
 
                             zf._check_entry(
@@ -783,15 +718,19 @@ async def build_export_zip(
                             snapshot = await reference_media.snapshot(t)
                             try:
                                 rel = reference_media.paths[t.id]
-                                archive_paths = sorted(
-                                    {
-                                        paths[t.id],
-                                        *(
-                                            f"{target}/images/{rel}"
-                                            for target in yolo_targets
-                                            if multi
-                                        ),
-                                    }
+                                archive_paths = (
+                                    image_media.archive_paths[t.id]
+                                    if image_media is not None
+                                    else sorted(
+                                        {
+                                            paths[t.id],
+                                            *(
+                                                f"{target}/images/{rel}"
+                                                for target in yolo_targets
+                                                if multi
+                                            ),
+                                        }
+                                    )
                                 )
                                 for archive_path in archive_paths:
                                     zf.write_stream(
@@ -813,12 +752,15 @@ async def build_export_zip(
                                 )
                             finally:
                                 snapshot.close()
+                        elif image_media is not None:
+                            entry.update(
+                                storage_mode="managed",
+                                rel_path=image_media.paths[t.id],
+                                archive_path=paths[t.id],
+                                archive_paths=image_media.archive_paths[t.id],
+                                **image_media.entry(t.id),
+                            )
                         else:
-                            # The legacy gate remains even if callers bypass the worker.
-                            from app.services.reference_keys import is_reference
-
-                            if is_reference(t.file_path):
-                                raise ValueError("reference_export_authority_missing")
                             entry.update(
                                 rel_path=relative_path_from_file_path(
                                     t.file_path, _dataset_name_for_task(t, item), item
@@ -883,6 +825,9 @@ async def build_export_zip(
                         project=project,
                         chunks=chunks,
                         media_paths=paths,
+                        task_items=image_media.items_by_task
+                        if image_media is not None
+                        else None,
                     )
                 elif target == "indexed-png":
                     file_count += await write_indexed_png_export(
@@ -891,6 +836,9 @@ async def build_export_zip(
                         project=project,
                         chunks=chunks,
                         media_paths=paths,
+                        task_items=image_media.items_by_task
+                        if image_media is not None
+                        else None,
                         overlap_policy=str(
                             export_options.get("indexed_overlap_policy") or "error"
                         ),
@@ -901,6 +849,9 @@ async def build_export_zip(
                         prefix=prefix,
                         chunks=chunks,
                         media_paths=paths,
+                        task_items=image_media.items_by_task
+                        if image_media is not None
+                        else None,
                         data_key=str(export_options.get("ls_data_key") or "image"),
                         from_name=str(export_options.get("ls_from_name") or "brush"),
                         to_name=str(export_options.get("ls_to_name") or "image"),

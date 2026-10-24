@@ -466,6 +466,7 @@ def test_fetch_script_checks_embedded_when_managed_links_expired(tmp_path):
     (tmp_path / "images_manifest.json").write_text(
         json.dumps(
             {
+                "expires_at": "2999-01-01T00:00:00+00:00",
                 "images": [
                     {
                         "storage_mode": "embedded",
@@ -475,10 +476,12 @@ def test_fetch_script_checks_embedded_when_managed_links_expired(tmp_path):
                     },
                     {
                         "rel_path": "managed.png",
+                        "sha256": hashlib.sha256(b"managed image").hexdigest(),
+                        "size_bytes": len(b"managed image"),
                         "presigned_url": "http://invalid/secret",
                         "expires_at": "2000-01-01T00:00:00+00:00",
                     },
-                ]
+                ],
             }
         )
     )
@@ -510,12 +513,15 @@ def test_fetch_script_resolves_same_origin_managed_urls_with_explicit_base(tmp_p
         (tmp_path / "images_manifest.json").write_text(
             json.dumps(
                 {
+                    "expires_at": "2999-01-01T00:00:00+00:00",
                     "images": [
                         {
                             "rel_path": "managed.png",
+                            "sha256": hashlib.sha256(b"managed image").hexdigest(),
+                            "size_bytes": len(b"managed image"),
                             "presigned_url": "/minio/owned/image.png?signature=retained",
                         }
-                    ]
+                    ],
                 }
             )
         )

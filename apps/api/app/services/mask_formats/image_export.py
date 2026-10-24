@@ -57,6 +57,7 @@ async def write_binary_png_export(
     project: Project,
     chunks,
     media_paths=None,
+    task_items=None,
 ) -> int:
     media_paths = media_paths or {}
     class_ids = {
@@ -68,7 +69,9 @@ async def write_binary_png_export(
     async for tasks, ann_by_task, dataset_items in chunks:
         for task in tasks:
             dataset_item = (
-                dataset_items.get(task.dataset_item_id)
+                task_items.get(task.id)
+                if task_items is not None
+                else dataset_items.get(task.dataset_item_id)
                 if task.dataset_item_id
                 else None
             )
@@ -130,6 +133,7 @@ async def write_indexed_png_export(
     chunks,
     overlap_policy: str,
     media_paths=None,
+    task_items=None,
 ) -> int:
     media_paths = media_paths or {}
     class_ids = {
@@ -142,7 +146,9 @@ async def write_indexed_png_export(
     async for tasks, ann_by_task, dataset_items in chunks:
         for task in tasks:
             dataset_item = (
-                dataset_items.get(task.dataset_item_id)
+                task_items.get(task.id)
+                if task_items is not None
+                else dataset_items.get(task.dataset_item_id)
                 if task.dataset_item_id
                 else None
             )
@@ -232,6 +238,7 @@ async def write_label_studio_export(
     from_name: str,
     to_name: str,
     media_paths=None,
+    task_items=None,
 ) -> int:
     media_paths = media_paths or {}
     output: list[dict[str, Any]] = []
@@ -239,7 +246,9 @@ async def write_label_studio_export(
     async for tasks, ann_by_task, dataset_items in chunks:
         for task in tasks:
             dataset_item = (
-                dataset_items.get(task.dataset_item_id)
+                task_items.get(task.id)
+                if task_items is not None
+                else dataset_items.get(task.dataset_item_id)
                 if task.dataset_item_id
                 else None
             )
