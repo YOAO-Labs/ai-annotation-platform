@@ -9,6 +9,7 @@ import pytest
 
 from aap_assets_inputs import contract as c
 from app.application.preannotation_contract import BatchPredictionRequest
+from app.db.models.async_job import AsyncJob
 from app.application.preannotation_execution import (
     PreannotationInputDeferred,
     _apply_prediction_result_bundle_with_retries,
@@ -17,6 +18,15 @@ from app.application.preannotation_execution import (
     _prepare_accepted_input_manifest,
 )
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
+from app.services import async_job as async_job_svc
+
+
+@pytest.fixture(autouse=True)
+def _bind_jobs_read_to_fake_session(monkeypatch):
+    async def get_job(db, job_id, *, populate_existing=False):
+        return await db.get(AsyncJob, job_id, populate_existing=populate_existing)
+
+    monkeypatch.setattr(async_job_svc, "get_job", get_job)
 
 
 class _Session:
@@ -140,7 +150,7 @@ async def test_running_legacy_bulk_image_job_is_drained(monkeypatch, scene_mode)
         "app.application.preannotation_execution.get_workspace_project",
         AsyncMock(return_value=project),
     )
-    job = SimpleNamespace(
+    job = AsyncJob(
         id=job_id,
         kind="batch_predict",
         project_id=project_id,

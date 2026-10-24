@@ -195,9 +195,9 @@ async def freeze_batch_members(
 
 
 async def _cancel_requested(db, job_id):
-    from app.db.models.async_job import AsyncJob
+    from app.services import async_job as async_job_svc
 
-    job = await db.get(AsyncJob, job_id, populate_existing=True)
+    job = await async_job_svc.get_job(db, job_id, populate_existing=True)
     return (
         job is None
         or job.status == "cancelled"
@@ -632,9 +632,9 @@ async def run_durable_batch(
         else None,
         result_extra=extra,
     )
-    from app.db.models.async_job import AsyncJob
+    from app.services import async_job as async_job_svc
 
-    await db.get(AsyncJob, execution.scope["job_id"], populate_existing=True)
+    await async_job_svc.get_job(db, execution.scope["job_id"], populate_existing=True)
     await notify_job_terminal(db, job_id=execution.scope["job_id"])
     try:
         await db.commit()

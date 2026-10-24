@@ -159,7 +159,7 @@ async def _emit_export_notification(
     失败不阻断主流程（与 notification 服务自身的 try/except 一致）。调用方负责后续 commit。
     """
     try:
-        job = await db.get(AsyncJob, job_uuid)
+        job = await async_job_svc.get_job(db, job_uuid)
         if job is None or job.user_id is None:
             return None
         payload_in = job.payload or {}
@@ -516,7 +516,7 @@ async def _assert_export_task_scope(
     from app.services.project_access import get_workspace_project
 
     project = await get_workspace_project(db, project_id=project_id)
-    job = await db.get(AsyncJob, job_uuid)
+    job = await async_job_svc.get_job(db, job_uuid)
     if project is None or job is None or job.project_id != project_id:
         raise ValueError("export scope owner or project is unavailable")
     actor = (
@@ -588,7 +588,7 @@ async def _reauthorize_export_final_write(
 
     from app.services.project_write_guard import lock_actor_scope
 
-    job = await db.get(AsyncJob, job_uuid)
+    job = await async_job_svc.get_job(db, job_uuid)
     if job is None or job.project_id is None or job.user_id is None:
         raise ValueError("export scope is no longer valid")
     actor = await IdentityAccountLockData(db).read_actor_status(job.user_id)

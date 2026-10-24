@@ -304,7 +304,8 @@ async def _prepare_accepted_input_manifest(
 ):
     """Validate the durable selection and seal it before the existing Job claim."""
     from aap_assets_input_manifests import contract as c
-    from app.db.models.async_job import AsyncJob, AsyncJobStatus
+    from app.db.models.async_job import AsyncJobStatus
+    from app.services import async_job as async_job_svc
 
     fields = (
         request.accepted_input_manifest_protocol,
@@ -332,7 +333,7 @@ async def _prepare_accepted_input_manifest(
                 )
                 if project is not None and project.data_type == "image":
                     job = (
-                        await db.get(AsyncJob, job_id, populate_existing=True)
+                        await async_job_svc.get_job(db, job_id, populate_existing=True)
                         if job_id is not None
                         else None
                     )
@@ -421,7 +422,7 @@ async def _prepare_accepted_input_manifest(
 
     already_claimed = False
     async with SessionLocal() as db:
-        job = await db.get(AsyncJob, job_id, populate_existing=True)
+        job = await async_job_svc.get_job(db, job_id, populate_existing=True)
         if (
             job is None
             or job.kind != "batch_predict"
@@ -476,7 +477,7 @@ async def _prepare_accepted_input_manifest(
         ):
             raise ValueError("sealed manifest receipt differs from durable Job facts")
         async with SessionLocal() as db:
-            job = await db.get(AsyncJob, job_id, populate_existing=True)
+            job = await async_job_svc.get_job(db, job_id, populate_existing=True)
             payload = (
                 job.payload if job is not None and isinstance(job.payload, dict) else {}
             )
@@ -506,7 +507,8 @@ async def _prepare_accepted_video_manifest(
     from aap_assets_video_inputs import authority as authority_contract
     from aap_assets_video_inputs import execution as execution_contract
     from aap_assets_video_inputs.execution import VideoInputFailure
-    from app.db.models.async_job import AsyncJob, AsyncJobStatus
+    from app.db.models.async_job import AsyncJobStatus
+    from app.services import async_job as async_job_svc
 
     fields = (
         request.accepted_video_inputs_protocol,
@@ -567,7 +569,7 @@ async def _prepare_accepted_video_manifest(
 
     already_claimed = False
     async with SessionLocal() as db:
-        job = await db.get(AsyncJob, job_id, populate_existing=True)
+        job = await async_job_svc.get_job(db, job_id, populate_existing=True)
         if (
             job is None
             or job.kind != "batch_predict"
@@ -632,7 +634,7 @@ async def _prepare_accepted_video_manifest(
         ):
             raise ValueError("sealed video manifest differs from durable Job facts")
         async with SessionLocal() as db:
-            job = await db.get(AsyncJob, job_id, populate_existing=True)
+            job = await async_job_svc.get_job(db, job_id, populate_existing=True)
             payload = (
                 job.payload if job is not None and isinstance(job.payload, dict) else {}
             )
@@ -829,8 +831,9 @@ def _canonical_input_id_map(value, task_id: uuid.UUID) -> dict[str, str]:
 async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal):
     """Check durable identity and readiness before any job claim or overwrite."""
     from aap_assets_inputs import contract as c
-    from app.db.models.async_job import AsyncJob, AsyncJobStatus
+    from app.db.models.async_job import AsyncJobStatus
     from app.db.models.task import Task
+    from app.services import async_job as async_job_svc
     from app.services.accepted_inputs import input_gateway
 
     protocol = request.accepted_inputs_protocol
@@ -892,7 +895,7 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
     input_ids: dict[str, str] | None = None
     input_id: uuid.UUID | None = None
     async with SessionLocal() as db:
-        job = await db.get(AsyncJob, job_id, populate_existing=True)
+        job = await async_job_svc.get_job(db, job_id, populate_existing=True)
         if job is None:
             if candidate and task_id is not None:
                 task = await db.get(Task, task_id, populate_existing=True)
@@ -1409,7 +1412,6 @@ async def run_preannotation(
             batch_result_execution,
             preannotation_request_digest,
         )
-        from app.db.models.async_job import AsyncJob
         from app.services import async_job as jobs
 
         executor_session_factory = None
@@ -1488,7 +1490,7 @@ async def run_preannotation(
                 await db.commit()
                 request = replace(request, async_job_id=str(job.id))
             else:
-                job = await db.get(AsyncJob, uuid.UUID(request.async_job_id))
+                job = await jobs.get_job(db, uuid.UUID(request.async_job_id))
                 if job is not None and (
                     job.project_id != uuid.UUID(request.project_id)
                     or job.user_id != uuid.UUID(request.user_id)
@@ -1524,8 +1526,10 @@ async def run_preannotation(
                 ):
                     raise PreannotationResultDeferred("storage_unavailable") from None
                 async with session_factory() as db:
-                    job = await db.get(
-                        AsyncJob, batch_results.scope["job_id"], populate_existing=True
+                    job = await jobs.get_job(
+                        db,
+                        batch_results.scope["job_id"],
+                        populate_existing=True,
                     )
                     if job is not None and job.status not in {"pending", "running"}:
                         return
@@ -1538,8 +1542,10 @@ async def run_preannotation(
                     )
                     from app.services.async_job_notify import notify_job_terminal
 
-                    await db.get(
-                        AsyncJob, batch_results.scope["job_id"], populate_existing=True
+                    await jobs.get_job(
+                        db,
+                        batch_results.scope["job_id"],
+                        populate_existing=True,
                     )
                     await notify_job_terminal(db, job_id=batch_results.scope["job_id"])
                     try:
@@ -2434,7 +2440,7 @@ async def _execute_preannotation(
         )
 
         async def _cancel_requested() -> bool:
-            job_for_cancel = await db.get(AsyncJob, async_job_id)
+            job_for_cancel = await async_job_svc.get_job(db, async_job_id)
             if job_for_cancel is None:
                 return False
             await db.refresh(job_for_cancel)

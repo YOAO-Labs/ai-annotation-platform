@@ -65,7 +65,7 @@ async def _dispatch_job(db: AsyncSession, job: AsyncJob) -> AsyncJob:
             status_code=503,
             detail="cross-frame worker is unavailable",
         ) from exc
-    current = await db.get(AsyncJob, job.id, populate_existing=True)
+    current = await async_job_svc.get_job(db, job.id, populate_existing=True)
     if current is None:
         raise HTTPException(status_code=500, detail="cross-frame job disappeared")
     return current
@@ -320,7 +320,7 @@ async def retry_cross_frame_job(
     await task_access.assert_task_visible(
         db, anchor_task, current_user.id, access=access
     )
-    job = await db.get(AsyncJob, job_id)
+    job = await async_job_svc.get_job(db, job_id)
     if job is None or job.kind != JOB_KIND:
         raise HTTPException(status_code=404, detail="cross-frame job not found")
     if job.user_id != current_user.id:

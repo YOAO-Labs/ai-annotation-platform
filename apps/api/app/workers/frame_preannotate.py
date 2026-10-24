@@ -537,7 +537,7 @@ async def _fail_legacy_frame_job(job_id: str, error: str) -> None:
         create_async_engine,
     )
 
-    from app.db.models.async_job import AsyncJob
+    from app.services import async_job as async_job_svc
 
     try:
         parsed_job_id = uuid.UUID(job_id)
@@ -549,7 +549,7 @@ async def _fail_legacy_frame_job(job_id: str, error: str) -> None:
     )
     try:
         async with SessionLocal() as db:
-            job = await db.get(AsyncJob, parsed_job_id)
+            job = await async_job_svc.get_job(db, parsed_job_id)
             if job is not None:
                 await _fail_frame_job_in_session(db, job_id, str(job.project_id), error)
     finally:
@@ -578,7 +578,7 @@ async def _run_segment(
 
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
     from app.db.models.task import Task
-    from app.db.models.async_job import AsyncJob
+    from app.services import async_job as async_job_svc
     from app.services.gpu_arbitration.dispatch import (
         build_gpu_dispatch_context_factory,
     )
@@ -637,8 +637,8 @@ async def _run_segment(
             )
     try:
         async with SessionLocal() as db:
-            async_job = await db.get(
-                AsyncJob, uuid.UUID(job_id), populate_existing=True
+            async_job = await async_job_svc.get_job(
+                db, uuid.UUID(job_id), populate_existing=True
             )
             if await _job_cancelled(db, job_id):
                 stats["skipped"] += len(frame_ordinals)
@@ -1469,9 +1469,10 @@ async def _write_job_progress(
 
 async def _job_cancelled(db, job_id: str) -> bool:
     """Stop queued segments when their job is missing, terminal or cancelling."""
-    from app.db.models.async_job import AsyncJob, AsyncJobStatus
+    from app.db.models.async_job import AsyncJobStatus
+    from app.services import async_job as async_job_svc
 
-    job = await db.get(AsyncJob, uuid.UUID(job_id))
+    job = await async_job_svc.get_job(db, uuid.UUID(job_id))
     if job is None:
         return True
     await db.refresh(job)

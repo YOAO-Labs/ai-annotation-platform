@@ -101,10 +101,10 @@ async def _terminal_outcome(data, attempt):
 
 
 async def _notify_terminal(db, job_id):
-    from app.db.models.async_job import AsyncJob
+    from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
 
-    await db.get(AsyncJob, job_id, populate_existing=True)
+    await async_job_svc.get_job(db, job_id, populate_existing=True)
     await notify_job_terminal(db, job_id=job_id)
 
 
