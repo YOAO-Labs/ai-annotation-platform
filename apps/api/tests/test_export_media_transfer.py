@@ -630,3 +630,129 @@ async def test_unregistered_or_mismatched_output_cannot_trigger_source_io(
         await runtime.copy()
     assert not runtime.permits and not runtime.provider.calls
     assert transfer._slots._value == 2
+
+
+async def read_saved(runtime, read=None):
+    return await transfer.read_copy(
+        runtime.base,
+        runtime.snapshot,
+        relative=runtime.snapshot.relative,
+        guard=runtime.guard,
+        read=read or (lambda file: file.read()),
+    )
+
+
+async def test_read_copy_uses_only_saved_owner_full_reader_and_building_guard(
+    runtime, monkeypatch
+):
+    monkeypatch.setattr(physical.settings, "minio_export_bucket", "new-bucket-trap")
+
+    def read(file):
+        runtime.physical("read_copy", 1)
+        assert not file.closed and transfer._slots._value == 1
+        return file.read()
+
+    assert await read_saved(runtime, read) == RAW
+    assert runtime.resolve_calls == runtime.output_constructs == 0
+    assert runtime.claim_calls == runtime.guard_calls == 5
+    assert runtime.snapshot.inventory_reads == 0
+    assert len(runtime.permits) == 1 and runtime.permits[0].settled
+    assert runtime.permits[0].purpose == transfer.purpose(runtime.snapshot)
+    assert runtime.provider.closed == 1 and not runtime.client.calls
+    assert all(stage.file.closed for stage in runtime.stages)
+    assert all(session.closed for session in runtime.sessions)
+    for method, params in runtime.provider.calls:
+        if method in {"head", "get"}:
+            assert params["Bucket"] == "saved-export-media"
+            assert (
+                params["Key"]
+                == physical.prefix_for(runtime.snapshot.id) + runtime.snapshot.relative
+            )
+    assert transfer._slots._value == 2
+
+
+@pytest.mark.parametrize("boundary", range(1, 6))
+async def test_read_copy_rechecks_authority_at_every_boundary(runtime, boundary):
+    runtime.revoke_at = boundary
+    with pytest.raises(ContentError) as failure:
+        await read_saved(runtime)
+    assert failure.value.code == "access_revoked"
+    assert runtime.resolve_calls == 0
+    assert all(permit.settled for permit in runtime.permits)
+    assert all(stage.file.closed for stage in runtime.stages)
+    assert transfer._slots._value == 2
+
+
+async def test_read_copy_repeated_cancellation_keeps_stage_until_callback_really_finishes(
+    runtime,
+):
+    runtime.block_phase = "read_copy"
+
+    def read(file):
+        runtime.physical("read_copy", 1)
+        runtime.block("read_copy")
+        assert not file.closed
+        return file.read()
+
+    operation = asyncio.create_task(read_saved(runtime, read))
+    try:
+        await until(runtime.blocked.is_set)
+        operation.cancel()
+        await asyncio.sleep(0)
+        operation.cancel()
+        await asyncio.sleep(0)
+        assert not operation.done() and not runtime.stages[0].file.closed
+        assert transfer._slots._value == 1 and not runtime.permits[0].settled
+        runtime.release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await operation
+    finally:
+        runtime.release.set()
+    assert runtime.stages[0].file.closed and runtime.permits[0].settled
+    assert transfer._slots._value == 2
+
+
+@pytest.mark.parametrize("where", ["constructor", "client_close", "stage_close"])
+async def test_read_copy_unknown_physical_handles_keep_owner_and_slot(
+    runtime, monkeypatch, where
+):
+    if where == "constructor":
+
+        def fail(**_kwargs):
+            raise SoftTimeLimitExceeded()
+
+        monkeypatch.setattr(reader, "create_client", fail)
+    elif where == "client_close":
+        runtime.provider.client_close_error = BaseLimit()
+    else:
+        runtime.stage_close_failure = OSError("unknown saved-copy stage close")
+    with pytest.raises(BaseException) as failure:
+        await read_saved(runtime)
+    assert failure.value.storage_operation_unsettled
+    assert len(runtime.permits) == 1 and not runtime.permits[0].settled
+    assert transfer._slots._value == 1
+    assert all(stage.file.closed for stage in runtime.stages)
+
+
+async def test_read_copy_rejects_tampered_bytes_before_callback(runtime):
+    runtime.provider.actual = b"x" * len(RAW)
+    called = []
+    with pytest.raises(ContentError) as failure:
+        await read_saved(runtime, lambda file: called.append(file.read()))
+    assert failure.value.code == "content_mismatch"
+    assert called == [] and runtime.resolve_calls == 0
+    assert runtime.permits[0].settled and transfer._slots._value == 2
+
+
+async def test_read_copy_requires_live_building_claim_and_never_reads_original(
+    runtime, monkeypatch
+):
+    async def reject_claim(owned, snapshot):
+        raise ContentError("export_media_bundle_lease_lost")
+
+    monkeypatch.setattr(transfer.bundles, "check_claim", reject_claim)
+    with pytest.raises(ContentError) as failure:
+        await read_saved(runtime)
+    assert failure.value.code == "export_media_bundle_lease_lost"
+    assert not runtime.permits and not runtime.provider.calls
+    assert runtime.resolve_calls == 0 and transfer._slots._value == 2

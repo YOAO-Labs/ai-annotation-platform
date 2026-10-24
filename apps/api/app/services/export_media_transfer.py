@@ -395,3 +395,72 @@ async def copy_source(
     if failure is not None:
         raise failure
     return result
+
+
+async def _fresh_copy(db, snapshot, guard, revision=None):
+    async with _session(db) as owned:
+        await guard(owned)
+        await bundles.check_claim(owned, snapshot)
+        if revision is not None:
+            await storage_access.check(
+                owned, physical.LEGACY_LOCATION_ID, expected_revision=revision
+            )
+
+
+async def read_copy(db, snapshot, *, relative, guard, read):
+    """Read a saved building copy into a callback, retaining ownership to real close."""
+    if not callable(guard) or not callable(read):
+        reject("export_media_callbacks_required", 422)
+    record, owner, expected = _object_record(snapshot, relative)
+    await _async(_fresh_copy(db, snapshot, guard))
+    permit, admission, stage, failure, result = None, None, None, None, None
+    try:
+        permit = await _acquire(db, snapshot, uuid.UUID(owner.ref["location_id"]))
+        await _async(_fresh_copy(db, snapshot, guard, permit.revision))
+        source = SimpleNamespace(
+            endpoint_url=owner.ref["endpoint_url"],
+            bucket=owner.bucket,
+            object_key=owner.key(relative),
+            sha256=expected["sha256"],
+            size_bytes=expected["size_bytes"],
+            location_id=permit.location_id,
+            maintenance_revision=permit.revision,
+        )
+        admission = Admission()
+        stage = await _capture(source, admission)
+        if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
+            reject()
+        await _async(_fresh_copy(db, snapshot, guard, permit.revision))
+        result = await physical_work(read, stage.file)
+        await _async(_fresh_copy(db, snapshot, guard, permit.revision))
+    except BaseException as exc:
+        failure = exc
+    finally:
+        if stage is not None:
+            try:
+                await physical_work(stage.close)
+            except BaseException as closing:
+                if failure is None:
+                    failure = closing
+                else:
+                    _uncertainty(failure, closing)
+        if failure is None:
+            try:
+                await _async(_fresh_copy(db, snapshot, guard, permit.revision))
+            except BaseException as exc:
+                failure = exc
+        if permit is not None and not getattr(
+            failure, "storage_operation_unsettled", False
+        ):
+            try:
+                await _settle(permit)
+            except BaseException as closing:
+                if failure is None:
+                    failure = closing
+                else:
+                    _uncertainty(failure, closing)
+        if admission is not None:
+            admission.finish(getattr(failure, "storage_operation_unsettled", False))
+    if failure is not None:
+        raise failure
+    return result
