@@ -18,6 +18,9 @@ class VideoChunkDiagnostics(BaseModel):
 
 
 class VideoChunkOut(BaseModel):
+    output_id: UUID | None = None
+    sha256: str | None = None
+    metadata_generation_id: UUID | None = None
     chunk_id: int
     start_frame: int
     end_frame: int
@@ -48,6 +51,9 @@ class VideoChunkSampleOut(BaseModel):
 
 
 class VideoChunkSamplesResponse(BaseModel):
+    output_id: UUID | None = None
+    sha256: str | None = None
+    metadata_generation_id: UUID | None = None
     dataset_item_id: UUID
     chunk_id: int
     codec_string: str
@@ -60,6 +66,10 @@ class VideoChunkSamplesResponse(BaseModel):
 
 
 class VideoFrameOut(BaseModel):
+    byte_size: int | None = None
+    output_id: UUID | None = None
+    sha256: str | None = None
+    metadata_generation_id: UUID | None = None
     frame_index: int
     width: int
     format: Literal["webp", "jpeg"]
@@ -112,6 +122,7 @@ class VideoSegmentsResponse(BaseModel):
 
 
 class VideoManifestV2Response(BaseModel):
+    metadata_generation_id: UUID | None = None
     task_id: UUID | None = None
     dataset_item_id: UUID
     video_url: str | None = None

@@ -120,6 +120,7 @@ class TaskMaskCapabilitiesResponse(BaseModel):
 
 
 class TaskVideoManifestResponse(BaseModel):
+    metadata_generation_id: UUID | None = None
     task_id: UUID
     dataset_item_id: UUID | None = None
     original_identity_path: str | None = None
@@ -171,6 +172,7 @@ class VideoFrameTimetableEntry(BaseModel):
 
 
 class TaskVideoFrameTimetableResponse(BaseModel):
+    metadata_generation_id: UUID | None = None
     task_id: UUID
     fps: float | None = None
     frame_count: int | None = None

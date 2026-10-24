@@ -3,16 +3,14 @@ from __future__ import annotations
 import io
 import logging
 import uuid
-from collections import OrderedDict
-from contextlib import suppress
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+from functools import wraps
 from typing import Any, Literal
 
-from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -27,21 +25,30 @@ from app.observability.metrics import (
     VIDEO_CHUNK_REQUESTS_TOTAL,
     VIDEO_FRAME_CACHE_TOTAL,
 )
-from app.schemas.task import VideoMetadata
+
+from app.schemas.task import (
+    VideoMetadata,
+    TaskVideoManifestResponse,
+    TaskVideoFrameTimetableResponse,
+)
 from app.schemas.video_frame_service import (
     VideoChunkOut,
     VideoChunksResponse,
+    VideoChunkSamplesResponse,
     VideoFrameOut,
     VideoFramePrefetchResponse,
     VideoManifestV2Response,
 )
-from app.services.storage import storage_service
+from app.services import storage_access
+from app.services import video_derivatives as derivatives
+from app.services import video_derivative_originals as originals
+from app.services import video_derivative_objects as objects
+from app.services import video_derivative_storage as physical
+from app.services.content_snapshot import ContentError
 from app.services.system_settings_service import SystemSettingsService
 
 
 FrameFormat = Literal["webp", "jpeg"]
-_FRAME_ARRAY_CACHE: OrderedDict[tuple[uuid.UUID, int, int, str], Any] = OrderedDict()
-PENDING_FRAME_REQUEUE_AFTER = timedelta(seconds=30)
 log = logging.getLogger(__name__)
 
 
@@ -50,6 +57,8 @@ class VideoContext:
     item: DatasetItem
     metadata: VideoMetadata
     task: Task | None = None
+    authority: originals.Authority | None = None
+    generation: Any | None = None
 
     @property
     def task_id(self) -> uuid.UUID | None:
@@ -114,30 +123,118 @@ def _estimated_pts_ms(frame_index: int, metadata: VideoMetadata) -> int | None:
 
 
 def _asset_url(key: str) -> str:
-    try:
-        return storage_service.generate_download_url(
-            key,
-            expires_in=3600,
-            bucket=storage_service.bucket_for_cache_key(key),
-        )
-    except (BotoCoreError, ClientError) as exc:
-        raise HTTPException(
-            status_code=503, detail="Video storage unavailable"
-        ) from exc
+    """Legacy raw keys have no immutable output owner and cannot be signed."""
+    raise HTTPException(409, {"code": "video_derivative_owner_required"})
 
 
-async def build_context_from_task(db: AsyncSession, task: Task) -> VideoContext:
+def _http_errors(call):
+    @wraps(call)
+    async def guarded(*args, **kwargs):
+        try:
+            return await call(*args, **kwargs)
+        except ContentError as exc:
+            raise HTTPException(exc.status, {"code": exc.code}) from None
+        except physical.VideoDerivativeStorageError as exc:
+            raise HTTPException(exc.status_code, {"code": exc.code}) from None
+        except DBAPIError as exc:
+            if storage_access.unavailable(exc):
+                raise HTTPException(409, {"code": "content_busy"}) from None
+            raise
+
+    return guarded
+
+
+async def build_context_from_task(
+    db: AsyncSession, task: Task, *, authority: originals.Authority | None = None
+) -> VideoContext:
     if task.file_type != "video" or not task.dataset_item_id:
         raise HTTPException(status_code=400, detail="Task is not a video task")
     item = _ensure_video_item(await db.get(DatasetItem, task.dataset_item_id))
-    return VideoContext(item=item, metadata=_video_meta(item), task=task)
+    return VideoContext(
+        item=item, metadata=_video_meta(item), task=task, authority=authority
+    )
 
 
 async def build_context_from_dataset_item(
-    db: AsyncSession, dataset_item_id: uuid.UUID, task: Task | None = None
+    db: AsyncSession,
+    dataset_item_id: uuid.UUID,
+    task: Task | None = None,
+    *,
+    authority: originals.Authority | None = None,
 ) -> VideoContext:
     item = _ensure_video_item(await db.get(DatasetItem, dataset_item_id))
-    return VideoContext(item=item, metadata=_video_meta(item), task=task)
+    return VideoContext(
+        item=item, metadata=_video_meta(item), task=task, authority=authority
+    )
+
+
+@_http_errors
+async def authorize_context(db, task, actor, request) -> VideoContext:
+    """Freeze the particular visible Task and the original HTTP credentials."""
+    if task.file_type != "video":
+        raise HTTPException(400, "Task is not a video task")
+    authority = await originals.authorize(db, task.id, actor, request)
+    item = _ensure_video_item(await db.get(DatasetItem, task.dataset_item_id))
+    # Legacy mutable metadata is not a prerequisite for loading an owned
+    # generation. Pure metadata-only constructors retain their existing view.
+    return VideoContext(
+        item=item, metadata=VideoMetadata(), task=task, authority=authority
+    )
+
+
+def _repairable(exc: Exception) -> bool:
+    if getattr(exc, "storage_operation_unsettled", False):
+        return False
+    return (
+        isinstance(exc, physical.VideoDerivativeStorageError)
+        and exc.code
+        in {
+            "video_derivative_storage_missing",
+            "video_derivative_storage_integrity_mismatch",
+            "video_derivative_storage_invalid_receipt",
+        }
+    ) or (
+        isinstance(exc, ContentError) and exc.code == "video_derivative_result_invalid"
+    )
+
+
+async def _metadata_preparing(db, ctx, *, force=False):
+    current = await derivatives.row(db, DatasetItem, ctx.item.id)
+    # Concurrent requests reuse the existing building attempt while preserving
+    # the active metadata generation until publication.
+    force = force and current.video_building_output_id is None
+    output, enqueue = await derivatives.prepare(
+        db, ctx.item.id, ctx.authority, "metadata", spec={"schema": 1}, force=force
+    )
+    await db.commit()
+    if enqueue:
+        derivatives.dispatch([output.id])
+    raise HTTPException(503, {"code": "video_metadata_preparing"})
+
+
+async def _physical_context(db, ctx: VideoContext) -> VideoContext:
+    source = await originals.check(db, ctx.authority)
+    if source.item_id != ctx.item.id:
+        raise ContentError("content_binding_changed")
+    item = _ensure_video_item(await derivatives.row(db, DatasetItem, ctx.item.id))
+    ctx = replace(ctx, item=item)
+    try:
+        output = await derivatives.metadata(db, item, source)
+        metadata, _ = derivatives.metadata_result(output)
+        generation = objects.snapshot(output)
+    except (ContentError, physical.VideoDerivativeStorageError) as exc:
+        if not _repairable(exc) and not (
+            isinstance(exc, ContentError)
+            and exc.code
+            in {
+                "video_metadata_unpinned",
+                "video_metadata_changed",
+                "video_metadata_invalid",
+            }
+        ):
+            raise
+        await _metadata_preparing(db, ctx, force=item.video_output_id is not None)
+    return replace(ctx, metadata=metadata, generation=generation)
 
 
 async def pts_ms_for_frame(
@@ -159,239 +256,189 @@ async def pts_ms_for_frame(
     return _estimated_pts_ms(frame_index, metadata)
 
 
-async def _ensure_chunk_rows(
-    db: AsyncSession, ctx: VideoContext, chunk_ids: list[int]
-) -> list[VideoChunk]:
-    existing = {
-        row.chunk_id: row
-        for row in (
-            await db.execute(
-                select(VideoChunk).where(
-                    VideoChunk.dataset_item_id == ctx.item.id,
-                    VideoChunk.chunk_id.in_(chunk_ids),
-                )
+async def _slot(db, ctx, kind, spec):
+    model = VideoFrameCache if kind == "frame" else VideoChunk
+    predicates = [model.dataset_item_id == ctx.item.id]
+    names = ("frame_index", "width", "format") if kind == "frame" else ("chunk_id",)
+    predicates.extend(getattr(model, name) == spec[name] for name in names)
+    return await db.scalar(
+        select(model).where(*predicates).execution_options(populate_existing=True)
+    )
+
+
+async def _prepare(db, ctx, kind, spec, *, force=False):
+    output, enqueue = await derivatives.prepare(
+        db, ctx.item.id, ctx.authority, kind, spec=spec, force=force
+    )
+    slot = await _slot(db, ctx, kind, spec)
+    slot.last_accessed_at = _now()
+    if output.state == "ready":
+        try:
+            output = await derivatives.ready_output(db, slot, ctx.authority)
+        except (ContentError, physical.VideoDerivativeStorageError) as exc:
+            if not _repairable(exc):
+                raise
+            await derivatives.check(db, output, ctx.authority)
+            output, enqueue = await derivatives.prepare(
+                db, ctx.item.id, ctx.authority, kind, spec=spec, force=True
             )
+    return objects.snapshot(output), enqueue
+
+
+async def _replacement(db, ctx, output):
+    # A physical cache failure does not authorize replacing a different current
+    # attempt or crossing a changed source, metadata generation or Gate.
+    await derivatives.check(db, output, ctx.authority)
+    replacement, enqueue = await _prepare(db, ctx, output.kind, output.spec, force=True)
+    await db.commit()
+    return replacement, enqueue
+
+
+async def _deliver(db, ctx, output, queue):
+    relative = (
+        f"frame.{output.spec['format']}" if output.kind == "frame" else "chunk.mp4"
+    )
+    url = None
+    if output.state == "ready":
+        try:
+            url = await derivatives.verified(
+                db, output, ctx.authority, relative=relative
+            )
+        except (ContentError, physical.VideoDerivativeStorageError) as exc:
+            if not _repairable(exc):
+                raise
+            output, enqueue = await _replacement(db, ctx, output)
+            if enqueue:
+                queue.append(output.id)
+    ready = output.state == "ready"
+    identity = (
+        derivatives.identity(output, relative)
+        if ready
+        else {
+            "output_id": output.id,
+            "metadata_generation_id": output.metadata_output_id,
+        }
+    )
+    if output.kind == "frame":
+        VIDEO_FRAME_CACHE_TOTAL.labels(
+            result="hit" if ready else "miss", format=output.spec["format"]
+        ).inc()
+        return VideoFrameOut(
+            frame_index=output.spec["frame_index"],
+            width=output.spec["width"],
+            format=output.spec["format"],
+            status="ready" if ready else "pending",
+            url=url,
+            retry_after=None if ready else 3,
+            **identity,
         )
-        .scalars()
-        .all()
-    }
-    rows: list[VideoChunk] = []
-    for chunk_id in chunk_ids:
-        row = existing.get(chunk_id)
-        if row is None:
-            start, end = _chunk_bounds(chunk_id, ctx.metadata)
-            start_pts = await pts_ms_for_frame(db, ctx.item.id, start, ctx.metadata)
-            end_pts = await pts_ms_for_frame(db, ctx.item.id, end, ctx.metadata)
-            # 并发安全: list_chunks 主请求 + warmup + 并发 scrub 可能同时为同一 chunk_id
-            # insert, 撞 uq_video_chunks_item_chunk。用 SAVEPOINT 包 INSERT, 冲突时只回滚该
-            # savepoint (不破坏本批已建的其它 chunk), 再 select 拿别的请求插入的行。
-            try:
-                async with db.begin_nested():
-                    row = VideoChunk(
-                        dataset_item_id=ctx.item.id,
-                        chunk_id=chunk_id,
-                        start_frame=start,
-                        end_frame=end,
-                        start_pts_ms=start_pts,
-                        end_pts_ms=end_pts,
-                        status="pending",
-                    )
-                    db.add(row)
-                    await db.flush()
-            except IntegrityError:
-                row = (
-                    await db.execute(
-                        select(VideoChunk).where(
-                            VideoChunk.dataset_item_id == ctx.item.id,
-                            VideoChunk.chunk_id == chunk_id,
-                        )
-                    )
-                ).scalar_one()
-        rows.append(row)
-    await db.flush()
-    return rows
-
-
-def _chunk_out(row: VideoChunk) -> VideoChunkOut:
-    status = row.status if row.status in {"pending", "ready", "failed"} else "pending"
-    url = _asset_url(row.storage_key) if status == "ready" and row.storage_key else None
-    generation_mode = (
-        row.generation_mode
-        if row.generation_mode in {"smart_copy", "transcode"}
-        else None
-    )
-    VIDEO_CHUNK_REQUESTS_TOTAL.labels(status=status).inc()
+    VIDEO_CHUNK_REQUESTS_TOTAL.labels(status="ready" if ready else "pending").inc()
+    result = output.result if ready else {}
     return VideoChunkOut(
-        chunk_id=row.chunk_id,
-        start_frame=row.start_frame,
-        end_frame=row.end_frame,
-        status=status,
+        chunk_id=output.spec["chunk_id"],
+        start_frame=output.spec["start_frame"],
+        end_frame=output.spec["end_frame"],
+        status="ready" if ready else "pending",
         url=url,
-        byte_size=row.byte_size,
-        generation_mode=generation_mode,
-        diagnostics=row.diagnostics or None,
-        retry_after=3 if status == "pending" else None,
-        error=row.error if status == "failed" else None,
+        generation_mode=result.get("generation_mode"),
+        diagnostics=result.get("diagnostics"),
+        retry_after=None if ready else 3,
+        **identity,
     )
 
 
-async def _warmup_neighbor_chunks(
-    db: AsyncSession, ctx: VideoContext, requested_chunk_ids: list[int]
-) -> None:
-    """对热点 frame range 的相邻 (向后) chunk 做 look-ahead 预解码 (计划 §1.6)。
-
-    保守降级: 只对「还没 ready 且没在 pending 进行中」的相邻 chunk 投递, 不重复
-    投递、不阻塞主请求。warmup 失败/被关闭时静默跳过, 不影响主流程。
-    """
+async def _warmup_specs(db, ctx, requested):
     try:
-        look_ahead = await SystemSettingsService.get(db, "video_chunk_warmup_lookahead")
+        async with db.begin_nested():
+            look_ahead = await SystemSettingsService.get(
+                db, "video_chunk_warmup_lookahead"
+            )
     except Exception:  # noqa: BLE001
-        # Warmup is an optional optimization.  A settings DB outage must not
-        # turn the primary video chunk response into a playback failure.
-        with suppress(Exception):
-            await db.rollback()
         log.exception("video chunk warmup setting unavailable; skipping warmup")
-        return
+        return []
+    return [
+        derivatives.chunk_spec(ctx.generation, identifier)
+        for identifier in warmup_chunk_ids(
+            requested, _last_chunk_id(ctx.metadata), look_ahead
+        )
+    ]
 
-    candidates = warmup_chunk_ids(
-        requested_chunk_ids,
-        _last_chunk_id(ctx.metadata),
-        look_ahead,
-    )
-    if not candidates:
-        return
-    rows = await _ensure_chunk_rows(db, ctx, candidates)
-    to_warm = [r.chunk_id for r in rows if r.status not in {"ready", "pending"}]
+
+async def _finish_batch(db, ctx, outputs, results, queue):
+    # Earlier assets in a batch must still refer to the current generation when
+    # later verification completes. No physical operation runs under these locks.
+    await derivatives.check(db, ctx.generation, ctx.authority)
+    for output, result in zip(outputs, results, strict=True):
+        if result.status == "ready":
+            await derivatives.check(db, output, ctx.authority)
     await db.commit()
-    if to_warm:
-        from app.workers.media import ensure_video_chunks
-
-        ensure_video_chunks.delay(str(ctx.item.id), to_warm)
+    originals.clock(ctx.authority)
+    derivatives.dispatch(list(dict.fromkeys(queue)))
 
 
+async def _chunks(db, ctx, chunk_ids):
+    queue = []
+    requested = []
+    for identifier in chunk_ids:
+        output, enqueue = await _prepare(
+            db, ctx, "chunk", derivatives.chunk_spec(ctx.generation, identifier)
+        )
+        requested.append(output)
+        if enqueue:
+            queue.append(output.id)
+    for spec in await _warmup_specs(db, ctx, chunk_ids):
+        output, enqueue = await _prepare(db, ctx, "chunk", spec)
+        if enqueue:
+            queue.append(output.id)
+    await db.commit()
+    result = [await _deliver(db, ctx, output, queue) for output in requested]
+    await _finish_batch(db, ctx, requested, result, queue)
+    return result
+
+
+@_http_errors
 async def list_chunks(
-    db: AsyncSession,
-    ctx: VideoContext,
-    from_frame: int | None,
-    to_frame: int | None,
+    db: AsyncSession, ctx: VideoContext, from_frame: int | None, to_frame: int | None
 ) -> VideoChunksResponse:
+    ctx = await _physical_context(db, ctx)
     start, end = _safe_frame_range(ctx.metadata, from_frame, to_frame)
-    requested_ids = _chunk_ids_for_range(start, end)
-    rows = await _ensure_chunk_rows(db, ctx, requested_ids)
-    missing = [r.chunk_id for r in rows if r.status != "ready"]
-    now = _now()
-    for row in rows:
-        row.last_accessed_at = now
-    await db.commit()
-
-    if missing:
-        from app.workers.media import ensure_video_chunks
-
-        ensure_video_chunks.delay(str(ctx.item.id), missing)
-
-    # Freeze the primary response before optional I/O: a failed setting read
-    # rolls back its transaction and expires ORM objects in this session.
-    response = VideoChunksResponse(
+    chunks = await _chunks(db, ctx, _chunk_ids_for_range(start, end))
+    return VideoChunksResponse(
         dataset_item_id=ctx.item.id,
         task_id=ctx.task_id,
         chunk_size_frames=settings.video_chunk_size_frames,
-        chunks=[_chunk_out(row) for row in rows],
+        chunks=chunks,
     )
-    await _warmup_neighbor_chunks(db, ctx, requested_ids)
-    return response
 
 
+@_http_errors
 async def get_chunk(
     db: AsyncSession, ctx: VideoContext, chunk_id: int
 ) -> VideoChunkOut:
-    _metadata_ready(ctx.metadata)
-    row = (
-        await db.execute(
-            select(VideoChunk).where(
-                VideoChunk.dataset_item_id == ctx.item.id,
-                VideoChunk.chunk_id == chunk_id,
-            )
+    ctx = await _physical_context(db, ctx)
+    return (await _chunks(db, ctx, [chunk_id]))[0]
+
+
+async def _frames(db, ctx, indices, width, format_, *, force=False):
+    queue, outputs = [], []
+    for index in sorted(set(indices)):
+        output, enqueue = await _prepare(
+            db,
+            ctx,
+            "frame",
+            derivatives.frame_spec(ctx.generation, index, width, format_),
+            force=force,
         )
-    ).scalar_one_or_none()
-    if row is None:
-        rows = await _ensure_chunk_rows(db, ctx, [chunk_id])
-        row = rows[0]
-    row.last_accessed_at = _now()
+        outputs.append(output)
+        if enqueue:
+            queue.append(output.id)
     await db.commit()
-    if row.status != "ready":
-        from app.workers.media import ensure_video_chunks
-
-        ensure_video_chunks.delay(str(ctx.item.id), [chunk_id])
-    response = _chunk_out(row)
-    await _warmup_neighbor_chunks(db, ctx, [chunk_id])
-    return response
+    result = [await _deliver(db, ctx, output, queue) for output in outputs]
+    await _finish_batch(db, ctx, outputs, result, queue)
+    return result
 
 
-async def _ensure_frame_row(
-    db: AsyncSession,
-    ctx: VideoContext,
-    frame_index: int,
-    width: int,
-    format_: FrameFormat,
-) -> tuple[VideoFrameCache, bool, bool]:
-    _safe_frame_range(ctx.metadata, frame_index, frame_index)
-    stmt = select(VideoFrameCache).where(
-        VideoFrameCache.dataset_item_id == ctx.item.id,
-        VideoFrameCache.frame_index == frame_index,
-        VideoFrameCache.width == width,
-        VideoFrameCache.format == format_,
-    )
-    row = (await db.execute(stmt)).scalar_one_or_none()
-    created = False
-    now = _now()
-    stale_pending = (
-        row is not None
-        and row.status == "pending"
-        and row.updated_at is not None
-        and now - row.updated_at > PENDING_FRAME_REQUEUE_AFTER
-    )
-    if row is None:
-        # 并发安全: timeline scrub 时单帧 GET 与 prefetch 窗口可能同时为同一
-        # (item, frame, width, format) 走到这里, select 都返回 None。用 SAVEPOINT 包住
-        # INSERT, 撞 uq_video_frame_cache_item_frame_width_format 时只回滚该 savepoint
-        # (不破坏 prefetch 批量里已 flush 的其它帧), 再 select 拿别的请求插入的行。
-        try:
-            async with db.begin_nested():
-                row = VideoFrameCache(
-                    dataset_item_id=ctx.item.id,
-                    frame_index=frame_index,
-                    width=width,
-                    format=format_,
-                    status="pending",
-                )
-                db.add(row)
-                await db.flush()
-            created = True
-        except IntegrityError:
-            row = (await db.execute(stmt)).scalar_one()
-    row.last_accessed_at = now
-    await db.flush()
-    return row, created, stale_pending
-
-
-def _frame_out(row: VideoFrameCache) -> VideoFrameOut:
-    status = row.status if row.status in {"pending", "ready", "failed"} else "pending"
-    result = "hit" if status == "ready" else "miss"
-    VIDEO_FRAME_CACHE_TOTAL.labels(result=result, format=row.format).inc()
-    format_: FrameFormat = "jpeg" if row.format == "jpeg" else "webp"
-    return VideoFrameOut(
-        frame_index=row.frame_index,
-        width=row.width,
-        format=format_,
-        status=status,
-        url=_asset_url(row.storage_key)
-        if status == "ready" and row.storage_key
-        else None,
-        retry_after=3 if status == "pending" else None,
-        error=row.error if status == "failed" else None,
-    )
-
-
+@_http_errors
 async def get_frame(
     db: AsyncSession,
     ctx: VideoContext,
@@ -399,21 +446,11 @@ async def get_frame(
     width: int,
     format_: FrameFormat,
 ) -> VideoFrameOut:
-    row, created, stale_pending = await _ensure_frame_row(
-        db, ctx, frame_index, width, format_
-    )
-    should_enqueue = created or stale_pending or row.status == "failed"
-    await db.commit()
-    if should_enqueue:
-        from app.workers.media import extract_video_frames
-
-        extract_video_frames.delay(
-            str(ctx.item.id),
-            [{"frame_index": frame_index, "width": width, "format": format_}],
-        )
-    return _frame_out(row)
+    ctx = await _physical_context(db, ctx)
+    return (await _frames(db, ctx, [frame_index], width, format_))[0]
 
 
+@_http_errors
 async def prefetch_frames(
     db: AsyncSession,
     ctx: VideoContext,
@@ -421,28 +458,14 @@ async def prefetch_frames(
     width: int,
     format_: FrameFormat,
 ) -> VideoFramePrefetchResponse:
-    ensured = [
-        await _ensure_frame_row(db, ctx, frame_index, width, format_)
-        for frame_index in sorted(set(frame_indices))
-    ]
-    rows = [row for row, _, _ in ensured]
-    missing = [
-        {"frame_index": row.frame_index, "width": row.width, "format": row.format}
-        for row, created, stale_pending in ensured
-        if created or stale_pending or row.status == "failed"
-    ]
-    await db.commit()
-    if missing:
-        from app.workers.media import extract_video_frames
-
-        extract_video_frames.delay(str(ctx.item.id), missing)
+    ctx = await _physical_context(db, ctx)
+    frames = await _frames(db, ctx, frame_indices, width, format_)
     return VideoFramePrefetchResponse(
-        dataset_item_id=ctx.item.id,
-        task_id=ctx.task_id,
-        frames=[_frame_out(row) for row in rows],
+        dataset_item_id=ctx.item.id, task_id=ctx.task_id, frames=frames
     )
 
 
+@_http_errors
 async def retry_frames(
     db: AsyncSession,
     ctx: VideoContext,
@@ -452,80 +475,150 @@ async def retry_frames(
     *,
     force: bool = False,
 ) -> VideoFramePrefetchResponse:
-    normalized = sorted(set(frame_indices))
-    if normalized:
-        if force:
-            rows = [
-                (await _ensure_frame_row(db, ctx, frame_index, width, format_))[0]
-                for frame_index in normalized
-            ]
-        else:
-            rows = (
-                (
-                    await db.execute(
-                        select(VideoFrameCache)
-                        .where(
-                            VideoFrameCache.dataset_item_id == ctx.item.id,
-                            VideoFrameCache.frame_index.in_(normalized),
-                            VideoFrameCache.width == width,
-                            VideoFrameCache.format == format_,
-                            VideoFrameCache.status == "failed",
-                        )
-                        .order_by(VideoFrameCache.frame_index.asc())
-                    )
-                )
-                .scalars()
-                .all()
+    ctx = await _physical_context(db, ctx)
+    indices = sorted(set(frame_indices))
+    if not (force and indices):
+        stmt = (
+            select(VideoFrameCache.frame_index)
+            .where(
+                VideoFrameCache.dataset_item_id == ctx.item.id,
+                VideoFrameCache.width == width,
+                VideoFrameCache.format == format_,
+                VideoFrameCache.status == "failed",
             )
-    else:
-        rows = (
-            (
-                await db.execute(
-                    select(VideoFrameCache)
-                    .where(
-                        VideoFrameCache.dataset_item_id == ctx.item.id,
-                        VideoFrameCache.width == width,
-                        VideoFrameCache.format == format_,
-                        VideoFrameCache.status == "failed",
-                    )
-                    .order_by(VideoFrameCache.frame_index.asc())
-                    .limit(500)
-                )
-            )
-            .scalars()
-            .all()
+            .order_by(VideoFrameCache.frame_index)
+            .limit(500)
         )
-
-    now = _now()
-    requests = []
-    for row in rows:
-        row.status = "pending"
-        row.error = None
-        row.last_accessed_at = now
-        if force:
-            row.storage_key = None
-            row.byte_size = None
-        requests.append(
-            {"frame_index": row.frame_index, "width": row.width, "format": row.format}
-        )
-    await db.commit()
-
-    if requests:
-        from app.workers.media import extract_video_frames
-
-        extract_video_frames.delay(str(ctx.item.id), requests)
-
+        if indices:
+            stmt = stmt.where(VideoFrameCache.frame_index.in_(indices))
+        indices = list((await db.scalars(stmt)).all())
+    frames = await _frames(db, ctx, indices, width, format_, force=True)
     return VideoFramePrefetchResponse(
-        dataset_item_id=ctx.item.id,
-        task_id=ctx.task_id,
-        frames=[_frame_out(row) for row in rows],
+        dataset_item_id=ctx.item.id, task_id=ctx.task_id, frames=frames
     )
 
 
+async def _verified_metadata(db, ctx):
+    await db.commit()
+    try:
+        await derivatives.verified(db, ctx.generation, ctx.authority)
+    except (ContentError, physical.VideoDerivativeStorageError) as exc:
+        if not _repairable(exc):
+            raise
+        await derivatives.check(db, ctx.generation, ctx.authority)
+        await _metadata_preparing(db, ctx, force=True)
+
+
+@_http_errors
+async def frame_timetable(
+    db, ctx, from_frame=None, to_frame=None, *, expected_metadata_generation_id=None
+):
+    ctx = await _physical_context(db, ctx)
+    if (
+        expected_metadata_generation_id is not None
+        and expected_metadata_generation_id != ctx.generation.id
+    ):
+        raise ContentError("video_metadata_generation_changed")
+    if from_frame is not None and to_frame is not None and to_frame < from_frame:
+        raise HTTPException(400, "Invalid frame range")
+    metadata, frames = derivatives.metadata_result(ctx.generation)
+    selected = [
+        frame
+        for frame in frames
+        if (from_frame is None or frame["frame_index"] >= from_frame)
+        and (to_frame is None or frame["frame_index"] <= to_frame)
+    ]
+    await _verified_metadata(db, ctx)
+    return TaskVideoFrameTimetableResponse(
+        task_id=ctx.task_id,
+        metadata_generation_id=ctx.generation.id,
+        fps=metadata.fps,
+        frame_count=metadata.frame_count,
+        source="ffprobe" if frames else "estimated",
+        frames=selected,
+    )
+
+
+@_http_errors
+async def chunk_samples(db, ctx, chunk_id, *, expected_output_id=None):
+    ctx = await _physical_context(db, ctx)
+    spec = derivatives.chunk_spec(ctx.generation, chunk_id)
+    slot = await _slot(db, ctx, "chunk", spec)
+    if expected_output_id is not None and (
+        slot is None or slot.output_id != expected_output_id
+    ):
+        raise ContentError("video_derivative_generation_changed")
+    if slot is None:
+        raise HTTPException(404, "samples_not_available")
+    output, enqueue = await _prepare(db, ctx, "chunk", spec)
+    if expected_output_id is not None and output.id != expected_output_id:
+        await db.commit()
+        if enqueue:
+            derivatives.dispatch([output.id])
+        raise ContentError("video_derivative_generation_changed")
+    if output.state != "ready":
+        await db.commit()
+        if enqueue:
+            derivatives.dispatch([output.id])
+        raise ContentError("video_derivative_not_ready")
+    diagnostics = (output.result or {}).get("diagnostics") or {}
+    if "samples" not in diagnostics:
+        raise HTTPException(404, "samples_not_available")
+    await db.commit()
+    # Sample offsets describe this exact immutable chunk, including its bytes.
+    try:
+        await derivatives.verified(db, output, ctx.authority, relative="chunk.mp4")
+    except (ContentError, physical.VideoDerivativeStorageError) as exc:
+        if not _repairable(exc):
+            raise
+        replacement, enqueue = await _replacement(db, ctx, output)
+        if enqueue:
+            derivatives.dispatch([replacement.id])
+        raise ContentError("video_derivative_not_ready") from None
+    identity = derivatives.identity(output, "chunk.mp4")
+    identity.pop("byte_size")
+    return VideoChunkSamplesResponse(
+        dataset_item_id=ctx.item.id,
+        chunk_id=chunk_id,
+        codec_string=diagnostics.get("codec_string", "avc1.4d001e"),
+        description=diagnostics.get("description"),
+        width=diagnostics.get("width", 0),
+        height=diagnostics.get("height", 0),
+        samples=diagnostics["samples"],
+        **identity,
+    )
+
+
+@_http_errors
+async def legacy_manifest(db, ctx):
+    ctx = await _physical_context(db, ctx)
+    await _verified_metadata(db, ctx)
+    poster = None
+    if ctx.metadata.poster_frame_path:
+        try:
+            poster = await derivatives.verified(
+                db, ctx.generation, ctx.authority, relative="poster.webp"
+            )
+        except (ContentError, physical.VideoDerivativeStorageError) as exc:
+            if not _repairable(exc):
+                raise
+            await derivatives.check(db, ctx.generation, ctx.authority)
+            await _metadata_preparing(db, ctx, force=True)
+    return TaskVideoManifestResponse(
+        task_id=ctx.task_id,
+        dataset_item_id=ctx.item.id,
+        metadata_generation_id=ctx.generation.id,
+        original_identity_path=f"/api/v1/files/tasks/{ctx.task_id}/original-identity",
+        poster_url=poster,
+        metadata=ctx.metadata,
+    )
+
+
+@_http_errors
 async def manifest_v2(
     db: AsyncSession, ctx: VideoContext, base_url: str
 ) -> VideoManifestV2Response:
-    _metadata_ready(ctx.metadata)
+    ctx = await _physical_context(db, ctx)
     from app.services.video_segment_service import ensure_segments, segment_out
     from app.db.models.project import Project
     from app.services.video_collaboration import collaboration_config
@@ -533,42 +626,35 @@ async def manifest_v2(
     segment_rows = await ensure_segments(db, ctx)
     project = await db.get(Project, ctx.task.project_id) if ctx.task else None
     collaboration = collaboration_config(project)
-    await db.commit()
+    segments = [
+        segment_out(
+            row,
+            frame_count=max(1, int(ctx.metadata.frame_count or 1)),
+            segment_count=len(segment_rows),
+            overlap_frames=collaboration.overlap_frames if collaboration.enabled else 0,
+        )
+        for row in segment_rows
+    ]
+    manifest = await legacy_manifest(db, ctx)
     base = base_url.rstrip("/")
-    if ctx.task_id:
-        service_base = f"{base}/api/v1/tasks/{ctx.task_id}/video"
-        chunks_url = f"{service_base}/chunks"
-        timetable_url = f"{service_base}/frame-timetable"
-        frame_base = f"{service_base}/frames"
-    else:
-        service_base = f"{base}/api/v1/videos/{ctx.item.id}"
-        chunks_url = f"{service_base}/chunks"
-        timetable_url = f"{service_base}/frame-timetable"
-        frame_base = f"{service_base}/frames"
-
-    poster_key = ctx.metadata.poster_frame_path or ctx.item.thumbnail_path
+    service_base = (
+        f"{base}/api/v1/tasks/{ctx.task_id}/video"
+        if ctx.task_id
+        else f"{base}/api/v1/videos/{ctx.item.id}"
+    )
     return VideoManifestV2Response(
         task_id=ctx.task_id,
         dataset_item_id=ctx.item.id,
-        poster_url=_asset_url(poster_key) if poster_key else None,
+        metadata_generation_id=manifest.metadata_generation_id,
+        poster_url=manifest.poster_url,
         fps=ctx.metadata.fps,
         frame_count=ctx.metadata.frame_count,
         duration_ms=ctx.metadata.duration_ms,
-        chunks_manifest_url=chunks_url,
-        frame_timetable_url=timetable_url,
-        frame_service_base=frame_base,
+        chunks_manifest_url=f"{service_base}/chunks",
+        frame_timetable_url=f"{service_base}/frame-timetable",
+        frame_service_base=f"{service_base}/frames",
         chunk_size_frames=settings.video_chunk_size_frames,
-        segments=[
-            segment_out(
-                row,
-                frame_count=max(1, int(ctx.metadata.frame_count or 1)),
-                segment_count=len(segment_rows),
-                overlap_frames=(
-                    collaboration.overlap_frames if collaboration.enabled else 0
-                ),
-            )
-            for row in segment_rows
-        ],
+        segments=segments,
     )
 
 
@@ -600,21 +686,13 @@ def metadata_for_item(item: DatasetItem) -> VideoMetadata:
 def put_frame_array_cache(
     dataset_item_id: uuid.UUID, frame_index: int, width: int, format_: str, array: Any
 ) -> None:
-    key = (dataset_item_id, frame_index, width, format_)
-    _FRAME_ARRAY_CACHE[key] = array
-    _FRAME_ARRAY_CACHE.move_to_end(key)
-    while len(_FRAME_ARRAY_CACHE) > max(0, settings.video_frame_memory_cache_items):
-        _FRAME_ARRAY_CACHE.popitem(last=False)
+    raise RuntimeError("Video frame array caches require an immutable output identity")
 
 
 def get_frame_array_cache(
     dataset_item_id: uuid.UUID, frame_index: int, width: int, format_: str
 ) -> Any | None:
-    key = (dataset_item_id, frame_index, width, format_)
-    array = _FRAME_ARRAY_CACHE.get(key)
-    if array is not None:
-        _FRAME_ARRAY_CACHE.move_to_end(key)
-    return array
+    raise RuntimeError("Video frame array caches require an immutable output identity")
 
 
 def image_bytes_to_array(data: bytes) -> Any:
@@ -787,33 +865,31 @@ def warmup_chunk_ids(
     return out
 
 
+@_http_errors
 async def get_frame_array(
     db: AsyncSession,
     dataset_item_id: uuid.UUID,
     frame_index: int,
     width: int = 512,
     format_: FrameFormat = "webp",
+    *,
+    authority: originals.Authority,
 ) -> Any:
-    cached = get_frame_array_cache(dataset_item_id, frame_index, width, format_)
-    if cached is not None:
-        return cached
-    row = (
-        await db.execute(
-            select(VideoFrameCache).where(
-                VideoFrameCache.dataset_item_id == dataset_item_id,
-                VideoFrameCache.frame_index == frame_index,
-                VideoFrameCache.width == width,
-                VideoFrameCache.format == format_,
-                VideoFrameCache.status == "ready",
-            )
-        )
-    ).scalar_one_or_none()
-    if row is None or not row.storage_key:
-        raise RuntimeError("video frame is not cached")
-    resp = storage_service.client.get_object(
-        Bucket=storage_service.bucket_for_cache_key(row.storage_key),
-        Key=row.storage_key,
+    ctx = await build_context_from_dataset_item(
+        db, dataset_item_id, authority=authority
     )
-    array = image_bytes_to_array(resp["Body"].read())
-    put_frame_array_cache(dataset_item_id, frame_index, width, format_, array)
-    return array
+    ctx = await _physical_context(db, ctx)
+    spec = derivatives.frame_spec(ctx.generation, frame_index, width, format_)
+    slot = await _slot(db, ctx, "frame", spec)
+    if slot is None:
+        raise HTTPException(409, {"code": "video_derivative_not_ready"})
+    output = objects.snapshot(await derivatives.ready_output(db, slot, authority))
+    await db.commit()
+    raw = await derivatives.verified(
+        db,
+        output,
+        authority,
+        relative=f"frame.{format_}",
+        bytes_limit=64 * 1024**2,
+    )
+    return image_bytes_to_array(raw)

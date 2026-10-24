@@ -4,12 +4,11 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.tasks import _assert_task_visible
-from app.db.models.dataset import VideoChunk, VideoFrameIndex
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
@@ -17,7 +16,6 @@ from app.db.models.video_chapter import VideoChapter
 from app.deps import get_current_user, get_db, require_active_task_actor
 from app.schemas.task import (
     TaskVideoFrameTimetableResponse,
-    VideoFrameTimetableEntry,
 )
 from app.schemas.video_chapter import (
     VideoChapterCreate,
@@ -28,7 +26,6 @@ from app.schemas.video_chapter import (
 )
 from app.schemas.video_frame_service import (
     VideoChunkOut,
-    VideoChunkSampleOut,
     VideoChunkSamplesResponse,
     VideoChunksResponse,
     VideoFrameOut,
@@ -42,6 +39,9 @@ from app.services.audit import AuditAction, AuditService
 from app.services.project_access import resolve_project_access
 from app.services.video_frame_service import (
     build_context_from_dataset_item,
+    authorize_context,
+    frame_timetable as build_frame_timetable,
+    chunk_samples as build_chunk_samples,
     get_chunk as get_video_chunk_asset,
     get_frame as get_video_frame_asset,
     list_chunks as list_video_chunks,
@@ -108,7 +108,7 @@ async def get_video_manifest(
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await authorize_context(db, task, current_user, request)
     return await build_video_manifest_v2(db, ctx, str(request.base_url))
 
 
@@ -129,56 +129,26 @@ async def get_video_segments(
 )
 async def get_video_frame_timetable(
     dataset_item_id: uuid.UUID,
+    request: Request,
     response: Response,
     from_frame: int | None = Query(default=None, ge=0, alias="from"),
     to_frame: int | None = Query(default=None, ge=0, alias="to"),
+    expected_metadata_generation_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
-    if not ctx.metadata.fps or not ctx.metadata.frame_count:
-        raise HTTPException(status_code=503, detail="Video metadata not ready")
-
-    has_timetable = (
-        await db.execute(
-            select(func.count(VideoFrameIndex.id)).where(
-                VideoFrameIndex.dataset_item_id == dataset_item_id
-            )
-        )
-    ).scalar_one() > 0
-    stmt = select(VideoFrameIndex).where(
-        VideoFrameIndex.dataset_item_id == dataset_item_id
-    )
-    if from_frame is not None:
-        stmt = stmt.where(VideoFrameIndex.frame_index >= from_frame)
-    if to_frame is not None:
-        stmt = stmt.where(VideoFrameIndex.frame_index <= to_frame)
-    rows = (
-        (await db.execute(stmt.order_by(VideoFrameIndex.frame_index.asc())))
-        .scalars()
-        .all()
-    )
-    body = TaskVideoFrameTimetableResponse(
-        task_id=task.id,
-        fps=ctx.metadata.fps,
-        frame_count=ctx.metadata.frame_count,
-        source="ffprobe" if has_timetable else "estimated",
-        frames=[
-            VideoFrameTimetableEntry(
-                frame_index=row.frame_index,
-                pts_ms=row.pts_ms,
-                is_keyframe=row.is_keyframe,
-                pict_type=row.pict_type,
-                byte_offset=row.byte_offset,
-            )
-            for row in rows
-        ],
+    ctx = await authorize_context(db, task, current_user, request)
+    body = await build_frame_timetable(
+        db,
+        ctx,
+        from_frame,
+        to_frame,
+        expected_metadata_generation_id=expected_metadata_generation_id,
     )
     response.headers["Cache-Control"] = "private, max-age=3600"
     response.headers["ETag"] = (
-        f'"video-timetable:{dataset_item_id}:{ctx.metadata.frame_count}:'
-        f'{len(body.frames)}:{from_frame or 0}:{to_frame or ""}"'
+        f'"video-timetable:{body.metadata_generation_id}:{from_frame}:{to_frame}"'
     )
     return body
 
@@ -186,26 +156,28 @@ async def get_video_frame_timetable(
 @router.get("/{dataset_item_id}/chunks", response_model=VideoChunksResponse)
 async def get_video_chunks(
     dataset_item_id: uuid.UUID,
+    request: Request,
     from_frame: int | None = Query(default=None, ge=0),
     to_frame: int | None = Query(default=None, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await authorize_context(db, task, current_user, request)
     return await list_video_chunks(db, ctx, from_frame, to_frame)
 
 
 @router.get("/{dataset_item_id}/chunks/{chunk_id}", response_model=VideoChunkOut)
 async def get_video_chunk(
     dataset_item_id: uuid.UUID,
+    request: Request,
     chunk_id: int,
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await authorize_context(db, task, current_user, request)
     body = await get_video_chunk_asset(db, ctx, chunk_id)
     if body.status == "pending":
         response.status_code = 202
@@ -220,34 +192,22 @@ async def get_video_chunk(
 async def get_video_chunk_samples(
     dataset_item_id: uuid.UUID,
     chunk_id: int,
+    request: Request,
+    expected_output_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> VideoChunkSamplesResponse:
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    await build_context_from_dataset_item(db, dataset_item_id, task=task)
-    row = await db.scalar(
-        select(VideoChunk).where(
-            VideoChunk.dataset_item_id == dataset_item_id,
-            VideoChunk.chunk_id == chunk_id,
-        )
-    )
-    if row is None or not row.diagnostics or "samples" not in row.diagnostics:
-        raise HTTPException(status_code=404, detail="samples_not_available")
-    d = row.diagnostics
-    return VideoChunkSamplesResponse(
-        dataset_item_id=dataset_item_id,
-        chunk_id=chunk_id,
-        codec_string=d.get("codec_string", "avc1.4d001e"),
-        description=d.get("description"),
-        width=d.get("width", 0),
-        height=d.get("height", 0),
-        samples=[VideoChunkSampleOut(**s) for s in d["samples"]],
+    ctx = await authorize_context(db, task, current_user, request)
+    return await build_chunk_samples(
+        db, ctx, chunk_id, expected_output_id=expected_output_id
     )
 
 
 @router.get("/{dataset_item_id}/frames/{frame_index}", response_model=VideoFrameOut)
 async def get_video_frame(
     dataset_item_id: uuid.UUID,
+    request: Request,
     frame_index: int,
     response: Response,
     format: Literal["webp", "jpeg"] = Query(default="webp"),
@@ -256,7 +216,7 @@ async def get_video_frame(
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await authorize_context(db, task, current_user, request)
     body = await get_video_frame_asset(db, ctx, frame_index, w, format)
     if body.status == "pending":
         response.status_code = 202
@@ -273,12 +233,13 @@ async def get_video_frame(
 )
 async def prefetch_video_frame_assets(
     dataset_item_id: uuid.UUID,
+    request: Request,
     payload: VideoFramePrefetchRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await authorize_context(db, task, current_user, request)
     return await prefetch_video_frames(
         db, ctx, payload.frame_indices, payload.width, payload.format
     )
@@ -290,12 +251,13 @@ async def prefetch_video_frame_assets(
 )
 async def retry_video_frame_assets(
     dataset_item_id: uuid.UUID,
+    request: Request,
     payload: VideoFrameRetryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    ctx = await build_context_from_dataset_item(db, dataset_item_id, task=task)
+    ctx = await authorize_context(db, task, current_user, request)
     return await retry_video_frames(
         db,
         ctx,
