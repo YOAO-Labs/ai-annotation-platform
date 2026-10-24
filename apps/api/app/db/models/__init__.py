@@ -70,6 +70,7 @@ from app.db.models.video_tracker_job import (
     VideoTrackerJobStatus,
 )
 from app.db.models.raster_mask_upload import RasterMaskUpload
+from app.db.models.raster_mask_object import RasterMaskObject, RasterMaskPublication
 from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
 from app.db.models.annotation_operation import (
     AnnotationLineageEdge,
@@ -228,6 +229,8 @@ __all__ = [
     "VideoTrackerJobKind",
     "VideoTrackerJobStatus",
     "RasterMaskUpload",
+    "RasterMaskObject",
+    "RasterMaskPublication",
     "AiMaskAcceptDecision",
     "AnnotationOperation",
     "AnnotationLineageEdge",
