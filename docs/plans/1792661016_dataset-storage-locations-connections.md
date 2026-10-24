@@ -859,3 +859,17 @@ files的content/identity支持独立Task图片并显式返回owner_kind及互斥
 人工3100/8100、两类Worker和独立监督Beat恢复就绪；每Worker仍注册72项任务、队列正确，实际Guide清理与RLE dry-run通过，Beat来源/专用broker/九桶归属及UTC调度复核。原24对象、12源文件和11业务指纹不变。三个一次性namespace的数据库、Redis及27桶均已独立查验不存在；五棵干净且补丁等价的隔离树及分支移除，任务探针、构建和测试中间产物按归属清理，人工环境及本地生成类型保留。
 
 完整E02/B13-B继续active，不归档，完整用途切换保持关闭。下一片为浏览器原件交付：先抽通用二进制编排并接Task/Item DTO、file-url、点云和精确camera link；再解决原生视频的受限URL凭证、完整stage复用及Range/HEAD/If-Range。不能直接给无Bearer的fetch或video src塞现有认证URI，也不能每次seek重新下载整个大文件。派生媒体、ML/Worker、导出和训练/评估/AL源继续分别接入；不将本片图片闭环视为全部原件读取完成。
+
+## E02-B13-B2-A1 Outcome — 认证通用原件下载基础
+
+主集成 `ef1d991ed`，来源/授权与协议分别集成于 `2a44235f7`、`95d02a94c`。六个新增身份/完整下载入口覆盖TaskOriginal、直接/primary Item、精确相机link及DatasetItem。身份只读保存事实；下载固定content UUID/SHA，沿保存位置完整核验，准入后和交付前重核原请求凭证、当前可见性、完整关系与Gate。相机按Task权限，不开放任意Item；Dataset路径与管理权限共同检查，合法相机不依赖主原件存在。
+
+通用原始字节不经过Pillow，保留空文件、GIF/SVG、视频及点云字节；原图片解码与引用合同保持。下载512MiB、独立两槽、复制/响应各120秒合作式期限，远端transport不超过30秒。槽覆盖真实关闭；发送失败、重复取消、迟到读/关闭均drain，未知本地关闭保留额度。复核补齐退休stage在授权失败或响应构造失败时的异步关闭，避免慢关闭阻塞事件循环。无Range/HEAD/304捷径，无签名URL降级，也未替换现有浏览器消费者。
+
+最终297个不同本地用例全部通过，无剩余失败或跳过：114项API/服务/数据库（15下载HTTP、24编排、44来源、20既有原件HTTP、11图片HTTP），44项新二进制协议/关闭纯测，135项既有reader/图片适配/快照纯测，4项SDK合同。关闭helper变更后复验5个HTTP失败路径和24项编排，不重复累计。SDK首轮因新originals标签尚未加入watched_tags而失败，补齐分类后通过；未宣称SDK已提供下载方法。
+
+真实TCP/MinIO八组通过：签名暂存PUT并封存独立视频Task；当前用途桶放置同键错误对象后，主点云、精确相机SVG、DatasetItem及TaskOriginal完整读取仍正确；Range416/HEAD405、无凭证401/陌生人404及命中ETag的同大小损坏409。首轮探针把/minio代理地址交给没有代理的临时Uvicorn导致PUT404，改用探针专属实际MinIO公开地址后通过；共享配置未改。临时API已关闭。本片无迁移、UI或Worker逻辑变更，不重复视觉矩阵、视频播放或销毁源恢复资格化。
+
+API/用户/架构文档、README、CHANGELOG、OpenAPI与路由索引同步；导出/一致性、Web codegen/typecheck、文档构建、Ruff/format、正常hooks和diff检查通过。人工API自动重载已加载新增入口，3100/8100、两个各72任务Worker及原队列、Beat保持；24对象、12源文件和11业务指纹未变。一次性test命名空间的数据库、Redis和九桶已独立查验不存在；两棵干净且补丁等价的隔离树/分支移除，测试和构建产物清理，人工环境、本地虚拟环境与生成类型保留。
+
+完整E02/B13-B及整套epic继续执行，完整用途切换关闭。下一片B2-A2接通Task/Item DTO、旧file-url、工作台图片、点云/相机及邻帧预取，按账号/会话/content身份管理鉴权请求、缓存、Blob地址和取消，并限制相机并行读取；原生视频另按完整stage复用和受限能力凭据实现Range/seek，派生物与其他原件消费者仍分别收口。

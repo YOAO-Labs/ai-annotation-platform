@@ -56,6 +56,8 @@ B13-A已交付独立Task暂存封存、原请求/当前授权复核、独立原�
 
 E02-B13-B1已完成冻结原件关系/保存位置、通用完整二进制暂存和现有认证图片/质量入口，主集成 `15df36577`。最终426个不同本地用例、八组真实TCP/MinIO、实际Celery质量检测及源销毁后的162表160行/九桶64对象恢复通过。原请求凭证、Task/Item关系及Gate在许可后和交付前重核，来源和缓存撤权零物理I/O；旧RLE包夹具已适配独立owner/publication。人工3100/8100、两个72任务Worker/Beat及24对象/12源文件/11业务指纹保持；三个一次性namespace、五棵隔离树与任务产物清理，详见[E02-B13-B1 Outcome](1792661016_dataset-storage-locations-connections.md#e02-b13-b1-outcome--原件解析与认证图片读取)。下一片按浏览器交付合同接Task/Item DTO、file-url、点云/相机，再收口原生视频和Range；无Bearer的浏览器消费者不能直接换成现有认证API。完整E02/B13-B仍在执行，完整用途切换关闭。
 
+E02-B13-B2-A1已完成认证通用二进制身份/下载基础，主集成 `ef1d991ed`。297个不同本地用例、八组真实TCP/MinIO、OpenAPI/Web类型及文档检查通过；TaskOriginal、直接/primary Item、精确camera link和Dataset管理路径共同固定内容与当前授权，512MiB/独立两槽不影响旧图片额度。人工3100/8100、两个72任务Worker/Beat及24对象/12源文件/11业务指纹保持，一次性test库/Redis/九桶和两棵隔离树清理。详见[E02-B13-B2-A1 Outcome](1792661016_dataset-storage-locations-connections.md#e02-b13-b2-a1-outcome--认证通用原件下载基础)。下一片B2-A2接DTO/file-url与图片、点云/相机、邻帧预取的鉴权和会话资产生命周期；原生视频能力凭据/完整stage复用/Range仍待B2-B，完整E02与用途切换未完成。
+
 ## Outcome
 
 持续实施中。完成的切片、正式用户/接口/架构文档、验证和清理分别记录于原 Epic Outcome。本计划尚未完成，不能将单个切片交付等同于整套目标完成。
