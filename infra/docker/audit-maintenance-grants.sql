@@ -202,7 +202,8 @@ BEGIN
         RAISE EXCEPTION 'Audit maintenance LOGIN owns database objects';
     END IF;
     IF EXISTS (
-        SELECT FROM pg_catalog.aclexplode(COALESCE(function.proacl,
+        SELECT FROM pg_catalog.pg_proc AS function
+        CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(function.proacl,
             pg_catalog.acldefault('f',function.proowner))) AS acl
         WHERE function.oid=v_allowed AND acl.grantee=0
           AND acl.privilege_type='EXECUTE'

@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-25
 ---
 
 # 环境变量参考
@@ -933,3 +933,24 @@ last_reviewed: 2026-10-24
 | `AAP_ROUTE_REGISTRY_ID` | `—` | — |
 | `INFERENCE_RUNTIME_REGISTRY_INGRESS_DATABASE_URL_FILE` | `—` | Standalone runtime and Compose use a function-only LOGIN and a distinct bearer. |
 | `INFERENCE_RUNTIME_REGISTRY_INGRESS_TOKEN_FILE` | `—` | — |
+
+## Audit 独立维护与归档读取（可选，不改变默认运行拓扑）
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `AUDIT_MAINTENANCE_DATABASE_URL` | `—` | 一次性维护 CLI 只使用单函数 LOGIN；值／文件恰好选择一项。 |
+| `AUDIT_MAINTENANCE_DATABASE_URL_FILE` | `—` | — |
+| `AUDIT_MAINTENANCE_ARCHIVE_S3_ENDPOINT_URL` | `—` | 只有 archive-partitions 需要以下独立 Audit 归档桶凭据；不创建桶、不持有删除权限。 |
+| `AUDIT_MAINTENANCE_ARCHIVE_S3_REGION` | `us-east-1` | — |
+| `AUDIT_MAINTENANCE_ARCHIVE_S3_BUCKET` | `audit-archive` | — |
+| `AUDIT_MAINTENANCE_ARCHIVE_S3_ACCESS_KEY_ID` | `—` | — |
+| `AUDIT_MAINTENANCE_ARCHIVE_S3_ACCESS_KEY_ID_FILE` | `—` | — |
+| `AUDIT_MAINTENANCE_ARCHIVE_S3_SECRET_ACCESS_KEY` | `—` | — |
+| `AUDIT_MAINTENANCE_ARCHIVE_S3_SECRET_ACCESS_KEY_FILE` | `—` | — |
+| `AUDIT_ARCHIVE_READ_S3_ENDPOINT_URL` | `—` | API 管理员归档列表／读取可单独选择只读凭据；空 endpoint 保留原内嵌存储绑定。 显式选择后配置或访问失败不会回退通用存储身份，API 原有鉴权继续生效。 |
+| `AUDIT_ARCHIVE_READ_S3_REGION` | `us-east-1` | — |
+| `AUDIT_ARCHIVE_READ_S3_BUCKET` | `audit-archive` | — |
+| `AUDIT_ARCHIVE_READ_S3_ACCESS_KEY_ID` | `—` | — |
+| `AUDIT_ARCHIVE_READ_S3_ACCESS_KEY_ID_FILE` | `—` | — |
+| `AUDIT_ARCHIVE_READ_S3_SECRET_ACCESS_KEY` | `—` | — |
+| `AUDIT_ARCHIVE_READ_S3_SECRET_ACCESS_KEY_FILE` | `—` | — |

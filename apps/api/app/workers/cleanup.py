@@ -136,11 +136,11 @@ def refresh_audit_bi_mv() -> dict:
 
 
 async def _refresh_audit_bi_mv_async() -> dict:
-    from sqlalchemy import text
+    from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
 
     async with task_session() as db:
         try:
-            await db.execute(text("SELECT aap_audit_v1.refresh_audit_bi_mv()"))
+            await AuditMaintenancePostgresData(db).refresh_daily()
             await db.commit()
         except Exception as exc:
             await db.rollback()

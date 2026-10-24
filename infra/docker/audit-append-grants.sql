@@ -103,10 +103,6 @@ BEGIN
             FROM pg_proc WHERE oid = append_function AND proowner = owner_oid) THEN
         RAISE EXCEPTION 'Audit append function must be owned by the Audit code role';
     END IF;
-    IF pg_catalog.has_database_privilege(api_oid, current_database(), 'TEMP')
-       OR pg_catalog.has_schema_privilege(api_oid, 'public', 'CREATE') THEN
-        RAISE EXCEPTION 'API role must not create public objects or temporary relations';
-    END IF;
     IF NOT pg_catalog.has_table_privilege(api_oid, 'public.audit_logs', 'SELECT') THEN
         RAISE EXCEPTION 'API role must retain its current Audit SELECT surface';
     END IF;
@@ -123,7 +119,7 @@ BEGIN
         WHERE defaults.defaclrole = (
             SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_setting('aap.audit_owner')
         )
-          AND defaults.defaclnamespace = 'public'::regnamespace
+          AND defaults.defaclnamespace IN (0, 'public'::regnamespace)
           AND defaults.defaclobjtype = 'r'
           AND acl.grantee IN (api_oid, 0)
           AND acl.privilege_type IN (
@@ -139,7 +135,7 @@ BEGIN
         WHERE defaults.defaclrole = (
             SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_setting('aap.audit_owner')
         )
-          AND defaults.defaclnamespace = 'public'::regnamespace
+          AND defaults.defaclnamespace IN (0, 'public'::regnamespace)
           AND defaults.defaclobjtype = 'S'
           AND acl.grantee IN (api_oid, 0)
           AND acl.privilege_type IN ('USAGE', 'SELECT', 'UPDATE')

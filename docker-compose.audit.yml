@@ -1,0 +1,34 @@
+services:
+  audit-maintenance:
+    build:
+      context: .
+      dockerfile: apps/audit/Dockerfile
+    image: aap-audit-maintenance:local
+    profiles: [maintenance]
+    command: [ensure-partitions]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1
+    environment:
+      AUDIT_MAINTENANCE_DATABASE_URL_FILE: /run/secrets/audit_maintenance_database_url
+      AUDIT_MAINTENANCE_ARCHIVE_S3_ENDPOINT_URL: ${AUDIT_MAINTENANCE_ARCHIVE_S3_ENDPOINT_URL:-}
+      AUDIT_MAINTENANCE_ARCHIVE_S3_REGION: ${AUDIT_MAINTENANCE_ARCHIVE_S3_REGION:-us-east-1}
+      AUDIT_MAINTENANCE_ARCHIVE_S3_BUCKET: ${AUDIT_MAINTENANCE_ARCHIVE_S3_BUCKET:-audit-archive}
+      AUDIT_MAINTENANCE_ARCHIVE_S3_ACCESS_KEY_ID_FILE: /run/secrets/audit_archive_access_key_id
+      AUDIT_MAINTENANCE_ARCHIVE_S3_SECRET_ACCESS_KEY_FILE: /run/secrets/audit_archive_secret_access_key
+    secrets:
+      - audit_maintenance_database_url
+      - audit_archive_access_key_id
+      - audit_archive_secret_access_key
+
+secrets:
+  audit_maintenance_database_url:
+    file: ${AUDIT_MAINTENANCE_DATABASE_URL_FILE:?Set Audit function-only maintenance DSN file}
+  audit_archive_access_key_id:
+    file: ${AUDIT_MAINTENANCE_ARCHIVE_S3_ACCESS_KEY_ID_FILE:-/dev/null}
+  audit_archive_secret_access_key:
+    file: ${AUDIT_MAINTENANCE_ARCHIVE_S3_SECRET_ACCESS_KEY_FILE:-/dev/null}

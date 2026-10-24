@@ -68,9 +68,10 @@ super-admin global list/export remains on `query_events(jsonb)`.
 The monthly summary's raw tail, DuckDB sync, and project-performance event
 reads use `audit_events`. The summary's completed-day aggregates use
 `audit_daily_facts`; only the owner capability refreshes the underlying
-`mv_audit_bi_daily`. Learning/active-learning evidence, partition
-retention/archive maintenance, and append/hydration consumers still read or
-write the base table, so the API retains its existing private-table privileges.
+`mv_audit_bi_daily`. Learning/active-learning evidence remains an explicitly held private-table reader.
+Partition retention/archive maintenance now uses the fixed Audit maintenance
+capability, and append hydration does not read the base table. The ordinary API
+retains parent-table SELECT for the held consumer, not private writes or DDL.
 
 `aap_audit_v1.audit_daily_facts` publishes the existing six-dimension daily
 materialization through a read-only security-barrier view. Its row key matches
@@ -97,17 +98,19 @@ the non-login Audit owner and transfers the read view to that owner. The
 focused `audit-append-grants.sql` profile grants the existing
 API LOGIN the append function, retains its current table `SELECT`, revokes
 direct table `INSERT` and sequence write access, and removes those privileges
-from existing partitions. The current LAN grant path still assigns that tree
-to the application role, so this slice does not qualify unique production
-writer ownership. Apply a compatible append profile only after all API/worker
-consumers use the owner path and old processes are drained.
+from existing partitions. The selected owner grant path transfers the parent and partition tree to the
+restricted Audit owner. LAN and worktree runtime grants revoke direct writes
+and sequence access while retaining the parent SELECT needed by the held
+Learning reader. Future monthly partitions are created by the Audit owner;
+its defaults must not restore API/PUBLIC writes. Apply the matching profile
+only after old maintenance and direct writers are drained.
 
 The `audit-query-grants.sql` profile gives one LOGIN only `query_events(jsonb)`;
 the separate `audit-read-grants.sql` profile gives another LOGIN `SELECT` on
 `audit_events` and `audit_daily_facts`. Neither read profile grants direct
 base-table or materialized-view reads, sequences, or write functions. The API
-LOGIN gains SELECT on both views while retaining current base-table access for
-Learning, retention, and test/seed consumers. The dedicated maintenance owner
+LOGIN gains SELECT on both views while retaining parent-table SELECT for
+the held Learning consumer. The dedicated maintenance owner
 performs refresh through the fixed command capability; read and query clients
 have no refresh or database `TEMPORARY` privilege.
 Focused checks cover the row contract,
@@ -145,21 +148,22 @@ and `s3:PutObject` on archive objects. It does not create buckets or read
 general Assets or application storage credentials.
 
 Each archive operation holds one database transaction through snapshot,
-object upload, partition removal, and the archive event. The transaction commits
-only after the full operation succeeds; failures roll back database changes and
-leave the partition available for retry. The same month uses the existing
+object upload, partition removal, and the archive event. Database failures roll back the caller transaction. An individual upload
+failure keeps that partition and allows later partitions to continue; the
+returned counts describe only completed archives. The same month uses the existing
 deterministic archive key. S3 calls have five-second connect and 60-second read
 timeouts.
 
 The container runs non-root and exposes no port. Its default command is help;
 the Compose service is behind the `maintenance` profile and defaults to the
-non-destructive partition check. To run it locally:
+current/future partition ensure operation. To run it locally:
 
 ```sh
-docker compose -f infra/docker/docker-compose.audit.yml --profile maintenance run --rm audit-maintenance ensure-partitions
-docker compose -f infra/docker/docker-compose.audit.yml --profile maintenance run --rm audit-maintenance refresh-daily
-docker compose -f infra/docker/docker-compose.audit.yml --profile maintenance run --rm audit-maintenance archive-partitions
+docker compose -f docker-compose.audit.yml --profile maintenance run --rm audit-maintenance ensure-partitions
+docker compose -f docker-compose.audit.yml --profile maintenance run --rm audit-maintenance refresh-daily
+docker compose -f docker-compose.audit.yml --profile maintenance run --rm audit-maintenance archive-partitions
 ```
 
-Compose passes direct environment values. Deployments using `_FILE` variables
-must mount those secret files into the container at the configured paths.
+Compose mounts the host database `_FILE` as a read-only secret. Archive commands
+also require the two archive credential `_FILE` selectors; they are mounted
+separately and are not general application storage credentials.

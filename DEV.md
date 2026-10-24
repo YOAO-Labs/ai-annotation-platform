@@ -712,6 +712,26 @@ UUID `Idempotency-Key`，结果不确定时以原内容和原键重放；回执�
 真实目录容器、公开 API 消费、响应丢失、重启和本地/远程切换；不修改日常角色，不提供
 生产容量或完整 Assets 语言替换资格。Go 月报仍是单独实验，不参与默认运行。
 
+## 独立 Audit 维护运行时
+
+`apps/audit` 提供 `aap-audit-maintenance`，仅按明确命令执行一次操作；分区创建、
+快照／退役、归档事件和日聚合刷新由固定 `maintenance_command(jsonb)` 能力持有。
+原 API／Celery 适配器借用调用方事务，独立 CLI 自己提交或回滚。
+
+```bash
+uv run --project apps/audit --locked --extra runtime aap-audit-maintenance ensure-partitions
+uv run --project apps/audit --locked --extra runtime aap-audit-maintenance refresh-daily
+# 完成独立归档桶凭据和保留范围核对后，显式执行归档
+uv run --project apps/audit --locked --extra runtime aap-audit-maintenance archive-partitions
+```
+
+CLI 使用 `AUDIT_MAINTENANCE_DATABASE_URL(_FILE)` 的单函数 LOGIN；归档另需独立
+`AUDIT_MAINTENANCE_ARCHIVE_S3_*`，只检查已配置桶，不创建桶。可选
+`docker-compose.audit.yml` 使用文件 secret 和 `maintenance` profile，不自动运行归档。
+API 的 `AUDIT_ARCHIVE_READ_S3_*` 只配置归档读取凭据；配置的 endpoint 留空时保持
+兼容绑定，显式配置失败不回退。环境变量见 `.env.example`，授权与迁移顺序见
+[Audit 运行时](docs-site/api/guides/audit-runtime.md)。本轮未切换日常维护调度。
+
 ## 技术栈
 
 | 层        | 技术                                                 |

@@ -58,13 +58,12 @@ BEGIN
 END $$;
 
 REVOKE ALL ON DATABASE :"expected_database" FROM PUBLIC;
-REVOKE TEMPORARY ON DATABASE :"expected_database" FROM :"application_role";
-GRANT CONNECT ON DATABASE :"expected_database" TO :"application_role";
+-- Retained Predictions and user-performance maintenance still needs these privileges.
+GRANT CONNECT, TEMPORARY ON DATABASE :"expected_database" TO :"application_role";
 REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_cleanup_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_cleanup_role";
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-REVOKE CREATE ON SCHEMA public FROM :"application_role";
-GRANT USAGE ON SCHEMA public TO :"application_role";
+GRANT USAGE, CREATE ON SCHEMA public TO :"application_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"application_role";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"application_role";
 GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1,
@@ -450,8 +449,6 @@ BEGIN
        OR pg_catalog.has_any_column_privilege(v_runtime, 'public.audit_logs',
             'INSERT,UPDATE,REFERENCES')
        OR pg_catalog.has_sequence_privilege(v_runtime, v_sequence, 'SELECT,UPDATE,USAGE')
-       OR pg_catalog.has_database_privilege(v_runtime, current_database(), 'TEMP')
-       OR pg_catalog.has_schema_privilege(v_runtime, 'public', 'CREATE')
        OR pg_catalog.pg_has_role(v_runtime,
             (SELECT relation.relowner FROM pg_catalog.pg_class AS relation
              WHERE relation.oid='public.audit_logs'::pg_catalog.regclass), 'MEMBER')
@@ -843,16 +840,14 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
     GRANT USAGE, SELECT ON SEQUENCES TO :"application_role";
 
--- Existing maintenance tasks create/drop monthly partitions and refresh these
--- two materialized views via the normal runtime connection. Ownership is limited
+-- Retained Predictions and user-performance maintenance uses the normal runtime.
+-- Audit storage remains with its module owner. Ownership is limited
 -- to these objects; the migration role inherits the runtime role, never vice versa.
 DO $$
 DECLARE
     obj record;
 BEGIN
     FOR obj IN
-        SELECT relid FROM pg_partition_tree('public.audit_logs')
-        UNION
         SELECT relid FROM pg_partition_tree('public.predictions')
     LOOP
         EXECUTE format('ALTER TABLE %s OWNER TO %I', obj.relid::regclass,

@@ -686,12 +686,6 @@ class BucketUpgradeTests(unittest.TestCase):
         self.assertIn("REVOKE ALL ON SEQUENCE %s FROM %I, PUBLIC", audit_acl)
         self.assertIn("GRANT SELECT ON TABLE public.audit_logs TO %I", audit_acl)
         self.assertIn(
-            "has_database_privilege(v_runtime,current_database(),'TEMP')", audit_acl
-        )
-        self.assertIn("has_schema_privilege(v_runtime,'public','CREATE')", audit_acl)
-        self.assertIn('REVOKE TEMPORARY ON DATABASE "aap_test" FROM PUBLIC', statements)
-        self.assertIn('REVOKE CREATE ON SCHEMA public FROM "app"', statements)
-        self.assertIn(
             "GRANT EXECUTE ON FUNCTION "
             + ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
             + ' TO "app"',

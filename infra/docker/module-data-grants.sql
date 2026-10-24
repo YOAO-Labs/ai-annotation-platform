@@ -2623,6 +2623,16 @@ BEGIN
     ) IS DISTINCT FROM v_owner THEN
         RAISE EXCEPTION 'Audit partitions or their sequence have another owner';
     END IF;
+    IF EXISTS (
+        SELECT FROM pg_catalog.pg_default_acl AS defaults
+        CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
+        WHERE defaults.defaclrole=v_owner
+          AND defaults.defaclnamespace IN (0, 'public'::pg_catalog.regnamespace)
+          AND defaults.defaclobjtype IN ('r','S')
+          AND acl.grantee<>v_owner
+    ) THEN
+        RAISE EXCEPTION 'Audit owner default privileges expose future private storage';
+    END IF;
 END;
 $audit_storage_owner$;
 ALTER MATERIALIZED VIEW public.mv_audit_bi_daily OWNER TO :"audit_owner";

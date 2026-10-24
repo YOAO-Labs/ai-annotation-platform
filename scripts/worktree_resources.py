@@ -364,8 +364,6 @@ BEGIN
        OR pg_catalog.has_any_column_privilege(v_runtime,'public.audit_logs',
             'INSERT,UPDATE,REFERENCES')
        OR pg_catalog.has_sequence_privilege(v_runtime,v_sequence,'SELECT,UPDATE,USAGE')
-       OR pg_catalog.has_database_privilege(v_runtime,current_database(),'TEMP')
-       OR pg_catalog.has_schema_privilege(v_runtime,'public','CREATE')
        OR NOT pg_catalog.has_function_privilege(v_runtime,
             'aap_audit_v1.maintenance_command(jsonb)','EXECUTE')
        OR pg_catalog.has_function_privilege(v_runtime,
@@ -1475,14 +1473,6 @@ class LocalResources:
                     ),
                     {"role": runtime.username, "database": self.resources["database"]},
                 )
-                if runtime.username != self.url.username:
-                    for sql in (
-                        f"REVOKE TEMPORARY ON DATABASE {database} FROM PUBLIC",
-                        f"REVOKE TEMPORARY ON DATABASE {database} FROM {role}",
-                        "REVOKE CREATE ON SCHEMA public FROM PUBLIC",
-                        f"REVOKE CREATE ON SCHEMA public FROM {role}",
-                    ):
-                        await connection.exec_driver_sql(sql)
                 if make_url(self.settings.database_url).username == self.url.username:
                     operator_oid = await connection.scalar(
                         text("SELECT oid FROM pg_roles WHERE rolname=current_user")

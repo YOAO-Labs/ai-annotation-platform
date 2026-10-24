@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-10-24
+last_reviewed: 2026-10-25
 ---
 
 # 审计与通知
@@ -80,7 +80,7 @@ PostgreSQL 事务；API 适配器在调用返回前恢复 `AuditLog` ORM identit
 的全局列表和导出也通过 Audit 的固定查询函数读取；它保留现有筛选、游标、偏移、
 当前邮箱回退与 50,000 行导出上限。项目管理员范围由 API 通过公开 Audit 事件关系组合
 Workspace 与 Labeling 事实；标注历史、批次日志、管理看板及评审证据也读取同一关系。
-月报、DuckDB、绩效、分区保留和冷归档仍保持现有读取及维护路径。
+月报、DuckDB、绩效读取公开事件／日聚合关系；分区维护和冷归档由 Audit owner 的固定维护能力及独立运行包持有，API／Celery 仅保留调用方事务适配。配置与权限见 [Audit 运行时](/api/guides/audit-runtime)。
 
 ## Audit：记录发生了什么
 
@@ -198,7 +198,7 @@ Workspace 与 Labeling 事实；标注历史、批次日志、管理看板及评
 
 ### 审计查询与权限边界
 
-`aap_audit_v1.audit_events` 是 Audit owner 持有的 security-barrier 视图，保留 14 个原生字段及 INET 类型。物理行键为 `(id, created_at)`，全局查询合同允许同 ID、不同时间的合法记录；兼容 ORM 仍保持原有仅按 ID 的身份映射。公开关系只表达事实，受限服务 LOGIN 可以 SELECT，但不能据此绕过 API 的用户范围条件。领域消费者借用原事务并保留 autoflush；月报、绩效与维护的私表读取尚未全部迁移。
+`aap_audit_v1.audit_events` 是 Audit owner 持有的 security-barrier 视图，保留 14 个原生字段及 INET 类型。物理行键为 `(id, created_at)`，全局查询合同允许同 ID、不同时间的合法记录；兼容 ORM 仍保持原有仅按 ID 的身份映射。公开关系只表达事实，受限服务 LOGIN 可以 SELECT，但不能据此绕过 API 的用户范围条件。领域消费者借用原事务并保留 autoflush；Learning 暂缓消费者仍保留父表 SELECT；普通运行写入、序列和分区所有权由 Audit owner 持有，尚未因此宣称全模块运行验收完成。
 
 HTTP 查询端点 `GET /api/v1/audit` 面向运营与排障，严格执行基于角色的管理范围隔离：
 

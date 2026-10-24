@@ -77,7 +77,7 @@ async def run_operation(
     finally:
         try:
             if connection is not None:
-                await connection.close()
+                await connection.close(timeout=DATABASE_CONNECT_TIMEOUT_SECONDS)
         finally:
             if storage is not None:
                 storage.close()
@@ -98,7 +98,7 @@ def main() -> None:
         )
         result = asyncio.run(run_operation(args.command, config))
     except KeyboardInterrupt:
-        return
+        raise SystemExit(130) from None
     except Exception:
         raise SystemExit(
             "Audit maintenance failed: check configuration, owner capability, or service availability"
