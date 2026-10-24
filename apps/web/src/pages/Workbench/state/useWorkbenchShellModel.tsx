@@ -16,6 +16,8 @@ import { useIsMutating, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToastStore } from "@/components/ui/Toast";
 import { annotationSlicesApi, type PolygonSliceCommitRequest } from "@/api/annotationSlices";
 import { randomId } from "@/utils/id";
+import { captureOriginalOwner, isOriginalOwnerCurrent, originalOwnerKey } from "@/api/originals";
+import { readOriginalImage } from "@/utils/originalImageCache";
 import { useProject, useUpdateProject } from "@/hooks/useProjects";
 import { useProjectAccess } from "@/hooks/useProjectAccess";
 import { useProjectPipelines } from "@/hooks/useProjectPipelines";
@@ -189,8 +191,8 @@ import {
   useWorkbenchImageSource,
   workbenchImagePreviewUrl,
 } from "../stage/useWorkbenchImageSource";
-import { imageTileDeviceBudget, singleImageFitsDecodedBudget } from "../stage/imagePyramid";
 import { loadAbortableImage } from "../stage/useAbortableImage";
+import { imageTileDeviceBudget, singleImageFitsDecodedBudget } from "../stage/imagePyramid";
 import { WorkbenchOverlays } from "../shell/WorkbenchOverlays";
 import type { ClassPickerAttrEditing } from "../shell/ClassPickerPopover";
 import { WorkbenchLayout } from "../shell/WorkbenchLayout";
@@ -814,7 +816,7 @@ export function useWorkbenchShellModel({
     source: workbenchImageSource,
     retry: retryWorkbenchImagePyramid,
     contentBlockedReason,
-  } = useWorkbenchImageSource(task, imageMediaKey);
+  } = useWorkbenchImageSource(task, imageMediaKey, currentTaskId ?? requestedTaskId);
   const workbenchImagePreview = workbenchImagePreviewUrl(workbenchImageSource);
   const isVideoTask = task?.file_type === "video" || currentProject?.type_key === "video-track";
   const stageKind = currentProject?.type_key === "lidar" ? "3d" : isVideoTask ? "video" : "image";
@@ -2467,6 +2469,8 @@ export function useWorkbenchShellModel({
   useEffect(() => {
     const idx = tasks.findIndex((t) => t.id === taskId);
     const controller = new AbortController();
+    const imageOwner = captureOriginalOwner();
+    const imageCurrent = () => !controller.signal.aborted && isOriginalOwnerCurrent(imageOwner);
     const prefetch = (t: TaskResponse | undefined) => {
       if (!t) return;
       if (!videoCollaborationEnabled) {
@@ -2484,32 +2488,50 @@ export function useWorkbenchShellModel({
           }),
       });
       if (stageKind === "image" && t.image_pyramid && LARGE_IMAGE_TILES_ENABLED) {
+        if (!imageCurrent()) return;
         void queryClient
           .fetchQuery({
-            queryKey: ["image-pyramid", t.id, t.image_pyramid.generation],
-            queryFn: () => tasksApi.getImagePyramid(t.id, { signal: controller.signal }),
+            queryKey: ["image-pyramid", originalOwnerKey(), t.id, t.image_pyramid.generation],
+            queryFn: ({ signal }) => tasksApi.getImagePyramid(t.id, { signal }),
             staleTime: 30_000,
           })
           .then((pyramid) => {
-            if (!pyramid.overview?.url) return;
+            if (!imageCurrent() || !pyramid.overview?.url) return;
             return loadAbortableImage(pyramid.overview.url, controller.signal);
           })
           .catch(() => {});
-      } else if (stageKind === "image" && t.file_url && !t.image_pyramid?.required) {
-        const deviceMemory = (navigator as Navigator & { deviceMemory?: unknown }).deviceMemory;
+      } else if (
+        stageKind === "image" &&
+        t.thumbnail_url &&
+        !t.image_pyramid?.required &&
+        imageCurrent()
+      ) {
+        void loadAbortableImage(t.thumbnail_url, controller.signal).catch(() => {});
+      } else if (
+        stageKind === "image" &&
+        !t.image_pyramid &&
+        t.storage_mode !== "reference" &&
+        imageOwner &&
+        imageCurrent()
+      ) {
+        const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
         const budget = imageTileDeviceBudget(
-          typeof deviceMemory === "number" ? deviceMemory : null,
+          typeof memory === "number" ? memory : null,
         ).retainedBytes;
-        const width = t.image_pyramid?.width ?? t.image_width;
-        const height = t.image_pyramid?.height ?? t.image_height;
-        const originalAllowed = t.image_pyramid
-          ? singleImageFitsDecodedBudget(width, height, budget)
-          : width && height
-            ? singleImageFitsDecodedBudget(width, height, budget)
-            : true;
-        const url = t.thumbnail_url ?? (originalAllowed ? t.file_url : null);
-        if (!url) return;
-        void loadAbortableImage(url, controller.signal).catch(() => {});
+        if (
+          t.image_width &&
+          t.image_height &&
+          !singleImageFitsDecodedBudget(t.image_width, t.image_height, budget)
+        )
+          return;
+        void readOriginalImage(
+          { kind: "task", taskId: t.id },
+          {
+            owner: imageOwner,
+            signal: controller.signal,
+            priority: "prefetch",
+          },
+        ).catch(() => {});
       }
     };
     const timer = window.setTimeout(() => {

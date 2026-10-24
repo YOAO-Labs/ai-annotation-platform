@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, ApiError } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
 
@@ -26,7 +26,7 @@ async function fetchPreview(path: string, signal: AbortSignal) {
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted();
     try {
-      return await apiClient.getBlob(path, { signal });
+      return await apiClient.silentGetBlob(path, { signal });
     } catch (error) {
       const detail = error instanceof ApiError ? error.detailRaw : null;
       if (
@@ -45,7 +45,7 @@ async function fetchPreview(path: string, signal: AbortSignal) {
 }
 
 function imageBlob(path: string, signal: AbortSignal): Promise<Blob> {
-  if (!path.endsWith("/preview")) return apiClient.getBlob(path, { signal });
+  if (!path.endsWith("/preview")) return apiClient.silentGetBlob(path, { signal });
   return new Promise((resolve, reject) => {
     const abort = () => {
       pendingPreviews.delete(start);
@@ -82,6 +82,18 @@ export function verifiedContentError(error: unknown): string {
   if (code === "dataset_lifecycle_changed")
     return "数据集生命周期已变化，请刷新并在当前权限下创建新操作";
   if (code === "dataset_busy") return "数据集正在处理其他操作，请稍后重新核对";
+  if (
+    [
+      "content_unverified",
+      "no_readable_original",
+      "original_location_ambiguous",
+      "original_relation_conflict",
+      "content_link_missing",
+      "original_link_invalid",
+    ].includes(code)
+  )
+    return "原件缺少可用的核验归属或关联，请刷新并联系管理员核对";
+  if (code === "content_source_missing") return "原件对象不存在，请联系管理员核对保存位置";
   if (
     [
       "content_mismatch",
@@ -127,47 +139,70 @@ export function useVerifiedImage(path: string | null) {
   const sessionId = useAuthStore((s) => s.sessionId);
   const token = useAuthStore((s) => s.token);
   const [attempt, setAttempt] = useState(0);
-  const owner = JSON.stringify([userId, sessionId, token, path, attempt]);
-  const [result, setResult] = useState<{ owner: string; url?: string; error?: string } | null>(
-    null,
-  );
+  const owner = JSON.stringify([userId, sessionId, path, attempt]);
+  const ownerRef = useRef(owner);
+  const generation = useRef(0);
+  ownerRef.current = owner;
+  const usable = !!token && localStorage.getItem("token") === token;
+  const [result, setResult] = useState<{
+    owner: string;
+    epoch: number;
+    url?: string;
+    error?: string;
+  } | null>(null);
   useEffect(() => {
-    if (!path || !userId || !token) return;
+    if (!path || !userId || !usable) return;
     const controller = new AbortController();
+    const epoch = ++generation.current;
     let retired = false;
     let url: string | undefined;
     let image: HTMLImageElement | undefined;
     const current = () =>
       !retired &&
+      ownerRef.current === owner &&
       useAuthStore.getState().user?.id === userId &&
       useAuthStore.getState().sessionId === sessionId &&
       useAuthStore.getState().token === localStorage.getItem("token");
-    void imageBlob(path, controller.signal)
+    const load = async () => {
+      for (let refresh = 0; ; refresh++) {
+        const presented = useAuthStore.getState().token;
+        try {
+          const blob = await imageBlob(path, controller.signal);
+          if (!current()) throw new DOMException("Image owner retired", "AbortError");
+          if (presented === useAuthStore.getState().token) return blob;
+        } catch (error) {
+          if (!current() || presented === useAuthStore.getState().token) throw error;
+        }
+        if (refresh >= 1) throw new DOMException("Image credentials changed", "AbortError");
+      }
+    };
+    void load()
       .then(async (blob) => {
         if (!current()) return;
         url = URL.createObjectURL(blob);
         image = new Image();
         image.src = url;
         await image.decode();
-        if (current()) setResult({ owner, url });
+        if (current()) setResult({ owner, epoch, url });
         else {
           URL.revokeObjectURL(url);
           url = undefined;
         }
       })
       .catch((error) => {
-        if (current()) setResult({ owner, error: verifiedContentError(error) });
+        if (current()) setResult({ owner, epoch, error: verifiedContentError(error) });
         if (url) URL.revokeObjectURL(url);
         url = undefined;
       });
     return () => {
       retired = true;
+      generation.current += 1;
       controller.abort();
       if (image) image.src = "";
       if (url) URL.revokeObjectURL(url);
     };
-  }, [owner, path, sessionId, token, userId]);
-  const owned = result?.owner === owner ? result : null;
+  }, [owner, path, sessionId, usable, userId]);
+  const owned = result?.owner === owner && result.epoch === generation.current ? result : null;
   const url =
     path && token && localStorage.getItem("token") === token ? (owned?.url ?? null) : null;
   return {

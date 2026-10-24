@@ -7,6 +7,12 @@ import { DatasetDetailPage } from "./DatasetDetailPage";
 import { datasetsApi } from "@/api/datasets";
 import { useAuthStore } from "@/stores/authStore";
 import type { MeResponse } from "@/api/auth";
+import { readOriginal } from "@/api/originals";
+
+vi.mock("@/api/originals", async (load) => {
+  const actual = await load<typeof import("@/api/originals")>();
+  return { ...actual, readOriginal: vi.fn() };
+});
 
 const { toast } = vi.hoisted(() => ({ toast: vi.fn() }));
 vi.mock("@/api/datasets", () => ({
@@ -225,6 +231,9 @@ afterEach(() => {
   cleanup();
   clients.splice(0).forEach((client) => client.clear());
   useAuthStore.getState().logout();
+  vi.unstubAllGlobals();
+  if (vi.isMockFunction(HTMLAnchorElement.prototype.click))
+    vi.mocked(HTMLAnchorElement.prototype.click).mockRestore();
 });
 describe("Dataset detail workbench", () => {
   it("waits for a saved-view-only link and restores its source before querying samples", async () => {
@@ -657,4 +666,61 @@ it("shows archived source history in readonly mode and retains linked projects a
   expect(screen.queryByRole("link", { name: "为整份数据集创建版本" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "关联版本" }));
   expect(await screen.findByText("冻结首轮")).toBeVisible();
+});
+
+describe("authenticated item downloads", () => {
+  function managedItem() {
+    vi.mocked(datasetsApi.item).mockResolvedValue({
+      ...item,
+      file_path: "managed/car.png",
+      file_url: "https://old-signed.invalid/trap",
+    } as never);
+    vi.stubGlobal(
+      "URL",
+      Object.assign(class extends URL {}, {
+        createObjectURL: vi.fn(() => "blob:download"),
+        revokeObjectURL: vi.fn(),
+      }),
+    );
+    return vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  }
+  it("downloads verified bytes and revokes the temporary address instead of opening a signed link", async () => {
+    const click = managedItem();
+    vi.mocked(readOriginal).mockResolvedValue({
+      identity: {} as never,
+      blob: new Blob(["original"]),
+    });
+    mount("/datasets/dataset-one?item=item-one");
+    await userEvent.click(await screen.findByRole("button", { name: "核验下载原件" }));
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+    expect(readOriginal).toHaveBeenCalledWith(
+      { kind: "item", datasetId: "dataset-one", itemId: "item-one" },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:download");
+    expect(
+      screen.queryByRole("link", { name: "查看托管原图（未提供实时核验）" }),
+    ).not.toBeInTheDocument();
+  });
+  it("aborts on close and never starts a late download", async () => {
+    const click = managedItem();
+    let complete!: (value: Awaited<ReturnType<typeof readOriginal>>) => void;
+    vi.mocked(readOriginal).mockReturnValue(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    );
+    mount("/datasets/dataset-one?item=item-one");
+    await userEvent.click(await screen.findByRole("button", { name: "核验下载原件" }));
+    const calls = vi.mocked(readOriginal).mock.calls;
+    const signal = calls[calls.length - 1][1]?.signal;
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "关闭" }));
+      complete({ identity: {} as never, blob: new Blob(["late"]) });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(signal?.aborted).toBe(true));
+    expect(click).not.toHaveBeenCalled();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
 });

@@ -104,6 +104,7 @@ export interface DatasetItemResponse {
   height: number | null;
   metadata: Record<string, unknown>;
   file_url: string | null;
+  original_identity_path?: string | null;
   thumbnail_url: string | null;
   blurhash: string | null;
   created_at: string;

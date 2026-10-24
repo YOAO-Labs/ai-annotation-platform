@@ -7,14 +7,14 @@ import { useSessionGuard } from "./useSessionGuard";
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, apiClient: { ...actual.apiClient, getBlob: vi.fn() } };
+  return { ...actual, apiClient: { ...actual.apiClient, silentGetBlob: vi.fn() } };
 });
 const decodes: Array<() => void> = [];
 const revoke = vi.fn();
 const user = { id: "reader" } as Parameters<ReturnType<typeof useAuthStore.getState>["setAuth"]>[1];
 
 beforeEach(() => {
-  vi.mocked(apiClient.getBlob)
+  vi.mocked(apiClient.silentGetBlob)
     .mockReset()
     .mockResolvedValue(new Blob(["image"]));
   useAuthStore.getState().setAuth("token-one", user);
@@ -46,66 +46,66 @@ afterEach(() => {
 describe("verified original ownership", () => {
   it("bounds grid preview requests and removes a cancelled queued preview", async () => {
     const releases: Array<(value: Blob) => void> = [];
-    vi.mocked(apiClient.getBlob).mockImplementation(
+    vi.mocked(apiClient.silentGetBlob).mockImplementation(
       () => new Promise<Blob>((resolve) => releases.push(resolve)),
     );
     const first = renderHook(() => useVerifiedImage("/one/preview"));
     const second = renderHook(() => useVerifiedImage("/two/preview"));
     const cancelled = renderHook(() => useVerifiedImage("/cancelled/preview"));
     const queued = renderHook(() => useVerifiedImage("/queued/preview"));
-    expect(apiClient.getBlob).toHaveBeenCalledTimes(2);
+    expect(apiClient.silentGetBlob).toHaveBeenCalledTimes(2);
     cancelled.unmount();
     await act(async () => releases[0](new Blob(["first"])));
-    await waitFor(() => expect(apiClient.getBlob).toHaveBeenCalledTimes(3));
-    expect(apiClient.getBlob).toHaveBeenLastCalledWith("/queued/preview", {
+    await waitFor(() => expect(apiClient.silentGetBlob).toHaveBeenCalledTimes(3));
+    expect(apiClient.silentGetBlob).toHaveBeenLastCalledWith("/queued/preview", {
       signal: expect.any(AbortSignal),
     });
     await act(async () => {
       releases[1](new Blob(["second"]));
       releases[2](new Blob(["queued"]));
     });
-    expect(apiClient.getBlob).toHaveBeenCalledTimes(3);
+    expect(apiClient.silentGetBlob).toHaveBeenCalledTimes(3);
     first.unmount();
     second.unmount();
     queued.unmount();
   });
 
   it("retries a busy preview within a bounded budget and decodes the recovered image", async () => {
-    vi.mocked(apiClient.getBlob).mockRejectedValueOnce(
+    vi.mocked(apiClient.silentGetBlob).mockRejectedValueOnce(
       new ApiError(429, "Busy", { code: "snapshot_capacity_exceeded" }),
     );
     const { result } = renderHook(() => useVerifiedImage("/one/preview"));
     await waitFor(() => expect(decodes).toHaveLength(1));
-    expect(apiClient.getBlob).toHaveBeenCalledTimes(2);
+    expect(apiClient.silentGetBlob).toHaveBeenCalledTimes(2);
     await act(async () => decodes[0]());
     expect(result.current.ready).toBe(true);
   });
 
   it("does not retry authorization failures or send a retired preview retry", async () => {
-    vi.mocked(apiClient.getBlob).mockRejectedValueOnce(new ApiError(403, "Forbidden"));
+    vi.mocked(apiClient.silentGetBlob).mockRejectedValueOnce(new ApiError(403, "Forbidden"));
     const forbidden = renderHook(() => useVerifiedImage("/forbidden/preview"));
     await waitFor(() => expect(forbidden.result.current.error).toBe("Forbidden"));
-    expect(apiClient.getBlob).toHaveBeenCalledTimes(1);
+    expect(apiClient.silentGetBlob).toHaveBeenCalledTimes(1);
     forbidden.unmount();
-    vi.mocked(apiClient.getBlob).mockRejectedValueOnce(
+    vi.mocked(apiClient.silentGetBlob).mockRejectedValueOnce(
       new ApiError(429, "Busy", { code: "snapshot_capacity_exceeded" }),
     );
     const retired = renderHook(() => useVerifiedImage("/retired/preview"));
     await act(async () => {});
     retired.unmount();
     await new Promise((resolve) => setTimeout(resolve, 550));
-    expect(apiClient.getBlob).toHaveBeenCalledTimes(2);
+    expect(apiClient.silentGetBlob).toHaveBeenCalledTimes(2);
   });
 
   it("stops a persistently busy preview after three attempts", async () => {
-    vi.mocked(apiClient.getBlob).mockRejectedValue(
+    vi.mocked(apiClient.silentGetBlob).mockRejectedValue(
       new ApiError(429, "Busy", { code: "snapshot_capacity_exceeded" }),
     );
     const { result } = renderHook(() => useVerifiedImage("/busy/preview"));
     await waitFor(() => expect(result.current.error).toBe("原图读取繁忙，请稍后重试"), {
       timeout: 2500,
     });
-    expect(apiClient.getBlob).toHaveBeenCalledTimes(3);
+    expect(apiClient.silentGetBlob).toHaveBeenCalledTimes(3);
     expect(result.current.url).toBeNull();
   });
 
@@ -114,7 +114,7 @@ describe("verified original ownership", () => {
       initialProps: { path: "/one" },
     });
     await waitFor(() => expect(decodes).toHaveLength(1));
-    const firstSignal = vi.mocked(apiClient.getBlob).mock.calls[0][1]?.signal;
+    const firstSignal = vi.mocked(apiClient.silentGetBlob).mock.calls[0][1]?.signal;
     rerender({ path: "/two" });
     await waitFor(() => expect(decodes).toHaveLength(2));
     expect(firstSignal?.aborted).toBe(true);
@@ -127,7 +127,7 @@ describe("verified original ownership", () => {
     expect(revoke).toHaveBeenCalledWith("blob:test-2");
   });
 
-  it("retires displayed content immediately on retry or token refresh", async () => {
+  it("retires content on retry but keeps the same session across token refresh", async () => {
     const { result } = renderHook(() => useVerifiedImage("/one"));
     await waitFor(() => expect(decodes).toHaveLength(1));
     await act(async () => decodes[0]());
@@ -135,17 +135,16 @@ describe("verified original ownership", () => {
     act(() => result.current.retry());
     expect(result.current.ready).toBe(false);
     await waitFor(() => expect(decodes).toHaveLength(2));
-    act(() => useAuthStore.getState().setToken("token-two"));
     await act(async () => decodes[1]());
-    expect(result.current.ready).toBe(false);
-    await waitFor(() => expect(decodes).toHaveLength(3));
-    await act(async () => decodes[2]());
-    expect(result.current.url).toBe("blob:test-3");
+    expect(result.current.url).toBe("blob:test-2");
+    act(() => useAuthStore.getState().setToken("token-two"));
+    expect(result.current.url).toBe("blob:test-2");
+    expect(decodes).toHaveLength(2);
   });
 
   it("never publishes an unresolved request after logout", async () => {
     let resolve!: (value: Blob) => void;
-    vi.mocked(apiClient.getBlob).mockImplementation(
+    vi.mocked(apiClient.silentGetBlob).mockImplementation(
       () =>
         new Promise<Blob>((r) => {
           resolve = r;

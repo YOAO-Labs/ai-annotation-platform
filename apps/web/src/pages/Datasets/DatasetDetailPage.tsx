@@ -34,7 +34,12 @@ import { projectsApi } from "@/api/projects";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { useAuthStore } from "@/stores/authStore";
-import { useVerifiedImage } from "@/hooks/useVerifiedImage";
+import { useVerifiedImage, verifiedContentError } from "@/hooks/useVerifiedImage";
+import {
+  captureOriginalOwner,
+  isOriginalOwnerCurrent,
+  readOriginal as downloadOriginalBytes,
+} from "@/api/originals";
 import { parseReference } from "@/utils/referenceContent";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
@@ -1025,8 +1030,90 @@ function ItemInspector({
         ? previewPath(datasetId, item)
         : null;
   const image = useVerifiedImage(imagePath);
+  const userId = useAuthStore((state) => state.user?.id);
+  const sessionId = useAuthStore((state) => state.sessionId);
+  const downloadScope = JSON.stringify([userId, sessionId, datasetId, itemId]);
+  const downloadOwner = useRef({ scope: downloadScope, active: true, epoch: 0 });
+  if (downloadOwner.current.scope !== downloadScope) {
+    downloadOwner.current.active = false;
+    downloadOwner.current = { scope: downloadScope, active: true, epoch: 0 };
+  }
+  const scope = downloadOwner.current;
+  const pendingDownload = useRef<AbortController | null>(null);
+  const [downloadState, setDownloadState] = useState<{
+    scope: string;
+    pending: boolean;
+    error?: string;
+  }>({ scope: downloadScope, pending: false });
+  useEffect(() => {
+    scope.active = true;
+    return () => {
+      scope.active = false;
+      scope.epoch += 1;
+      pendingDownload.current?.abort();
+      pendingDownload.current = null;
+    };
+  }, [scope]);
+  const downloadOriginal = async () => {
+    const owner = captureOriginalOwner();
+    if (!item || !owner || pendingDownload.current) return;
+    const epoch = scope.epoch;
+    const controller = new AbortController();
+    pendingDownload.current = controller;
+    const current = () =>
+      downloadOwner.current === scope &&
+      scope.active &&
+      epoch === scope.epoch &&
+      !controller.signal.aborted &&
+      isOriginalOwnerCurrent(owner);
+    setDownloadState({ scope: downloadScope, pending: true });
+    let url: string | undefined;
+    let anchor: HTMLAnchorElement | undefined;
+    try {
+      const { blob } = await downloadOriginalBytes(
+        { kind: "item", datasetId, itemId },
+        { owner, signal: controller.signal },
+      );
+      if (!current()) return;
+      url = URL.createObjectURL(blob);
+      anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = item.file_name;
+      anchor.hidden = true;
+      document.body.appendChild(anchor);
+      anchor.click();
+    } catch (error) {
+      if (current())
+        setDownloadState({
+          scope: downloadScope,
+          pending: false,
+          error:
+            (error as { status?: number })?.status === 413
+              ? "原件超过完整下载大小限制，请联系管理员处理"
+              : verifiedContentError(error),
+        });
+    } finally {
+      anchor?.remove();
+      if (url) URL.revokeObjectURL(url);
+      if (pendingDownload.current === controller) pendingDownload.current = null;
+      if (current()) setDownloadState((previous) => ({ ...previous, pending: false }));
+    }
+  };
+  const closeInspector = () => {
+    scope.active = false;
+    scope.epoch += 1;
+    pendingDownload.current?.abort();
+    pendingDownload.current = null;
+    onClose();
+  };
   return (
-    <Modal open onClose={onClose} title="样本检查器" width={720} returnFocusRef={returnFocusRef}>
+    <Modal
+      open
+      onClose={closeInspector}
+      title="样本检查器"
+      width={720}
+      returnFocusRef={returnFocusRef}
+    >
       {result.isLoading && <p role="status">正在读取样本…</p>}
       {result.error && <ErrorState error={result.error} retry={() => void result.refetch()} />}
       {item && (
@@ -1115,7 +1202,18 @@ function ItemInspector({
                 读取只读预览
               </Button>
             )}
-            {!identity && item.file_url && (
+            {!identity && item.file_type !== "video" && (
+              <Button
+                size="sm"
+                disabled={downloadState.scope === downloadScope && downloadState.pending}
+                onClick={() => void downloadOriginal()}
+              >
+                {downloadState.scope === downloadScope && downloadState.pending
+                  ? "正在核验并下载…"
+                  : "核验下载原件"}
+              </Button>
+            )}
+            {!identity && item.file_type === "video" && item.file_url && (
               <a
                 className="text-xs text-primary hover:underline"
                 href={item.file_url}
@@ -1134,6 +1232,11 @@ function ItemInspector({
               </Link>
             )}
           </div>
+          {downloadState.scope === downloadScope && downloadState.error && (
+            <p role="alert" className="mt-3 text-xs text-status-danger">
+              {downloadState.error}
+            </p>
+          )}
           {image.url && (
             <img
               src={image.url}
