@@ -894,3 +894,23 @@ Active image/frame -> fixed resource identity -> owner/content/SHA download path
 点云五类缓存及保留manifest按账号/session隔离，退休时取消请求与解码、清除旧几何/深度/Blob并释放无引用Bitmap；使用中的Bitmap待渲染器释放才close。底层共享下载由独立controller拥有，各消费者取消不杀其他持有者；前景可加入已开始的预取。相机面板/放大、CPU采样、GPU贴图和FramePicker邻帧缩略图统一使用同一认证资源，不把需Bearer的URL直接赋给img。每次await后重核owner与取消；refcount覆盖预取到深度计算完成，避免LRU提前关闭Bitmap。
 
 超过八文件，分离后端DTO/manifest、点云/相机、图片三棵隔离树；主树拥有公共读取/会话边界、集成与实机验收。验证覆盖未知历史整页成功、零原件签名、身份失败无降级、原图片/reference/pyramid回归、两槽与排队取消、共享消费者退出、账号/同账号新session/令牌刷新、迟到fetch/decode/error、所有地址/Bitmap释放及Canvas读取。使用独立一次性环境实际验证图片、点云和六相机/邻帧，明暗及桌面/窄屏、控制台与请求失败；保留3100/8100和原业务/原件，清理测试产物。无新增依赖、配置、迁移或服务；回退不删除原件责任，完整用途切换继续关闭。
+
+## E02-B13-B2-A2 Outcome — 浏览器认证原件与会话资产
+
+公共传输 `0100d36ca`、断连/凭证保护 `a79c35daf`，点云与图片分别集成于 `1f46a121d`、`3071f4506`，后端DTO `791ce8f30`，最终集成 `e66fc5b5b`。非视频Task/Item只返回惰性identity入口，不为列表逐条查归属；未知legacy仍能列出。点云manifest保留标定、scene/pose和精确camera link，不再签原件；主原件缺失不吞合法相机元数据。旧file-url先检查当前可见性，再明确409并在OpenAPI标记弃用；视频及派生物另片处理。
+
+公共读取只为严格Task/Item/camera UUID和同源受控下载路径附加Bearer，以账号、不透明session和content UUID/SHA隔离。两槽覆盖响应正文，前景可提升预取，排队/读取可取消，只对明确容量429有限重试。同session令牌更新保持owner，迟到401/错误不注销新会话。服务器在响应建立前也监听真实断连，重复取消仍等候物理线程和迟到stage关闭，不提前释放槽。裸FastAPI及两层BaseHTTPMiddleware的真实TCP断连探针均验证收尾。
+
+Workbench、Review、DataManager及Dataset检查器接认证原件。先决定single/pyramid，required/ready pyramid不偷偷读取完整原件；真实字节适配SVG和位图，地址版本/显式来源绑定防止复用已撤销地址。错误保留明确重试和写入保护。连续创建意图在图片等待/失败期间保持，实际创建仍锁定；项目、工具绑定和owner改变才清除，避免切题后悄悄退出连续创建。检查器退出或账号改变后不迟到触发下载。
+
+点云完整字节、解码帧、相机Blob/Bitmap及深度缓存按owner管理，共享下载有独立controller和消费者租约。相机面板、放大、CPU/GPU采样、邻帧和标定共用认证身份；每次await后复核owner，使用中的Bitmap最后释放才close。退休时销毁几何、GPU资源及射线命中引用，取消旧相机视角保存回调；正常切帧仍保持原子替换。实际Chrome发现SVG Blob不能直接createImageBitmap，改为opaque Image解码后创建Bitmap，取消及迟到解码仍完整释放。
+
+主树最终587个不同Web用例、133个API/服务/夹具用例及4个SDK合同用例通过；同名复验不重复计数。覆盖原件请求、缓存/队列、跨owner/令牌刷新、401、地址/Bitmap释放、连续创建、标定和旧fixture合同。旧DTO测试刷新数据库生成时间，两个RLE种子在业务事务前独立提交既有静态绑定，fixture保存已知原件的SHA/大小；没有放宽生产读取校验。OpenAPI、本地生成类型、完整Web类型检查、CSS token、文档构建、Ruff/format、正常hooks及完整范围diff检查通过。
+
+一次性18100/13100实际浏览器最终31个不同用例通过：9个图片/审核、21个严格WebGPU点云编辑/播放和1个DataManager只读预览。首轮连续创建回归修复后复验；离线用例受并行HMR影响，在源码冻结后通过。旧Worker总量断言改成实际postMessage角色核对：两个PCD解码、两个深度计算、零CPU上色及零提前terminate，三视图不再额外建池；GPU进程真实崩溃后的WebGL回退通过。当前Chromium适配器为SwiftShader fallback，此结果不构成RTX 3090硬件性能资格；截图单独使用软件WebGL。
+
+命名浏览器额外检查六个独立camera link、两帧PCD、面板放大和切帧；六路SVG Bitmap均读回预期RGBA `[37,49,58,255]`，Canvas未污染。Workbench图片和检查器明暗桌面、检查器与点云明暗390宽截图人工检查通过，无横向溢出；窄屏工作台保持既有桌面提示。检查器实际下载318字节，与身份SHA相同。同session刷新保持缓存，退出后建立新session时五类缓存清零并重新加载。记录中的39个原件请求均携带同源Bearer，无向外部发送；无未捕获或console错误。两条502是隔离fixture中未运行的ML setup/capabilities，导航取消请求另计，没有原件HTTP失败。
+
+人工3100/8100、两个各72任务Worker和独立Beat保持健康，迁移头0231。11张业务表指纹、24对象完整SHA和12源文件保持，新owner表仍为空；本片无Worker逻辑、迁移、依赖、配置、镜像或版本变化。test/e2e均停止并销毁，两个数据库、专用Redis及合计18桶独立查验不存在；命名浏览器关闭，三棵干净且补丁等价的隔离树/分支移除，探针、日志、截图、下载和测试/构建缓存按归属清理。保留人工环境、本地虚拟环境、工作树身份及生成类型。
+
+完整E02/B13和整套epic继续执行，完整用途切换关闭。下一片B13-B2-B为原生视频：当前原件完整核验后受限能力凭据交付、stage复用及Range/HEAD/If-Range/seek，不能每次seek重新读取整个远端文件，也不能让原生video标签直接访问Bearer接口。转码/精确帧派生物拥有独立事实，ML/Worker、金字塔、导出和训练/评估/AL原件消费者继续分别收口。
