@@ -61,6 +61,7 @@ def protected_row(table, row):
             "comment_attachment_uploads",
             "guide_asset_uploads",
             "raster_mask_objects",
+            "prediction_input_leases",
         }
         and result.get("storage_ref") is not None
     ):
@@ -1127,6 +1128,7 @@ async def seed(db, external: Path):
         )
         lease = PredictionInputLease(
             id=uuid.uuid4(),
+            contract_version=1,
             owner_id=uuid.uuid4(),
             owner_kind="recovery_fixture",
             task_id=tasks[0].id,
@@ -1279,6 +1281,16 @@ async def seed(db, external: Path):
         from worktree_recovery_image_export import seed_image_exports
 
         image_task = next(row for row in tasks if row.dataset_item_id == managed.id)
+        from worktree_recovery_prediction_inputs import seed_prediction_inputs
+
+        await seed_prediction_inputs(
+            db,
+            factory=async_session,
+            task_ids={
+                "verified": image_task.id,
+                "planned": task_original_identifier("current"),
+            },
+        )
         await seed_image_exports(
             db,
             project=project,
@@ -1404,6 +1416,9 @@ async def verify_application(db, external: Path):
     assert actor is not None
     task_originals = await verify_task_originals(db, storage=storage, actor=actor)
     auxiliary_originals = await verify_auxiliary_originals(db, storage=storage)
+    from worktree_recovery_prediction_inputs import verify_prediction_inputs
+
+    prediction_inputs = await verify_prediction_inputs(db)
     managed_task = await db.scalar(
         select(Task)
         .join(DatasetItem, Task.dataset_item_id == DatasetItem.id)
@@ -1713,6 +1728,7 @@ async def verify_application(db, external: Path):
         **raster_objects,
         **task_originals,
         **auxiliary_originals,
+        **prediction_inputs,
         **audit_archives,
         "pinned_training_versions": ready_count + partial_count,
         "pinned_training_deletions": deletion_count,

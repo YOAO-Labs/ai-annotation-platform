@@ -26,6 +26,78 @@ from worktree_recovery_fixture import (
 from worktree_recovery_mapping import identity
 
 
+class PredictionInputProtectedFacts(unittest.TestCase):
+    def test_prediction_input_mapping_preserves_inventory_and_source_proof(self):
+        from worktree_recovery_fixture import digest, protected_row
+
+        table = "prediction_input_leases"
+        legacy = {
+            "id": "legacy",
+            "contract_version": 1,
+            "bucket": "source",
+            "storage_identity": "old",
+            "storage_ref": None,
+            "inventory": None,
+            "source_ref": None,
+        }
+        current = {
+            "id": "independent",
+            "contract_version": 2,
+            "bucket": "source",
+            "storage_identity": "old",
+            "storage_ref": {
+                "bucket": "source",
+                "storage_identity": "old",
+                "key_prefix": "prediction-inputs/immutable-uuid/",
+                "purpose": "import",
+                "binding_generation": 1,
+            },
+            "inventory": {
+                "schema": 1,
+                "objects": {
+                    "crop": {
+                        "state": "planned",
+                        "write_nonce": "immutable-write",
+                        "sha256": "frozen",
+                    },
+                },
+            },
+            "source_ref": {
+                "original": {"bucket": "historical", "facts_digest": "frozen"}
+            },
+            "state": "cleanup_pending",
+            "expires_at": "fixed",
+            "retain_until": "fixed-later",
+        }
+        for before in (legacy, current):
+            after = deepcopy(before)
+            after.update(bucket="target", storage_identity="new")
+            if after["storage_ref"] is not None:
+                after["storage_ref"].update(bucket="target", storage_identity="new")
+            self.assertEqual(protected_row(table, before), protected_row(table, after))
+            self.assertNotEqual(digest(before), digest(after))
+        frozen = digest(protected_row(table, current))
+        for path in (
+            ("inventory", "objects", "crop", "write_nonce"),
+            ("inventory", "objects", "crop", "state"),
+            ("inventory", "objects", "crop", "sha256"),
+            ("source_ref", "original", "bucket"),
+            ("source_ref", "original", "facts_digest"),
+            ("storage_ref", "key_prefix"),
+            ("storage_ref", "binding_generation"),
+            ("expires_at",),
+            ("retain_until",),
+            ("id",),
+            ("state",),
+        ):
+            changed = deepcopy(current)
+            target = changed
+            for name in path[:-1]:
+                target = target[name]
+            target[path[-1]] = "forbidden-change"
+            self.assertNotEqual(digest(protected_row(table, changed)), frozen, path)
+
+
 class ExportMediaProtectedFacts(unittest.IsolatedAsyncioTestCase):
     async def test_only_media_cache_indexes_are_disposable_in_protected_fingerprint(
         self,
