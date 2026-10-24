@@ -46,6 +46,8 @@ _SPATIAL_RETIRED_MODULES = (
 )
 
 REMOVED_MODULES = (
+    "app.services.notification_preferences",
+    "app.services.notification_preferences_command",
     "app.services.mask_formats.safe_archive",
     "app.services.role_patterns",
     "app.services.dataset_frame_grouping",
@@ -226,14 +228,6 @@ DOMAIN_PACKAGES = (
         package="audit_summary",
         legacy_facades=(),
         allowed_app_imports=("app.schemas.audit",),
-    ),
-    DomainSpec(
-        package="notification_preferences_command",
-        legacy_facades=(),
-        allowed_app_imports=(
-            "app.db.models.notification_preference",
-            "app.services.notification_preferences",
-        ),
     ),
     DomainSpec(package="account_groups", legacy_facades=()),
     DomainSpec(package="quality_job_dispatch", legacy_facades=()),

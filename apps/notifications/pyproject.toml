@@ -1,0 +1,74 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aap-notifications"
+version = "0.1.0"
+description = "Portable Notifications contracts and PostgreSQL capability clients"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.10.0"]
+
+[project.optional-dependencies]
+postgres = ["sqlalchemy[asyncio]>=2.0.0"]
+runtime = [
+    "asyncpg>=0.30.0",
+    "pydantic-settings>=2.6.0",
+    "redis>=5.2.0",
+    "starlette>=1.0.0",
+    "uvicorn>=0.46.0",
+]
+publication-client = ["httpx>=0.28.1"]
+websocket = [
+    "aap-identity-admission[http]",
+    "aap-owner-data",
+    "asyncpg>=0.30.0",
+    "pydantic-settings>=2.6.0",
+    "redis>=5.2.0",
+    "starlette>=1.0.0",
+    "uvicorn[standard]>=0.46.0",
+]
+test = [
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.6.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "starlette>=1.0.0",
+]
+
+[project.scripts]
+aap-notifications-publisher = "aap_notifications.delivery_worker:main"
+aap-notifications-socket = "aap_notifications.websocket_runtime:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aap_notifications"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/aap_notifications/sql/0311_notifications_preferences.sql" = "aap_notifications/sql/0311_notifications_preferences.sql"
+"src/aap_notifications/sql/0314_notifications_append.sql" = "aap_notifications/sql/0314_notifications_append.sql"
+"src/aap_notifications/sql/0316_notifications_read_state.sql" = "aap_notifications/sql/0316_notifications_read_state.sql"
+"src/aap_notifications/sql/0318_notifications_delete.sql" = "aap_notifications/sql/0318_notifications_delete.sql"
+"src/aap_notifications/sql/0319_notifications_read_relations.sql" = "aap_notifications/sql/0319_notifications_read_relations.sql"
+"src/aap_notifications/sql/0321_notifications_terminal_append.sql" = "aap_notifications/sql/0321_notifications_terminal_append.sql"
+"src/aap_notifications/sql/0324_notifications_inbox_query.sql" = "aap_notifications/sql/0324_notifications_inbox_query.sql"
+"src/aap_notifications/sql/0325_notifications_delivery_read.sql" = "aap_notifications/sql/0325_notifications_delivery_read.sql"
+"src/aap_notifications/preferences.schema.json" = "aap_notifications/preferences.schema.json"
+"src/aap_notifications/preferences.policy.json" = "aap_notifications/preferences.policy.json"
+"src/aap_notifications/append.schema.json" = "aap_notifications/append.schema.json"
+"src/aap_notifications/read_state.schema.json" = "aap_notifications/read_state.schema.json"
+"src/aap_notifications/delete.schema.json" = "aap_notifications/delete.schema.json"
+"src/aap_notifications/read_relations.schema.json" = "aap_notifications/read_relations.schema.json"
+"src/aap_notifications/terminal_append.schema.json" = "aap_notifications/terminal_append.schema.json"
+"src/aap_notifications/inbox_query.schema.json" = "aap_notifications/inbox_query.schema.json"
+"src/aap_notifications/delivery_read.schema.json" = "aap_notifications/delivery_read.schema.json"
+"src/aap_notifications/notification_delivery_protocol.schema.json" = "aap_notifications/notification_delivery_protocol.schema.json"
+"src/aap_notifications/realtime_event.schema.json" = "aap_notifications/realtime_event.schema.json"
+"src/aap_notifications/publication.schema.json" = "aap_notifications/publication.schema.json"
+
+[tool.uv.sources]
+aap-identity-admission = { path = "../_shared/identity_admission", editable = true }
+aap-owner-data = { path = "../_shared/owner_data", editable = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

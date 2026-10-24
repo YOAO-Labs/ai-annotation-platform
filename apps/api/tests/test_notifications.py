@@ -11,7 +11,7 @@ from app.db.models.notification import Notification
 from app.db.models.notification_preference import NotificationPreference
 from app.services.display_id import next_display_id
 from app.services.notification import NotificationService
-from app.services.notification_preferences import (
+from aap_notifications.preferences_policy import (
     KNOWN_NOTIFICATION_TYPES,
     default_toast_for,
 )

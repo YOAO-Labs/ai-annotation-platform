@@ -1,51 +1,90 @@
-"""Independent, at-least-once Notifications Redis publisher."""
+"""Compatibility entry for the Notifications-owned publisher."""
 
 from __future__ import annotations
 
-import argparse
 import asyncio
+import argparse
 import json
 import logging
 import uuid
-from datetime import UTC
 
 from aap_identity.contract import IdentityUnavailable
-from aap_identity.notification_delivery_contract import (
+from aap_identity.notification_delivery_postgres import (
+    NotificationDeliveryPostgresData,
+)
+from aap_notifications.delivery_config import NotificationPublisherSettings
+from aap_notifications.delivery_worker import (
+    NotificationPublisher as _NotificationPublisher,
+    _notification_message as _notifications_notification_message,
+    run_forever as _notifications_run_forever,
+    run_once as _notifications_run_once,
+)
+from aap_notifications.notification_delivery_contract import (
+    NotificationDeliveryUnavailable,
     NotificationLease,
     NOTIFICATION_DELIVERY_POLICY,
 )
-from aap_identity.notification_delivery_postgres import NotificationDeliveryPostgresData
 
-from .notification_config import NotificationPublisherSettings
 
 log = logging.getLogger("aap_identity_runtime.notification_worker")
 
+__all__ = [
+    "NOTIFICATION_DELIVERY_POLICY",
+    "NotificationDeliveryUnavailable",
+    "NotificationDeliveryPostgresData",
+    "NotificationLease",
+    "NotificationPublisher",
+    "NotificationPublisherSettings",
+    "_notification_message",
+    "_serve",
+    "main",
+    "run_forever",
+    "run_once",
+]
 
-def _notification_message(lease: NotificationLease) -> tuple[str, str]:
-    """Build the existing WebSocket channel and message shape without user_id."""
-    message = {
-        "id": str(lease.id),
-        "type": lease.type,
-        "target_type": lease.target_type,
-        "target_id": str(lease.target_id),
-        "payload": lease.payload.model_dump(mode="json", by_alias=True),
-        "created_at": lease.created_at.astimezone(UTC).isoformat(),
-    }
-    try:
-        encoded = json.dumps(
-            message,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
+
+class _IdentityErrorAdapter:
+    def __init__(self, data):
+        self.data = data
+
+    async def _call(self, method, *args, **kwargs):
+        try:
+            return await getattr(self.data, method)(*args, **kwargs)
+        except IdentityUnavailable:
+            raise NotificationDeliveryUnavailable() from None
+
+    async def delivery_policy(self):
+        return await self._call("delivery_policy")
+
+    async def claim_deliveries(self, worker_id, *, limit=16, lease_seconds=60):
+        return await self._call(
+            "claim_deliveries",
+            worker_id,
+            limit=limit,
+            lease_seconds=lease_seconds,
         )
-    except (TypeError, ValueError, UnicodeError):
+
+    async def finish_delivery(self, lease, *, outcome, reason):
+        return await self._call(
+            "finish_delivery",
+            lease,
+            outcome=outcome,
+            reason=reason,
+        )
+
+
+def _identity_data(data):
+    return _IdentityErrorAdapter(data) if data is not None else None
+
+
+def _notification_message(lease):
+    try:
+        return _notifications_notification_message(lease)
+    except NotificationDeliveryUnavailable:
         raise IdentityUnavailable() from None
-    return f"notify:{lease.user_id}", encoded
 
 
-class NotificationPublisher:
-    """Claim durable rows, publish with stable IDs, then acknowledge the lease."""
-
+class NotificationPublisher(_NotificationPublisher):
     def __init__(
         self,
         data,
@@ -57,99 +96,21 @@ class NotificationPublisher:
         concurrency: int = 4,
         redis_timeout_seconds: float = 5,
     ):
-        if worker_id is not None and type(worker_id) is not uuid.UUID:
-            raise TypeError("worker_id must be a UUID")
-        if (
-            type(claim_limit) is not int
-            or not 1 <= claim_limit <= 100
-            or type(lease_seconds) is not int
-            or not 1 <= lease_seconds <= 300
-            or type(concurrency) is not int
-            or not 1 <= concurrency <= 4
-            or type(redis_timeout_seconds) not in (int, float)
-            or not 0 < redis_timeout_seconds <= 5
-        ):
-            raise ValueError("Invalid notification publisher bounds")
-        self.data = data
-        self.redis = redis
-        self.worker_id = worker_id or uuid.uuid4()
-        self.claim_limit = claim_limit
-        self.lease_seconds = lease_seconds
-        self.concurrency = concurrency
-        self.redis_timeout_seconds = float(redis_timeout_seconds)
+        super().__init__(
+            _IdentityErrorAdapter(data),
+            redis,
+            worker_id=worker_id,
+            claim_limit=claim_limit,
+            lease_seconds=lease_seconds,
+            concurrency=concurrency,
+            redis_timeout_seconds=redis_timeout_seconds,
+        )
 
-    async def _retry(self, lease: NotificationLease) -> str:
+    async def run_once(self):
         try:
-            accepted = await self.data.finish_delivery(
-                lease, outcome="retry", reason="redis_error"
-            )
-        except IdentityUnavailable:
-            # The lease expires and can be reclaimed; never log the Redis URL or
-            # driver exception from a delivery failure.
-            return "unavailable"
-        return "retry" if accepted else "stale"
-
-    async def _publish_one(self, lease: NotificationLease, semaphore) -> str:
-        async with semaphore:
-            try:
-                channel, message = _notification_message(lease)
-                async with asyncio.timeout(self.redis_timeout_seconds):
-                    # A zero subscriber count still means Redis accepted PUBLISH;
-                    # inbox rows are durable and clients can fetch them later.
-                    await self.redis.publish(channel, message)
-            except asyncio.CancelledError:
-                # The lease will expire and another worker will retry. A publish
-                # interrupted in flight may be delivered twice with the same ID.
-                raise
-            except Exception:
-                return await self._retry(lease)
-
-            try:
-                accepted = await self.data.finish_delivery(
-                    lease, outcome="delivered", reason="published"
-                )
-            except IdentityUnavailable:
-                # Redis may already have delivered. Lease expiry provides the
-                # recovery path and the stable notification ID deduplicates it.
-                return "unavailable"
-            return "published" if accepted else "stale"
-
-    async def run_once(self) -> dict[str, int]:
-        """Claim one bounded page; the claim transaction commits before PUBLISH."""
-        leases = await self.data.claim_deliveries(
-            self.worker_id,
-            limit=self.claim_limit,
-            lease_seconds=self.lease_seconds,
-        )
-        if len(leases) > self.claim_limit:
-            raise IdentityUnavailable()
-        ids = [lease.id for lease in leases]
-        lease_ids = [lease.lease_id for lease in leases]
-        if (
-            len(ids) != len(set(ids))
-            or len(lease_ids) != len(set(lease_ids))
-            or any(lease.worker_id != self.worker_id for lease in leases)
-        ):
-            raise IdentityUnavailable()
-        if not leases:
-            return {
-                "claimed": 0,
-                "published": 0,
-                "retry": 0,
-                "stale": 0,
-                "unavailable": 0,
-            }
-        semaphore = asyncio.Semaphore(self.concurrency)
-        outcomes = await asyncio.gather(
-            *(self._publish_one(lease, semaphore) for lease in leases)
-        )
-        return {
-            "claimed": len(leases),
-            "published": outcomes.count("published"),
-            "retry": outcomes.count("retry"),
-            "stale": outcomes.count("stale"),
-            "unavailable": outcomes.count("unavailable"),
-        }
+            return await super().run_once()
+        except NotificationDeliveryUnavailable:
+            raise IdentityUnavailable() from None
 
 
 async def run_forever(
@@ -159,58 +120,15 @@ async def run_forever(
     redis=None,
     stop_event: asyncio.Event | None = None,
 ) -> None:
-    """Poll the durable queue until cancelled or the supplied event is set."""
-    owns_redis = redis is None
-    if data is None:
-        data = NotificationDeliveryPostgresData(
-            settings.database_url.get_secret_value(),
-            connect_timeout=settings.connect_timeout_seconds,
-            command_timeout=settings.command_timeout_seconds,
-        )
-    if redis is None:
-        from redis.asyncio import Redis
-
-        redis = Redis.from_url(
-            settings.redis_url.get_secret_value(),
-            socket_connect_timeout=settings.redis_timeout_seconds,
-            socket_timeout=settings.redis_timeout_seconds,
-            decode_responses=False,
-        )
-    if stop_event is None:
-        stop_event = asyncio.Event()
-
     try:
-        policy = await data.delivery_policy()
-        if policy.policy != NOTIFICATION_DELIVERY_POLICY:
-            raise IdentityUnavailable()
-        async with asyncio.timeout(settings.redis_timeout_seconds):
-            await redis.ping()
-        publisher = NotificationPublisher(
-            data,
-            redis,
-            claim_limit=settings.claim_limit,
-            lease_seconds=settings.lease_seconds,
-            concurrency=settings.concurrency,
-            redis_timeout_seconds=settings.redis_timeout_seconds,
+        return await _notifications_run_forever(
+            settings,
+            data=_identity_data(data),
+            redis=redis,
+            stop_event=stop_event,
         )
-        while not stop_event.is_set():
-            try:
-                result = await publisher.run_once()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # Do not log exception text: driver errors can contain DSNs.
-                await asyncio.sleep(settings.poll_interval_seconds)
-                continue
-            if result["claimed"] < settings.claim_limit:
-                await asyncio.sleep(settings.poll_interval_seconds)
-    finally:
-        if owns_redis:
-            try:
-                await redis.aclose()
-            except Exception:
-                if not asyncio.current_task().cancelling():
-                    log.warning("notification publisher Redis close failed")
+    except NotificationDeliveryUnavailable:
+        raise IdentityUnavailable() from None
 
 
 async def run_once(
@@ -219,43 +137,14 @@ async def run_once(
     data=None,
     redis=None,
 ) -> dict[str, int]:
-    """Validate the owner policy and publish at most one bounded claim page."""
-    owns_redis = redis is None
-    if data is None:
-        data = NotificationDeliveryPostgresData(
-            settings.database_url.get_secret_value(),
-            connect_timeout=settings.connect_timeout_seconds,
-            command_timeout=settings.command_timeout_seconds,
-        )
-    if redis is None:
-        from redis.asyncio import Redis
-
-        redis = Redis.from_url(
-            settings.redis_url.get_secret_value(),
-            socket_connect_timeout=settings.redis_timeout_seconds,
-            socket_timeout=settings.redis_timeout_seconds,
-            decode_responses=False,
-        )
     try:
-        policy = await data.delivery_policy()
-        if policy.policy != NOTIFICATION_DELIVERY_POLICY:
-            raise IdentityUnavailable()
-        publisher = NotificationPublisher(
-            data,
-            redis,
-            claim_limit=settings.claim_limit,
-            lease_seconds=settings.lease_seconds,
-            concurrency=settings.concurrency,
-            redis_timeout_seconds=settings.redis_timeout_seconds,
+        return await _notifications_run_once(
+            settings,
+            data=_identity_data(data),
+            redis=redis,
         )
-        return await publisher.run_once()
-    finally:
-        if owns_redis:
-            try:
-                await redis.aclose()
-            except Exception:
-                if not asyncio.current_task().cancelling():
-                    raise IdentityUnavailable() from None
+    except NotificationDeliveryUnavailable:
+        raise IdentityUnavailable() from None
 
 
 async def _serve(settings: NotificationPublisherSettings, *, once: bool) -> None:

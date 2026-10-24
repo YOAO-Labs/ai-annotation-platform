@@ -14,6 +14,7 @@ COPY apps/_shared/training_contract /_shared/training_contract
 COPY apps/_shared/workspace_contract /_shared/workspace_contract
 COPY apps/_shared/audit_contract /_shared/audit_contract
 COPY apps/_shared/mail_transport /_shared/mail_transport
+COPY apps/notifications /notifications
 COPY apps/identity /identity
 COPY apps/media-probe /media-probe
 COPY apps/assets-catalog /assets-catalog
@@ -27,7 +28,7 @@ COPY apps/api/pyproject.toml apps/api/uv.lock ./
 # Keep dependencies outside /app: development workers bind-mount the source there.
 RUN uv venv /opt/venv \
   && uv export --frozen --no-dev --no-emit-project \
-       --no-emit-package aap-identity --no-emit-package aap-mail-transport --no-emit-package aap-task-contract --no-emit-package aap-protocol-v2 --no-emit-package aap-training-contract --no-emit-package aap-workspace-contract --no-emit-package aap-audit-contract --no-emit-package aap-media-probe --no-emit-package aap-assets-cleanup --no-emit-package aap-assets-source --no-emit-package aap-assets-catalog --no-emit-package aap-assets-media --no-emit-package aap-assets-mask-content --no-emit-package aap-labeling-mask-gc --no-emit-package aap-preannotation-results --output-file /tmp/requirements.txt \
+       --no-emit-package aap-identity --no-emit-package aap-mail-transport --no-emit-package aap-notifications --no-emit-package aap-task-contract --no-emit-package aap-protocol-v2 --no-emit-package aap-training-contract --no-emit-package aap-workspace-contract --no-emit-package aap-audit-contract --no-emit-package aap-media-probe --no-emit-package aap-assets-cleanup --no-emit-package aap-assets-source --no-emit-package aap-assets-catalog --no-emit-package aap-assets-media --no-emit-package aap-assets-mask-content --no-emit-package aap-labeling-mask-gc --no-emit-package aap-preannotation-results --output-file /tmp/requirements.txt \
   && uv pip install --python /opt/venv/bin/python --require-hashes \
        -r /tmp/requirements.txt \
   && uv pip install --python /opt/venv/bin/python --no-deps /_shared/task_contract \
@@ -36,6 +37,7 @@ RUN uv venv /opt/venv \
   && uv pip install --python /opt/venv/bin/python --no-deps /_shared/workspace_contract \
   && uv pip install --python /opt/venv/bin/python --no-deps /_shared/audit_contract \
   && uv pip install --python /opt/venv/bin/python --no-deps /_shared/mail_transport \
+  && uv pip install --python /opt/venv/bin/python --no-deps /notifications \
   && uv pip install --python /opt/venv/bin/python --no-deps /identity \
   && uv pip install --python /opt/venv/bin/python --no-deps /media-probe \
   && uv pip install --python /opt/venv/bin/python --no-deps /assets-catalog \

@@ -200,6 +200,7 @@ name = "aap-identity"
 version = "0.1.0"
 source = { editable = "../identity" }
 dependencies = [
+    { name = "aap-notifications" },
     { name = "bcrypt" },
     { name = "pydantic" },
     { name = "python-jose", extra = ["cryptography"] },
@@ -213,6 +214,8 @@ postgres = [
 [package.metadata]
 requires-dist = [
     { name = "aap-mail-transport", marker = "extra == 'runtime'", editable = "../_shared/mail_transport" },
+    { name = "aap-notifications", editable = "../notifications" },
+    { name = "aap-notifications", extras = ["runtime"], marker = "extra == 'runtime'", editable = "../notifications" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
     { name = "bcrypt", specifier = ">=4.0" },
@@ -292,6 +295,47 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.32.0" },
 ]
 provides-extras = ["client", "server", "test"]
+
+[[package]]
+name = "aap-notifications"
+version = "0.1.0"
+source = { editable = "../notifications" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+postgres = [
+    { name = "sqlalchemy", extra = ["asyncio"] },
+]
+publication-client = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aap-identity-admission", extras = ["http"], marker = "extra == 'websocket'", editable = "../_shared/identity_admission" },
+    { name = "aap-owner-data", marker = "extra == 'websocket'", editable = "../_shared/owner_data" },
+    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
+    { name = "asyncpg", marker = "extra == 'websocket'", specifier = ">=0.30.0" },
+    { name = "httpx", marker = "extra == 'publication-client'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.6.0" },
+    { name = "pydantic-settings", marker = "extra == 'test'", specifier = ">=2.6.0" },
+    { name = "pydantic-settings", marker = "extra == 'websocket'", specifier = ">=2.6.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "redis", marker = "extra == 'runtime'", specifier = ">=5.2.0" },
+    { name = "redis", marker = "extra == 'websocket'", specifier = ">=5.2.0" },
+    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'postgres'", specifier = ">=2.0.0" },
+    { name = "starlette", marker = "extra == 'runtime'", specifier = ">=1.0.0" },
+    { name = "starlette", marker = "extra == 'test'", specifier = ">=1.0.0" },
+    { name = "starlette", marker = "extra == 'websocket'", specifier = ">=1.0.0" },
+    { name = "uvicorn", marker = "extra == 'runtime'", specifier = ">=0.46.0" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'websocket'", specifier = ">=0.46.0" },
+]
+provides-extras = ["postgres", "runtime", "publication-client", "websocket", "test"]
 
 [[package]]
 name = "aap-preannotation-results"
@@ -406,6 +450,7 @@ dependencies = [
     { name = "aap-labeling-mask-gc", extra = ["client"] },
     { name = "aap-mail-transport" },
     { name = "aap-media-probe", extra = ["client"] },
+    { name = "aap-notifications", extra = ["postgres", "publication-client"] },
     { name = "aap-preannotation-results" },
     { name = "aap-protocol-v2" },
     { name = "aap-task-contract" },
@@ -439,6 +484,7 @@ dependencies = [
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "structlog" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -462,6 +508,7 @@ requires-dist = [
     { name = "aap-labeling-mask-gc", extras = ["client"], editable = "../labeling-mask-gc" },
     { name = "aap-mail-transport", editable = "../_shared/mail_transport" },
     { name = "aap-media-probe", extras = ["client"], editable = "../media-probe" },
+    { name = "aap-notifications", extras = ["postgres", "publication-client"], editable = "../notifications" },
     { name = "aap-preannotation-results", editable = "../preannotation-results" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "aap-task-contract", editable = "../_shared/task_contract" },
@@ -499,6 +546,7 @@ requires-dist = [
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.0" },
     { name = "structlog", specifier = ">=25.5.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
+    { name = "websockets", specifier = ">=15.0" },
 ]
 provides-extras = ["test"]
 
@@ -2549,7 +2597,7 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 dependencies = [
-    { name = "numpy", marker = "python_full_version < '3.12'" },
+    { name = "numpy" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7a/97/5a3609c4f8d58b039179648e62dd220f89864f56f7357f5d4f45c29eb2cc/scipy-1.17.1.tar.gz", hash = "sha256:95d8e012d8cb8816c226aef832200b1d45109ed4464303e997c5b13122b297c0", size = 30573822, upload-time = "2026-02-23T00:26:24.851Z" }
 wheels = [
@@ -2623,7 +2671,7 @@ resolution-markers = [
     "python_full_version >= '3.12'",
 ]
 dependencies = [
-    { name = "numpy", marker = "python_full_version >= '3.12'" },
+    { name = "numpy" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a7/25/c2700dfaf6442b4effaa91af24ebce5dc9d31bb4a69706313aae70d72cd0/scipy-1.18.0.tar.gz", hash = "sha256:67b2ad2ad54c72ca6d04975a9b2df8c3638c34ddd5b28738e94fc2b57929d378", size = 30774447, upload-time = "2026-06-19T15:01:43.456Z" }
 wheels = [

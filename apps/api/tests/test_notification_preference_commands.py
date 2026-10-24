@@ -367,7 +367,7 @@ def test_notification_preference_catalog_cold_load_uses_only_stdlib():
 import importlib
 import sys
 sys.path.insert(0, sys.argv[1])
-importlib.import_module("app.services.notification_preferences")
+importlib.import_module("aap_notifications.preferences_policy")
 blocked = (
     "sqlalchemy",
     "fastapi",
@@ -385,7 +385,14 @@ assert not [
 ]
 """
     result = subprocess.run(
-        [sys.executable, "-I", "-S", "-c", script, str(_API_ROOT)],
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            "-c",
+            script,
+            str(_API_ROOT.parent / "notifications" / "src"),
+        ],
         check=False,
         capture_output=True,
         text=True,

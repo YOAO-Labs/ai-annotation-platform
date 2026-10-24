@@ -1,0 +1,40 @@
+{
+  "known_notification_types": [
+    "bug_report.commented",
+    "bug_report.reopened",
+    "bug_report.status_changed",
+    "batch.rejected",
+    "batch.review_reopened",
+    "batch.admin_locked",
+    "batch.admin_unlocked",
+    "batch.unarchived",
+    "task.approved",
+    "task.rejected",
+    "task.reopened",
+    "failed_prediction.retry.started",
+    "failed_prediction.retry.succeeded",
+    "failed_prediction.retry.failed",
+    "export.ready",
+    "export.failed",
+    "job.completed",
+    "job.failed",
+    "job.cancelled",
+    "user.deactivation_requested",
+    "user.deactivation_completed",
+    "feedback.reply_created",
+    "feedback.status_changed",
+    "feedback.comment_mentioned",
+    "annotation.comment_mentioned"
+  ],
+  "default_toast_types": [
+    "task.rejected",
+    "batch.rejected",
+    "batch.review_reopened",
+    "batch.admin_locked",
+    "annotation.comment_mentioned",
+    "feedback.comment_mentioned",
+    "feedback.reply_created",
+    "job.failed",
+    "export.failed"
+  ]
+}

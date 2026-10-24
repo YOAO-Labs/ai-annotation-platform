@@ -1,0 +1,198 @@
+{
+  "$defs": {
+    "AppendedNotification": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "read_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Read At"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "target_type": {
+          "title": "Target Type",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "type",
+        "target_type",
+        "target_id",
+        "payload",
+        "read_at",
+        "created_at"
+      ],
+      "title": "AppendedNotification",
+      "type": "object"
+    },
+    "TerminalAppendError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": ["invalid_request", "unsupported_isolation"],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "TerminalAppendError",
+      "type": "object"
+    },
+    "TerminalNotificationData": {
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "title": "Created",
+          "type": "boolean"
+        },
+        "notification": {
+          "$ref": "#/$defs/AppendedNotification"
+        },
+        "operation": {
+          "const": "append_job_terminal",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": ["operation", "created", "notification"],
+      "title": "TerminalNotificationData",
+      "type": "object"
+    },
+    "TerminalNotificationFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/TerminalAppendError"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-notification-terminal-append/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "TerminalNotificationFailure",
+      "type": "object"
+    },
+    "TerminalNotificationReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/TerminalNotificationData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-notification-terminal-append/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "TerminalNotificationReply",
+      "type": "object"
+    },
+    "TerminalNotificationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "append_job_terminal",
+          "title": "Operation",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "schema": {
+          "const": "aap-notification-terminal-append/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "type": {
+          "enum": ["job.completed", "job.failed", "job.cancelled"],
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "id", "user_id", "type", "target_id", "payload"],
+      "title": "TerminalNotificationRequest",
+      "type": "object"
+    }
+  },
+  "$id": "aap-notification-terminal-append/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/TerminalNotificationRequest"
+    },
+    {
+      "$ref": "#/$defs/TerminalNotificationReply"
+    },
+    {
+      "$ref": "#/$defs/TerminalNotificationFailure"
+    }
+  ],
+  "title": "AAP async-job terminal notification append protocol"
+}

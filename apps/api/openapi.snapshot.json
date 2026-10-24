@@ -25008,10 +25008,8 @@
             "type": "string"
           },
           "payload": {
-            "additionalProperties": true,
             "default": {},
-            "title": "Payload",
-            "type": "object"
+            "title": "Payload"
           },
           "read_at": {
             "anyOf": [
@@ -62069,7 +62067,7 @@
     },
     "/api/v1/notification-preferences": {
       "get": {
-        "description": "v0.7.0：返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。\n\ntoast 是 v0.15 计划新增的有效弹出选择：显式存储值优先，未存储时按类型的\n默认重要程度（services/notification_preferences.py）。",
+        "description": "v0.7.0：返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。\n\ntoast 的未存储值由 Notifications 偏好合同按类型给出默认重要程度。",
         "operationId": "get_preferences_api_v1_notification_preferences_get",
         "responses": {
           "200": {

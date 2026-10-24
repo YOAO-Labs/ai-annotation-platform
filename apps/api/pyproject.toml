@@ -13,6 +13,7 @@ dependencies = [
     "aap-assets-cleanup",
     "aap-assets-source",
     "aap-audit-contract",
+    "aap-notifications[postgres,publication-client]",
     "aap-media-probe[client]",
     "aap-task-contract",
     "aap-training-contract",
@@ -20,6 +21,7 @@ dependencies = [
     "aap-protocol-v2",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
+    "websockets>=15.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
@@ -65,6 +67,7 @@ aap-preannotation-results = { path = "../preannotation-results", editable = true
 aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
 aap-assets-source = { path = "../assets-source", editable = true }
 aap-audit-contract = { path = "../_shared/audit_contract", editable = true }
+aap-notifications = { path = "../notifications", editable = true }
 aap-media-probe = { path = "../media-probe", editable = true }
 aap-task-contract = { path = "../_shared/task_contract", editable = true }
 aap-training-contract = { path = "../_shared/training_contract", editable = true }

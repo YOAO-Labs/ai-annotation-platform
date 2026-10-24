@@ -18,20 +18,16 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, model_validator
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.notification_preference import NotificationPreference
+from aap_notifications.preferences import (
+    KNOWN_NOTIFICATION_TYPES,
+    NotificationPreferenceManager,
+)
+from aap_notifications.preferences_postgres import NotificationPreferencesPostgresData
 from app.deps import get_db, get_current_user
 from app.schemas.notification import NotificationList, NotificationOut, UnreadCount
 from app.services.notification import NotificationService
-from app.services.notification_preferences import (
-    KNOWN_NOTIFICATION_TYPES,
-    default_toast_for,
-)
-from app.services.notification_preferences_command import (
-    NotificationPreferenceCommandService,
-)
 from app.services.identity_contracts import IdentityActorFacts
 
 
@@ -152,12 +148,6 @@ async def delete_notification(
     return {"ok": True}
 
 
-def _stored_toast(channels: dict | None, notification_type: str) -> bool | None:
-    """Stored popup choice, or None when the account has not chosen yet."""
-    value = (channels or {}).get("toast")
-    return value if isinstance(value, bool) else None
-
-
 @router.get("/notification-preferences", response_model=NotificationPreferencesOut)
 async def get_preferences(
     db: AsyncSession = Depends(get_db),
@@ -165,36 +155,14 @@ async def get_preferences(
 ):
     """v0.7.0：返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。
 
-    toast 是 v0.15 计划新增的有效弹出选择：显式存储值优先，未存储时按类型的
-    默认重要程度（services/notification_preferences.py）。
+    toast 的未存储值由 Notifications 偏好合同按类型给出默认重要程度。
     """
-    rows = (
-        (
-            await db.execute(
-                select(NotificationPreference).where(
-                    NotificationPreference.user_id == user.id
-                )
-            )
-        )
-        .scalars()
-        .all()
+    items = await NotificationPreferenceManager(
+        NotificationPreferencesPostgresData(db)
+    ).get(user.id)
+    return NotificationPreferencesOut(
+        items=[NotificationPreferenceItem.model_validate(item) for item in items]
     )
-    by_type = {r.type: (r.channels or {}) for r in rows}
-    items = []
-    for t in KNOWN_NOTIFICATION_TYPES:
-        ch = by_type.get(t, {})
-        stored_toast = _stored_toast(ch, t)
-        items.append(
-            NotificationPreferenceItem(
-                type=t,
-                in_app=bool(ch.get("in_app", True)),
-                email=bool(ch.get("email", False)),
-                toast=stored_toast
-                if stored_toast is not None
-                else default_toast_for(t),
-            )
-        )
-    return NotificationPreferencesOut(items=items)
 
 
 @router.put("/notification-preferences")
@@ -224,10 +192,8 @@ async def update_preference(
         patch["in_app"] = data.in_app
     if data.toast is not None:
         patch["toast"] = data.toast
-    await NotificationPreferenceCommandService(db).merge_channels(
-        user_id=user.id,
-        notification_type=data.type,
-        patch=patch,
+    await NotificationPreferenceManager(NotificationPreferencesPostgresData(db)).patch(
+        user.id, data.type, patch
     )
     await db.commit()
     await NotificationService(db).publish_sync(user.id, reason="preferences")
