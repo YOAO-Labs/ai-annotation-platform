@@ -292,7 +292,7 @@ async def verify_cache(db, artifact):
     return CacheHit(artifact_id, cache_key, batch_id, receipt, revision)
 
 
-async def sign_cached(db, hit, *, project_id, download_name):
+async def sign_cached(db, hit, *, project_id, download_name, before_sign=None):
     """Lock the same verified candidate and fence maintenance until publication."""
     if hit.project_id != project_id:
         reject("export_cache_output_mismatch")
@@ -322,6 +322,8 @@ async def sign_cached(db, hit, *, project_id, download_name):
         expected_revision=hit.gate_revision,
         lock=True,
     )
+    if before_sign is not None:
+        await before_sign()
     return export_storage.sign(hit.output, download_name=download_name)
 
 

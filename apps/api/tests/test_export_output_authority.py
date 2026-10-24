@@ -154,3 +154,74 @@ def test_public_job_payload_hides_output_key_proof_without_mutating_it():
     before = deepcopy(private)
     assert AsyncJobOut.public_payload(private) == {"targets": ["coco"]}
     assert private == before
+
+
+@pytest.mark.parametrize("scope", ["project", "batch", "selected"])
+@pytest.mark.parametrize("credential", ["jwt", "key"])
+async def test_all_new_http_export_entries_preserve_and_hide_original_authority(
+    httpx_client, db_session, super_admin, monkeypatch, scope, credential
+):
+    from app.db.models.api_key import ApiKey
+    from app.db.models.async_job import AsyncJob
+    from app.workers.export import run_export
+    from tests.factory import create_batch, create_project, create_task
+    from unittest.mock import Mock
+
+    actor, token = super_admin
+    project = await create_project(db_session, owner_id=actor.id)
+    batch = await create_batch(db_session, project_id=project.id, status="active")
+    task = await create_task(db_session, project_id=project.id)
+    task.batch_id = batch.id
+    key = None
+    if credential == "key":
+        token = "ak_" + uuid.uuid4().hex
+        key = ApiKey(
+            user_id=actor.id,
+            name="output-authority-fixture",
+            key_prefix=token[:12],
+            key_hash=hash_password(token),
+            scopes=["*"],
+        )
+        db_session.add(key)
+    await db_session.commit()
+    monkeypatch.setattr(
+        run_export, "delay", Mock(return_value=SimpleNamespace(id="fixture"))
+    )
+    endpoint = f"/api/v1/projects/{project.id}"
+    body = None
+    if scope == "project":
+        endpoint += "/export?targets=aap_json"
+    elif scope == "batch":
+        endpoint += f"/batches/{batch.id}/export?targets=aap_json"
+    else:
+        endpoint += "/data-manager/tasks/export"
+        body = {"task_ids": [str(task.id)], "targets": ["aap_json"]}
+    headers = {"Authorization": "Bearer " + token, "Idempotency-Key": uuid.uuid4().hex}
+    response = await httpx_client.post(endpoint, headers=headers, json=body)
+    assert response.status_code == 202, response.text
+    job = await db_session.get(AsyncJob, uuid.UUID(response.json()["job_id"]))
+    proof = deepcopy(job.payload["output_authority"])
+    assert proof["actor_id"] == str(actor.id) and proof["project_id"] == str(project.id)
+    assert proof["api_key_id"] == (str(key.id) if key else None)
+    assert proof["key_proof"] == (
+        {"hash": key.key_hash, "scopes": ["*"], "expires_at": None} if key else None
+    )
+    await authority.validate(db_session, job, lock=True)
+    public = await httpx_client.get(f"/api/v1/async-jobs/{job.id}", headers=headers)
+    assert public.status_code == 200, public.text
+    assert "output_authority" not in public.json()["payload"]
+    assert "key_proof" not in public.text
+    if scope == "selected" and key:
+        # A request authenticated with a replacement token can republish the
+        # original pending job, but cannot replace its original credential proof.
+        replacement = token[:12] + uuid.uuid4().hex
+        key.key_hash = hash_password(replacement)
+        await db_session.commit()
+        headers["Authorization"] = "Bearer " + replacement
+        retried = await httpx_client.post(endpoint, headers=headers, json=body)
+        assert retried.status_code == 202, retried.text
+        assert retried.json()["job_id"] == str(job.id)
+        await db_session.refresh(job)
+        assert job.payload["output_authority"] == proof
+        with pytest.raises(authority.ExportOutputAuthorityError):
+            await authority.validate(db_session, job)

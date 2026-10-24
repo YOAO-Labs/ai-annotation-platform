@@ -1,6 +1,7 @@
 """Guard irreversible recovery boundaries without connecting to infrastructure."""
 
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -188,6 +189,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         from app.db.models.sample_evaluation import SampleEvaluationRun
         from app.db.models.active_learning import ActiveLearningRound
         from app.db.models.avatar_upload import AvatarUpload
+        from app.db.models.export_output import ExportOutput
         from app.services.dataset_assets import LEGACY_LOCATION_ID
 
         self.models = SimpleNamespace(
@@ -205,6 +207,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             evaluation=SampleEvaluationRun,
             learning=ActiveLearningRound,
             avatar=AvatarUpload,
+            output=ExportOutput,
         )
         self.source, self.target, self.endpoint = (
             roles("source"),
@@ -223,6 +226,11 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         )
         avatar_endpoint.start()
         self.addCleanup(avatar_endpoint.stop)
+        export_endpoint = patch(
+            "app.services.export_storage._runtime_endpoint", return_value=self.endpoint
+        )
+        export_endpoint.start()
+        self.addCleanup(export_endpoint.stop)
         project_id, version_id = uuid.UUID(int=12), uuid.UUID(int=13)
         training_ref = {
             "schema": 1,
@@ -246,6 +254,34 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             "prefix": f"projects/{project_id}/runs/{run_id}/",
         }
         self.rows = {
+            ExportOutput: [
+                SimpleNamespace(
+                    id=uuid.UUID(int=20),
+                    project_id=project_id,
+                    job_id=uuid.UUID(int=21),
+                    media="image",
+                    format="aap_json",
+                    file_count=1,
+                    sha256="c" * 64,
+                    size_bytes=234,
+                    state="pending",
+                    created_at=datetime(2026, 10, 24, tzinfo=timezone.utc),
+                    expires_at=datetime(2026, 10, 31, tzinfo=timezone.utc),
+                    storage_ref={
+                        "schema": 1,
+                        "purpose": "export",
+                        "location_id": str(LEGACY_LOCATION_ID),
+                        "config_revision": 1,
+                        "binding_generation": 1,
+                        "endpoint_url": self.endpoint,
+                        "bucket": self.source["MINIO_EXPORT_BUCKET"],
+                        "object_key": f"image/{project_id}/{uuid.UUID(int=21)}/{uuid.UUID(int=20)}.zip",
+                        "storage_identity": identity(
+                            self.endpoint, self.source["MINIO_EXPORT_BUCKET"]
+                        ),
+                    },
+                )
+            ],
             AvatarUpload: [
                 SimpleNamespace(
                     token="a" * 32,
@@ -415,6 +451,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 "sample_evaluation_runs",
                 "active_learning_rounds",
                 "avatar_uploads",
+                "export_outputs",
             },
         )
         target = storage_view(self.endpoint, self.target)
@@ -431,6 +468,17 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 if hasattr(row, "bucket"):
                     self.assertIn(row.bucket, self.target.values())
                 if getattr(row, "storage_ref", None) is not None:
+                    if row.storage_ref["purpose"] == "export":
+                        self.assertEqual(
+                            row.storage_ref["bucket"],
+                            self.target["MINIO_EXPORT_BUCKET"],
+                        )
+                        self.assertEqual(row.state, "pending")
+                        self.assertEqual(row.sha256, "c" * 64)
+                        self.assertEqual(
+                            row.expires_at - row.created_at, timedelta(days=7)
+                        )
+                        continue
                     if row.storage_ref["purpose"] == "avatars":
                         self.assertEqual(
                             row.storage_ref["bucket"],
@@ -548,6 +596,53 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             changed = deepcopy(row)
             changed["storage_ref"][field] = "changed"
             self.assertNotEqual(base, digest(protected_row("avatar_uploads", changed)))
+
+    async def test_unknown_export_owner_refuses_without_partially_mapping_others(self):
+        original = deepcopy(self.rows)
+        for field, value in [
+            ("purpose", "avatars"),
+            ("bucket", self.source["MINIO_TRAINING_BUCKET"]),
+            ("object_key", "image/foreign.zip"),
+            ("storage_identity", "f" * 64),
+            ("endpoint_url", "https://elsewhere.invalid"),
+        ]:
+            self.rows = deepcopy(original)
+            self.rows[self.models.output][0].storage_ref[field] = value
+            with self.subTest(field=field), self.assertRaises(WorktreeError):
+                await remap_storage(self.db, self.source, self.target, self.endpoint)
+            self.db.flush.assert_not_awaited()
+            self.assertEqual(
+                self.rows[self.models.binding][0].bucket,
+                original[self.models.binding][0].bucket,
+            )
+
+    def test_protected_export_output_keeps_receipt_deadline_and_source_identity(self):
+        from worktree_recovery_fixture import digest, protected_row
+
+        row = deepcopy(vars(self.rows[self.models.output][0]))
+        base = digest(protected_row("export_outputs", row))
+        for field in ["bucket", "storage_identity"]:
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "mapped"
+            self.assertEqual(base, digest(protected_row("export_outputs", changed)))
+        for field in [
+            "id",
+            "project_id",
+            "job_id",
+            "sha256",
+            "size_bytes",
+            "file_count",
+            "state",
+            "created_at",
+            "expires_at",
+        ]:
+            self.assertNotEqual(
+                base, digest(protected_row("export_outputs", {**row, field: "changed"}))
+            )
+        for field in ["object_key", "purpose", "location_id", "endpoint_url"]:
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "changed"
+            self.assertNotEqual(base, digest(protected_row("export_outputs", changed)))
 
     def test_protected_training_ref_excludes_only_physical_subfields(self):
         from worktree_recovery_fixture import digest, protected_row

@@ -846,3 +846,75 @@ async def test_worker_unknown_final_commit_never_deletes_candidate(
         is committed
     )
     assert export_objects.objects and not export_objects.deleted
+
+
+@pytest.mark.parametrize("path", ["fresh", "cached"])
+async def test_key_natural_expiry_during_final_lock_wait_refuses_signing(
+    db_session, export_project, export_objects, annotator, monkeypatch, path
+):
+    from app.db.models.api_key import ApiKey
+    from app.core.security import hash_password
+    from app.services.exporting import output_authority
+    from app.workers.export import _sign_export_output
+    from starlette.requests import Request
+
+    actor = annotator[0]
+    token = "ak_" + uuid.uuid4().hex
+    current = datetime.now(timezone.utc)
+    key = ApiKey(
+        user_id=actor.id,
+        name="expiry-fixture",
+        key_prefix=token[:12],
+        key_hash=hash_password(token),
+        scopes=["*"],
+        expires_at=current + timedelta(hours=1),
+    )
+    db_session.add(key)
+    await db_session.flush()
+    request = Request(
+        {"type": "http", "headers": [(b"authorization", ("Bearer " + token).encode())]}
+    )
+    request.state.api_key_id = key.id
+    request.state.api_key_scopes = ["*"]
+    proof = await output_authority.capture(db_session, export_project, actor, request)
+    job = SimpleNamespace(
+        user_id=actor.id,
+        project_id=export_project.id,
+        payload={"output_authority": proof},
+    )
+    await output_authority.validate(db_session, job, lock=True)
+    row = await seed_output(db_session, export_objects, project_id=export_project.id)
+    index = await seed_index(db_session, row)
+    hit = await cache.lookup(db_session, index.cache_key)
+
+    class Later:
+        @staticmethod
+        def now(_timezone):
+            return current + timedelta(hours=2)
+
+    async def final_validation():
+        await output_authority.validate(db_session, job, lock=True)
+
+    if path == "cached":
+        original = storage_access.check
+
+        async def waiting_check(*args, **kwargs):
+            result = await original(*args, **kwargs)
+            monkeypatch.setattr(output_authority, "datetime", Later)
+            return result
+
+        monkeypatch.setattr(storage_access, "check", waiting_check)
+        with pytest.raises(output_authority.ExportOutputAuthorityError):
+            await export_outputs.sign_cached(
+                db_session,
+                hit,
+                project_id=row.project_id,
+                download_name="export.zip",
+                before_sign=final_validation,
+            )
+    else:
+        monkeypatch.setattr(output_authority, "datetime", Later)
+        with pytest.raises(output_authority.ExportOutputAuthorityError):
+            await _sign_export_output(db_session, job, hit.output, "export.zip")
+    assert not export_objects.signatures
+    assert row.state == "ready" and index.output_id == row.id

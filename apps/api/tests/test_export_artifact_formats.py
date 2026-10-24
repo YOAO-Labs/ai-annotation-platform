@@ -10,7 +10,7 @@ from alembic.operations import Operations
 import pytest
 from sqlalchemy import select, text
 
-from app.services.exporting.cache import record
+from app.db.models.export_artifact import ExportArtifact
 from tests.factory import create_project
 
 
@@ -19,8 +19,9 @@ async def test_multi_target_metadata_survives_guarded_format_migration(
 ):
     project = await create_project(db_session, owner_id=super_admin[0].id)
     targets = "aap_json,binary-png,coco,indexed-png,label-studio-brush,yolo-det,yolo-obb,yolo-seg"
-    artifact = await record(
-        db_session,
+    # This migration predates independent output ownership. Retain a legacy
+    # NULL-owner index to exercise its original metadata preservation contract.
+    artifact = ExportArtifact(
         cache_key=uuid.uuid4().hex,
         project_id=project.id,
         batch_id=None,
@@ -30,6 +31,8 @@ async def test_multi_target_metadata_survives_guarded_format_migration(
         size_bytes=1,
         expires_at=datetime.now(timezone.utc) + timedelta(days=7),
     )
+    db_session.add(artifact)
+    await db_session.flush()
     await db_session.refresh(artifact)
     assert artifact.format == targets
     migration_path = (

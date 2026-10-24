@@ -62,6 +62,18 @@ class ExportBuildInProgress(RuntimeError):
     pass
 
 
+async def _update_export_progress(db, job_uuid, pct):
+    # A duplicate delivery can outlive the winning publication. Serialize each
+    # progress write with completion so it cannot lower a terminal job's 100%.
+    await check_cancelled(db, job_uuid, lock=True)
+    await async_job_svc.update_progress(db, job_uuid, pct)
+
+
+async def _sign_export_output(db, job, candidate, download_name):
+    await output_authority.validate(db, job, lock=True)
+    return export_storage.sign(candidate, download_name=download_name)
+
+
 async def _complete_from_cache(
     db: AsyncSession,
     *,
@@ -87,6 +99,7 @@ async def _complete_from_cache(
         hit,
         project_id=current_job.project_id,
         download_name=download_name,
+        before_sign=lambda: output_authority.validate(db, current_job, lock=True),
     )
     result = {
         "download_url": download_url,
@@ -776,7 +789,7 @@ async def _run_export(
                     return
 
                 # 未命中：生成 ZIP（v0.12.1 · 落盘 tempfile，不再整包驻留 RAM）。
-                await async_job_svc.update_progress(db, job_uuid, 10)
+                await _update_export_progress(db, job_uuid, 10)
                 await db.commit()
 
                 zip_path, file_count, size_bytes = await build_export_zip(
@@ -794,7 +807,7 @@ async def _run_export(
                     check_cancel=lambda: check_cancelled(db, job_uuid),
                 )
                 try:
-                    await async_job_svc.update_progress(db, job_uuid, 70)
+                    await _update_export_progress(db, job_uuid, 70)
                     await db.commit()
 
                     await check_cancelled(db, job_uuid)
@@ -817,7 +830,7 @@ async def _run_export(
                     except OSError:
                         pass
 
-                await async_job_svc.update_progress(db, job_uuid, 90)
+                await _update_export_progress(db, job_uuid, 90)
                 await db.commit()
 
                 # Serialize cancellation, authority revocation and publication.
@@ -834,9 +847,10 @@ async def _run_export(
                     output=output,
                     batch_id=batch_uuid,
                 )
-                download_url = export_storage.sign(
-                    candidate,
-                    download_name=download_name,
+                # Shared row locks prevent credential edits, but time can pass
+                # while the output/cache locks wait. Recheck expiry at signing.
+                download_url = await _sign_export_output(
+                    db, job_row, candidate, download_name
                 )
                 object_key = export_outputs.object_key(candidate)
                 expires_at = candidate.expires_at
