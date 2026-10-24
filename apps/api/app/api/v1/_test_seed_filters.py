@@ -15,7 +15,9 @@ from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import attributes
 
 from app.services.workspace_e2e_fixtures import (
     create_fixture_project as _create_project,
@@ -209,6 +211,46 @@ class FilteringSeedManifest(BaseModel):
 
 def _now(offset: int = 0) -> datetime:
     return datetime.now(timezone.utc) + timedelta(microseconds=offset)
+
+
+async def _set_filter_fixture_job_outcomes(
+    db: AsyncSession, completed_job: Any, failed_job: Any
+) -> None:
+    count = await db.scalar(
+        text(
+            "SELECT aap_jobs_v1.set_filter_fixture_job_outcomes("
+            "CAST(:p_completed_job_id AS pg_catalog.uuid), "
+            "CAST(:p_failed_job_id AS pg_catalog.uuid))"
+        ),
+        {
+            "p_completed_job_id": completed_job.id,
+            "p_failed_job_id": failed_job.id,
+        },
+    )
+    if type(count) is not int or count != 2:
+        raise RuntimeError("Jobs filter fixture outcome count mismatch")
+
+    for job, values in (
+        (
+            completed_job,
+            {
+                "status": "completed",
+                "progress_pct": 100,
+                "result": {"success_count": 2},
+            },
+        ),
+        (
+            failed_job,
+            {
+                "status": "failed",
+                "progress_pct": 40,
+                "error_message": "fixture failure",
+            },
+        ),
+    ):
+        for name, value in values.items():
+            attributes.set_committed_value(job, name, value)
+        db.expire(job, ["updated_at"])
 
 
 def _image_binding(*, include_obsolete: bool = True) -> dict[str, Any]:
@@ -1565,12 +1607,7 @@ async def _seed_operations(
     ]
     db.add_all(bugs)
     await identity.create_invitations(invitations)
-    jobs[0].status = "completed"
-    jobs[0].progress_pct = 100
-    jobs[0].result = {"success_count": 2}
-    jobs[1].status = "failed"
-    jobs[1].progress_pct = 40
-    jobs[1].error_message = "fixture failure"
+    await _set_filter_fixture_job_outcomes(db, jobs[0], jobs[1])
     await db.flush()
     audit_rows = []
     request_id_token = request_id_var.set(None)
