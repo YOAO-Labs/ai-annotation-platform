@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -749,3 +749,21 @@ GC不再列当前桶前缀，只筛独立owner。保留训练非ready快照、�
 本片超过八文件，按当前本地HEAD建三棵隔离树：领域/0229/严格存储及约束测试；独立store/load/Publication/owner GC流程及生命周期测试；全部writer接入、预测锁顺序/304与对应回归。主树集成统一入口与引用查询、恢复白名单/夹具、隔离测试的独立记录清理、正式API/用户/架构/运维文档及真实验收。恢复仅映射bucket/storage_identity，保留UUID物理键、逻辑键、两套回执、状态、首次时间、guard和所有冻结JSON；未知桶拒绝。新增表不新增Worker任务或调度，仍为72任务；不新增进程、凭据、依赖、环境变量、部署目标或镜像重建。
 
 验证迁移/严格类型/不可变/受限恢复与降级保护；JSON/gzip、同逻辑异桶陷阱、未知零I/O、缺失/损坏/末端替换、竞争赢家/失败pending和退休后新UUID；caller持Task/内容锁时独立分配、进度commit后guard保持、最终业务commit原子结清、rollback/未知应答及未知关闭保留；当前复核scope保活、全部十类既有来源/期限、24小时边界、guard/真实打开句柄与GC交错、Task删除后owner存续、旧GC不触碰新代次。真实HTTP/MinIO、当前Worker及来源销毁后的离线恢复必须覆盖完整闭环；纯单测不替代实际归属。保留人工3100/8100、24对象/12源文件及业务指纹，应用0229并受控刷新所属Worker。完整E02与其它消费者继续执行，完整用途切换仍关闭，生产迁移、RPO/RTO与真实训练框架资格独立核验。
+
+## E02-B12-B Outcome — 持久 RLE 归属、发布与分轮回收
+
+领域与0229提交 `eac8b01be`、生命周期 `f90013350`、调用者接入 `673fafb65` 和最终集成 `ed40b31b3` 完成既定闭环。Object独立保存UUID位置、规范内容与实际字节双回执；Publication在物理I/O前提交，跨进度commit保留，仅与最终业务引用或匿名上传预留原子结清。未知pending、提交/关闭不明和未知发布记录不自动到期。竞争写入完整核验赢家后才转移保护与退休已完成候选；历史gzip时间头及legacy gzip标记保持兼容。同步训练/评估入口重复建立并关闭自有事件循环与连接，不按当前桶猜读。
+
+统一store/load与所有实际async writer接入caller事务。内容锁使用非阻塞申请，预测导入先NOWAIT锁Task；QC在issue upsert后绑定，Tracker进度提交不解绑。bind只锁精确Publication，再复读owner和Gate，避免同一批处理中先绑定后复用相同内容时独立连接与自身owner SHARE锁冲突。存储和门禁错误保留固定409/503及重试信息，转换、像素运算和多文件导入不改成输入422或跳过。失败导入先回滚业务，再单独提交Job失败记录，两条真实数据库回归证明原删除被恢复、新插入不存在。
+
+GC只枚举独立owner，补充当前有效Annotation版本的区域审阅scope和24小时内未认领上传保活；job/issue为空仍有效。成功store或复用延长24小时窗口，读取不延长。首轮只提交retired，后续才核验并删除保存UUID；持久guard、准确UUID未收尾操作、pending和未知旧键保持。旧退休UUID不因新ready承接相同逻辑引用而无限保留；尝试时间保证有限批次公平，dry-run不修改状态或期限。超过24小时的未认领预留释放额度，不据此删除未知文件。
+
+最终675个不重复API、服务及数据库用例通过，另37个恢复纯单元通过，无剩余失败或跳过。覆盖97个严格存储纯测、68个迁移/约束测试、独立事务与竞争、进度/回滚/未知commit、重复取消和真实关闭、全部既有Mask业务和训练合成闭环。首轮失败分别是测试夹具在触及数据库前拒绝非法编码，以及一条既有Tracker测试硬编码Redis6379；修正夹具和指向当前隔离Redis后均复验通过。训练/ML替身不构成真实框架或GPU资格。
+
+真实TCP API与本机MinIO验证JSON上传/复用、匿名预留结清、历史mtime=1的gzip原字节保持、保存引用后的200/304、损坏对象命中ETag仍409、未知legacy命中ETag仍409。删除源Task后owner保持，两次同步线程读取正常；两轮回收只删除已知UUID，legacy字节保持。另用一次性真实Celery worker验证72任务注册、dry-run不改ready、第一轮退休且字节仍在、第二轮删除原UUID及记录。HTTP探针和Worker均关闭，精确对象及合成业务清理完成；探针用户的审计外键清理遵循既有事务局部审计豁免，不改变生产约束。
+
+离线合成恢复先销毁随机源，再恢复161表、152行、九桶56对象/9680字节，迁移头0229。七个RLE owner、六份已存在字节、两个发布guard、一个未知写permit、空pending、历史gzip、同逻辑新旧代次、已删除Task及未知legacy均对账；仅映射bucket/identity，原键、双回执、时间、状态与冻结内容保持。源与目标资源已清理；该结果仅为本地合成资格，不授予生产RPO/RTO或真实迁移目标资格。
+
+API、用户、架构、恢复说明、README与CHANGELOG同步；OpenAPI快照检查、文档构建、Ruff/format、正常hooks及完整提交范围diff检查通过。本片未改UI，不重复浏览器视觉矩阵。人工3100/8100已应用0229，在两Worker及队列空闲时由原拥有服务刷新；两Worker各72任务、实际RLE只读清理派发、指南清理、Beat与doctor正常，RLE原UTC03:20调度保持。11张业务表指纹、24对象完整SHA与12源文件保持，新表为空。没有重建镜像、安装依赖或修改共享配置与版本。
+
+一次性test及恢复源/目标三个命名空间的数据库、Redis、合计27桶已独立查验不存在；五棵干净且patch等价的隔离树和分支移除，任务产物清理，保留人工服务、工作树身份和本地生成类型。完整E02仍active、完整用途切换关闭；后续推进独立Task原件、已有Dataset位置消费者、金字塔与视频派生，不重复建立已有Dataset原件归属。
