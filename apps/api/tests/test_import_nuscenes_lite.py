@@ -302,7 +302,7 @@ async def _frozen_test_delivery(db, project_id, client):
                 for row in captured.snapshot["media"]
                 if row["task_id"] == str(task_id) and row["role"] == role
             )
-            source = captured.sources[binding["source_key"]]
+            source = captured.sources[f"{task_id}:{role}"]
             data = client.objects[(source.bucket, source.object_key)]["data"]
             assert len(data) == source.size_bytes
             assert hashlib.sha256(data).hexdigest() == source.sha256
@@ -314,12 +314,7 @@ async def _frozen_test_delivery(db, project_id, client):
             }
 
         async def pcd_bytes(self, task_id):
-            binding = next(
-                row
-                for row in captured.snapshot["media"]
-                if row["task_id"] == str(task_id) and row["role"] == "primary_lidar"
-            )
-            source = captured.sources[binding["source_key"]]
+            source = captured.sources[f"{task_id}:primary_lidar"]
             data = client.objects[(source.bucket, source.object_key)]["data"]
             assert hashlib.sha256(data).hexdigest() == source.sha256
             return data
