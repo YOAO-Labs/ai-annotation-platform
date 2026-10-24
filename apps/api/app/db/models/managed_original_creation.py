@@ -29,6 +29,11 @@ class ManagedOriginalCreation(Base):
             name="uq_managed_creation_reserved_key",
         ),
         Index("ix_managed_creation_dataset", "dataset_id", "allocated_at", "id"),
+        Index("ix_managed_creation_task", "task_id", "allocated_at", "id"),
+        CheckConstraint(
+            "(owner_kind='dataset' AND dataset_id IS NOT NULL AND project_id IS NULL AND task_id IS NULL) OR (owner_kind='task' AND dataset_id IS NULL AND project_id IS NOT NULL AND task_id IS NOT NULL AND origin='direct' AND object_key='__aap_task_originals__/' || task_id::text || '/' || id::text || '/payload')",
+            name="ck_managed_creation_scope",
+        ),
         CheckConstraint(
             "origin IN ('direct','zip','connector','directory_copy')",
             name="ck_managed_creation_origin",
@@ -78,7 +83,12 @@ class ManagedOriginalCreation(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     # No business/location/actor FK: independent persistence must never wait on
     # an uncommitted caller, or lose physical responsibility to a cascade.
-    dataset_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    owner_kind: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="dataset"
+    )
+    dataset_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     location_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     storage_identity: Mapped[str] = mapped_column(String(64), nullable=False)
     bucket: Mapped[str] = mapped_column(String(255), nullable=False)

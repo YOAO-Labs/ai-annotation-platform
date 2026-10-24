@@ -42,6 +42,7 @@ ORIGINS = {"direct", "zip", "connector", "directory_copy"}
 TERMINAL = {"verified", "failed", "conflict", "unknown"}
 _SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{0,79}")
 STAGING_PREFIX = "__aap_upload_staging__"
+TASK_ORIGINAL_PREFIX = "__aap_task_originals__"
 
 
 @dataclass(frozen=True)
@@ -217,6 +218,67 @@ async def allocate(
     staging=False,
     content_type="application/octet-stream",
 ):
+    return await _allocate(
+        db,
+        owner_kind="dataset",
+        dataset_id=dataset_id,
+        project_id=None,
+        task_id=None,
+        logical_path=logical_path,
+        origin=origin,
+        max_bytes=max_bytes,
+        requested_by=requested_by,
+        authority=authority,
+        staging=staging,
+        content_type=content_type,
+    )
+
+
+async def allocate_task(
+    db,
+    *,
+    project_id,
+    task_id,
+    logical_path,
+    max_bytes,
+    requested_by=None,
+    authority=None,
+    content_type="application/octet-stream",
+):
+    """Reserve an independent Task candidate, never a final browser PUT key."""
+    if not isinstance(project_id, uuid.UUID) or not isinstance(task_id, uuid.UUID):
+        reject("managed_original_invalid_allocation", 422)
+    return await _allocate(
+        db,
+        owner_kind="task",
+        dataset_id=None,
+        project_id=project_id,
+        task_id=task_id,
+        logical_path=logical_path,
+        origin="direct",
+        max_bytes=max_bytes,
+        requested_by=requested_by,
+        authority=authority,
+        staging=True,
+        content_type=content_type,
+    )
+
+
+async def _allocate(
+    db,
+    *,
+    owner_kind,
+    dataset_id,
+    project_id,
+    task_id,
+    logical_path,
+    origin,
+    max_bytes,
+    requested_by,
+    authority,
+    staging,
+    content_type,
+):
     if (
         origin not in ORIGINS
         or type(max_bytes) is not int
@@ -236,10 +298,18 @@ async def allocate(
     except (AttributeError, TypeError, ValueError):
         reject("managed_original_invalid_allocation", 422)
     binding = await ensure_legacy_bindings(db)
+    if owner_kind == "task":
+        binding = await db.get(StorageBinding, "annotations", populate_existing=True)
+        if binding is None:
+            reject("managed_original_configuration_changed")
     configuration = await _configuration(db)
     revision = await storage_access.check(db, LEGACY_LOCATION_ID)
     creation_id = uuid.uuid4()
-    object_key = managed_dataset_key(dataset_id, logical_path)
+    object_key = (
+        f"{TASK_ORIGINAL_PREFIX}/{task_id}/{creation_id}/payload"
+        if owner_kind == "task"
+        else managed_dataset_key(dataset_id, logical_path)
+    )
     if (
         len(object_key) > 1000
         or len(object_key.encode()) > 1024
@@ -248,7 +318,10 @@ async def allocate(
         reject("managed_original_invalid_allocation", 422)
     values = {
         "id": creation_id,
+        "owner_kind": owner_kind,
         "dataset_id": dataset_id,
+        "project_id": project_id,
+        "task_id": task_id,
         "location_id": LEGACY_LOCATION_ID,
         "storage_identity": managed_storage_identity(
             configuration["endpoint"], binding.bucket
@@ -290,7 +363,30 @@ async def for_key(db, *, dataset_id, object_key):
             (
                 await connection.execute(
                     select(Creation.__table__).where(
+                        Creation.owner_kind == "dataset",
                         Creation.dataset_id == dataset_id,
+                        Creation.object_key == object_key,
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        row = dict(row) if row else None
+    if row:
+        await _validate(db, row)
+    return row
+
+
+async def for_task(db, *, task_id, object_key):
+    """Find a Task-scoped allocation without borrowing a Dataset identity."""
+    async with storage_access.engine(db).connect() as connection:
+        row = (
+            (
+                await connection.execute(
+                    select(Creation.__table__).where(
+                        Creation.owner_kind == "task",
+                        Creation.task_id == task_id,
                         Creation.object_key == object_key,
                     )
                 )
@@ -319,9 +415,12 @@ def _result(row, head_bytes=b""):
 async def _loaded(db, allocation):
     row = await _read(db, allocation["id"])
     if row is None or any(
-        row[field] != allocation[field]
+        field not in allocation or row[field] != allocation[field]
         for field in (
+            "owner_kind",
             "dataset_id",
+            "project_id",
+            "task_id",
             "location_id",
             "storage_identity",
             "bucket",
@@ -532,7 +631,11 @@ async def _execute(db, allocation, stream):
         async with await storage_access.acquire(
             db,
             row["location_id"],
-            "managed_original_creation",
+            (
+                f"task_original_write_{row['id'].hex}"
+                if row["owner_kind"] == "task"
+                else "managed_original_creation"
+            ),
             expected_revision=row["maintenance_revision"],
         ) as permit:
             await _change(db, row["id"], "preparing", operation_id=permit.id)
@@ -623,7 +726,7 @@ async def complete_direct(db, allocation):
 
 async def attach(db, item, creation_id):
     row = await _read(db, creation_id)
-    if row is None or row["status"] != "verified":
+    if row is None or row["owner_kind"] != "dataset" or row["status"] != "verified":
         reject("managed_original_creation_unverified")
     await _validate(db, row, lock=True)
     asset = await db.scalar(
