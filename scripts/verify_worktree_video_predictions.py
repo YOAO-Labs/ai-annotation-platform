@@ -990,7 +990,10 @@ async def scenarios(backend, worker, storage, report, expected_database):
                     for row, _ in await plumbing.predictions(factory, case["task_id"])
                 }
                 identity = await submit(
-                    "failure-" + retry_entry, [case], mode="root_failure"
+                    "failure-" + retry_entry,
+                    [case],
+                    scope="workbench",
+                    mode="root_failure",
                 )
                 original = await plumbing.job_done(factory, identity, worker)
                 failed_ids = original.result.get("failed_prediction_ids", [])
@@ -1154,6 +1157,7 @@ async def scenarios(backend, worker, storage, report, expected_database):
             guarded = await submit(
                 "key-revoked-after-real-video-get",
                 [standalone],
+                scope="workbench",
                 headers={"Authorization": "Bearer " + key["plaintext"]},
                 gate=True,
             )
