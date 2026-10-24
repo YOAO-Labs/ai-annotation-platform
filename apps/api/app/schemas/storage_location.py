@@ -264,5 +264,52 @@ class StorageBindingOut(BaseModel):
     bucket: str | None = None
     state: Literal["missing", "configured", "mismatch"]
     read_policy: Literal["consumer_owned_compatibility"]
-    write_policy: Literal["deployment_mapping"]
-    change_policy: Literal["legacy_mapping_locked"]
+    write_policy: Literal["deployment_mapping", "current_binding"]
+    change_policy: Literal["legacy_mapping_locked", "reviewed_avatar_switch"]
+
+
+class AvatarBindingCandidate(BaseModel):
+    location_id: uuid.UUID
+    name: str
+    config_revision: int
+
+
+class AvatarBindingCandidates(BaseModel):
+    items: list[AvatarBindingCandidate]
+    total: int
+
+
+class AvatarBindingChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
+    target_location_id: uuid.UUID
+    target_config_revision: int = Field(ge=1)
+
+
+class AvatarBindingApply(AvatarBindingChange):
+    impact_token: str = Field(min_length=1, max_length=8192)
+
+
+class AvatarBindingTarget(AvatarBindingCandidate):
+    bucket: str
+    key_prefix: str
+    connection_revision: int | None = None
+
+
+class AvatarBindingHistory(BaseModel):
+    pending: int
+    ready: int
+    retired: int
+    unlocated_users: int
+
+
+class AvatarBindingPreview(BaseModel):
+    purpose: Literal["avatars"] = "avatars"
+    previous: StorageBindingOut
+    target: AvatarBindingTarget
+    history: AvatarBindingHistory
+    capabilities: dict[str, bool]
+    can_apply: bool
+    measured_at: datetime
+    expires_at: datetime
+    impact_token: str

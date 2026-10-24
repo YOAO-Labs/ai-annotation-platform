@@ -681,6 +681,9 @@
 |---|---|
 | GET | `/roots` |
 | GET | `/bindings` |
+| GET | `/bindings/avatars/candidates` |
+| POST | `/bindings/avatars/change-preview` |
+| PATCH | `/bindings/avatars` |
 | GET | `/{location_id}` |
 | GET | `/{location_id}/source-summary` |
 | POST | `/{location_id}/change-preview` |
@@ -1063,4 +1066,4 @@
 
 ---
 
-_共 97 模块 / 616 路由_
+_共 97 模块 / 619 路由_

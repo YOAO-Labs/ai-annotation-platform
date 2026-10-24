@@ -124,6 +124,20 @@ def test_known_readonly_probe_refusal_does_not_claim_unknown_put():
     assert not objects.objects and objects.closed == 1
 
 
+@pytest.mark.parametrize("code", ["SignatureDoesNotMatch", "InvalidAccessKeyId"])
+def test_known_credential_rejection_does_not_claim_unknown_put(code):
+    objects = Objects()
+
+    def denied(**kwargs):
+        raise ClientError({"Error": {"Code": code}}, "PutObject")
+
+    objects.put_object = denied
+    with pytest.raises(ClientError) as caught:
+        targets.probe_target(target(objects))
+    assert not getattr(caught.value, "storage_operation_unsettled", False)
+    assert not objects.objects and objects.closed == 1
+
+
 def test_probe_corruption_is_refused_after_known_cleanup():
     objects = Objects("version")
     objects.corrupt_read = True

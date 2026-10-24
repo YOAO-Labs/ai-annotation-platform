@@ -209,6 +209,17 @@ it("expires the preview and requires another remote verification", async () => {
   expect(api.applyAvatarBinding).not.toHaveBeenCalled();
 });
 
+it("restores focus to the refreshed trigger after the applied binding changes", async () => {
+  const view = mount();
+  view.onApplied.mockImplementation(async () => {
+    view.refresh({ ...binding, location_id: target.location_id, generation: 3 });
+  });
+  await preview();
+  fireEvent.click(screen.getByRole("button", { name: "确认切换" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("button", { name: "切换头像位置" })).toHaveFocus());
+});
+
 it("drops an old review when the selected target changes", async () => {
   api.avatarBindingCandidates.mockResolvedValue({
     items: [target, { ...target, location_id: "other", name: "另一位置" }],

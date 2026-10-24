@@ -33,14 +33,30 @@ last_reviewed: 2026-10-25
 
 `GET /bindings`只读返回九种平台用途，即使共桶或未配置仍逐行保留，不初始化配置、不探测对象存储。每行包含`purpose / location_id / bucket / generation / state`，并提供：
 
-| 字段                       | 当前值与含义                                                                                               |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `location_config_revision` | 关联位置的实际配置修订；无关联位置为null，与用途绑定`generation`独立。                                     |
-| `read_policy`              | `consumer_owned_compatibility`：各业务负责对象读取；已固定位置的对象按记录读取，其他入口保留既有兼容路径。 |
-| `write_policy`             | `deployment_mapping`：新写入采用当前兼容部署映射，不表示引用来源适配器获得写权限。                         |
-| `change_policy`            | `legacy_mapping_locked`：当前用途映射锁定，受控绑定切换尚未开放。                                          |
+| 字段                       | 当前值与含义                                                                                                                      |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `location_config_revision` | 关联位置的实际配置修订；无关联位置为null，与用途绑定`generation`独立。                                                            |
+| `read_policy`              | `consumer_owned_compatibility`：各业务负责对象读取；已固定位置的对象按记录读取，其他入口保留既有兼容路径。                        |
+| `write_policy`             | `deployment_mapping`：新写入采用当前兼容部署映射；头像为`current_binding`，采用当前已登记绑定。两者均不赋予引用来源适配器写权限。 |
+| `change_policy`            | `legacy_mapping_locked`：用途映射锁定；头像为`reviewed_avatar_switch`，支持下述受控切换。                                         |
 
-`state=configured`只表示兼容部署映射匹配，不证明位置在线、对象可读、历史定位全覆盖或迁移完成。`missing / mismatch`保留其原有含义；策略字段描述当前路由规则，不提供写入或迁移许可。客户端遇到未提供的新字段应显示未知，不能从位置读取能力推断平台写策略。权限仍为当前超级管理员与`datasets:read`。
+`state=configured`只表示用途映射符合已支持的配置合同，不证明位置在线、对象可读、历史定位全覆盖或迁移完成。`missing / mismatch`保留其原有含义；策略字段描述当前路由规则，不提供写入或迁移许可。客户端遇到未提供的新字段应显示未知，不能从位置读取能力推断平台写策略。权限仍为当前超级管理员与`datasets:read`。
+
+## 头像用途切换
+
+仅当前有效超级管理员可修改，API Key 要求 `datasets:write`。其余八用途没有切换端点。
+
+| 方法  | 路径                               | 行为                                                                                         |
+| ----- | ---------------------------------- | -------------------------------------------------------------------------------------------- |
+| GET   | `/bindings/avatars/candidates`     | 已启用的默认托管位置或全局 S3 位置；`limit`默认20、最多200，支持`offset`；只读，无对象探测。 |
+| POST  | `/bindings/avatars/change-preview` | 预览新写入位置与历史影响，实际条件写入、完整读回核验和准确删除探针。                         |
+| PATCH | `/bindings/avatars`                | 提交同一候选和五分钟内有效的`impact_token`，原子递增头像绑定代次。                           |
+
+预览请求为 `{expected_generation, target_location_id, target_config_revision}`。桶和前缀来自已登记目标，不接受任意宿主机路径或客户端指定桶。返回 `previous`、`target`、`history`、`capabilities`、`can_apply`、`measured_at / expires_at / impact_token`；目标包含位置修订、连接修订、桶和键前缀，能力分别为`conditional_write / full_read / delete`。探针在业务行锁外执行；仅预览不会修改绑定。
+
+确认请求使用同一请求体并增加`impact_token`。服务器锁内复核操作者／原Key、用途代次、目标配置／连接修订、维护代次和历史影响；变化、过期或无效凭证分别返回409 `storage_binding_preview_changed / storage_binding_preview_expired / storage_binding_preview_invalid`，需重新预览。目标不可写、完整读回不符或无法准确清理时不切换。成功审计`storage_binding.update`不保存密钥或令牌。
+
+`history`分别统计pending、ready、retired上传及缺少准确owner的用户引用；`unlocated_users>0`时`can_apply=false`，确认返回409 `avatar_history_unlocated`。相关用户应重新上传或选择内置头像，不自动认领旧路径。切换仅影响后续分配；已分配上传和历史头像继续按保存位置处理，无需先排空全部pending上传。切走后仍有头像记录的位置不能被重定向或删除；正常密钥轮换复用当前连接凭据，不重写历史物理定位。
 
 ## 登记和修改
 

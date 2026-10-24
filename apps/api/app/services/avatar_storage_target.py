@@ -204,6 +204,8 @@ def _conditional_put(client, params, data):
     except ClientError as exc:
         if exc.response.get("Error", {}).get("Code") in {
             "AccessDenied",
+            "SignatureDoesNotMatch",
+            "InvalidAccessKeyId",
             "403",
             "NoSuchBucket",
             "404",

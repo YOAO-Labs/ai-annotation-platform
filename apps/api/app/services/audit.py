@@ -44,6 +44,7 @@ class AuditAction(str, Enum):
     DATASET_CONTENT_VERIFY = "dataset_content.verify"
     STORAGE_LOCATION_CREATE = "storage_location.create"
     STORAGE_LOCATION_UPDATE = "storage_location.update"
+    STORAGE_BINDING_UPDATE = "storage_binding.update"
     STORAGE_LOCATION_PROBE = "storage_location.probe"
     STORAGE_ORIGINAL_CACHE_CLEANUP = "storage_location.original_cache_cleanup"
     CONNECTOR_ALLOWLIST_UPDATE = "connector.allowlist_update"

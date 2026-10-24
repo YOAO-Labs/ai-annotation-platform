@@ -888,6 +888,19 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             await remap_storage(self.db, self.source, self.target, self.endpoint)
         self.db.flush.assert_not_awaited()
 
+    async def test_avatar_version_receipt_refuses_unsupported_mapping_before_writes(
+        self,
+    ):
+        baseline = deepcopy(self.rows)
+        self.rows[self.models.avatar][0].object_version_id = "saved-source-version"
+        with self.assertRaisesRegex(WorktreeError, "固定版本回执"):
+            await remap_storage(self.db, self.source, self.target, self.endpoint)
+        self.db.flush.assert_not_awaited()
+        self.assertEqual(
+            self.rows[self.models.binding][0].bucket,
+            baseline[self.models.binding][0].bucket,
+        )
+
     def test_protected_avatar_row_preserves_all_nonphysical_facts(self):
         from worktree_recovery_fixture import digest, protected_row
 

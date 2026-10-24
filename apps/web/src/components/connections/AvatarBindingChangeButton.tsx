@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
   AvatarBindingCandidate,
@@ -51,20 +51,29 @@ function changeError(error: unknown): string {
 
 export function AvatarBindingChangeButton(props: Props) {
   const session = useSessionRevision();
+  const trigger = useRef<HTMLButtonElement>(null);
   return (
     <ChangeOwner
       key={`${session}/${props.binding.location_id}/${props.binding.generation}/${props.binding.location_config_revision}/${props.binding.bucket}`}
       session={session}
+      trigger={trigger}
       {...props}
     />
   );
 }
 
-function ChangeOwner({ binding, onApplied, session }: Props & { session: number }) {
+function ChangeOwner({
+  binding,
+  onApplied,
+  session,
+  trigger,
+}: Props & {
+  session: number;
+  trigger: RefObject<HTMLButtonElement>;
+}) {
   const capture = useSessionGuard();
   const pushToast = useToastStore((state) => state.push);
   const selectId = useId();
-  const trigger = useRef<HTMLButtonElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const sequence = useRef(0);
   const [open, setOpen] = useState(false);

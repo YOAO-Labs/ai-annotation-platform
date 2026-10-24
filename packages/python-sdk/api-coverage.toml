@@ -370,6 +370,9 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "GET /api/v1/storage-locations/roots" = { status = "excluded", reason = "separate-connector-epic" }
 
 "GET /api/v1/storage-locations/bindings" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/storage-locations/bindings/avatars/candidates" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/storage-locations/bindings/avatars/change-preview" = { status = "excluded", reason = "separate-connector-epic" }
+"PATCH /api/v1/storage-locations/bindings/avatars" = { status = "excluded", reason = "separate-connector-epic" }
 
 "GET /api/v1/storage-locations/{location_id}" = { status = "excluded", reason = "separate-connector-epic" }
 

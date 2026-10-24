@@ -118,7 +118,7 @@ async def upload_avatar(
     """上传自定义头像。
 
     服务端是唯一可信方:客户端声明的 MIME 只作早退,真实格式 / 像素规模由 Pillow 判定,
-    产物统一为 256×256 方形 WebP 后写入 ``avatars`` 桶。请求体另有中间件级上限
+    产物统一为 256×256 方形 WebP 后写入 ``avatars`` 用途的当前绑定。请求体另有中间件级上限
     (``middleware/upload_body_limits``),此处再按文件字节复核一次。
     """
     declared = (file.content_type or "").lower()

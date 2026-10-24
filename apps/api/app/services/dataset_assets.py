@@ -61,6 +61,19 @@ async def validate_legacy_bindings(db):
         binding = bindings.get(purpose)
         if binding is None:
             errors.append(f"missing_binding:{purpose}")
+        elif purpose == "avatars" and binding.generation >= 2:
+            from app.services.avatar_storage import AvatarStorageError
+            from app.services.avatar_storage_target import target_for
+
+            target_location = await db.get(
+                StorageLocation, binding.location_id, populate_existing=True
+            )
+            try:
+                target = await target_for(db, target_location, require_enabled=False)
+                if binding.bucket != target.bucket:
+                    errors.append(f"binding_mismatch:{purpose}")
+            except AvatarStorageError:
+                errors.append(f"binding_mismatch:{purpose}")
         elif (
             binding.location_id != LEGACY_LOCATION_ID
             or binding.bucket != getattr(storage_service, attr)

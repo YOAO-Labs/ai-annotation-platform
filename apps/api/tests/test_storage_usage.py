@@ -111,6 +111,7 @@ async def test_current_binding_coverage_uses_endpoint_and_bucket_without_io(
     db.add(connection)
     await db.flush()
     location = StorageLocation(
+        id=uuid.uuid4(),
         name="Avatar coverage location",
         kind="s3",
         config={},

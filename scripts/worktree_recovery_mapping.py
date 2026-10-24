@@ -271,6 +271,8 @@ async def remap_storage(
             if model is TrainingStorageDeletion:
                 remap(row, "training_storage_deletions", str(row.id))
     for row in await db.scalars(select(AvatarUpload)):
+        if getattr(row, "object_version_id", None) is not None:
+            raise WorktreeError("头像含固定版本回执，当前九桶恢复未覆盖其版本映射")
         try:
             owner = avatar_storage.resolve(row)
         except ValueError:

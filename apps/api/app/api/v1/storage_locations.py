@@ -18,6 +18,10 @@ from app.db.models.user import User
 from app.deps import get_db, require_roles, assert_request_scopes
 from app.schemas.storage_location import (
     FilesystemLocationCreate,
+    AvatarBindingApply,
+    AvatarBindingCandidates,
+    AvatarBindingChange,
+    AvatarBindingPreview,
     StorageBindingOut,
     StorageDirectoryPage,
     StorageLocationList,
@@ -92,6 +96,60 @@ async def roots(_: User = Depends(super_admin)):
 @router.get("/bindings", response_model=list[StorageBindingOut])
 async def bindings(db: AsyncSession = Depends(get_db), _: User = Depends(super_admin)):
     return await svc.binding_rows(db)
+
+
+@router.get("/bindings/avatars/candidates", response_model=AvatarBindingCandidates)
+async def avatar_binding_candidates(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(super_admin),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    from app.services import avatar_binding_change as change
+
+    return await change.candidates(db, limit=limit, offset=offset)
+
+
+@router.post("/bindings/avatars/change-preview", response_model=AvatarBindingPreview)
+async def preview_avatar_binding(
+    payload: AvatarBindingChange,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import avatar_binding_change as change
+
+    try:
+        result = await change.preview(
+            db, payload, actor, api_key_id=getattr(request.state, "api_key_id", None)
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
+
+
+@router.patch("/bindings/avatars", response_model=StorageBindingOut)
+async def apply_avatar_binding(
+    payload: AvatarBindingApply,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import avatar_binding_change as change
+
+    try:
+        result = await change.apply(
+            db,
+            payload,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            request=request,
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
 
 
 @router.get("", response_model=StorageLocationList)

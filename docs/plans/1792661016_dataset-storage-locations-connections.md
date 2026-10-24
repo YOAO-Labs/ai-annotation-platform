@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12 与 B13 各切片至 B3-L completed locally；B3-L 已完成托管图片 Mask 修复完整原件资格链与实际 media Worker 验收。完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A、B1–B12 与 B13 各切片至 B3-M1 completed locally；Tracker M2 未启动。B14 已完成头像新写入位置受控切换及历史定位验收，其余八用途仍锁定。完整 E02 继续执行，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -1609,3 +1609,19 @@ M1 主接线已合入 `5fcb45050`，涵盖项目批量／workbench、两种失�
 冻结范围 `345d1e2ea` 七项真实 SQL 回归通过；只读视频 Mask `241d23504` 与合法人工帧校验 `c5e260f21` 的三十项专项通过；二十九项真实 SQL／HTTP 权限、状态、派发后竞争和整批采纳回滚回归通过。第二组首轮因夹具 Dataset.display_id 超过二十字符而失败，缩短测试 ID 后全部通过，生产长度限制未改。既有 Mask 读取／上传和 OpenAPI 合同四十四项通过。只读 Key 的三来源逐帧 GET 已实际通过：十八次候选／已采纳帧读取，加三次保留血缘及人工帧读取，共二十一次；同轮十二个 Job 与十七次固定版本输入 GET、准确清理和原件保持再次通过。该结果只资格化当前已合入的存储兼容范围，不代表 Tracker M2、真实模型／GPU、生产或规模验收。
 
 人工环境已通过所属监督单元刷新，应用 0241；3100／8100 均 200，两个 Worker 与绑定 Beat 已恢复，十二表 155 行、二十四对象及十二源文件指纹保持。一次性 test 命名空间按归属销毁。用户已校准本系列的数据集／存储主线，后续先补 E08-AC05 与原始验收矩阵；不启动 Tracker M2 的会话／审核／编辑全面改造，未迁移消费者和用途切换限制仍如实保留。
+
+## E02-B14 Outcome — 头像新写入位置受控切换
+
+2026-10-25 完成原始 E02-S04、AC05／AC10 的头像用途切片，与 [E09-B7](1792661016_dataset-storage-console-boundaries.md#e09-b7-outcome--头像用途受控切换) 同次交付。复用已登记默认位置或全局 S3 连接，先实际条件 PUT、完整 GET／SHA 校验和准确 DELETE，再以五分钟确认凭证锁内复核用途代次、位置／连接修订、维护状态、当前管理员／Key 和历史影响；仅后续分配采用新位置，其余八用途保持锁定。初始 provider／owner、兼容与 UI 实现已集成 `6aa736eaa`、`a4abc6a1d`、`473850f4c`、`b91b81c67`，最终接线与验证同本 Outcome 提交，不分配发布版本。
+
+迁移 0243 保留旧 schema1 归属，新增 schema2 保存实际端点、桶、完整键、位置及绑定代次，并保存 provider 实际返回的版本回执。读取／发布／退休清理使用保存位置；有版本时固定该版本，非版本化目标也可正常使用。凭据从当前位置配置获得，正常配置修订递增不会重写历史物理身份；仍有上传记录的位置受引用保护。旧用户上传引用缺少准确 owner 时阻止切换，进行中的已分配上传不必排空。原件创建只比较相关绑定，头像切换不阻断无关数据集上传；占用仍报告原部署端点的实际小计，外部头像目标未覆盖时明确提示。
+
+最终 330 个不同相关 API／服务／DB／迁移用例中 329 项通过，一项既有位置影响测试的 input 夹具缺少现行 PredictionInputLease 合同字段，在到达被测逻辑前违反 `ck_prediction_input_documents`。相关测试、夹具、模型和位置变更服务与本片起点 `3a3f85e24` 字节一致；未弱化生产约束，也未把它升级成新的功能前置。47 个不同 Web、4 个 SDK 合同及 41 个恢复纯测通过，迁移往返和含新事实时拒绝破坏性降级包含在上述 API 计数内。
+
+实际独立 MinIO B 与已有 A 验证旧 A 在切 B 后仍可读、新 B 保存真实端点／前缀和版本、同键新版本陷阱不改变旧读取及准确删除、切回 A 后旧 B 仍可读、有历史引用的 B 不能删除，以及非版本化目标、失效确认和错误凭据拒绝。已保存相同有效凭据产生的配置修订变化后旧 B 仍可读；该项不冒充真实新密钥轮换验收。独立 Celery Worker 在绑定已回 A 后按保存的 B 位置准确清理一份退休头像，较新版本保持。受控对象均清空后删除专用 B 容器，不把本地合成结果表述为生产资格。
+
+浏览器实际检查明暗主题、1440×1000／390×844，完成选择、真实探测预览、确认更新及统计范围提示；居中窗口内滚动，无页面横向溢出。Escape 和成功提交后焦点均返回触发按钮，后者由实机发现并修复。控制台 error／warning 和页面异常均为零，捕获请求无 HTTP 错误；10 条无状态记录不计成功。正常提交钩子负责最终 Ruff／格式、Web lint／CSS tokens、tsc 和 API 生成检查；文档构建、frontmatter／导航／可读性及 codegen 已通过，远端 CI 未运行。
+
+人工环境通过所属监督服务应用 0243 并恢复 3100／8100、两个各注册 73 任务的 Worker 与绑定 Beat；实际空头像清理任务成功。十二表 155 行、24 对象完整字节和十二源文件指纹保持。test／e2e 各自数据库、Redis 和共 18 桶经 owner 校验销毁并独立确认不存在，三棵已集成且干净的本片隔离树移除；仅留有界验证摘要，清理截图、登录状态、私有凭据和中间报告。未重建镜像，未推送或发布。
+
+正式知识同步 `README.md`、`CHANGELOG.md` Unreleased、`docs-site/user-guide/datasets/storage-connections.md`、`docs-site/api/guides/storage-locations.md`、`docs-site/dev/concepts/storage-connections.md`、`docs-site/dev/reference/storage-buckets.md` 和 `docs-site/ops/deploy/storage-recovery.md`。当前九桶恢复工具明确拒绝新头像代次、固定版本回执及外部 B，不伪造其恢复覆盖；跨端点备份仍属原恢复／迁移工作，未在本片追加实施。完整 E02、其余用途切换与整套 Epic 继续活动，Tracker M2 不启动。
