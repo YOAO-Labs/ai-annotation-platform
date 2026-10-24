@@ -147,6 +147,8 @@ MinIO bucket，并隔离 DuckDB/临时文件。共享 `.env` 只作为基础配�
 
 数据集分页、筛选与关联项目统计的可复现本地基线使用 `scripts/benchmark_dataset_workbench.py`，仅运行于 owned、空业务库的 `e2e` 环境。两档索引各含 40 张真实目录图片，其余明确为未核验合成索引；测量前用当前命名空间的迁移账号准备完整统计，API 仍使用普通运行账号。[测量方法与读数](docs-site/dev/reference/dataset-workbench-benchmark.md) 包含运行、浏览器请求预算及清理步骤。
 
+真实目录遍历另使用 `scripts/benchmark_dataset_scan.py`，同样要求空业务库及完整归属核验的 `e2e` 环境。真实专属 Worker 测量 1,000／10,000／40,000 文件、取消恢复和既有预算边界；它不改扫描预算，也不代替图片读取性能。命令、计量口径及清理见[目录扫描资源基线](docs-site/dev/reference/dataset-scan-benchmark.md)。
+
 ### 任务数据集管理关联与回填
 
 任务版本流的增量迁移只增加 `project_task_datasets` 与 `task_dataset_version_memberships`，不重写历史冻结记录。先核对实际 API／worker 的 checkout、挂载、数据库与迁移图，再应用迁移，刷新手动创建的 API 和执行自动学习策略的 worker／scheduler。Celery 不会因 Python 文件更新自动重载；仅本次管理与分析代码变化不要求重建未改变的 GPU 训练／推理镜像。

@@ -76,3 +76,5 @@ docker compose exec redis redis-cli LLEN celery
 `dispatch_unavailable` 可在 broker 恢复后调用 `/resume`。pending 发布前中断或 running 租约过期也可显式恢复；有效租约内返回409。每次恢复创建新任务ID，旧检查点保留；不要改数据库代次、令牌或手工把 Job 标 completed。取消走现有 AsyncJob 入口，不需强杀进程。
 
 `configuration_changed` 需核对位置修订后启动新运行；`directory_changed` 或 `directory_identity_changed` 需先确认目录是否被移动、替换或继续写入。受控根身份变化必须核查部署映射；不以重试静默改绑。`directory_too_large` / `scan_budget_exceeded` 应缩小目录范围。失败、取消和超限都不代表文件不存在，不能据此删除历史样本。
+
+代表性文件树的资源、取消与恢复测量使用[目录扫描资源基线](../reference/dataset-scan-benchmark.md)。它运行于一次性环境，保留现有预算，区分元信息扫描与图片正文读取。
