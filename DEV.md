@@ -548,6 +548,14 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 统一验收器分别验证只读 LOGIN、普通 API 与 LAN 授权，拒绝私表读取及关系写入，并记录四阶段 `pg_get_viewdef`、原生列类型和 owner 转移。源码 SQL 哈希与数据库反解析哈希分开保存；操作验收、当前冷工件和完整模块资格见[读取台账](docs-site/dev/concepts/module-deployment.md#support-read-relations)。
 
+### Notifications 收件箱查询
+
+迁移 `0324` 安装 `inbox_page(uuid,text,boolean,integer,integer)`、`inbox_total_count(uuid,text)` 和 `inbox_unread_count(uuid,text)`，合同为 `aap-notifications-inbox-query/v1`。API 在原 Identity 状态读取后传认证 actor UUID 与该次角色快照，按 page → total → unread 三条语句查询；未读接口只调用未读计数。固定函数持有原筛选、排序、分页与计数，借用原 Session，保留 autoflush／no_autoflush、ORM identity 和 caller 提交／回滚。原生 JSONB 与 HTTP 响应不变；批量投递仍保留自身的字典／键存在性语义。
+
+先安装匹配迁移和 `module-data-grants.sql`，再对明确的数据库与角色运行 `infra/docker/notification-inbox-grants.sql`。它向原 API 和 `notification_inbox_query_client` 授予三项 EXECUTE；私有 `_visible_inbox_rows(uuid,text)` 对 API、函数账号和 PUBLIC 都不可调用。Notifications owner 只通过 Identity／Workspace／Jobs 的公开事实及固定能力组合权限，不能直接读取这些领域的私表。单条读取、批量投递和 WS 尚需公开通知关系 SELECT，不能在此时撤销该权限。函数账号 DSN 仅用于隔离验收，不新增应用环境变量或服务。
+
+统一 verifier 验证实际 LOGIN、Node 原生行及 bigint 字符串、API／LAN 调用和完整迁移往返；权限负向探针在事务内故意增加 owner 成员或 PUBLIC EXECUTE，要求实际 guard 拒绝后完整回滚。源码、操作资格与冷工件状态见[收件箱台账](docs-site/dev/concepts/module-deployment.md#notification-inbox-owner)。日常主环境未切换，回退时须匹配调用代码、迁移和授权。
+
 ### Notifications 实时消息合同
 
 `apps/notifications` 发布 `aap-notification-realtime/v1` 和 `realtime_event.schema.json`，API 与 durable publisher 共用六个业务事件字段的构造，保留各自的日期字符串和 JSON 编码。合同不向既有帧增加 schema 字段，业务 type 与 sync reason 保持开放；原生 JSONB 的对象、数组、标量与 null 均可保留。通用 ping 仍属于 WebSocket 层。

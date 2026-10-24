@@ -155,6 +155,9 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb),
     aap_notifications_v1.preference_command(jsonb),
     aap_notifications_v1.append_notification(jsonb),
     aap_notifications_v1.append_job_terminal_notification(jsonb),
+    aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer),
+    aap_notifications_v1.inbox_total_count(uuid,text),
+    aap_notifications_v1.inbox_unread_count(uuid,text),
     aap_notifications_v1.read_state_command(jsonb),
     aap_notifications_v1.delete_command(pg_catalog.jsonb)
     TO :"application_role";
@@ -208,6 +211,8 @@ REVOKE ALL ON TABLE aap_notifications_v1.notification_facts
 REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at)
     ON TABLE aap_notifications_v1.notification_facts FROM :"application_role", PUBLIC;
 GRANT SELECT ON aap_notifications_v1.notification_facts TO :"application_role";
+REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text)
+    FROM :"application_role", PUBLIC;
 REVOKE ALL ON TABLE aap_audit_v1.audit_events FROM :"application_role", PUBLIC;
 REVOKE ALL (id, actor_id, actor_email, actor_role, action, target_type, target_id,
     method, path, status_code, ip, detail_json, request_id, created_at)
@@ -251,6 +256,16 @@ BEGIN
        OR pg_catalog.has_any_column_privilege(v_runtime,
             'aap_notifications_v1.notification_facts', 'INSERT,UPDATE,REFERENCES') THEN
         RAISE EXCEPTION 'The runtime role is missing read-only Notifications facts';
+    END IF;
+    IF NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.inbox_total_count(uuid,text)', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1.inbox_unread_count(uuid,text)', 'EXECUTE')
+       OR pg_catalog.has_function_privilege(v_runtime,
+            'aap_notifications_v1._visible_inbox_rows(uuid,text)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'The runtime role is missing the three public inbox reads';
     END IF;
 END;
 $notification_private_acl$;

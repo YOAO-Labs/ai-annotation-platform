@@ -13,7 +13,36 @@ from verify_module_data_boundary import (
     READ_RELATION_SPECS,
     _assert_read_relation_structure_matches,
     _normalize_read_relation_observations,
+    _installed_function_body_sha256,
 )
+import verify_module_data_boundary as verifier
+
+
+def test_installed_body_uses_named_function_in_multi_function_resource(
+    tmp_path, monkeypatch
+):
+    sql_dir = tmp_path / "apps/api/alembic/sql"
+    sql_dir.mkdir(parents=True)
+    (sql_dir / "queries.sql").write_text(
+        "CREATE FUNCTION aap_test.first() RETURNS int LANGUAGE sql "
+        "AS $function$SELECT 1$function$;\n"
+        "CREATE FUNCTION aap_test.second() RETURNS int LANGUAGE sql "
+        "AS $function$SELECT 2$function$;\n"
+    )
+    monkeypatch.setattr(verifier, "ROOT", tmp_path)
+    monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: b"SELECT 2".hex())
+    arguments = dict(
+        database="owned_test",
+        owner_password="fixture-only",
+        signature="aap_test.second()",
+        sql_name="queries.sql",
+    )
+    assert _installed_function_body_sha256("id", "name", "identity", **arguments) == (
+        hashlib.sha256(b"SELECT 2").hexdigest()
+    )
+    monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: b"SELECT 1".hex())
+    with pytest.raises(RuntimeError, match="differs from frozen SQL"):
+        _installed_function_body_sha256("id", "name", "identity", **arguments)
 
 
 def test_view_evidence_hashes_catalog_deparser_and_tracks_owner_transfer():

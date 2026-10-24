@@ -83,8 +83,10 @@ BEGIN
         IF EXISTS (
             SELECT FROM pg_auth_members AS m
             WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = role_name)
+               OR (m.roleid = (SELECT oid FROM pg_roles WHERE rolname = role_name)
+                   AND m.member <> current_user::pg_catalog.regrole)
         ) THEN
-            RAISE EXCEPTION 'Module roles must not inherit other roles: %', role_name;
+            RAISE EXCEPTION 'Module roles must not have untrusted memberships: %', role_name;
         END IF;
     END LOOP;
     IF EXISTS (
@@ -796,6 +798,15 @@ GRANT USAGE ON SCHEMA aap_notifications_v1
 GRANT USAGE ON SCHEMA aap_identity_v1 TO :"jobs_owner", :"notifications_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid) TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
+    TO :"notifications_owner";
+GRANT SELECT (id, role, is_active) ON aap_identity_v1.account_profiles
+    TO :"notifications_owner";
+GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_project_query_v1, aap_jobs_v1
+    TO :"notifications_owner";
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.actor_project_memberships(uuid),
+    aap_workspace_project_query_v1.project_search_scope(uuid,text)
+    TO :"notifications_owner";
+GRANT SELECT (id, kind, scope_project_id) ON aap_jobs_v1.notification_scope_facts
     TO :"notifications_owner";
 GRANT EXECUTE ON FUNCTION aap_settings_v1.resolve_connector_host_allowlist(jsonb)
     TO :"assets_owner";

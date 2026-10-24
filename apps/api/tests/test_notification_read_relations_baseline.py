@@ -66,6 +66,59 @@ async def test_legacy_notification_list_keeps_order_counts_and_dirty_identity(
 
 
 @pytest.mark.asyncio
+async def test_inbox_autoflush_and_counts_remain_inside_callers_rollback(
+    db_session, annotator
+):
+    user, _ = annotator
+    actor_id = user.id
+    service = NotificationService(db_session)
+    first = Notification(
+        id=uuid.uuid4(),
+        user_id=actor_id,
+        type="inbox.pending.first",
+        target_type="task",
+        target_id=uuid.uuid4(),
+        payload={},
+    )
+    db_session.add(first)
+    assert await service.unread_count(actor_id) == 1
+    assert first not in db_session.new
+
+    first.read_at = datetime.now(timezone.utc)
+    second = Notification(
+        id=uuid.uuid4(),
+        user_id=actor_id,
+        type="inbox.pending.second",
+        target_type="task",
+        target_id=uuid.uuid4(),
+        payload={},
+    )
+    db_session.add(second)
+    row_ids = [first.id, second.id]
+    with db_session.no_autoflush:
+        page, total, unread = await service.list_for_user(actor_id, unread_only=True)
+        assert page == [first]
+        assert page[0] is first
+        assert page[0].read_at is not None
+        assert (total, unread) == (1, 1)
+        assert second in db_session.new
+        assert first in db_session.dirty
+
+    page, total, unread = await service.list_for_user(actor_id, unread_only=True)
+    assert page == [second]
+    assert page[0] is second
+    assert (total, unread) == (2, 1)
+    assert first not in db_session.dirty
+    assert second not in db_session.new
+    await db_session.rollback()
+    assert not list(
+        await db_session.scalars(
+            select(Notification.id).where(Notification.id.in_(row_ids))
+        )
+    )
+
+
+@pytest.mark.asyncio
 async def test_inbox_query_preserves_native_jsonb_payload_shapes(db_session, annotator):
     user, _ = annotator
     payloads = [None, {}, [], ["project_id"], "scalar", 5, True]

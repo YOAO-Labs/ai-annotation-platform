@@ -566,6 +566,10 @@ class BucketUpgradeTests(unittest.TestCase):
             "terminal_append": True,
             "read_state": True,
             "notification_delete": True,
+            "inbox_page": True,
+            "inbox_total": True,
+            "inbox_unread": True,
+            "inbox_private_helper": False,
             "notification_private": False,
             "notification_column_private": False,
             "notification_facts": True,
@@ -698,6 +702,10 @@ class BucketUpgradeTests(unittest.TestCase):
 
         for key in (
             "terminal_append",
+            "inbox_page",
+            "inbox_total",
+            "inbox_unread",
+            "inbox_private_helper",
             "notification_private",
             "notification_column_private",
             "notification_facts",

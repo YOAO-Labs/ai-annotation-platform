@@ -41,6 +41,28 @@ VIDEO_EXECUTION_ROLE = "video_execution_client"
 IDENTITY_API_CONSUMER_ROLE = "identity_api_consumer"
 NOTIFICATION_PREFERENCES_ROLE = "notification_preferences_client"
 NOTIFICATION_APPEND_ROLE = "notification_append_client"
+NOTIFICATION_INBOX_ROLE = "notification_inbox_query_client"
+NOTIFICATION_INBOX_FUNCTIONS = (
+    "aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)",
+    "aap_notifications_v1.inbox_total_count(uuid,text)",
+    "aap_notifications_v1.inbox_unread_count(uuid,text)",
+)
+NOTIFICATION_INBOX_PRIVATE_HELPER = (
+    "aap_notifications_v1._visible_inbox_rows(uuid,text)"
+)
+FUNCTION_BODY_ARTIFACTS = {
+    "aap_audit_v1.refresh_audit_bi_mv()": "0322_audit_daily_projection.sql",
+    "aap_notifications_v1.append_job_terminal_notification(jsonb)": "0321_notifications_terminal_append.sql",
+    "aap_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
+    "aap_notifications_v1.delete_command(pg_catalog.jsonb)": "0318_notifications_delete.sql",
+    **{
+        signature: "0324_notifications_inbox_query.sql"
+        for signature in (
+            *NOTIFICATION_INBOX_FUNCTIONS,
+            NOTIFICATION_INBOX_PRIVATE_HELPER,
+        )
+    },
+}
 AUDIT_APPEND_ROLE = "audit_append_client"
 AUDIT_QUERY_ROLE = "audit_query_client"
 NOTIFICATION_READ_ROLE = "notification_read_client"
@@ -178,6 +200,7 @@ MODULE_ROLES = (
     VIDEO_EXECUTION_ROLE,
     NOTIFICATION_PREFERENCES_ROLE,
     NOTIFICATION_APPEND_ROLE,
+    NOTIFICATION_INBOX_ROLE,
     AUDIT_APPEND_ROLE,
     AUDIT_QUERY_ROLE,
     NOTIFICATION_READ_ROLE,
@@ -364,6 +387,7 @@ SQL_ARTIFACTS = (
     "0321_notifications_terminal_append.sql",
     "0322_audit_daily_projection.sql",
     "0323_jobs_notification_scope_facts.sql",
+    "0324_notifications_inbox_query.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -499,6 +523,7 @@ SCHEMA_ARTIFACTS = (
     "0321_notifications_terminal_append.schema.json",
     "0322_audit_daily_projection.schema.json",
     "0323_jobs_notification_scope_facts.schema.json",
+    "0324_notifications_inbox_query.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -687,6 +712,7 @@ TEST_FILES = (
     "tests/test_notifications.py",
     "tests/test_notification_terminal_append.py",
     "tests/test_notification_jobs_scope.py",
+    "tests/test_notification_inbox_query.py",
     "tests/test_notification_delivery_scope.py",
     "tests/test_notification_read_state_cache.py",
     "tests/test_notification_delete_cache.py",
@@ -2037,7 +2063,13 @@ def _installed_function_body_sha256(
     sql_name: str,
 ) -> str:
     source = (ROOT / "apps/api/alembic/sql" / sql_name).read_text(encoding="utf-8")
-    match = re.search(r"AS \$function\$(.*?)\$function\$;", source, re.DOTALL)
+    function_name = re.escape(signature.split("(", 1)[0])
+    match = re.search(
+        rf"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+{function_name}\s*\("
+        r".*?\bAS\s+\$function\$(.*?)\$function\$;",
+        source,
+        re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    )
     if match is None:
         raise RuntimeError(f"frozen SQL has no function body: {sql_name}")
     expected = match.group(1)
@@ -2215,6 +2247,103 @@ def _verify_audit_daily_projection_boundary(
         "private_mv_and_unauthorized_refresh_denied": True,
         "probe_action": action,
         "probe_retention": "Append-only source row remains until exact owned DB destruction",
+    }
+
+
+async def _verify_inbox_grant_guards(owner_url: str, profile_sql: str) -> dict:
+    import asyncpg
+
+    blocks = {}
+    for name in ("guard", "verify"):
+        match = re.search(rf"DO \${name}\$.*?\${name}\$;", profile_sql, re.DOTALL)
+        if match is None:
+            raise RuntimeError("Inbox grant profile is missing an acceptance guard")
+        blocks[name] = match.group()
+    connection = await asyncpg.connect(owner_url, timeout=5)
+    probe_role = "inbox_owner_probe_" + uuid4().hex
+    try:
+        database = await connection.fetchval("SELECT current_database()")
+        signatures = [*NOTIFICATION_INBOX_FUNCTIONS, NOTIFICATION_INBOX_PRIVATE_HELPER]
+        oids = [
+            await connection.fetchval(
+                "SELECT pg_catalog.to_regprocedure($1)::oid", value
+            )
+            for value in signatures
+        ]
+        if any(value is None for value in oids):
+            raise RuntimeError(
+                "Inbox grant probe requires all four installed functions"
+            )
+        for label, mutation, block, expected_error in (
+            (
+                "owner_membership_rejected",
+                f'CREATE ROLE "{probe_role}" NOLOGIN; '
+                f'GRANT notifications_code TO "{probe_role}";',
+                blocks["guard"],
+                "Unsafe inbox owner, API or query LOGIN",
+            ),
+            (
+                "public_functions_execute_rejected",
+                "GRANT EXECUTE ON FUNCTION "
+                + ",".join(NOTIFICATION_INBOX_FUNCTIONS)
+                + " TO PUBLIC;",
+                blocks["verify"],
+                "PUBLIC retains inbox EXECUTE",
+            ),
+            (
+                "public_helper_execute_rejected",
+                f"GRANT EXECUTE ON FUNCTION {NOTIFICATION_INBOX_PRIVATE_HELPER} TO PUBLIC;",
+                blocks["verify"],
+                "PUBLIC retains inbox EXECUTE",
+            ),
+        ):
+            transaction = connection.transaction()
+            await transaction.start()
+            try:
+                for key, value in {
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "notifications_owner": "notifications_code",
+                    "api_role": "legacy_runtime",
+                    "query_client": NOTIFICATION_INBOX_ROLE,
+                }.items():
+                    await connection.execute(
+                        "SELECT pg_catalog.set_config($1,$2,true)", f"aap.{key}", value
+                    )
+                await connection.execute(mutation)
+                try:
+                    async with connection.transaction():
+                        await connection.execute(block)
+                except asyncpg.RaiseError as error:
+                    if str(error) != expected_error:
+                        raise RuntimeError(
+                            "Inbox ACL guard rejected an unrelated condition"
+                        ) from None
+                else:
+                    raise RuntimeError(f"Inbox ACL guard failed: {label}")
+            finally:
+                await transaction.rollback()
+        if await connection.fetchval(
+            "SELECT EXISTS(SELECT FROM pg_catalog.pg_roles WHERE rolname=$1)",
+            probe_role,
+        ):
+            raise RuntimeError("Inbox owner membership probe did not roll back")
+        if await connection.fetchval(
+            "SELECT EXISTS(SELECT FROM pg_catalog.pg_proc AS function "
+            "CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(function.proacl,"
+            "pg_catalog.acldefault('f',function.proowner))) AS acl "
+            "WHERE function.oid=ANY($1::oid[]) AND acl.grantee=0 "
+            "AND acl.privilege_type='EXECUTE')",
+            oids,
+        ):
+            raise RuntimeError("PUBLIC retained inbox EXECUTE after probe rollback")
+    finally:
+        await connection.close()
+    return {
+        "owner_membership_rejected": True,
+        "public_functions_execute_rejected": True,
+        "public_helper_execute_rejected": True,
+        "probe_role_and_acl_rolled_back": True,
     }
 
 
@@ -2449,6 +2578,7 @@ def _create_module_roles(
     result_password: str,
     preference_password: str,
     notification_append_password: str,
+    notification_inbox_password: str,
     audit_append_password: str,
     audit_query_password: str,
     notification_read_password: str,
@@ -2529,6 +2659,9 @@ def _create_module_roles(
             "CREATE ROLE notification_append_client LOGIN "
             f"PASSWORD '{notification_append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {NOTIFICATION_INBOX_ROLE} LOGIN "
+            f"PASSWORD '{notification_inbox_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE audit_append_client LOGIN "
             f"PASSWORD '{audit_append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
@@ -2568,6 +2701,7 @@ def _create_module_roles(
                         "preannotation_result_client",
                         NOTIFICATION_PREFERENCES_ROLE,
                         NOTIFICATION_APPEND_ROLE,
+                        NOTIFICATION_INBOX_ROLE,
                         AUDIT_APPEND_ROLE,
                         AUDIT_QUERY_ROLE,
                         NOTIFICATION_READ_ROLE,
@@ -2933,6 +3067,10 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_briefs_v1') IS NULL "
             "AND to_regprocedure('aap_notifications_v1.delete_command(pg_catalog.jsonb)') IS NULL "
             "AND to_regprocedure('aap_notifications_v1.append_job_terminal_notification(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.inbox_total_count(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.inbox_unread_count(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1._visible_inbox_rows(uuid,text)') IS NULL "
             "AND to_regprocedure('aap_audit_v1.refresh_audit_bi_mv()') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_provisioning_account(text)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.create_provisioning_account(jsonb)') IS NULL "
@@ -3146,6 +3284,17 @@ def main(argv: list[str] | None = None) -> int:
             "function_only_role_grant": False,
             "node_contract_check": False,
         },
+        "notification_inbox": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "function_only_login": False,
+            "private_helper_denied": False,
+            "acl_guard_probes": None,
+            "lan_function_calls": False,
+            "node_contract_check": False,
+        },
         "notification_terminal_append": {
             "node_prerequisites": "not_checked",
             "api_function_grant": False,
@@ -3287,6 +3436,9 @@ def main(argv: list[str] | None = None) -> int:
         terminal_append_node_provider = (
             ROOT / "apps/notifications/conformance/node/terminal_append_provider.mjs"
         )
+        inbox_node_provider = (
+            ROOT / "apps/notifications/conformance/node/inbox_query_provider.mjs"
+        )
         read_state_node_provider = (
             ROOT / "apps/notifications/conformance/node/read_state_provider.mjs"
         )
@@ -3312,6 +3464,7 @@ def main(argv: list[str] | None = None) -> int:
             or not node_provider.is_file()
             or not append_node_provider.is_file()
             or not terminal_append_node_provider.is_file()
+            or not inbox_node_provider.is_file()
             or not read_state_node_provider.is_file()
             or not delete_node_provider.is_file()
             or not notification_read_node_provider.is_file()
@@ -3321,6 +3474,7 @@ def main(argv: list[str] | None = None) -> int:
             or not audit_read_node_provider.is_file()
         ):
             evidence["notification_preferences"]["node_prerequisites"] = "unavailable"
+            evidence["notification_inbox"]["node_prerequisites"] = "unavailable"
             evidence["notification_append"]["node_prerequisites"] = "unavailable"
             evidence["notification_terminal_append"]["node_prerequisites"] = (
                 "unavailable"
@@ -3480,6 +3634,19 @@ def main(argv: list[str] | None = None) -> int:
                 "self_check_failed"
             )
             raise RuntimeError("Jobs notification-scope peer prerequisites failed")
+        phase = "preflight-node-notification-inbox"
+        inbox_node_check = subprocess.run(
+            [node_bin, str(inbox_node_provider), "--self-check"],
+            cwd=inbox_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if inbox_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, inbox_node_check)
+            evidence["notification_inbox"]["node_prerequisites"] = "self_check_failed"
+            raise RuntimeError("Notifications inbox peer prerequisites failed")
+        evidence["notification_inbox"]["node_prerequisites"] = "passed"
         phase = "preflight-node-audit-read-relations"
         audit_read_node_check = subprocess.run(
             [node_bin, str(audit_read_node_provider), "--self-check"],
@@ -3613,6 +3780,9 @@ def main(argv: list[str] | None = None) -> int:
         notification_append_grants_path = (
             ROOT / "infra/docker/notification-append-grants.sql"
         )
+        notification_inbox_grants_path = (
+            ROOT / "infra/docker/notification-inbox-grants.sql"
+        )
         notification_read_grants_path = (
             ROOT / "infra/docker/notifications-read-grants.sql"
         )
@@ -3651,6 +3821,7 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_deactivation_grants_path.is_file()
             or not notification_preferences_grants_path.is_file()
             or not notification_append_grants_path.is_file()
+            or not notification_inbox_grants_path.is_file()
             or not notification_read_grants_path.is_file()
             or not audit_append_grants_path.is_file()
             or not audit_query_grants_path.is_file()
@@ -3816,6 +3987,9 @@ def main(argv: list[str] | None = None) -> int:
         notification_append_grant_sql = notification_append_grants_path.read_text(
             encoding="utf-8"
         )
+        notification_inbox_grant_sql = notification_inbox_grants_path.read_text(
+            encoding="utf-8"
+        )
         notification_read_grant_sql = notification_read_grants_path.read_text(
             encoding="utf-8"
         )
@@ -3861,6 +4035,7 @@ def main(argv: list[str] | None = None) -> int:
         result_password = f"batch-result-{secrets.token_hex(16)}"
         preference_password = f"notification-preference-{secrets.token_hex(16)}"
         notification_append_password = f"notification-append-{secrets.token_hex(16)}"
+        notification_inbox_password = f"notification-inbox-{secrets.token_hex(16)}"
         audit_append_password = f"audit-append-{secrets.token_hex(16)}"
         audit_query_password = f"audit-query-{secrets.token_hex(16)}"
         notification_read_password = f"notification-read-{secrets.token_hex(16)}"
@@ -3950,8 +4125,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0323"]:
-            raise RuntimeError("module-data acceptance requires migration head 0323")
+        if heads != ["0324"]:
+            raise RuntimeError("module-data acceptance requires migration head 0324")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -3967,50 +4142,16 @@ def main(argv: list[str] | None = None) -> int:
             read_relations_before
         )
         installed_function_bodies = {
-            "aap_audit_v1.refresh_audit_bi_mv()": (
-                _installed_function_body_sha256(
-                    container_id,
-                    container_name,
-                    container_identity,
-                    database=database,
-                    owner_password=owner_password,
-                    signature="aap_audit_v1.refresh_audit_bi_mv()",
-                    sql_name="0322_audit_daily_projection.sql",
-                )
-            ),
-            "aap_notifications_v1.append_job_terminal_notification(jsonb)": (
-                _installed_function_body_sha256(
-                    container_id,
-                    container_name,
-                    container_identity,
-                    database=database,
-                    owner_password=owner_password,
-                    signature="aap_notifications_v1.append_job_terminal_notification(jsonb)",
-                    sql_name="0321_notifications_terminal_append.sql",
-                )
-            ),
-            "aap_audit_v1.query_events(pg_catalog.jsonb)": (
-                _installed_function_body_sha256(
-                    container_id,
-                    container_name,
-                    container_identity,
-                    database=database,
-                    owner_password=owner_password,
-                    signature="aap_audit_v1.query_events(pg_catalog.jsonb)",
-                    sql_name="0317_audit_query.sql",
-                )
-            ),
-            "aap_notifications_v1.delete_command(pg_catalog.jsonb)": (
-                _installed_function_body_sha256(
-                    container_id,
-                    container_name,
-                    container_identity,
-                    database=database,
-                    owner_password=owner_password,
-                    signature="aap_notifications_v1.delete_command(pg_catalog.jsonb)",
-                    sql_name="0318_notifications_delete.sql",
-                )
-            ),
+            signature: _installed_function_body_sha256(
+                container_id,
+                container_name,
+                container_identity,
+                database=database,
+                owner_password=owner_password,
+                signature=signature,
+                sql_name=sql_name,
+            )
+            for signature, sql_name in FUNCTION_BODY_ARTIFACTS.items()
         }
         evidence["migrations"]["installed_function_body_sha256"] = (
             installed_function_bodies
@@ -4069,50 +4210,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         evidence["migrations"]["read_relations_after_upgrade"] = read_relations_after
         if {
-            "aap_audit_v1.refresh_audit_bi_mv()": (
-                _installed_function_body_sha256(
-                    container_id,
-                    container_name,
-                    container_identity,
-                    database=database,
-                    owner_password=owner_password,
-                    signature="aap_audit_v1.refresh_audit_bi_mv()",
-                    sql_name="0322_audit_daily_projection.sql",
-                )
-            ),
-            "aap_notifications_v1.append_job_terminal_notification(jsonb)": (
-                _installed_function_body_sha256(
-                    container_id,
-                    container_name,
-                    container_identity,
-                    database=database,
-                    owner_password=owner_password,
-                    signature="aap_notifications_v1.append_job_terminal_notification(jsonb)",
-                    sql_name="0321_notifications_terminal_append.sql",
-                )
-            ),
-            "aap_audit_v1.query_events(pg_catalog.jsonb)": (
-                _installed_function_body_sha256(
-                    container_id,
-                    container_name,
-                    container_identity,
-                    database=database,
-                    owner_password=owner_password,
-                    signature="aap_audit_v1.query_events(pg_catalog.jsonb)",
-                    sql_name="0317_audit_query.sql",
-                )
-            ),
-            "aap_notifications_v1.delete_command(pg_catalog.jsonb)": (
-                _installed_function_body_sha256(
-                    container_id,
-                    container_name,
-                    container_identity,
-                    database=database,
-                    owner_password=owner_password,
-                    signature="aap_notifications_v1.delete_command(pg_catalog.jsonb)",
-                    sql_name="0318_notifications_delete.sql",
-                )
-            ),
+            signature: _installed_function_body_sha256(
+                container_id,
+                container_name,
+                container_identity,
+                database=database,
+                owner_password=owner_password,
+                signature=signature,
+                sql_name=sql_name,
+            )
+            for signature, sql_name in FUNCTION_BODY_ARTIFACTS.items()
         } != installed_function_bodies:
             raise RuntimeError(
                 "installed SQL function bodies changed after migration roundtrip"
@@ -4210,6 +4317,14 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        notification_inbox_url = URL.create(
+            "postgresql",
+            username=NOTIFICATION_INBOX_ROLE,
+            password=notification_inbox_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         audit_append_url = URL.create(
             "postgresql",
             username=AUDIT_APPEND_ROLE,
@@ -4279,6 +4394,7 @@ def main(argv: list[str] | None = None) -> int:
             result_password,
             preference_password,
             notification_append_password,
+            notification_inbox_password,
             audit_append_password,
             audit_query_password,
             notification_read_password,
@@ -4433,6 +4549,24 @@ def main(argv: list[str] | None = None) -> int:
                 },
             )
 
+        def apply_notification_inbox_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=notification_inbox_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "notifications_owner": "notifications_code",
+                    "api_role": "legacy_runtime",
+                    "query_client": NOTIFICATION_INBOX_ROLE,
+                },
+            )
+
         def apply_notification_read_grants(api_role: str) -> None:
             _psql(
                 container_id,
@@ -4540,6 +4674,47 @@ def main(argv: list[str] | None = None) -> int:
         evidence["notification_delete"]["api_function_grant"] = True
         evidence["notification_delete"]["api_delete_revoked"] = True
         evidence["notification_delete"]["function_only_role_grant"] = True
+        phase = "install-notification-inbox-grants"
+        apply_notification_inbox_grants()
+        evidence["notification_inbox"]["api_function_grant"] = True
+        evidence["notification_inbox"]["function_only_role_grant"] = True
+
+        async def verify_inbox_login() -> None:
+            import asyncpg
+
+            from aap_owner_data.postgres import verify_function_only_role
+
+            connection = await asyncpg.connect(notification_inbox_url, timeout=5)
+            try:
+                await verify_function_only_role(
+                    connection,
+                    schema="aap_notifications_v1",
+                    functions={
+                        ("inbox_page", "uuid, text, boolean, integer, integer"),
+                        ("inbox_total_count", "uuid, text"),
+                        ("inbox_unread_count", "uuid, text"),
+                    },
+                    role=NOTIFICATION_INBOX_ROLE,
+                )
+            finally:
+                await connection.close()
+
+        asyncio.run(verify_inbox_login())
+        evidence["notification_inbox"]["function_only_login"] = True
+        phase = "verify-notification-inbox-acl-guards"
+        evidence["notification_inbox"]["acl_guard_probes"] = asyncio.run(
+            _verify_inbox_grant_guards(
+                URL.create(
+                    "postgresql",
+                    username="owner",
+                    password=owner_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
+                notification_inbox_grant_sql,
+            )
+        )
         phase = "install-audit-append-grants"
         apply_audit_append_grants()
         evidence["audit_append"]["api_function_grant"] = True
@@ -4586,7 +4761,7 @@ def main(argv: list[str] | None = None) -> int:
             password=owner_password,
             database=database,
             sql=(
-                "SELECT pg_catalog.count(*)=4 AND pg_catalog.bool_and("
+                "SELECT pg_catalog.count(*)=5 AND pg_catalog.bool_and("
                 "role.rolcanlogin AND NOT role.rolinherit "
                 "AND NOT (role.rolsuper OR role.rolcreatedb OR role.rolcreaterole "
                 "OR role.rolreplication OR role.rolbypassrls) "
@@ -4600,7 +4775,8 @@ def main(argv: list[str] | None = None) -> int:
                 "WHERE membership.member=role.oid OR membership.roleid=role.oid)) "
                 "FROM pg_catalog.pg_roles AS role "
                 f"WHERE role.rolname IN ('{NOTIFICATION_READ_ROLE}','{AUDIT_READ_ROLE}',"
-                f"'{AUDIT_DAILY_REFRESH_ROLE}','{JOBS_NOTIFICATION_SCOPE_ROLE}');"
+                f"'{AUDIT_DAILY_REFRESH_ROLE}','{JOBS_NOTIFICATION_SCOPE_ROLE}',"
+                f"'{NOTIFICATION_INBOX_ROLE}');"
             ),
         )
         if read_role_contract.strip() != "t":
@@ -5302,6 +5478,65 @@ def main(argv: list[str] | None = None) -> int:
             )
             raise RuntimeError("Node Notifications read-relation check failed")
         evidence["notification_read_relations"]["node_relation_check"] = True
+
+        phase = "verify-notification-inbox-api"
+        inbox_api_probe = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT count(*)=1 FROM aap_notifications_v1.inbox_page("
+                f"'{notification_preference_user_id}'::uuid,'employee',false,100,0) "
+                f"WHERE id='{read_relation_notification_id}'::uuid;"
+            ),
+        )
+        if inbox_api_probe.strip() != "t":
+            raise RuntimeError("API LOGIN could not read the inbox owner page")
+        evidence["notification_inbox"]["api_function_call"] = True
+        for username, password in (
+            ("legacy_runtime", runtime_password),
+            (NOTIFICATION_INBOX_ROLE, notification_inbox_password),
+        ):
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=username,
+                password=password,
+                database=database,
+                statement=(
+                    "SELECT * FROM aap_notifications_v1._visible_inbox_rows("
+                    f"'{notification_preference_user_id}'::uuid,'employee')"
+                ),
+            )
+        evidence["notification_inbox"]["private_helper_denied"] = True
+        phase = "verify-notification-inbox-node"
+        inbox_node_environment = os.environ.copy()
+        inbox_node_environment.update(
+            {
+                "NOTIFICATION_INBOX_DATABASE_URL": notification_inbox_url,
+                "NOTIFICATION_INBOX_USER_ID": notification_preference_user_id,
+                "NOTIFICATION_INBOX_NOTIFICATION_ID": read_relation_notification_id,
+                "NOTIFICATION_INBOX_PLATFORM_ROLE": "employee",
+                "NOTIFICATION_INBOX_EXPECTED_ROLE": NOTIFICATION_INBOX_ROLE,
+            }
+        )
+        inbox_node_result = subprocess.run(
+            [node_bin, str(inbox_node_provider), "--live"],
+            cwd=inbox_node_provider.parent,
+            env=inbox_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if inbox_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, inbox_node_result)
+            raise RuntimeError("Node Notifications inbox read check failed")
+        evidence["notification_inbox"]["node_contract_check"] = True
 
         phase = "verify-jobs-notification-scope-node"
         jobs_scope_id = str(uuid4())
@@ -6250,6 +6485,28 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError(
                 "LAN application role could not read Notifications facts"
             )
+        lan_inbox_probe = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=IDENTITY_API_CONSUMER_ROLE,
+            password=identity_api_consumer_password,
+            database=database,
+            sql=(
+                "SELECT EXISTS(SELECT FROM aap_notifications_v1.inbox_page("
+                f"'{notification_preference_user_id}'::uuid,'employee',false,100,0) "
+                f"WHERE id='{read_relation_notification_id}'::uuid) "
+                "AND aap_notifications_v1.inbox_total_count("
+                f"'{notification_preference_user_id}'::uuid,'employee')>=1 "
+                "AND aap_notifications_v1.inbox_unread_count("
+                f"'{notification_preference_user_id}'::uuid,'employee')>=0;"
+            ),
+        )
+        if lan_inbox_probe.strip() != "t":
+            raise RuntimeError(
+                "LAN application role could not call the three inbox reads"
+            )
+        evidence["notification_inbox"]["lan_function_calls"] = True
         identity_consumer_audit_fact = _psql(
             container_id,
             container_name,
@@ -7047,6 +7304,7 @@ SELECT pg_catalog.jsonb_build_object(
                 # Reapply owner-bound reads and writes after broad test grants.
                 apply_notification_preferences_grants()
                 apply_notification_append_grants()
+                apply_notification_inbox_grants()
                 apply_audit_append_grants()
                 apply_notification_read_grants("legacy_runtime")
                 apply_notification_read_grants(NOTIFICATION_READ_ROLE)

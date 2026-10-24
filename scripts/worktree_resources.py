@@ -122,6 +122,9 @@ NOTIFICATION_RUNTIME_CAPABILITIES = (
     "aap_notifications_v1.append_job_terminal_notification(jsonb)",
     "aap_notifications_v1.read_state_command(jsonb)",
     "aap_notifications_v1.delete_command(pg_catalog.jsonb)",
+    "aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)",
+    "aap_notifications_v1.inbox_total_count(uuid,text)",
+    "aap_notifications_v1.inbox_unread_count(uuid,text)",
 )
 AUDIT_RUNTIME_CAPABILITIES = (
     "aap_audit_v1.append_events(jsonb)",
@@ -1233,6 +1236,8 @@ class LocalResources:
                     f"GRANT EXECUTE ON FUNCTION {audit_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {identity_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {notification_function_grant} TO {role}",
+                    "REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text) "
+                    f"FROM {role}, PUBLIC",
                     f"GRANT EXECUTE ON FUNCTION {image_media_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {image_accepted_function_grant} TO {role}",
                 ):
@@ -1272,7 +1277,19 @@ class LocalResources:
                         "AS read_state, pg_catalog.has_function_privilege("
                         ":role, pg_catalog.to_regprocedure("
                         "'aap_notifications_v1.delete_command(pg_catalog.jsonb)'), 'EXECUTE') "
-                        "AS notification_delete, (pg_catalog.has_table_privilege("
+                        "AS notification_delete, pg_catalog.has_function_privilege("
+                        ":role, pg_catalog.to_regprocedure("
+                        "'aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)'), 'EXECUTE') "
+                        "AS inbox_page, pg_catalog.has_function_privilege("
+                        ":role, pg_catalog.to_regprocedure("
+                        "'aap_notifications_v1.inbox_total_count(uuid,text)'), 'EXECUTE') "
+                        "AS inbox_total, pg_catalog.has_function_privilege("
+                        ":role, pg_catalog.to_regprocedure("
+                        "'aap_notifications_v1.inbox_unread_count(uuid,text)'), 'EXECUTE') "
+                        "AS inbox_unread, pg_catalog.has_function_privilege("
+                        ":role, pg_catalog.to_regprocedure("
+                        "'aap_notifications_v1._visible_inbox_rows(uuid,text)'), 'EXECUTE') "
+                        "AS inbox_private_helper, (pg_catalog.has_table_privilege("
                         ":role, 'public.notifications', "
                         "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
                         "pg_catalog.has_table_privilege(:role, 'public.notification_preferences', "
@@ -1341,6 +1358,10 @@ class LocalResources:
                     or notification_grants["terminal_append"] is not True
                     or notification_grants["read_state"] is not True
                     or notification_grants["notification_delete"] is not True
+                    or notification_grants["inbox_page"] is not True
+                    or notification_grants["inbox_total"] is not True
+                    or notification_grants["inbox_unread"] is not True
+                    or notification_grants["inbox_private_helper"] is not False
                     or notification_grants["notification_private"] is not False
                     or notification_grants["notification_column_private"] is not False
                     or notification_grants["notification_facts"] is not True
