@@ -784,7 +784,9 @@ export function CommentInput({
           // target is visible. A retired account cannot start the next file.
           if (!uploadStillCurrent()) return;
           if (f.size > MAX_ATTACH_BYTES) {
-            pushToast({ msg: `${f.name} 超过 20MB，已跳过`, kind: "warning" });
+            if (mountedRef.current && visibleIdentityRef.current === uploadIdentity) {
+              pushToast({ msg: `${f.name} 超过 20 MiB，已跳过`, kind: "warning" });
+            }
             continue;
           }
           const attachment = await commentsApi.attachmentUpload(uploadAnnotationId, f);
@@ -796,7 +798,11 @@ export function CommentInput({
           }
         }
       } catch (err) {
-        if (uploadStillCurrent() && visibleIdentityRef.current === uploadIdentity) {
+        if (
+          mountedRef.current &&
+          uploadStillCurrent() &&
+          visibleIdentityRef.current === uploadIdentity
+        ) {
           pushToast({ msg: "附件上传失败", sub: String(err), kind: "error" });
         }
       } finally {

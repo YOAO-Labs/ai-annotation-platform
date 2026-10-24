@@ -949,9 +949,14 @@ describe("CommentInput session composer", () => {
     );
     fireEvent.change(view.container.querySelector('input[type="file"]')!, { target: { files } });
     await waitFor(() => expect(upload).toHaveBeenCalledTimes(6));
-    expect(upload).toHaveBeenCalledWith("ann-a", files[0]);
-    expect(upload).toHaveBeenCalledWith("ann-a", files[1]);
-    expect(upload).not.toHaveBeenCalledWith("ann-a", files[2]);
+    expect(upload.mock.calls[0][1]).toBe(files[0]);
+    expect(upload.mock.calls[1][1]).toBe(files[1]);
+    expect(upload.mock.calls.some(([, file]) => file === files[2])).toBe(false);
+    expect(
+      upload.mock.calls.map(([annotationId, file]) => [annotationId, file.name, file.size]),
+    ).toEqual(
+      files.filter((_, index) => index !== 2).map((file) => ["ann-a", file.name, file.size]),
+    );
     expect(store.getDraft(annotationA)?.attachments).toHaveLength(6);
     expect(store.getDraft(annotationA)?.attachments[0].size).toBe(0);
   });
@@ -983,4 +988,71 @@ describe("CommentInput session composer", () => {
     current = true;
     expect(store.getDraft(annotationA)?.attachments).toEqual([]);
   });
+
+  it.each(["target", "unmount"])(
+    "keeps a late upload error out of the retired %s view",
+    async (retirement) => {
+      const store = createDiscussionDraftStore({ owner: { userId: "u1", sessionId: "s1" } });
+      let reject!: (error: Error) => void;
+      const pending = new Promise<CommentAttachment>((_resolve, fail) => {
+        reject = fail;
+      });
+      const upload = vi.spyOn(commentsApi, "attachmentUpload").mockReturnValue(pending);
+      const push = vi.spyOn(useToastStore.getState(), "push");
+      const view = render(
+        <CommentInput target={annotationA} draftStore={store} members={[]} onSubmit={vi.fn()} />,
+      );
+      fireEvent.change(view.container.querySelector('input[type="file"]')!, {
+        target: { files: [new File(["a"], "a.bin")] },
+      });
+      await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+      if (retirement === "unmount") view.unmount();
+      else
+        view.rerender(
+          <CommentInput target={annotationB} draftStore={store} members={[]} onSubmit={vi.fn()} />,
+        );
+      await act(async () => {
+        reject(new Error("retired view upload failure"));
+      });
+      expect(push).not.toHaveBeenCalled();
+      expect(store.getDraft(annotationA)?.attachments).toEqual([]);
+    },
+  );
+
+  it.each(["target", "unmount"])(
+    "skips an oversized later file without notifying the retired %s view",
+    async (retirement) => {
+      const store = createDiscussionDraftStore({ owner: { userId: "u1", sessionId: "s1" } });
+      const pending = deferred<CommentAttachment>();
+      const upload = vi.spyOn(commentsApi, "attachmentUpload").mockReturnValue(pending.promise);
+      const push = vi.spyOn(useToastStore.getState(), "push");
+      const oversized = new File([], "too-big.bin");
+      Object.defineProperty(oversized, "size", { value: 20 * 1024 * 1024 + 1 });
+      const view = render(
+        <CommentInput target={annotationA} draftStore={store} members={[]} onSubmit={vi.fn()} />,
+      );
+      fireEvent.change(view.container.querySelector('input[type="file"]')!, {
+        target: { files: [new File(["a"], "a.bin"), oversized] },
+      });
+      await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+      if (retirement === "unmount") view.unmount();
+      else
+        view.rerender(
+          <CommentInput target={annotationB} draftStore={store} members={[]} onSubmit={vi.fn()} />,
+        );
+      const receipt = {
+        storageKey: "saved-a",
+        fileName: "a.bin",
+        mimeType: "application/octet-stream",
+        size: 1,
+      };
+      await act(async () => {
+        pending.resolve(receipt);
+        await pending.promise;
+      });
+      expect(store.getDraft(annotationA)?.attachments).toEqual([receipt]);
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(push).not.toHaveBeenCalled();
+    },
+  );
 });
