@@ -20,6 +20,15 @@ class ExportArtifact(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    output_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "export_outputs.id",
+            ondelete="RESTRICT",
+            name="fk_export_artifacts_output_id",
+        ),
+        index=True,
+    )
     cache_key: Mapped[str] = mapped_column(
         String(64), nullable=False, unique=True, index=True
     )
