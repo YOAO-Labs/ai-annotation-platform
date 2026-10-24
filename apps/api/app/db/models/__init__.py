@@ -28,7 +28,11 @@ from app.db.models.project_template import ProjectTemplate
 from app.db.models.project_task_view import ProjectTaskView
 from app.db.models.task import Task
 from app.db.models.task_original import TaskOriginal
-from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
+from app.db.models.image_pyramid import (
+    ImagePyramidAsset,
+    ImagePyramidGeneration,
+    ImagePyramidOutput,
+)
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock, AnnotationDraft
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -196,6 +200,7 @@ __all__ = [
     "TaskOriginal",
     "ImagePyramidAsset",
     "ImagePyramidGeneration",
+    "ImagePyramidOutput",
     "TaskBatch",
     "TaskLock",
     "AnnotationDraft",
