@@ -191,6 +191,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         from app.db.models.avatar_upload import AvatarUpload
         from app.db.models.export_output import ExportOutput
         from app.db.models.bug_attachment_upload import BugAttachmentUpload
+        from app.db.models.comment_attachment_upload import CommentAttachmentUpload
         from app.db.models.audit_archive_output import AuditArchiveOutput
         from app.services.dataset_assets import LEGACY_LOCATION_ID
 
@@ -211,6 +212,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             avatar=AvatarUpload,
             output=ExportOutput,
             bug_attachment=BugAttachmentUpload,
+            comment_attachment=CommentAttachmentUpload,
             archive=AuditArchiveOutput,
         )
         self.source, self.target, self.endpoint = (
@@ -241,6 +243,12 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         )
         bug_endpoint.start()
         self.addCleanup(bug_endpoint.stop)
+        comment_endpoint = patch(
+            "app.services.comment_attachment_storage._runtime_endpoint",
+            return_value=self.endpoint,
+        )
+        comment_endpoint.start()
+        self.addCleanup(comment_endpoint.stop)
         archive_endpoint = patch(
             "app.services.audit_archive_storage._runtime_endpoint",
             return_value=self.endpoint,
@@ -493,6 +501,25 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                     },
                 )
             ]
+        comment = deepcopy(self.rows[BugAttachmentUpload][0])
+        comment.id = uuid.UUID(int=30)
+        comment.annotation_id = uuid.UUID(int=31)
+        comment.task_id = uuid.UUID(int=32)
+        comment.project_id = project_id
+        comment.bound_comment_id = uuid.UUID(int=33)
+        del comment.bound_report_id
+        comment.file_name = "empty.dat"
+        comment.mime_type = "application/octet-stream"
+        comment.size_bytes = 0
+        comment.sha256 = hashlib.sha256(b"").hexdigest()
+        comment.expires_at = comment.created_at + timedelta(hours=2160)
+        comment.storage_ref.update(
+            purpose="annotations",
+            bucket=self.source["MINIO_BUCKET"],
+            object_key=f"comment-attachments/{comment.annotation_id}/{comment.id}",
+            storage_identity=identity(self.endpoint, self.source["MINIO_BUCKET"]),
+        )
+        self.rows[CommentAttachmentUpload] = [comment]
         self.db = SimpleNamespace(
             get=AsyncMock(
                 return_value=SimpleNamespace(
@@ -532,6 +559,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 "avatar_uploads",
                 "export_outputs",
                 "bug_attachment_uploads",
+                "comment_attachment_uploads",
                 "audit_archive_outputs",
             },
         )
@@ -559,6 +587,17 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(row.source_oid, 456)
                         self.assertEqual(row.source_sha256, "e" * 64)
                         self.assertEqual(row.published_at, row.created_at)
+                        continue
+                    if row.storage_ref["purpose"] == "annotations":
+                        self.assertEqual(
+                            row.storage_ref["bucket"], self.target["MINIO_BUCKET"]
+                        )
+                        self.assertEqual(row.bound_comment_id, uuid.UUID(int=33))
+                        self.assertEqual(row.annotation_id, uuid.UUID(int=31))
+                        self.assertEqual(
+                            row.expires_at - row.created_at, timedelta(hours=2160)
+                        )
+                        self.assertEqual(row.size_bytes, 0)
                         continue
                     if row.storage_ref["purpose"] == "bug-reports":
                         self.assertEqual(
@@ -810,6 +849,76 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             changed["storage_ref"][field] = "changed"
             self.assertNotEqual(
                 base, digest(protected_row("bug_attachment_uploads", changed))
+            )
+
+    async def test_unknown_comment_attachment_refuses_without_partial_mapping(self):
+        original = deepcopy(self.rows)
+        for field, value in [
+            ("purpose", "avatars"),
+            ("bucket", self.source["MINIO_EXPORT_BUCKET"]),
+            ("object_key", "comment-attachments/foreign/unknown"),
+            ("storage_identity", "f" * 64),
+            ("endpoint_url", "https://elsewhere.invalid"),
+        ]:
+            self.rows = deepcopy(original)
+            self.rows[self.models.comment_attachment][0].storage_ref[field] = value
+            with self.subTest(field=field), self.assertRaises(WorktreeError):
+                await remap_storage(self.db, self.source, self.target, self.endpoint)
+            self.db.flush.assert_not_awaited()
+            self.assertEqual(
+                self.rows[self.models.binding][0].bucket,
+                original[self.models.binding][0].bucket,
+            )
+
+    def test_protected_comment_attachment_keeps_context_binding_and_deadline(self):
+        from worktree_recovery_fixture import digest, protected_row
+
+        row = deepcopy(vars(self.rows[self.models.comment_attachment][0]))
+        base = digest(protected_row("comment_attachment_uploads", row))
+        for field in ["bucket", "storage_identity"]:
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "mapped"
+            self.assertEqual(
+                base, digest(protected_row("comment_attachment_uploads", changed))
+            )
+        for field in [
+            "id",
+            "owner_id",
+            "annotation_id",
+            "task_id",
+            "project_id",
+            "bound_comment_id",
+            "file_name",
+            "mime_type",
+            "sha256",
+            "size_bytes",
+            "state",
+            "created_at",
+            "expires_at",
+        ]:
+            self.assertNotEqual(
+                base,
+                digest(
+                    protected_row(
+                        "comment_attachment_uploads", {**row, field: "changed"}
+                    )
+                ),
+                field,
+            )
+        for field in [
+            "object_key",
+            "purpose",
+            "location_id",
+            "endpoint_url",
+            "config_revision",
+            "binding_generation",
+        ]:
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "changed"
+            self.assertNotEqual(
+                base,
+                digest(protected_row("comment_attachment_uploads", changed)),
+                field,
             )
 
     async def test_unknown_audit_archive_refuses_without_partial_mapping(self):

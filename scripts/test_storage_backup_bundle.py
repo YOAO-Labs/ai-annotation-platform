@@ -139,9 +139,12 @@ class FakeS3:
         on_close, self.on_close = self.on_close, None
         return {**head, "Body": TracedBody(data, self.reads, on_close)}
 
-    def put_object(self, *, Bucket, Key, Body, ContentLength, IfNoneMatch, **metadata):
+    def put_object(
+        self, *, Bucket, Key, ContentLength, IfNoneMatch, Body=None, **metadata
+    ):
         if IfNoneMatch != "*" or Key in self.objects[Bucket]:
             raise RuntimeError("Restore must never overwrite objects")
+        Body = io.BytesIO(b"") if Body is None else Body
         chunks = []
         while chunk := Body.read(1024**2):
             chunks.append(chunk)
@@ -254,6 +257,27 @@ class BundleTests(unittest.TestCase):
             self.assertEqual(
                 path.stat().st_mode & 0o777, 0o700 if path.is_dir() else 0o600
             )
+
+    def test_restore_empty_object_omits_stream_before_next_conditional_put(self):
+        self.s3.add(self.shared, "zz-after-empty.bin", b"retained after empty")
+        original_put = self.s3.put_object
+
+        def compatible_put(**kwargs):
+            # Botocore wraps even b'' into a stream and adds Expect: 100-continue.
+            # Empty PUTs must omit Body to keep the next pooled request usable.
+            if kwargs["ContentLength"] == 0 and "Body" in kwargs:
+                raise OSError("Empty Expect/continue transport is unsupported")
+            return original_put(**kwargs)
+
+        self.s3.put_object = compatible_put
+        self.create()
+        result = restore_objects(self.directory, s3=self.s3, bucket_roles=self.target)
+        self.assertEqual(result["objects"], 4)
+        destination = self.s3.objects[self.target["MINIO_BUCKET"]]
+        self.assertEqual(destination["zero/"]["data"], b"")
+        self.assertEqual(
+            destination["zz-after-empty.bin"]["data"], b"retained after empty"
+        )
 
     def test_restore_checks_all_targets_and_verifies_bytes_and_metadata(self):
         manifest = self.create()

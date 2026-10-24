@@ -96,6 +96,7 @@
 | PATCH | `/comments/{comment_id}` |
 | DELETE | `/comments/{comment_id}` |
 | POST | `/annotations/{annotation_id}/comment-attachments/upload-init` |
+| POST | `/annotations/{annotation_id}/comment-attachments/upload` |
 | GET | `/annotations/{annotation_id}/comment-attachments/download` |
 
 ## `annotation_feedbacks.py`
@@ -1039,4 +1040,4 @@
 
 ---
 
-_共 93 模块 / 602 路由_
+_共 93 模块 / 603 路由_

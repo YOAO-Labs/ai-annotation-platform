@@ -1248,6 +1248,7 @@ class DatasetService:
         await writable_dataset(self.db, dataset_id)
         from app.db.models.annotation import Annotation
         from app.db.models.annotation_comment import AnnotationComment
+        from app.db.models.annotation_feedback import AnnotationFeedback
         from app.db.models.task_lock import TaskLock
 
         # 1. 找出本次要删的 task ids 与所属 batch ids
@@ -1290,12 +1291,25 @@ class DatasetService:
 
         # 3. 级联删除（顺序关键：先 child 后 parent）
         if ann_ids:
+            from app.services.comment_attachment_uploads import retire_for_comments
+
+            await retire_for_comments(
+                self.db,
+                select(AnnotationComment.id).where(
+                    AnnotationComment.annotation_id.in_(ann_ids)
+                ),
+            )
             await self.db.execute(
                 delete(AnnotationComment).where(
                     AnnotationComment.annotation_id.in_(ann_ids)
                 )
             )
         if target_task_ids:
+            await self.db.execute(
+                delete(AnnotationFeedback).where(
+                    AnnotationFeedback.task_id.in_(target_task_ids)
+                )
+            )
             await self.db.execute(
                 delete(Annotation).where(Annotation.task_id.in_(target_task_ids))
             )

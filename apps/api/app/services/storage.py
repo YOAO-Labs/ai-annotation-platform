@@ -95,26 +95,8 @@ class StorageService:
         self._ensure_lifecycle()
 
     def _ensure_lifecycle(self) -> None:
-        """v0.6.6 · 评论附件 90 天过期。
-        Bug attachments expire through saved owners and durable read permits.
-        v0.10.17 · 派生媒体缓存独立桶 ``media-cache`` 整桶 30 天过期。
-        若 MinIO 不支持（旧版本）静默忽略。
-        """
-        anno_rules = [
-            {
-                "ID": "comment-attachments-90d",
-                "Status": "Enabled",
-                "Filter": {"Prefix": "comment-attachments/"},
-                "Expiration": {"Days": 90},
-            },
-        ]
-        try:
-            self.client.put_bucket_lifecycle_configuration(
-                Bucket=self.bucket,
-                LifecycleConfiguration={"Rules": anno_rules},
-            )
-        except ClientError as exc:
-            logger.warning("Failed to set bucket lifecycle on %s: %s", self.bucket, exc)
+        """Keep attachment expiration behind saved owners and read permits."""
+        self._remove_comment_attachment_lifecycle()
 
         try:
             self.client.delete_bucket_lifecycle(Bucket=self.bug_reports_bucket)
@@ -125,6 +107,39 @@ class StorageService:
                 exc,
             )
 
+        self._ensure_cache_lifecycle()
+
+    def _remove_comment_attachment_lifecycle(self) -> None:
+        """Remove only the application-owned rule, preserving operator rules."""
+        try:
+            rules = self.client.get_bucket_lifecycle_configuration(Bucket=self.bucket)[
+                "Rules"
+            ]
+            retained = [
+                rule for rule in rules if rule.get("ID") != "comment-attachments-90d"
+            ]
+            if len(retained) == len(rules):
+                return
+            if retained:
+                self.client.put_bucket_lifecycle_configuration(
+                    Bucket=self.bucket,
+                    LifecycleConfiguration={"Rules": retained},
+                )
+            else:
+                self.client.delete_bucket_lifecycle(Bucket=self.bucket)
+        except ClientError as exc:
+            if (
+                exc.response.get("Error", {}).get("Code")
+                == "NoSuchLifecycleConfiguration"
+            ):
+                return
+            logger.warning(
+                "Failed to remove comment attachment lifecycle on %s: %s",
+                self.bucket,
+                exc,
+            )
+
+    def _ensure_cache_lifecycle(self) -> None:
         # 只过期「可按需重新抽取」的帧图 / 分块缓存(videos/<id>/frames|chunks)。
         # playback/(非 h264 视频的浏览器播放代理) 与 thumbnails/(海报) 是 DB 元数据
         # 持久引用、入库时一次性生成、不会惰性重建,必须随原视频同寿命——绝不能进过期规则。

@@ -9267,6 +9267,7 @@
         "type": "object"
       },
       "CommentAttachmentUploadInitRequest": {
+        "description": "Compatibility request for the retired presigned upload initializer.",
         "properties": {
           "content_type": {
             "default": "application/octet-stream",
@@ -62138,7 +62139,7 @@
     },
     "/api/v1/annotations/{annotation_id}/comment-attachments/download": {
       "get": {
-        "description": "Authorize the original annotation before issuing a short-lived download URL.\n\nLegacy clients retain the redirect. Bearer-authenticated browser callers\nrequest JSON first so a normal link does not omit the authorization header\nor forward it to the object-storage redirect target.",
+        "description": "返回原评论已绑定且完整核验的文件字节；as_json仅保留参数兼容。",
         "operationId": "comment_attachment_download_api_v1_annotations__annotation_id__comment_attachments_download_get",
         "parameters": [
           {
@@ -62173,11 +62174,6 @@
         ],
         "responses": {
           "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "422": {
@@ -62202,9 +62198,81 @@
         ]
       }
     },
+    "/api/v1/annotations/{annotation_id}/comment-attachments/upload": {
+      "post": {
+        "description": "上传最多20MiB的原文件字节并返回经核验的附件回执，允许空文件。",
+        "operationId": "upload_comment_attachment_api_v1_annotations__annotation_id__comment_attachments_upload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "annotation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Annotation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "file_name",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "File Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Attachment"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Comment Attachment",
+        "tags": [
+          "annotation-comments"
+        ]
+      }
+    },
     "/api/v1/annotations/{annotation_id}/comment-attachments/upload-init": {
       "post": {
-        "description": "v0.6.2：评论附件签发预签名 PUT URL。\n\nstorage_key 形如 `comment-attachments/{aid}/{uuid}-{filename}`，固定前缀使得后端可\n校验 attachments[].storageKey；同时让 MinIO 桶层级清晰。",
+        "deprecated": true,
+        "description": "旧上传初始化已停用，请改用认证文件上传。",
         "operationId": "comment_attachment_upload_init_api_v1_annotations__annotation_id__comment_attachments_upload_init_post",
         "parameters": [
           {

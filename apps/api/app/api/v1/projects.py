@@ -3437,42 +3437,52 @@ async def cleanup_orphan_tasks(
     后续数据集被 unlink / 删除留下的孤儿 task。
     """
     pid = str(project.id)
-    # 用项目 delete 同款 raw SQL 但只针对孤儿 task ids
-    orphan_q = """
-        SELECT id FROM tasks WHERE project_id = :pid AND id NOT IN (
-            SELECT t.id FROM tasks t
-            JOIN dataset_items di ON di.id = t.dataset_item_id
-            JOIN project_datasets pd ON pd.dataset_id = di.dataset_id AND pd.project_id = t.project_id
-            WHERE t.project_id = :pid
-        )
-    """
-    rows = (await db.execute(text(orphan_q), {"pid": pid})).all()
-    if not rows:
-        return {"deleted_tasks": 0, "deleted_annotations": 0}
-    orphan_count = len(rows)
-    from sqlalchemy import select as source_select
-    from app.db.models.task import Task as SourceTask
+    from sqlalchemy import column, table, select as source_select
+    from sqlalchemy.dialects.postgresql import UUID
+    from sqlalchemy.exc import DBAPIError
     from app.services.active_learning_pool import guard_source
+    from app.services.project_write_guard import lock_actor_account
 
-    orphan_ids = [row[0] for row in rows]
-    await db.execute(
-        source_select(SourceTask.id)
-        .where(SourceTask.id.in_(orphan_ids))
-        .order_by(SourceTask.id)
-        .with_for_update()
-    )
+    # Freeze and lock one transaction-local target set. Later membership changes
+    # belong to a future cleanup, and large sets never expand into bind parameters.
+    target_name = "aap_orphans_" + uuid.uuid4().hex
+    await lock_actor_account(db, current_user.id)
+    try:
+        # Block relinking a selected orphan through the project's foreign key.
+        await db.execute(
+            source_select(Project.id)
+            .where(Project.id == project.id)
+            .with_for_update(nowait=True)
+        )
+        await db.execute(
+            text(
+                f"CREATE TEMP TABLE {target_name} (id uuid PRIMARY KEY) ON COMMIT DROP"
+            )
+        )
+        await db.execute(
+            text(
+                f"INSERT INTO pg_temp.{target_name} (id) "
+                "SELECT t.id FROM tasks t WHERE t.project_id = :pid AND NOT EXISTS ("
+                " SELECT 1 FROM dataset_items di "
+                " JOIN project_datasets pd ON pd.dataset_id = di.dataset_id "
+                " AND pd.project_id = t.project_id WHERE di.id = t.dataset_item_id"
+                ") ORDER BY t.id FOR UPDATE OF t NOWAIT"
+            ),
+            {"pid": pid},
+        )
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
+            raise HTTPException(
+                status_code=409, detail="项目或任务正在变更，请稍后重试清理"
+            ) from exc
+        raise
+    orphan_subq = f"SELECT id FROM pg_temp.{target_name}"
+    orphan_count = await db.scalar(text(f"SELECT COUNT(*) FROM pg_temp.{target_name}"))
+    if not orphan_count:
+        return {"deleted_tasks": 0, "deleted_annotations": 0}
+    targets = table(target_name, column("id", UUID(as_uuid=True)), schema="pg_temp")
+    orphan_ids = source_select(targets.c.id)
     await guard_source(db, task_ids=orphan_ids)
-
-    # v0.7.0：把 ANY(:ids) 序列化数组改为子查询联查，避免 10 万级孤儿场景下的 array overflow。
-    # 所有 DELETE / UPDATE 共用同一 orphan-id 子查询。
-    orphan_subq = (
-        "SELECT id FROM tasks WHERE project_id = :pid AND id NOT IN ("
-        "  SELECT t.id FROM tasks t"
-        "  JOIN dataset_items di ON di.id = t.dataset_item_id"
-        "  JOIN project_datasets pd ON pd.dataset_id = di.dataset_id AND pd.project_id = t.project_id"
-        "  WHERE t.project_id = :pid"
-        ")"
-    )
     ann_count = (
         await db.execute(
             text(f"SELECT COUNT(*) FROM annotations WHERE task_id IN ({orphan_subq})"),
@@ -3480,12 +3490,27 @@ async def cleanup_orphan_tasks(
         )
     ).scalar() or 0
 
+    from app.db.models.annotation import Annotation
+    from app.db.models.annotation_comment import AnnotationComment
+    from app.services.comment_attachment_uploads import retire_for_comments
+
+    await retire_for_comments(
+        db,
+        source_select(AnnotationComment.id).where(
+            AnnotationComment.annotation_id.in_(
+                source_select(Annotation.id).where(Annotation.task_id.in_(orphan_ids))
+            )
+        ),
+    )
     await db.execute(
         text(
             f"DELETE FROM annotation_comments WHERE annotation_id IN ("
             f"  SELECT id FROM annotations WHERE task_id IN ({orphan_subq}))"
         ),
         {"pid": pid},
+    )
+    await db.execute(
+        text(f"DELETE FROM annotation_feedbacks WHERE task_id IN ({orphan_subq})"),
     )
     await db.execute(
         text(f"DELETE FROM annotation_drafts WHERE task_id IN ({orphan_subq})"),

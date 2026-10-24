@@ -736,9 +736,11 @@ def restore_objects(directory, *, s3, bucket_roles, limits=Limits()):
                     "put_object",
                     Bucket=mapping[item["bucket"]],
                     Key=item["key"],
-                    Body=stream,
                     ContentLength=item["size_bytes"],
                     IfNoneMatch="*",
+                    # Omit an empty Body: botocore wraps b'' into a stream and
+                    # adds Expect/continue, which can stall the next pooled PUT.
+                    **({"Body": stream} if item["size_bytes"] else {}),
                     **metadata,
                 )
     restored = _inventory(s3, roles, limits)
