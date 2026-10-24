@@ -724,7 +724,12 @@ def _task_with_url(
         original_identity_path = f"/api/v1/files/tasks/{task.id}/original-identity"
 
     thumbnail_url: str | None = None
-    if thumbnail_path and thumbnail_path.startswith("image-pyramids/"):
+    if task.file_type == "video":
+        checked = getattr(task, "_video_derivative_thumbnail", None)
+        if thumbnail_path and checked is not None and checked[0] == thumbnail_path:
+            thumbnail_url = checked[1]
+        blurhash = None
+    elif thumbnail_path and thumbnail_path.startswith("image-pyramids/"):
         # Only the asynchronous owner check may supply a pyramid thumbnail URL.
         checked = getattr(task, "_image_pyramid_thumbnail", None)
         if checked is not None and checked[0] == thumbnail_path:
@@ -1001,7 +1006,14 @@ async def _attach_image_pyramids_batch(
             task.id, (None, None, None, None, None)
         )
         task._image_pyramid_thumbnail = None
-        if path and path.startswith("image-pyramids/"):
+        task._video_derivative_thumbnail = None
+        if task.file_type == "video":
+            from app.services import video_derivatives
+
+            checked = await video_derivatives.thumbnail(db, task_id=task.id)
+            if checked is not None and checked[0] == path:
+                task._video_derivative_thumbnail = checked
+        elif path and path.startswith("image-pyramids/"):
             task._image_pyramid_thumbnail = (
                 path,
                 await thumbnail_url(db, "task", task.id, path),

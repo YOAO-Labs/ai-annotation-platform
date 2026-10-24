@@ -723,6 +723,13 @@ async def upload_complete(
 
     await recheck_directory_write(request, db, dataset_id)
     linked_tasks = await svc.create_tasks_for_items(dataset_id, [item.id])
+    video_delegation = None
+    if item.file_type == "video":
+        from app.services import video_derivative_originals as originals
+
+        video_delegation = originals.system_authorization(
+            "dataset_item", item.id, await originals.pin(db, "dataset_item", item.id)
+        )
     await recheck_directory_write(request, db, dataset_id)
     await db.commit()
 
@@ -733,7 +740,7 @@ async def upload_complete(
     elif item.file_type == "video":
         from app.workers.media import generate_video_metadata
 
-        generate_video_metadata.delay(str(item_id))
+        generate_video_metadata.delay(str(item_id), delegation=video_delegation)
 
     return {"status": "ok", "item_id": str(item_id), "linked_tasks": linked_tasks}
 
@@ -1041,6 +1048,16 @@ async def upload_zip(
         await db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    video_delegations = {}
+    if new_video_item_ids:
+        from app.services import video_derivative_originals as originals
+
+        for item_id in new_video_item_ids:
+            video_delegations[str(item_id)] = originals.system_authorization(
+                "dataset_item",
+                item_id,
+                await originals.pin(db, "dataset_item", item_id),
+            )
     await check_authority()
     await db.commit()
 
@@ -1053,7 +1070,9 @@ async def upload_zip(
         from app.workers.media import generate_video_metadata
 
         for iid in new_video_item_ids:
-            generate_video_metadata.delay(str(iid))
+            generate_video_metadata.delay(
+                str(iid), delegation=video_delegations[str(iid)]
+            )
 
     return {
         "added": added,
@@ -1160,9 +1179,28 @@ async def backfill_media_endpoint(
 
     await reject_reference_scope(db, dataset_id=dataset_id)
 
+    from app.db.models.dataset import DatasetItem
+    from app.services import video_derivative_originals as originals
+    from app.services.content_snapshot import ContentError
     from app.workers.media import backfill_media
 
-    backfill_media.delay(str(dataset_id))
+    video_delegations = {}
+    identifiers = await db.scalars(
+        select(DatasetItem.id)
+        .where(DatasetItem.dataset_id == dataset_id, DatasetItem.file_type == "video")
+        .order_by(DatasetItem.id)
+    )
+    try:
+        for item_id in identifiers:
+            authority = await originals.authorize_policy(
+                db, "dataset", item_id, current_user, request
+            )
+            video_delegations[str(item_id)] = originals.authorization(authority)
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
+    await recheck_directory_write(request, db, dataset_id)
+    await db.commit()
+    backfill_media.delay(str(dataset_id), video_delegations=video_delegations)
     return {"status": "queued", "dataset_id": str(dataset_id)}
 
 

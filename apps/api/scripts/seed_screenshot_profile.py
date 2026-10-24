@@ -867,8 +867,11 @@ async def prepare_screenshot_seed_media(
 ) -> dict[str, int]:
     """Synchronously prepare and verify media only in owned screenshot datasets."""
     from app.workers.media import _backfill_media
+    from app.services import video_derivative_originals as originals
+    from app.services.screenshot_seed_catalog import verified_video_seed_digest
 
     datasets = []
+    video_delegations = {}
     for logical_key, spec in PROJECT_SPECS.items():
         if spec.data_type not in {"image", "video"}:
             continue
@@ -879,12 +882,23 @@ async def prepare_screenshot_seed_media(
             asset_sha256=asset_sha256[logical_key],
         )
         datasets.append(dataset)
+        video_items = await db.scalars(
+            select(DatasetItem).where(
+                DatasetItem.dataset_id == dataset.id, DatasetItem.file_type == "video"
+            )
+        )
+        for item in video_items:
+            video_delegations[str(item.id)] = originals.system_authorization(
+                "dataset_item",
+                item.id,
+                await originals.pin(db, "dataset_item", item.id),
+            )
     # The established media helpers use their own sessions.
     await db.commit()
 
     item_count = 0
     for dataset in datasets:
-        await _backfill_media(str(dataset.id))
+        await _backfill_media(str(dataset.id), video_delegations=video_delegations)
         items = list(
             (
                 await db.execute(
@@ -900,29 +914,29 @@ async def prepare_screenshot_seed_media(
                 raise ScreenshotSeedReconcileError(
                     f"{prefix}: unexpected screenshot media type {item.file_type}"
                 )
-            head = (
-                storage_service.verify_upload(
-                    item.thumbnail_path, bucket=storage_service.media_cache_bucket
-                )
-                if item.thumbnail_path
-                else None
-            )
-            if not head or head.get("ContentLength", 0) <= 0:
-                raise ScreenshotSeedReconcileError(
-                    f"{prefix}: screenshot thumbnail/poster is not ready; "
-                    "check media generation errors or rerun with --repair"
-                )
             if item.file_type == "video":
+                await verified_video_seed_digest(db, item)
                 video = (item.metadata_ or {}).get("video") or {}
                 if (
                     not video.get("frame_count")
                     or not video.get("fps")
                     or video.get("probe_error")
                     or video.get("poster_error")
-                    or video.get("poster_frame_path") != item.thumbnail_path
                 ):
                     raise ScreenshotSeedReconcileError(
                         f"{prefix}: screenshot video metadata/poster is not ready"
+                    )
+            else:
+                head = (
+                    storage_service.verify_upload(
+                        item.thumbnail_path, bucket=storage_service.media_cache_bucket
+                    )
+                    if item.thumbnail_path
+                    else None
+                )
+                if not head or head.get("ContentLength", 0) <= 0:
+                    raise ScreenshotSeedReconcileError(
+                        f"{prefix}: screenshot thumbnail is not ready; check media generation errors or rerun with --repair"
                     )
             item_count += 1
     return {"datasets": len(datasets), "items": item_count}

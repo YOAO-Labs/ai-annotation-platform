@@ -115,6 +115,24 @@ def _storage_object_digest(file_path: str) -> str:
     return digest.hexdigest()
 
 
+async def verified_video_seed_digest(db, item) -> str:
+    """Validate the canonical seed original and its saved-owner poster."""
+    from app.services import video_derivative_originals as originals
+    from app.services import video_derivatives
+    from app.services.content_snapshot import ContentError
+
+    source = await originals.pin(db, "dataset_item", item.id)
+    authority = await originals.delegated(
+        db, originals.system_authorization("dataset_item", item.id, source)
+    )
+    async with originals.media(db, authority, source):
+        pass
+    checked = await video_derivatives.thumbnail(db, item_id=item.id)
+    if checked is None or checked[0] != item.thumbnail_path:
+        raise ContentError("video_metadata_unpinned", 409)
+    return source.sha256
+
+
 async def _resolve_backend(
     db: AsyncSession,
     project: Project,
@@ -252,8 +270,10 @@ async def _resolve_dataset_and_tasks(
             )
             continue
         try:
-            object_digest = await asyncio.to_thread(
-                _storage_object_digest, item.file_path
+            object_digest = (
+                await verified_video_seed_digest(db, item)
+                if item.file_type == "video"
+                else await asyncio.to_thread(_storage_object_digest, item.file_path)
             )
         except Exception as exc:  # noqa: BLE001 - report storage failure as an issue
             issues.append(

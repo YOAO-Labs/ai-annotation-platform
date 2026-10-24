@@ -542,7 +542,18 @@ class DatasetService:
                 out.append(d)
                 continue
             d["file_url"] = None
-            if item.thumbnail_path and not directory_owned:
+            if item.file_type == "video":
+                from app.services import video_derivatives
+
+                d["thumbnail_url"] = None
+                d["blurhash"] = None
+                if not directory_owned:
+                    checked = await video_derivatives.thumbnail(
+                        self.db, item_id=item.id
+                    )
+                    if checked is not None and checked[0] == item.thumbnail_path:
+                        d["thumbnail_url"] = checked[1]
+            elif item.thumbnail_path and not directory_owned:
                 if item.thumbnail_path.startswith("image-pyramids/"):
                     from app.services.image_pyramid_objects import thumbnail_url
 
@@ -871,7 +882,13 @@ class DatasetService:
             elif file_type == "video":
                 from app.workers.media import generate_video_metadata
 
-                generate_video_metadata.delay(str(item_id))
+                from app.services import video_derivative_originals as originals
+
+                source = await originals.pin(self.db, "dataset_item", item_id)
+                delegation = originals.system_authorization(
+                    "dataset_item", item_id, source
+                )
+                generate_video_metadata.delay(str(item_id), delegation=delegation)
 
     async def _find_by_file_path(
         self, dataset_id: uuid.UUID, file_path: str
