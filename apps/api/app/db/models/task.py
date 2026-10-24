@@ -57,6 +57,11 @@ class Task(Base):
     dataset_item_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("dataset_items.id"), index=True
     )
+    original_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("task_originals.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     display_id: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)
     file_name: Mapped[str] = mapped_column(String(500), nullable=False)
     file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
