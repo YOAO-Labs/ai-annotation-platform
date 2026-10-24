@@ -3,6 +3,7 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
+import io
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -13,6 +14,7 @@ from worktree_recovery_fixture import (
     seed_task_originals,
     task_original_content,
     task_original_identifier,
+    verify_fixed_task_image,
     verify_task_originals,
 )
 from worktree_recovery_mapping import identity
@@ -206,11 +208,25 @@ class TaskOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):
                     side_effect=ContentError("managed_original_configuration_changed")
                 ),
             ) as historical,
+            patch(
+                "worktree_recovery_fixture.verify_fixed_task_image",
+                new_callable=AsyncMock,
+            ) as business_read,
         ):
-            result = await verify_task_originals(db, storage=storage)
+            actor = SimpleNamespace(id=uuid.uuid4())
+            result = await verify_task_originals(db, storage=storage, actor=actor)
         self.assertEqual((source_rows, owners), before)
         self.assertEqual(result["pinned_task_originals"], 2)
         self.assertEqual(result["unfinished_task_creations"], 1)
+        self.assertEqual(result["verified_task_original_content"], 1)
+        business_read.assert_awaited_once_with(
+            db,
+            storage=storage,
+            task=current,
+            actor=actor,
+            sha256=sha,
+            raw=raw,
+        )
         self.assertEqual(historical.await_count, 4)
         reads = inspect.call_args_list
         self.assertEqual(len(reads), 8)
@@ -231,6 +247,91 @@ class TaskOriginalRecoveryFixtureTests(unittest.IsolatedAsyncioTestCase):
             db.scalars.await_args_list[-1].args[0].column_descriptions[0]["entity"],
             TaskOriginal,
         )
+
+    async def test_fixed_task_content_uses_business_reader_with_bucket_traps(self):
+        from app.services import dataset_content
+
+        raw, task, actor, db = (
+            b"restored image",
+            SimpleNamespace(id=uuid.uuid4()),
+            object(),
+            object(),
+        )
+        sha = hashlib.sha256(raw).hexdigest()
+        storage = SimpleNamespace(
+            bucket="target-annotations",
+            datasets_bucket="target-datasets",
+            import_bucket="target-import",
+        )
+        file = io.BytesIO(raw)
+        snapshot = SimpleNamespace(
+            file=file, size=len(raw), sha256=sha, close=Mock(side_effect=file.close)
+        )
+
+        async def read(*args):
+            self.assertEqual(args, (db, task.id, actor, sha))
+            self.assertEqual(
+                (storage.bucket, storage.datasets_bucket), (storage.import_bucket,) * 2
+            )
+            return snapshot
+
+        with patch.object(
+            dataset_content, "task_snapshot", side_effect=read
+        ) as capture:
+            await verify_fixed_task_image(
+                db, storage=storage, task=task, actor=actor, sha256=sha, raw=raw
+            )
+        capture.assert_awaited_once()
+        snapshot.close.assert_called_once()
+        self.assertTrue(file.closed)
+        self.assertEqual(
+            (storage.bucket, storage.datasets_bucket),
+            ("target-annotations", "target-datasets"),
+        )
+
+    async def test_fixed_task_content_restores_buckets_and_closes_failed_image(self):
+        from app.services import dataset_content
+
+        for failure in ("reader", "bytes"):
+            with self.subTest(failure=failure):
+                storage = SimpleNamespace(
+                    bucket="annotations",
+                    datasets_bucket="datasets",
+                    import_bucket="import",
+                )
+                file = io.BytesIO(b"wrong")
+                snapshot = SimpleNamespace(
+                    file=file,
+                    size=5,
+                    sha256="a" * 64,
+                    close=Mock(side_effect=file.close),
+                )
+                read = (
+                    AsyncMock(side_effect=RuntimeError("unavailable"))
+                    if failure == "reader"
+                    else AsyncMock(return_value=snapshot)
+                )
+                with (
+                    patch.object(dataset_content, "task_snapshot", read),
+                    self.assertRaises((RuntimeError, AssertionError)),
+                ):
+                    await verify_fixed_task_image(
+                        db=object(),
+                        storage=storage,
+                        task=SimpleNamespace(id=uuid.uuid4()),
+                        actor=object(),
+                        sha256="a" * 64,
+                        raw=b"right",
+                    )
+                self.assertEqual(
+                    (storage.bucket, storage.datasets_bucket),
+                    ("annotations", "datasets"),
+                )
+                if failure == "bytes":
+                    self.assertTrue(file.closed)
+                    snapshot.close.assert_called_once()
+                else:
+                    file.close()
 
 
 if __name__ == "__main__":

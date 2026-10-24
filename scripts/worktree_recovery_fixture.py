@@ -220,7 +220,24 @@ async def seed_task_originals(db, *, actor, project, storage):
     await db.flush()
 
 
-async def verify_task_originals(db, *, storage):
+async def verify_fixed_task_image(db, *, storage, task, actor, sha256, raw):
+    from app.services.dataset_content import task_snapshot
+
+    original_buckets = storage.bucket, storage.datasets_bucket
+    # The import purpose is unrelated to either saved original location.
+    storage.bucket = storage.datasets_bucket = storage.import_bucket
+    try:
+        snapshot = await task_snapshot(db, task.id, actor, sha256)
+        try:
+            assert snapshot.sha256 == sha256 and snapshot.size == len(raw)
+            assert snapshot.file.read() == raw
+        finally:
+            snapshot.close()
+    finally:
+        storage.bucket, storage.datasets_bucket = original_buckets
+
+
+async def verify_task_originals(db, *, storage, actor):
     from sqlalchemy import select
     from app.db.models.managed_original_creation import ManagedOriginalCreation
     from app.db.models.task import Task
@@ -286,6 +303,14 @@ async def verify_task_originals(db, *, storage):
                 task.original_id == original.id
                 and task.file_path == original.object_key
             )
+            await verify_fixed_task_image(
+                db,
+                storage=storage,
+                task=task,
+                actor=actor,
+                sha256=original.sha256,
+                raw=raw,
+            )
         else:
             assert task is None
         if case in ("unbound", "unfinished"):
@@ -345,6 +370,7 @@ async def verify_task_originals(db, *, storage):
         "unfinished_task_creations": 1,
         "preserved_task_upload_staging_objects": len(source_rows),
         "unowned_legacy_task_originals": 1,
+        "verified_task_original_content": 1,
     }
 
 
@@ -901,6 +927,7 @@ async def verify_application(db, external: Path):
     from app.db.models.storage_connection import StorageConnection
     from app.db.models.training_dataset import TrainingDatasetVersion
     from app.db.models.user import User
+    from app.db.models.task import Task
     from app.services import directory_previews, original_cache
     from app.services.dataset_assets import validate_legacy_bindings
     from app.services.content_snapshot import ContentError
@@ -938,7 +965,28 @@ async def verify_application(db, external: Path):
             assert exc.code == "managed_original_configuration_changed"
         else:
             raise AssertionError("Source creation cannot be adopted in target context")
-    task_originals = await verify_task_originals(db, storage=storage)
+    actor = await db.scalar(select(User).where(User.role == "super_admin"))
+    assert actor is not None
+    task_originals = await verify_task_originals(db, storage=storage, actor=actor)
+    managed_task = await db.scalar(
+        select(Task)
+        .join(DatasetItem, Task.dataset_item_id == DatasetItem.id)
+        .where(DatasetItem.file_name == "managed.png")
+    )
+    assert managed_task is not None
+    managed_creation = next(
+        row for row in dataset_creations if row.object_key == managed_task.file_path
+    )
+    from tests.test_dataset_source_changes import picture
+
+    await verify_fixed_task_image(
+        db,
+        storage=storage,
+        task=managed_task,
+        actor=actor,
+        sha256=managed_creation.sha256,
+        raw=picture("green"),
+    )
     assert sum(row.creation_id is not None for row in retirements) == 1
     assert {row.creation_id for row in retirements if row.creation_id} <= {
         row.id for row in creation_rows
@@ -969,7 +1017,6 @@ async def verify_application(db, external: Path):
     assert sum(hold.released_at is None for hold in holds) == 1
     for preview in await db.scalars(select(DatasetSourcePreview)):
         assert directory_previews.cached_bytes_match(preview)
-    actor = await db.scalar(select(User).where(User.role == "super_admin"))
     from app.services import managed_original_verification as verifications
     from app.workers import managed_original_verification as verification_worker
     from app.services.managed_original_reclamation import preview as reclamation_preview
@@ -1224,6 +1271,8 @@ async def verify_application(db, external: Path):
         "unavailable_external_originals": unavailable,
         "same_name_replacements_rejected": replacements_rejected,
         "verified_frozen_media": media_count,
+        "verified_dataset_task_content": 1,
+        "current_original_bucket_fallback_used": False,
         "managed_original_assertions": len(retirements),
         "preserved_original_creations": len(creation_rows),
         "source_creation_receipts_remapped": False,
