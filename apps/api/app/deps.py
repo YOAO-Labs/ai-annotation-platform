@@ -71,9 +71,9 @@ def get_gpu_dispatch_context_factory() -> GPUDispatchContextFactory:
 
 def get_quality_job_dispatcher() -> QualityJobDispatcher:
     """Bind the quality execution port without importing tasks into services."""
-    from app.workers.quality_dispatch import CeleryQualityJobDispatcher
+    from app.services.jobs_queue import build_quality_job_dispatcher
 
-    return CeleryQualityJobDispatcher()
+    return build_quality_job_dispatcher()
 
 
 def get_media_job_dispatcher() -> MediaJobDispatcher:
