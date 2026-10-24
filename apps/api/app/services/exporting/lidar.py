@@ -1128,28 +1128,50 @@ def build_pointmask_label_bytes(
     source_point_count: int | None,
     category_map: dict[str, int],
 ) -> bytes:
-    """Build little-endian uint32 per-point labels for ``point_mask_3d``."""
+    """Label the verified original record space, preserving annotation order."""
+    from app.services.exporting.lidar_pcd import MAX_PCD_POINTS, MAX_POINTMASK_INDICES
 
-    point_count = int(source_point_count or 0)
+    if source_point_count is None:
+        raise ValueError("pointmask_point_count_required")
+    if type(source_point_count) is not int or source_point_count < 0:
+        raise ValueError("pointmask_point_count_invalid")
+    if source_point_count > MAX_PCD_POINTS:
+        raise ValueError("pointmask_point_budget_exceeded")
+    masks = []
+    total_indices = 0
     for ann in annotations:
-        geometry = ann.geometry or {}
-        if geometry.get("type") == "point_mask_3d":
-            indices = geometry.get("point_indices") or []
-            if indices:
-                point_count = max(point_count, max(int(i) for i in indices) + 1)
-            if geometry.get("source_point_count") is not None:
-                point_count = max(point_count, int(geometry["source_point_count"]))
-    labels = [0] * point_count
-    for ann in annotations:
-        geometry = ann.geometry or {}
+        geometry = ann.geometry if ann.geometry is not None else {}
+        if not isinstance(geometry, dict):
+            raise ValueError("pointmask_geometry_invalid")
         if geometry.get("type") != "point_mask_3d":
             continue
-        class_id = int(category_map.get(ann.class_name, 0))
-        for idx in geometry.get("point_indices") or []:
-            i = int(idx)
-            if 0 <= i < point_count:
-                labels[i] = class_id
-    return struct.pack(f"<{len(labels)}I", *labels) if labels else b""
+        declared = geometry.get("source_point_count")
+        if declared is not None and (
+            type(declared) is not int or declared != source_point_count
+        ):
+            raise ValueError("pointmask_point_count_mismatch")
+        indices = geometry.get("point_indices", [])
+        if not isinstance(indices, list):
+            raise ValueError("pointmask_indices_invalid")
+        total_indices += len(indices)
+        if total_indices > MAX_POINTMASK_INDICES:
+            raise ValueError("pointmask_index_budget_exceeded")
+        if not isinstance(ann.class_name, str) or ann.class_name not in category_map:
+            raise ValueError("pointmask_category_unknown")
+        class_id = category_map[ann.class_name]
+        if type(class_id) is not int or not 1 <= class_id <= 0xFFFFFFFF:
+            raise ValueError("pointmask_category_invalid")
+        for index in indices:
+            if type(index) is not int:
+                raise ValueError("pointmask_index_invalid")
+            if not 0 <= index < source_point_count:
+                raise ValueError("pointmask_index_out_of_range")
+        masks.append((indices, class_id))
+    labels = bytearray(4 * source_point_count)
+    for indices, class_id in masks:
+        for index in indices:
+            struct.pack_into("<I", labels, 4 * index, class_id)
+    return bytes(labels)
 
 
 def category_map_json(classes_list: list[str]) -> str:
