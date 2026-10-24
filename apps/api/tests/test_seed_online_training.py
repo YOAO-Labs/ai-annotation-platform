@@ -429,6 +429,8 @@ async def test_baseline_rerun_recovers_unfinished_build(
         await db_session.refresh(version)
         assert version.status == "failed"
         assert version.error_code == "temporary_failure"
+        # The test shares the worker session; its rollback expires this caller.
+        await db_session.refresh(project)
     else:
         version.status = status
         version.progress_pct = 40

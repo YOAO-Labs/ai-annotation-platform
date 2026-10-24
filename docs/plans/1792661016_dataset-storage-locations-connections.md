@@ -627,9 +627,63 @@ Web保留按目标回执、会话租约、逐文件即时接收，改认证Blob�
 
 1. 完整预检scope内owner的严格位置、不可变回执和状态；任何pending拒绝且零物理删除，不根据年龄假设上传结束。ready转retired并提交，原owner和fixture继续保留，首次退休时间不变。显式测试夹具销毁可清理终态附件，不修改生产90天/7天策略或事实。
 2. 逐个冻结回执通过storage_access.run注册测试删除permit，短锁复核同一owner/state/ref及原读/写/删permit后提交，再沿保存桶精确条件删除并确认实际收尾。未知关闭、正在读取、维护阻断或删除失败均保留所有owner/业务锚点并明确失败；成功也暂不删owner。不得跨网络持User/Project/Comment/owner锁。
-3. 既有媒体和旧格式评论前缀清理也移至最终DB锁之前。前缀清理永远不删除严格 `comment-attachments/{annotation_uuid}/{upload_uuid}` 键；它们只能由已登记owner授权。保存桶外同键陷阱及无owner规范键保留并明确报告残留，不据当前桶猜删。旧格式仅沿本fixture已解析annotation前缀，保留邻居和普通数据。
+3. 既有媒体和旧格式评论前缀清理也移至最终DB锁之前。取消或重复取消必须等待实际线程收尾后才回滚和返回，避免迟到删除碰到相同命名空间重建的确定性媒体键。前缀清理永远不删除严格 `comment-attachments/{annotation_uuid}/{upload_uuid}` 键；它们只能由已登记owner授权。保存桶外同键陷阱及无owner规范键保留并明确报告残留，不据当前桶猜删。旧格式仅沿本fixture已解析annotation前缀，保留邻居和普通数据。
 4. 所有物理阶段完成后，按账号→Project的顺序取NOWAIT锁，重新核对精确scope、owner集合与permit；新增候选或未知活动拒绝，不追删变化集合。只在同一最终事务删除已完成owner、原fixture及已有FK子行，残留断言包括owner；重新设置事务局部审计豁免，提交后才允许调用方重建fixture，避免带锁进入后续网络写。失败和并发冲突保留可重试锚点。
 
 主树负责计划、文档、验证与真实一次性HTTP/MinIO验收；一个隔离修改者负责专用测试helper、seed集成及行为回归，独立提交后等价集成。不修改生产附件消费者。验证覆盖ready/retired、原Comment/Annotation消失、pending零I/O、打开读句柄/permit、其它写删permit、独立保存桶与当前桶陷阱、未知规范键、删除失败重试、scope变化、幂等重建及邻居保留；运行现有seed/附件相关回归。DB仅主树通过已核实一次性test环境执行，不使用默认annotation_test；保留人工3100/8100及其原件、两个Worker/Beat，不重建镜像。全部任务测试资源/产物按归属清理，正常hooks/diff检查后记录Outcome。
 
 项目指南图片的下一片只读盘点并行进行；本设计不代替指南图片完整交付，完整E02及用途切换仍为执行中/关闭。
+
+## E02-B10-A Outcome — 测试清理与训练种子归属收敛
+
+本片已完成，集成 `fe7c6be3a`、`4d87b5dcd`、`c14ebffc6`；完整E02仍执行中，完整用途切换仍关闭。未新增迁移、公共接口、生产强制删除开关、UI或任务。
+
+清理仅按本fixture精确Project UUID选独立附件责任，完整预检pending/位置/未收尾许可；ready先退休提交，沿保存桶精确删除且真实收尾，最终短锁重核固定集合后才同事务删除owner与原fixture。未知规范键和同键异桶陷阱明确阻断，不交给旧前缀猜删。物理失败、维护或并发变化保留可重试的数据库锚点。旧格式媒体线程取消后也须排空，重复取消不能让迟到删除碰到重建的确定性键；重建前旧事务已提交。fixture账号仍被外部评论引用时清理失败并回滚，不反向删除外部评论。
+
+扩展回归另发现训练验收种子的实际遗漏：新建基线只flush和入队，没有调用正式训练接口的存储分配。现已为新建检测/分割版本调用同一allocate；重跑、failed/cancelled/running重试保留原ref和保存桶，历史无ref版本不自动认领。Fake provider补充真实端点元数据；测试共享Worker session时显式刷新回滚后的Project，不修改生产授权或归属规则。
+
+主树在已验证一次性test环境完成118个不同本地用例：新附件清理22、seed router43、owned22、视频夹具14、训练种子17，零跳过；按最新结果去重，不累计重跑。实际旧代码重现两条回归：`d5336ee3c`清理200后owner仍在；`fe7c6be3a`取消时请求已结束而媒体删除线程仍阻塞。新实现均通过，覆盖打开Body/重复取消/未知关闭、四类permit、pending有无字节及年龄、缺少Comment/Annotation、保存桶陷阱、规范键残留、删除失败、维护、集合新增和跨项目已绑定评论。训练种子首次扩展回归有5处unpinned失败，修正实际分配遗漏后另修一处共享测试session的过期访问，最终17项通过；不将失败或中间重跑计为通过。
+
+独立18100/13100的实际HTTP/MinIO完成9组检查。持有真实StreamingBody和同UUID内部读permit时cleanup409且原对象/owner/Project/Comment保持；实际关闭并结清permit后，绑定附件和空文件准确删除，邻居SHA保持。沿保存桶删除后，当前桶同键陷阱仍在且409；未知规范键同样保留，明确移除探针自建陷阱后可重试清完。200天pending无字节及有字节均409，九桶对象集合和SHA零变化，另一namespace仍可独立清理。该读permit探针不冒充阻塞中的HTTP下载。没有改UI，不重复浏览器明暗矩阵或声称远程CI、真实训练框架资格。
+
+CHANGELOG、开发测试指南和E2E清理合同已同步；Ruff/format、正常hooks和diff检查通过。人工3100/8100健康、两类Worker及原服务身份保持，本片不对人工环境执行seed/清理，不重建镜像。一次性API/Web停止，DB、专用Redis及九桶销毁并独立查验不存在；任务探针、测试缓存与已集成子树按归属清理。下一片按下方B11设计实施指南图片；Task直传、持久RLE、mask输入、其余绕过Asset的媒体和E10真实消费资格继续另片。
+
+## E02-B11 Design — 指南图片归属、共享引用与认证内容读取
+
+状态：现有代码盘点和两轮只读审查完成，设计定案；B10-A已集成，B11待实施。继续原整套实施/提交授权，不增加批准轮次或发布版本。实际入口为项目设置 `?section=annotation-guide`、Workbench GuidePanel和首页StartChecklistCard。旧init/complete没有独立上传责任，HEAD只检查大小，最终PUT URL可重放；删除先物删且吞错。复制向导默认复制正文和原键，但旧读取又限定当前项目前缀，复制图实际404。显式ProjectUpdate还允许任意JSON覆盖清单；正文autosave只写annotation_guide，不参与此问题。
+
+### 交付边界与权威关系
+
+保留PNG/JPEG/WebP/GIF/SVG五种MIME、每文件1..5MiB、原Markdown `guide-asset:<key>` 语法、引用式图片/中文/空格/字面百分号、逐图上传、源码往返、表格图片、失败重试和放大图。图片内容保持上传字节，不引入转码或额外图片编辑能力。模板和AAP JSON继续只携带正文，不从正文自动生成图片引用。旧无独立归属清单保留精确元数据和字节，认证内容读取409并提示重新上传，不从当前桶猜读或自动补owner。
+
+0228接0227，增加独立GuideAssetUpload及ProjectGuideAsset引用表，并为Project增加guide_assets_revision（初值1）。上传owner保存UUID、上传者/原项目UUID快照（无FK）、严格annotations九字段storage_ref、完整SHA256、实际1..5MiB大小、五种规范MIME、安全原名、created_at、pending/ready/retired及首次retired_at/last_attempted_at。精确新键 `projects/{original_project_uuid}/guide/{upload_uuid}`；文件名仅是元数据。事实不可变，状态只前进，pending不按年龄回收，任何owner存在时拒绝破坏性降级。受限restore仍只许表owner配合已有事务标记映射bucket/identity。
+
+ProjectGuideAsset以(project_id,upload_id)为唯一关系，Project FK CASCADE、owner FK RESTRICT；created_at和身份不可改。新引用只允许在同一owner锁下对ready状态插入，退休后不能重挂或复活；发布上传时先ready再添加首个引用，同事务完成。引用表是读取授权和保活的真值，Project.guide_assets只提供原五字段外显清单/顺序及未知legacy条目。既有JSON或Markdown、原键前缀、拥有原项目权限都不能替代当前项目引用。当前项目有合法引用且可见时，即使原项目或上传者已删除，仍可沿独立owner读取。
+
+### 写入、复制及删除合同
+
+新raw POST `/projects/{id}/guide-assets/upload?file_name=...` 返回现有GuideAssetEntry；GET `/projects/{id}/guide-assets/content?key=...` 认证返回完整核验图片字节，private no-store/nosniff。旧upload-init/upload-complete/sign-url有效请求409，给出新路径；保留现有角色和不可见404语义，不新增scope。上传有界接收，先提交pending再条件创建/完整回读，最后在短事务重核原凭证、当前管理权、同owner和Gate，ready/项目引用/清单/修订原子发布。失败、取消或未知提交保留pending，不补偿删除。
+
+显式PATCH guide_assets必须同时给期望guide_assets_revision；缺失/陈旧409，null、重复key和单独改修订422。新清单只能是当前已授权引用条目或现有legacy精确条目的子集/重排，不允许新增/改写元数据、跨项目注入或凭JSON挂载已知owner。所有上传、删除、显式清单PATCH在共同Project锁下从当前事实读改写，实际清单变化修订加1；正文autosave及其他窄字段PATCH保持现行为。数据库约束/触发器保护修订随清单变化，避免其它普通写入绕过计数。
+
+copy_annotation_guide保持共享原键和正文：完成可能的backend /setup网络检查后，才锁源项目并重新核对当前可见性、正文、清单、引用及ready owner，将目标项目及新引用同事务提交。源项目读取不是最终授权；变更/撤权拒绝，不能凭早期payload复制。目标引用独立，来源删除图片或项目不能删除目标仍引用的内容。模板不复制引用，未知legacy仅保留原精确条目而不升级授权。向导文案更新为引用共享和独立删除语义。
+
+DELETE guide-assets仅移除当前项目引用和对应清单；原JSON的未知legacy也可明确移除而不物删未知字节。最后一个权威引用移除时，在owner锁内退休；仍有其它引用保持ready。Project删除沿同一规则处理。新增周期清理先在owner锁内将ready且无Ref者退休并结束本次处理，覆盖测试seed/scale等直接Project CASCADE删除；下一轮才清retired，pending不纳入。清理不扫描JSON/Markdown当保活，不反向锁Project，已有或未知收尾读permit阻止物删。删除失败保留独立记录，重复删除精确幂等；没有7天或90天隐式图片过期策略。
+
+### 访问与生命周期
+
+原请求账号/Key hash-scopes-expiry或JWT exp/gen/jti在准入、acquired及末端重核，沿现有尽力Redis策略，最后提交/线程排队/通知等待后再核自然到期。复用现有凭证与短锁helpers，不重构已交付消费者。涉及项目时采用User SHARE→原ApiKey SHARE→相关Project按UUID排序→当前ProjectMember SHARE→owner按UUID排序→引用/Gate的顺序，NOWAIT、populate_existing和no_autoflush；写清单取Project UPDATE，读取/复制源取SHARE。CPU/线程/网络及permit等待不持业务锁，cleanup只取owner与Gate，避免逆序。读取始终联查当前project→Ref→ready owner，注册准确UUID目的，条件读取并完整SHA/大小/末端对象核验，真实关闭后才返回内容；未知/变化409，缺失404。原项目不存在不导致引用改指当前桶。
+
+Web useGuideAssets改认证raw上传及完整内容读取，复用silentPost/silentGetBlob，不增客户端框架。PNG/JPEG/WebP/GIF使用Blob URL；SVG保留原字节，使用不继承应用源的 `data:image/svg+xml;base64,...` 图片地址，不把可执行SVG变成应用同源Blob文档。现有CSP已允许img-src data:。依据[MDN SVG图片限制](https://developer.mozilla.org/en-US/docs/Web/SVG/Guides/SVG_as_an_image)、[data URL的独立不透明源](https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Schemes/data)和[File API Blob源规则](https://www.w3.org/TR/FileAPI/)，图片上下文的脚本限制不能替代直接打开文档的源隔离；API内容响应使用attachment及nosniff，不依赖其响应头自动传给Blob。真实浏览器以无害SVG脚本标记检查正文、放大图及打开图片地址的源隔离，不引入转码或净化依赖。
+
+一个hook owner管理account/session/project/实例scope的AbortController、in-flight、缓存、全部Blob URL及SVG内存地址；scope退役后取消、统一revoke并清除地址引用，迟到结果不创建/返回可用地址，不发旧complete或新账号请求。token刷新延续session，换账号/重新登录更换resolver身份，使MarkdownView第二层缓存和放大图观察到变化。scope内刷新不立即释放仍被正文/放大图引用的旧地址，直到scope退役统一回收。MarkdownEditor异步预览需跟随imageScope/resolver变化，保留正文草稿及上传占位节点/撤销，不用整体remount抹草稿。设置页删除错误和上传toast同样隔离退役页面。
+
+### 实施、验证和回退
+
+超过8文件，按当前本地HEAD建立三个隔离树：领域/0228/严格存储和约束测试；Guide认证流程/路由/cleanup及API测试；Webhook/API/编辑器/三处消费者和相关测试。主树集成Project创建/清单PATCH/删除、seed清理扩展、周期注册、恢复映射/夹具、正式文档/生成合同和真实验收。新owner与引用必须同步进入隔离恢复，原键、SHA、元数据、状态、首次退休时间和引用关系保持；仅bucket/identity物理映射。新增周期任务使总数从71变为72，验证普通/maintenance Worker注册、实际队列和Beat。
+
+验证严格迁移/受限恢复/禁止降级，五MIME及1/5MiB边界、同键异桶/损坏/缺失、pending与未知提交、两窗原Key/账号/当前可见性和自然期限、打开真实句柄与未知关闭。并发覆盖上传/删除/显式PATCH/复制/项目删除、陈旧修订不吞新图、最后引用与复制交错、来源删除后副本继续读、伪造JSON无法授权、ready无ref只退休及退休不可复挂。保留/更新test_guide_assets、projects_clone、project_templates和export_aap_json合同；Web覆盖hook scope、重复图去重/刷新/URL释放、MarkdownView/Editor及三入口。实际e2e必须更新markdown-authoring的旧三接口监听并验证表格、失败重试、取消、20次重复图和同项目换session；不能只跑新hook单测。
+
+主树用已验证一次性test环境运行DB，实际18100/13100 HTTP/MinIO/Celery和浏览器验证上传、共享复制、删来源、坏内容恢复重试、URL退役及明暗/桌面/窄窗。离线演练先销毁合成源再向空目标恢复，覆盖三态、共享引用、无原项目/账号、未知legacy；不授予生产RPO/RTO。同步README/CHANGELOG、项目API、项目/工作台/入门/模板用户指南、存储架构与恢复部署、SDK项目通用字段兼容说明及coverage分类，不冒充新增一等SDK接口；生成OpenAPI/类型/路由索引，正常hooks、相关检查与diff通过。
+
+应用0228并刷新人工3100/8100的API、两个Worker和Beat，保留原24对象、12源文件及业务；无图片历史记录也必须核对新增空表与修订初值。未请求发布版本/依赖/共享配置/镜像重建。回退保留0228与独立责任，旧客户端升级认证内容接口，不重新开放最终键PUT。一次性资源、浏览器、探针、测试/构建缓存和已集成子树按归属清理。完整E02继续执行，完整用途切换、其他媒体/RLE/Task消费者和E10真实框架资格仍独立推进。
