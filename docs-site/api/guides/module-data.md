@@ -713,6 +713,27 @@ Jobs 发布 `aap-jobs-notification-scope-facts/v1`：
 冻结 schema 和原生客户端见仓库 `apps/audit`、`apps/jobs`；
 授权及限定验收范围见[模块台账](/dev/concepts/module-deployment#support-daily-and-jobs-facts)。
 
+## Jobs 测试项目清理
+
+`aap-jobs-fixture-cleanup/v1` 提供固定的
+`aap_jobs_v1.delete_fixture_project_jobs(uuid[])`，返回原生非负 `bigint`。
+只按当前 `project_id = ANY(project_ids)` 删除全部 kind／status 的作业；保留仅有
+`retained_project_id` 的历史及其他项目，空集合返回 0，重复 ID 不重复计数。
+SQL 和语言无关 schema 随 `apps/jobs` 分发。
+
+函数由 Jobs owner 执行，仅在实际库名以 `_test` 或 `_e2e` 结尾时向普通运行账号
+授权，函数内部也再次校验库名。它在调用方同一事务内执行 Workspace 既有项目清理
+守卫，保留 NOWAIT 锁、视频退役要求、原 DELETE 触发器及约束；不自行提交或回滚。
+NULL／含 NULL 的范围及异常守卫回复为 `22023`，项目忙为 `55P03`，视频未退役为
+`23514`。E2E 清理仍先验证开关、测试库和命名空间，保留原删除顺序及保存点；项目忙
+与未退役仍映射为 HTTP 409，Jobs 能力不可用或回包无效返回 503 并停止清理。
+
+LAN／worktree 普通角色在宽授权之后撤销私表 DELETE，并拒绝继承权限旁路；生产
+批次清理及终态保留清理继续使用既有 owner 函数。SELECT／UPDATE 及完整 Jobs
+凭据退出仍按[模块台账](/dev/concepts/module-deployment#剩余工作台账)推进。
+截图等直接构造、修改和删除多领域夹具的脚本仍使用自有测试库的 schema-owner
+连接，不把该项目范围清理能力扩大成任意作业删除。
+
 ## Jobs 列表查询
 
 `aap-jobs-async-job-list-query/v1` 将现有 `GET /async-jobs` 的查询策略放入 Jobs owner，公开两个固定只读函数：

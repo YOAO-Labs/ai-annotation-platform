@@ -30,9 +30,30 @@ may still use legacy initializers with their own private INSERT right.
 
 Legacy column edits and explicit timestamps require the corresponding private
 UPDATE plus primary-key SELECT. These checks resolve the actual PostgreSQL
-invoker, never a client JSON field. The API retains SELECT/UPDATE/DELETE for
-consumers not yet migrated. Creation-right closure does not complete Jobs
-credential closure or runtime recovery.
+invoker, never a client JSON field. The API retains SELECT/UPDATE for consumers not yet migrated. Ordinary runtime
+profiles revoke private DELETE after the existing broad grants and reject
+inherited DELETE. Schema-owner fixture tools retain their own private rights.
+These two write-right closures do not complete Jobs credential closure or
+runtime recovery.
+
+## Test project fixture cleanup
+
+`aap-jobs-fixture-cleanup/v1` publishes the fixed
+`aap_jobs_v1.delete_fixture_project_jobs(uuid[])` capability. It deletes exactly
+current `project_id = ANY(project_ids)` rows of every kind and status, returns a
+nonnegative native bigint, preserves retained/unrelated rows, and borrows the
+caller transaction. Empty scope returns zero; duplicate IDs count each row once.
+The function is granted to ordinary runtime roles only in actual databases whose
+names end in `_test` or `_e2e`, and checks that suffix again inside the definer.
+
+The owner calls Workspace's existing `guard_project_cleanup` in the same
+transaction and validates its exact reply. NULL scopes or malformed guard
+replies return `22023`, project NOWAIT contention returns `55P03`, and an
+unretired video returns `23514`. Original constraints and DELETE triggers remain
+active. The E2E route keeps its earlier fixture gates, namespace/project selection,
+savepoint, and final commit; owner failures stop cleanup rather than skip Jobs.
+This capability cannot substitute for job-ID cleanup in schema-owner screenshot
+tools or for a production retention operation.
 
 ## Transactional row locks and refreshes
 

@@ -3320,10 +3320,14 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid),
     aap_workspace_v1.actor_project_memberships(uuid),
     aap_workspace_project_query_v1.project_search_scope(uuid,text)
     TO :"jobs_owner";
+GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_workspace_fixture_v1.guard_project_cleanup(uuid[])
+    TO :"jobs_owner";
 -- Jobs owns lifecycle writes; existing producers retain their current ACLs.
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.async_jobs TO :"jobs_owner";
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
 ALTER VIEW aap_jobs_v1.async_job_creation OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.read_job(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.read_job_for_update(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.read_job_for_share_nowait(uuid) OWNER TO :"jobs_owner";

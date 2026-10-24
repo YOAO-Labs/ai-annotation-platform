@@ -200,6 +200,19 @@ BEGIN
 END
 $jobs_creation_acl$;
 """
+_JOBS_DELETE_RUNTIME_ACL = """
+DO $jobs_delete_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+BEGIN
+    EXECUTE format('REVOKE DELETE ON TABLE public.async_jobs FROM %I, PUBLIC',
+                   v_runtime);
+    IF pg_catalog.has_table_privilege(v_runtime, 'public.async_jobs', 'DELETE') THEN
+        RAISE EXCEPTION 'The runtime role still has effective private Jobs DELETE privileges';
+    END IF;
+END
+$jobs_delete_acl$;
+"""
 _IDENTITY_PRIVATE_RUNTIME_ACL = """
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
@@ -981,7 +994,10 @@ class LocalResources:
                 identity_capabilities += (
                     "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)",
                 )
-            fixture_grants = ()
+            fixture_grants = (
+                "REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) "
+                f"FROM {role}, PUBLIC",
+            )
             if self.resources["database"].lower().endswith(("_test", "_e2e")):
                 identity_capabilities += (
                     "aap_identity_fixture_v1.create_account(uuid,text,text,text,text)",
@@ -992,7 +1008,9 @@ class LocalResources:
                     "aap_identity_fixture_v1.delete_invitations(uuid[])",
                     "aap_identity_fixture_v1.delete_organization_members(uuid[])",
                 )
-                fixture_grants = (
+                fixture_grants += (
+                    "GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) "
+                    f"TO {role}",
                     f"GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO {role}",
                     f"GRANT SELECT ON aap_identity_fixture_v1.account_profiles TO {role}",
                     f"GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO {role}",
@@ -1350,6 +1368,7 @@ class LocalResources:
                         observed, self._runtime_credentials(required=True)
                     )
                 await connection.exec_driver_sql(_JOBS_CREATION_RUNTIME_ACL)
+                await connection.exec_driver_sql(_JOBS_DELETE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
                 notification_result = await connection.execute(
                     text(

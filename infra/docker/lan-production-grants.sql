@@ -219,6 +219,17 @@ BEGIN
     END IF;
 END
 $jobs_creation_acl$;
+DO $jobs_delete_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+BEGIN
+    EXECUTE format('REVOKE DELETE ON TABLE public.async_jobs FROM %I, PUBLIC',
+                   v_runtime);
+    IF pg_catalog.has_table_privilege(v_runtime, 'public.async_jobs', 'DELETE') THEN
+        RAISE EXCEPTION 'The runtime role still has effective private Jobs DELETE privileges';
+    END IF;
+END
+$jobs_delete_acl$;
 REVOKE ALL ON FUNCTION aap_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[]),
     aap_jobs_v1._jobs_lifecycle_is_truthy(jsonb),
     aap_jobs_v1._jobs_lifecycle_integer(jsonb) FROM :"application_role", PUBLIC;
@@ -232,9 +243,13 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb
     TO :"application_role";
 \endif
 
+REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[])
+    FROM :"application_role", PUBLIC;
 SELECT right(lower(current_database()),5)='_test' OR right(lower(current_database()),4)='_e2e'
     AS identity_e2e_fixture_database \gset
 \if :identity_e2e_fixture_database
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[])
+    TO :"application_role";
 GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO :"application_role";
 GRANT SELECT ON aap_workspace_fixture_v1.templates TO :"application_role";
 GRANT EXECUTE ON FUNCTION

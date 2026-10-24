@@ -232,6 +232,7 @@ async def _run():
     from sqlalchemy import event, inspect, text
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from aap_jobs.domain_query_contract import JOBS_DOMAIN_QUERY_PROTOCOL
+    from aap_jobs.fixture_cleanup_contract import JOBS_FIXTURE_CLEANUP_PROTOCOL
     from aap_jobs.lifecycle_contract import JOBS_LIFECYCLE_PROTOCOL
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
     from aap_jobs.row_lock_contract import JOBS_ROW_LOCK_PROTOCOL
@@ -347,6 +348,21 @@ async def _run():
                     raise
             else:
                 raise RuntimeError("private_insert_allowed")
+            private_delete = await db.scalar(text(
+                "SELECT pg_catalog.has_table_privilege(current_user,"
+                "'public.async_jobs','DELETE')"
+            ))
+            if private_delete:
+                raise RuntimeError("private_delete_allowed")
+            deleted = await db.scalar(text(
+                "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+            ), {"ids": [row.project_id]})
+            pending_after_delete = await db.scalar(text(
+                "SELECT count(*) FROM aap_jobs_v1.async_job_creation "
+                "WHERE id=CAST(:id AS uuid)"
+            ), {"id": created_id})
+            if type(deleted) is not int or deleted < 2 or pending_after_delete != 0:
+                raise RuntimeError("fixture_delete_scope")
             await db.rollback()
             rolled_back = await db.scalar(text(
                 "SELECT count(*) FROM aap_jobs_v1.async_job_creation "
@@ -354,6 +370,19 @@ async def _run():
             ), {"id": created_id})
             if rolled_back != 0:
                 raise RuntimeError("creation_rollback")
+            restored = (await db.execute(text(
+                "SELECT id,status,result,progress_pct "
+                "FROM aap_jobs_v1.read_job(CAST(:id AS uuid))"
+            ), {"id": job_id})).one()
+            if tuple(restored) != (job_id, "completed", original_result, original_progress):
+                raise RuntimeError("fixture_delete_rollback")
+            fixture_delete_acl = {
+                "private_table_delete": private_delete,
+                "owner_delete": True,
+                "pending_row_removed": True,
+                "completed_row_restored": True,
+                "caller_rollback": True,
+            }
             creation_acl = {
                 "private_table_insert": privileges[0],
                 "private_column_insert": privileges[1],
@@ -391,7 +420,7 @@ async def _run():
             for statement in lowered
         )
         if function_calls != {
-            "read_job": 1,
+            "read_job": 2,
             "read_job_for_share_nowait": 1,
             "read_job_for_update": 1,
         } or private_table_from:
@@ -399,7 +428,8 @@ async def _run():
         return {
             "ok": True,
             "protocols": [
-                JOBS_LIFECYCLE_PROTOCOL, JOBS_ROW_LOCK_PROTOCOL, JOBS_DOMAIN_QUERY_PROTOCOL
+                JOBS_LIFECYCLE_PROTOCOL, JOBS_ROW_LOCK_PROTOCOL, JOBS_DOMAIN_QUERY_PROTOCOL,
+                JOBS_FIXTURE_CLEANUP_PROTOCOL,
             ],
             "role_match": True,
             "database_match": True,
@@ -407,6 +437,7 @@ async def _run():
             "domain_function_calls": domain_function_calls,
             "domain_subject_matches": domain_subject_matches,
             "creation_acl": creation_acl,
+            "fixture_delete_acl": fixture_delete_acl,
             "private_table_from": private_table_from,
             "partial_refresh": partial_refresh,
             "same_orm_identity": same_identity,
@@ -474,11 +505,12 @@ def _assert_api_row_access_probe(
         "aap-jobs-lifecycle/v1",
         "aap-jobs-row-locks/v1",
         "aap-jobs-domain-queries/v1",
+        "aap-jobs-fixture-cleanup/v1",
     ]
     assert evidence["role_match"] is True
     assert evidence["database_match"] is True
     assert evidence["function_calls"] == {
-        "read_job": 1,
+        "read_job": 2,
         "read_job_for_share_nowait": 1,
         "read_job_for_update": 1,
     }
@@ -497,6 +529,13 @@ def _assert_api_row_access_probe(
         "creation_view_insert": True,
         "pending_shape": True,
         "private_insert_sqlstate": "42501",
+        "caller_rollback": True,
+    }
+    assert evidence["fixture_delete_acl"] == {
+        "private_table_delete": False,
+        "owner_delete": True,
+        "pending_row_removed": True,
+        "completed_row_restored": True,
         "caller_rollback": True,
     }
     assert evidence["private_table_from"] == 0

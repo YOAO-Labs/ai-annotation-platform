@@ -88,6 +88,7 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_jobs_v1.delete_fixture_project_jobs(uuid[])": "0330_jobs_fixture_cleanup.sql",
     **{
         signature: "0329_jobs_domain_queries.sql"
         for signature in JOBS_DOMAIN_QUERY_FUNCTIONS
@@ -461,6 +462,7 @@ SQL_ARTIFACTS = (
     "0327_jobs_lifecycle.sql",
     "0328_jobs_row_locks.sql",
     "0329_jobs_domain_queries.sql",
+    "0330_jobs_fixture_cleanup.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -602,6 +604,7 @@ SCHEMA_ARTIFACTS = (
     "0327_jobs_lifecycle.schema.json",
     "0328_jobs_row_locks.schema.json",
     "0329_jobs_domain_queries.schema.json",
+    "0330_jobs_fixture_cleanup.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -4284,8 +4287,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0329"]:
-            raise RuntimeError("module-data acceptance requires migration head 0329")
+        if heads != ["0330"]:
+            raise RuntimeError("module-data acceptance requires migration head 0330")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes

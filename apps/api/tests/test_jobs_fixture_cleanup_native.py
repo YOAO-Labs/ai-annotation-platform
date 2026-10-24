@@ -14,14 +14,14 @@ import pytest
 from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
 from app.db.models.user import User
 from tests.factory import create_project, create_user
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
-from tests.test_video_deletion_retirement_native import _retire, _seed_unretired
+from tests.test_video_deletion_retirement_native import _seed_unretired
 
 ROOT = Path(__file__).resolve().parents[3]
 _ROLE = "identity_api_consumer"
@@ -437,7 +437,7 @@ async def test_fixture_cleanup_rejects_malformed_workspace_guard_replies_rollbac
         )
 
 
-async def _video_fixture_snapshot(engine, fixture):
+async def _video_fixture_snapshot(connection, fixture):
     queries = {
         "project": (
             "SELECT pg_catalog.to_jsonb(item) FROM public.projects item WHERE item.id=:id",
@@ -470,71 +470,50 @@ async def _video_fixture_snapshot(engine, fixture):
         ),
     }
     result = {}
-    async with engine.connect() as connection:
-        for name, (query, params) in queries.items():
-            result[name] = (await connection.scalars(text(query), params)).all()
+    for name, (query, params) in queries.items():
+        result[name] = (await connection.scalars(text(query), params)).all()
     return result
 
 
 async def test_fixture_cleanup_rejects_unretired_video_without_changing_rows(
     test_engine, record_property
 ):
-    api_url = _identity_api_url(test_engine)
-    api_engine = create_async_engine(
-        api_url.set(drivername="postgresql+asyncpg"), hide_parameters=True
-    )
-    sessions = async_sessionmaker(test_engine, expire_on_commit=False)
-    fixture = None
-    try:
-        async with sessions() as setup:
-            fixture = await _seed_unretired(setup)
-            await setup.commit()
-        before = await _video_fixture_snapshot(test_engine, fixture)
-        assert (
-            before["tracker_job"] and before["input_scope"] and before["accepted_input"]
-        )
-        assert before["journal"]
-        assert before["journal"][0]["execution_retired"] is False
-
-        async with api_engine.connect() as api:
+    _identity_api_url(test_engine)
+    async with test_engine.connect() as owner:
+        transaction = await owner.begin()
+        try:
+            async with AsyncSession(
+                bind=owner,
+                expire_on_commit=False,
+                join_transaction_mode="create_savepoint",
+            ) as setup:
+                fixture = await _seed_unretired(setup)
+                await setup.commit()
+            before = await _video_fixture_snapshot(owner, fixture)
+            assert before["tracker_job"] and before["input_scope"] and before["journal"]
+            assert before["journal"][0]["execution_retired"] is False
+            await owner.execute(text("SET LOCAL ROLE identity_api_consumer"))
+            assert await owner.scalar(text("SELECT current_user::text")) == _ROLE
+            savepoint = await owner.begin_nested()
             with pytest.raises(DBAPIError) as rejected:
-                await api.scalar(
-                    text(_CALL),
-                    {"ids": [fixture["project_id"]]},
-                )
+                await owner.scalar(text(_CALL), {"ids": [fixture["project_id"]]})
             assert _sqlstate(rejected.value) == "23514"
-            await api.rollback()
-
-        assert await _video_fixture_snapshot(test_engine, fixture) == before
-        record_property(
-            "jobs_fixture_cleanup_unretired_video",
-            json.dumps(
-                {
-                    "actual_api_login": True,
-                    "sqlstate": "23514",
-                    "all_rows_preserved": True,
-                }
-            ),
-        )
-    finally:
-        await api_engine.dispose()
-        if fixture is not None:
-            async with sessions() as cleanup:
-                await _retire(cleanup, fixture)
-                await cleanup.execute(
-                    delete(AsyncJob).where(
-                        (AsyncJob.project_id == fixture["project_id"])
-                        | (AsyncJob.retained_project_id == fixture["project_id"])
-                    )
-                )
-                removed = await cleanup.scalar(
-                    text(
-                        "SELECT aap_workspace_fixture_v1.delete_projects(CAST(:ids AS uuid[]))"
-                    ),
-                    {"ids": [fixture["project_id"]]},
-                )
-                assert removed == 1
-                await cleanup.execute(
-                    delete(User).where(User.id == fixture["actor_id"])
-                )
-                await cleanup.commit()
+            await savepoint.rollback()
+            await owner.execute(text("RESET ROLE"))
+            assert await _video_fixture_snapshot(owner, fixture) == before
+        finally:
+            # Bound legacy execution cannot be retired without real route proof.
+            await transaction.rollback()
+        after = await _video_fixture_snapshot(owner, fixture)
+        assert all(not rows for rows in after.values())
+    record_property(
+        "jobs_fixture_cleanup_unretired_video",
+        json.dumps(
+            {
+                "actual_api_invoker": True,
+                "sqlstate": "23514",
+                "all_rows_preserved_on_rejection": True,
+                "owner_fixture_transaction_rolled_back": True,
+            }
+        ),
+    )
