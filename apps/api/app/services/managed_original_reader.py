@@ -109,6 +109,7 @@ class BinaryStage:
     size: int
     observation: dict
     _release: object = field(default=lambda: None, repr=False)
+    _retain_on_close_error: bool = field(default=False, repr=False)
     _closed: bool = field(default=False, init=False, repr=False)
     _lock: object = field(default_factory=threading.Lock, init=False, repr=False)
 
@@ -118,7 +119,11 @@ class BinaryStage:
                 self._closed = True
                 try:
                     close_registered(self.file)
-                finally:
+                except BaseException:
+                    if not self._retain_on_close_error:
+                        self._release()
+                    raise
+                else:
                     self._release()
 
 
@@ -214,7 +219,17 @@ def _failure(exc):
     return ContentError("content_source_unavailable", 503)
 
 
-def _capture(spec, max_bytes, timeout_seconds, deadline, stop, release):
+def _capture(
+    spec,
+    max_bytes,
+    timeout_seconds,
+    deadline,
+    stop,
+    release,
+    *,
+    transport_timeout_seconds=None,
+    retain_on_close_error=False,
+):
     temporary, transferred = None, False
 
     def check():
@@ -227,7 +242,13 @@ def _capture(spec, max_bytes, timeout_seconds, deadline, stop, release):
         client = None
         try:
             try:
-                client = create_client(timeout_seconds=timeout_seconds)
+                client = create_client(
+                    timeout_seconds=(
+                        timeout_seconds
+                        if transport_timeout_seconds is None
+                        else transport_timeout_seconds
+                    )
+                )
             except BaseException as exc:
                 raise mark_unsettled(_failure(exc)) from None
             if client is None:
@@ -289,7 +310,12 @@ def _capture(spec, max_bytes, timeout_seconds, deadline, stop, release):
         check()
         temporary.seek(0)
         stage = BinaryStage(
-            temporary, spec.sha256, spec.size_bytes, before, _release=release
+            temporary,
+            spec.sha256,
+            spec.size_bytes,
+            before,
+            _release=release,
+            _retain_on_close_error=retain_on_close_error,
         )
         transferred = True
         return stage
@@ -297,22 +323,44 @@ def _capture(spec, max_bytes, timeout_seconds, deadline, stop, release):
         raise _failure(exc) from None
     finally:
         if not transferred:
+            settled = True
             try:
                 if temporary is not None:
                     try:
                         close_registered(temporary)
-                    except Exception as exc:
+                    except BaseException as exc:
+                        settled = not retain_on_close_error
                         raise _failure(exc) from None
             finally:
-                release()
+                if settled:
+                    release()
 
 
-async def capture(spec, *, max_bytes, timeout_seconds):
+async def capture(
+    spec,
+    *,
+    max_bytes,
+    timeout_seconds,
+    admission=None,
+    transport_timeout_seconds=None,
+):
     """Return a full verified file; cancellation drains every real I/O handle."""
     try:
         finite_timeout = math.isfinite(timeout_seconds)
     except (OverflowError, TypeError, ValueError):
         finite_timeout = False
+    if transport_timeout_seconds is not None:
+        try:
+            valid_transport_timeout = (
+                not isinstance(transport_timeout_seconds, bool)
+                and isinstance(transport_timeout_seconds, (int, float))
+                and math.isfinite(transport_timeout_seconds)
+                and 0 < transport_timeout_seconds <= timeout_seconds
+            )
+        except (OverflowError, TypeError, ValueError):
+            valid_transport_timeout = False
+    else:
+        valid_transport_timeout = True
     if (
         not isinstance(spec, ObjectSpec)
         or type(max_bytes) is not int
@@ -321,17 +369,24 @@ async def capture(spec, *, max_bytes, timeout_seconds):
         or not isinstance(timeout_seconds, (int, float))
         or not finite_timeout
         or timeout_seconds <= 0
+        or not valid_transport_timeout
+        or (admission is not None and not isinstance(admission, threading.Semaphore))
     ):
         _reject("managed_original_read_invalid")
     if spec.size_bytes > max_bytes:
         _reject("content_too_large", 413)
-    slots = _slots
+    slots = _slots if admission is None else admission
     if not slots.acquire(blocking=False):
         _reject("snapshot_capacity_exceeded", 429)
     stop = threading.Event()
     deadline = time.monotonic() + timeout_seconds
     try:
         context = contextvars.copy_context()
+        options = {}
+        if admission is not None:
+            options["retain_on_close_error"] = True
+        if transport_timeout_seconds is not None:
+            options["transport_timeout_seconds"] = transport_timeout_seconds
         pending = asyncio.get_running_loop().run_in_executor(
             None,
             context.run,
@@ -343,6 +398,7 @@ async def capture(spec, *, max_bytes, timeout_seconds):
                 deadline,
                 stop,
                 slots.release,
+                **options,
             ),
         )
     except BaseException:
@@ -362,7 +418,24 @@ async def capture(spec, *, max_bytes, timeout_seconds):
                 break
         unsettled = False
         try:
-            pending.result().close()
+            stage = pending.result()
+            if admission is None:
+                stage.close()
+            else:
+                try:
+                    closing = asyncio.get_running_loop().run_in_executor(
+                        None, stage.close
+                    )
+                except BaseException as close_error:
+                    raise mark_unsettled(close_error)
+                while not closing.done():
+                    try:
+                        await asyncio.shield(closing)
+                    except asyncio.CancelledError:
+                        cancelled = True
+                    except BaseException:
+                        break
+                closing.result()
         except BaseException as late:
             unsettled = getattr(late, "storage_operation_unsettled", False)
         error = (
