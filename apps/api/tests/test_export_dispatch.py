@@ -7,6 +7,7 @@ import pytest
 from fastapi import Request
 
 from app.api.v1 import batches, data_manager, projects
+from app.db.models.async_job import AsyncJob
 from app.schemas.data_manager_actions import DataManagerTaskExportRequest
 from app.services import async_job as async_job_service
 from app.services import jobs_queue
@@ -51,7 +52,7 @@ def _route_boundary(monkeypatch, *, task_ids=(), failure=None):
 
     async def create_job(_db, *, kind, user_id, project_id, payload):
         nonlocal job
-        job = SimpleNamespace(
+        job = AsyncJob(
             id=_JOB_ID,
             kind=kind,
             user_id=user_id,
@@ -60,6 +61,7 @@ def _route_boundary(monkeypatch, *, task_ids=(), failure=None):
             status="pending",
             celery_task_id=None,
         )
+        db.job = job
         events.append(("create", job))
         return job
 

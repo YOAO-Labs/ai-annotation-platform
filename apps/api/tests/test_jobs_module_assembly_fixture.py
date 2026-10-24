@@ -136,9 +136,10 @@ def test_jobs_queue_compose_override_is_private_and_uses_only_service_secrets(
     assert "jobs_queue_broker_url" not in api_service
 
 
-def test_workspace_worker_only_allows_explicit_default_queue_opt_in():
+def test_workspace_worker_only_allows_explicit_qualified_queue_opt_in():
     assert _worker_queue_name("owned-worker") == "aap_workspace_worker_owned-worker"
     assert _worker_queue_name("owned-worker", "default") == "default"
+    assert _worker_queue_name("owned-worker", "export") == "export"
     with pytest.raises(ValueError):
         _worker_queue_name("owned-worker", "some-other-queue")
 

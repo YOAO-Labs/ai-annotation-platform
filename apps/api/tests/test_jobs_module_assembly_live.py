@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 import json
+from io import BytesIO
 import os
 import secrets
 import time
 from urllib.parse import urlsplit
 import uuid
+import zipfile
 
 from cryptography.fernet import Fernet
 from celery import Celery
@@ -20,9 +23,11 @@ from sqlalchemy import select
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.config import settings
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
+from app.db.models.task import Task
 from app.db.models.user import User
-from tests.factory import DEFAULT_PASSWORD
+from tests.factory import DEFAULT_PASSWORD, create_batch
 from tests.identity_module_assembly_helpers import IdentityModuleStack
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
@@ -47,6 +52,11 @@ from tests.test_workspace_worker_assembly_live import (
     _broker_state,
     _wait_broker_ack,
     _wait_worker_ready,
+)
+from tests.test_workspace_export_worker_live import (
+    _SOURCE_PNG,
+    _create_export_storage_scope,
+    _seed_export_world,
 )
 from tests.workspace_worker_assembly_helpers import WorkspaceCeleryWorker
 
@@ -100,7 +110,7 @@ def _role_urls_for_database(database_name: str):
                 os.environ[name] = value
 
 
-def _assert_owned_broker_target(sender: Celery) -> None:
+def _assert_owned_broker_target(sender: Celery, queue: str = "default") -> None:
     broker = make_url(os.environ.get("CELERY_BROKER_URL") or os.environ["REDIS_URL"])
     owner = _verify_redis()
     assert (
@@ -114,8 +124,9 @@ def _assert_owned_broker_target(sender: Celery) -> None:
         owner.port,
         owner.database,
     ), "Jobs queue must use the verified verifier-owned Redis database"
-    assert _broker_state(sender, "default") == {"queue_size": 0, "unacknowledged": 0}, (
-        "default queue must be empty before the owned worker subscribes"
+    assert queue in {"default", "export"}
+    assert _broker_state(sender, queue) == {"queue_size": 0, "unacknowledged": 0}, (
+        f"{queue} queue must be empty before the owned worker subscribes"
     )
 
 
@@ -454,6 +465,212 @@ async def _assert_completed_job_http_read(
     }
 
 
+async def _exercise_export_dispatch(
+    test_engine,
+    stack,
+    sender,
+    resources,
+    owner_s3,
+    directory,
+    known_task_ids,
+    *,
+    check_outage,
+):
+    _verify_postgres(test_engine.url)
+    _assert_owned_broker_target(sender, "export")
+    world = await _seed_export_world(test_engine)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker.begin() as db:
+        batch = await create_batch(db, project_id=world["project_id"])
+        task = await db.get(Task, world["task_id"])
+        task.batch_id = batch.id
+        batch_id = batch.id
+    scope, destroy_scope = _create_export_storage_scope(
+        resources, owner_s3, settings, world
+    )
+    worker = None
+    receipts = []
+    outages = []
+    try:
+        owner_s3.put_object(
+            Bucket=resources["buckets"]["MINIO_DATASETS_BUCKET"],
+            Key=world["source_key"],
+            Body=_SOURCE_PNG,
+            ContentType="image/png",
+        )
+        project_path = f"/api/v1/projects/{world['project_id']}"
+        requests = [
+            ("project", project_path + "/export?targets=aap_json", None),
+            (
+                "batch",
+                project_path + f"/batches/{batch_id}/export?targets=aap_json",
+                None,
+            ),
+            (
+                "selected",
+                project_path + "/data-manager/tasks/export",
+                {
+                    "task_ids": [str(world["task_id"])],
+                    "targets": ["aap_json"],
+                },
+            ),
+        ]
+        async with httpx.AsyncClient(
+            base_url=stack.api_origin,
+            trust_env=False,
+            timeout=40,
+        ) as client:
+            headers = await _login(client, maker, world["owner_id"])
+            if check_outage:
+                await stack.stop_service("jobs-queue")
+                for label, path, body in requests:
+                    response = await client.post(path, headers=headers, json=body)
+                    assert response.status_code == 500, stack.redact(response.text)
+                    async with maker() as db:
+                        failed = await db.scalar(
+                            select(AsyncJob)
+                            .where(
+                                AsyncJob.kind == "export",
+                                AsyncJob.project_id == world["project_id"],
+                                AsyncJob.user_id == world["owner_id"],
+                            )
+                            .order_by(AsyncJob.created_at.desc())
+                            .limit(1)
+                        )
+                        assert failed is not None and failed.celery_task_id is None
+                        expected = "failed" if label == "selected" else "pending"
+                        assert failed.status == expected
+                    assert _broker_state(sender, "export") == {
+                        "queue_size": 0,
+                        "unacknowledged": 0,
+                    }
+                    outages.append(
+                        {"route": label, "http_status": 500, "status": expected}
+                    )
+                await stack.start_service("jobs-queue")
+
+            for label, path, body in requests:
+                response = await client.post(path, headers=headers, json=body)
+                assert response.status_code == 202, stack.redact(response.text)
+                job_id = uuid.UUID(response.json()["job_id"])
+                row = await _job_by_id(test_engine, job_id)
+                assert row is not None and row.status == "pending"
+                if label == "selected":
+                    assert (
+                        row.celery_task_id
+                        and str(uuid.UUID(row.celery_task_id)) == row.celery_task_id
+                    )
+                    assert row.payload["task_ids"] == [str(world["task_id"])]
+                else:
+                    assert row.celery_task_id is None
+                receipts.append({"route": label, "job_id": str(job_id)})
+
+            assert _broker_state(sender, "export") == {
+                "queue_size": 3,
+                "unacknowledged": 0,
+            }
+            messages = {}
+            with sender.connection_for_read() as connection:
+                channel = connection.default_channel
+                for priority in channel.priority_steps:
+                    for raw in channel.client.lrange(
+                        channel._q_for_pri("export", priority), 0, -1
+                    ):
+                        envelope = json.loads(raw)
+                        assert (
+                            envelope["headers"]["task"]
+                            == "app.workers.export.run_export"
+                        )
+                        execution_id = envelope["headers"]["id"]
+                        assert str(uuid.UUID(execution_id)) == execution_id
+                        args, kwargs, _embed = json.loads(
+                            base64.b64decode(envelope["body"], validate=True)
+                        )
+                        assert args == [] and kwargs["targets"] == ["aap_json"]
+                        assert kwargs["project_id"] == str(world["project_id"])
+                        messages[kwargs["async_job_id"]] = (execution_id, kwargs)
+            assert set(messages) == {item["job_id"] for item in receipts}
+            for item in receipts:
+                execution_id, kwargs = messages[item["job_id"]]
+                item["execution_id"] = execution_id
+                known_task_ids.add(execution_id)
+                assert kwargs["batch_id"] == (
+                    str(batch_id) if item["route"] == "batch" else None
+                )
+                if item["route"] == "selected":
+                    assert kwargs["task_ids"] == [str(world["task_id"])]
+                    row = await _job_by_id(test_engine, uuid.UUID(item["job_id"]))
+                    assert row.celery_task_id == execution_id
+                else:
+                    assert "task_ids" not in kwargs
+
+            minio_origin = endpoint_url()
+            worker = WorkspaceCeleryWorker(
+                test_engine,
+                directory,
+                backend_token=secrets.token_urlsafe(32),
+                object_store_endpoint=minio_origin,
+                object_store_bucket=resources["buckets"]["MINIO_BUCKET"],
+                object_store_use_ssl=urlsplit(minio_origin).scheme == "https",
+                object_store_access_key=scope["access_key"],
+                object_store_secret_key=scope["secret_key"],
+                object_store_buckets=resources["buckets"],
+                queue_name="export",
+            )
+            assert worker.object_store_access_key != settings.minio_access_key
+            assert worker.object_store_secret_key != settings.minio_secret_key
+            worker.start()
+            await _wait_worker_ready(sender, worker)
+            assert worker.task_signature("app.workers.export.run_export") == {
+                "task": "app.workers.export.run_export",
+                "parameters": [
+                    "project_id",
+                    "batch_id",
+                    "targets",
+                    "opts",
+                    "async_job_id",
+                    "task_ids",
+                ],
+            }
+            for item in receipts:
+                delivery = sender.AsyncResult(item["execution_id"])
+                assert (
+                    await asyncio.to_thread(delivery.get, timeout=120, propagate=False)
+                    is None
+                )
+            for item in receipts:
+                await _wait_broker_ack(sender, worker, item["execution_id"])
+                response = await client.get(
+                    f"/api/v1/async-jobs/{item['job_id']}",
+                    headers=headers,
+                )
+                assert response.status_code == 200, stack.redact(response.text)
+                job = response.json()
+                assert job["status"] == "completed"
+                assert job["celery_task_id"] == item["execution_id"]
+                download = await client.get(job["result"]["download_url"])
+                assert download.status_code == 200
+                with zipfile.ZipFile(BytesIO(download.content)) as archive:
+                    payload = json.loads(archive.read("annotations.json"))
+                assert (
+                    payload["exported_from"]["project_display_id"]
+                    == world["project_display_id"]
+                )
+                assert len(payload["tasks"]) == 1
+                task = payload["tasks"][0]
+                assert task["task_match"]["display_id"] == world["task_display_id"]
+                assert len(task["annotations"]) == 1
+                assert task["annotations"][0]["class_name"] == "car"
+                item["download_http_status"] = download.status_code
+        return {"owner_id": str(world["owner_id"]), "jobs": receipts, "outage": outages}
+    finally:
+        try:
+            if worker is not None:
+                worker.stop()
+        finally:
+            destroy_scope(scope)
+
+
 async def test_cold_jobs_queue_dispatch_revoke_and_restore(
     test_engine,
     tmp_path,
@@ -692,6 +909,19 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                     ),
                 )
 
+            exports_before_restore = await _exercise_export_dispatch(
+                test_engine,
+                stack,
+                sender,
+                resources,
+                owner_s3,
+                tmp_path / "jobs-export-before-restore",
+                known_task_ids,
+                check_outage=True,
+            )
+            record_property(
+                "jobs_export_dispatch_before_restore", exports_before_restore
+            )
             worker.stop()
             worker = None
             _assert_owned_broker_target(sender)
@@ -812,6 +1042,37 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                             ),
                         )
                         record_property("jobs_queue_after_full_restore", restored_ack)
+                        export_headers = await _login(
+                            client,
+                            clone_maker,
+                            uuid.UUID(exports_before_restore["owner_id"]),
+                        )
+                        for item in exports_before_restore["jobs"]:
+                            restored_export = await client.get(
+                                f"/api/v1/async-jobs/{item['job_id']}",
+                                headers=export_headers,
+                            )
+                            assert restored_export.status_code == 200, stack.redact(
+                                restored_export.text
+                            )
+                            assert restored_export.json()["status"] == "completed"
+                            assert (
+                                restored_export.json()["celery_task_id"]
+                                == item["execution_id"]
+                            )
+                        exports_after_restore = await _exercise_export_dispatch(
+                            clone_engine,
+                            stack,
+                            sender,
+                            resources,
+                            owner_s3,
+                            tmp_path / "jobs-export-after-restore",
+                            known_task_ids,
+                            check_outage=False,
+                        )
+                        record_property(
+                            "jobs_export_dispatch_after_restore", exports_after_restore
+                        )
 
                         cancel_world = await _seed_member_job(
                             clone_maker,

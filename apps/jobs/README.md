@@ -109,15 +109,17 @@ broker.
 Consumers include cross-frame propagation and the project, batch, and Data
 Manager annotation-export endpoints. Cross-frame sends one positional job ID;
 exports send the existing keyword payload. Both use the shared `task_routes`
-resource, which routes exports to the existing `export` queue, and use a stable
-execution ID. Cross-frame stores it before dispatch; project and batch workers
+resource, which routes exports to the existing `export` queue. Each publication
+has a preselected execution ID. Cross-frame stores it before dispatch; project and batch workers
 bind it when they claim the job; Data Manager binds it after successful broker
-acceptance and marks the durable job failed if dispatch raises. The reply
-confirms broker acceptance only. Revoke uses `terminate=False` and does not
+acceptance and marks the durable job failed if dispatch raises. A pending Data
+Manager idempotency retry keeps the job and assigns a new publication ID, as
+before. The reply confirms broker acceptance only. Revoke uses `terminate=False` and does not
 prove a task stopped. Custom task options, Celery canvases, other task payloads,
-and non-JSON serializers remain unqualified; the bounded local API/owner/worker
-and full-database-restore acceptance is recorded in [the module deployment
-ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-lifecycle-queue).
+and non-JSON serializers remain unqualified. Bounded local API/owner/worker and
+full-database-restore evidence is recorded separately for [cross-frame
+composition](../../docs-site/dev/concepts/module-deployment.md#jobs-lifecycle-queue)
+and [annotation exports](../../docs-site/dev/concepts/module-deployment.md#jobs-export-dispatch).
 This does not qualify the remaining producers or complete Jobs credential
 closure.
 
