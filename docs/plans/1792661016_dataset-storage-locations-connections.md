@@ -914,3 +914,27 @@ Workbench、Review、DataManager及Dataset检查器接认证原件。先决定si
 人工3100/8100、两个各72任务Worker和独立Beat保持健康，迁移头0231。11张业务表指纹、24对象完整SHA和12源文件保持，新owner表仍为空；本片无Worker逻辑、迁移、依赖、配置、镜像或版本变化。test/e2e均停止并销毁，两个数据库、专用Redis及合计18桶独立查验不存在；命名浏览器关闭，三棵干净且补丁等价的隔离树/分支移除，探针、日志、截图、下载和测试/构建缓存按归属清理。保留人工环境、本地虚拟环境、工作树身份及生成类型。
 
 完整E02/B13和整套epic继续执行，完整用途切换关闭。下一片B13-B2-B为原生视频：当前原件完整核验后受限能力凭据交付、stage复用及Range/HEAD/If-Range/seek，不能每次seek重新读取整个远端文件，也不能让原生video标签直接访问Bearer接口。转码/精确帧派生物拥有独立事实，ML/Worker、金字塔、导出和训练/评估/AL原件消费者继续分别收口。
+
+## E02-B13-B2-B1 Design — 视频原件准备与可复用范围读取
+
+基于干净HEAD `c21ca7219` 的两路只读盘点，当前原生video直接使用签名URL，平台没有Range代理；视频DTO、manifest、manifest-v2及chunk fallback仍按当前用途桶/前缀签名，Worker转码和抽帧也有独立缺口。本片先交付可独立使用的托管视频准备/读取API及实际原生播放资格，不更改这些尚未适配的既有调用者，不把协议基础称作视频迁移完成。转码、poster、frame、chunk不能沿用原件SHA；后续浏览器生命周期与派生归属分别接入。
+
+最小方案是每次Range重新完整捕获，远端大视频反复复制不可接受；选择有界、进程内匿名stage registry。复用 `original_binary` 的冻结来源/原Authority/当前权限和Gate合同，抽出明确的授权快照与重核入口，既有完整下载调用保持行为。Task与DatasetItem的Bearer POST `original-playback` 提交content UUID、SHA和客户端session UUID；仅接受当前托管video，未知历史、reference和非video明确拒绝。session只划分客户端资源命名空间，不是服务端授权证明。完整stage仅在初始、准入后和交付前重核成功后发布，保存原Authority和完整OriginalSource，不保存原JWT/API Key。
+
+```text
+Bearer prepare -> frozen authority/source -> bounded registry reservation
+               -> durable Location admission -> strict full capture -> publish lease
+Native GET/HEAD + scoped cookie -> pin -> current authority/source/Gate recheck
+                               -> independent-offset range response -> drain/unpin
+Release / expiry / shutdown -> retire -> drain captures and response pins -> real close
+```
+
+选择无秘密的 `/api/v1/media/original-playback/{lease_uuid}` 地址和随机256位能力Cookie，不把能力或主凭证放query/path。Cookie为host-only、HttpOnly、SameSite=Strict，Path限定准确租约，HTTPS时Secure，最大300秒且不超过原Authority自然期限；仅GET/HEAD使用。Bearer DELETE按当前账号及准确Task/Item、session与lease解除本人租约并清Cookie。当前User/Key、JWT blacklist/generation/自然期限、Task可见性或Dataset管理权限、完整来源/Location/Gate必须在每次GET/HEAD之前重新检查，包含HEAD与416；旧Cookie不能绕过撤权。Origin存在时只接受同源，响应CORP same-origin、no-store/nosniff；不开放任意URL、CORS能力或共享宿主目录。
+
+registry按Authority、session、资源与完整冻结来源复用ready stage；同键尚在准备时明确429和短Retry-After，调用者可重试，不建立复杂的共享在途取消协议。单原件5GiB、两个独立stage槽，因此最多10GiB声明暂存；槽覆盖准备、保留、活动响应及真实关闭，未知收尾继续占额。准备900秒合作式期限，远端transport30秒；每个响应120秒及256KiB分块，最多8个同时响应。租约固定300秒，stage最迟3600秒退休，每stage最多32个有效租约；重复准备可复用未退休stage并取得新租约，旧租约须显式释放或到期。30秒reaper与应用lifespan收尾保证无人访问也回收；先退休禁止新pin，待实际读线程/pin结束再关闭，关闭未知不释放额度。没有LRU强制驱逐正在使用的stage，也不默默突破预算。
+
+采用强SHA ETag、准确长度和单范围200/206：闭区间、开区间、后缀和越界416；HEAD忽略Range且无正文。If-Range只接受精确强ETag，日期/弱/不同值回完整200；未知range unit及多范围忽略并回完整200，畸形bytes语法400，越界带 `Content-Range: bytes */size`。每次先授权再给状态/长度。范围通过os.pread独立偏移，不共享seek/read游标；响应取消或发送失败先drain已开始线程再unpin。规范依据[RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html#name-range-requests)。核对了[Starlette FileResponse](https://github.com/Kludex/starlette/blob/main/starlette/responses.py)的范围/关闭生命周期和[Django FileResponse](https://github.com/django/django/blob/main/django/http/response.py)的明确资源closer；现有匿名文件、全局额度和共享pin不能直接由普通FileResponse承担，故保留小范围响应适配器。[Cookie合同](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie)用于原生同源媒体；不添加日志脱敏依赖来迁就URL能力凭据。
+
+脆弱假设是当前API部署单Uvicorn进程。进程内stage只资格化单实例；重启、reload或请求落到没有该lease的实例返回410，GET绝不隐式重拉整个远端原件。后续客户端收到410须Bearer重新prepare；多副本共享暂存/协调仍需独立设计，不能用进程内10GiB声称集群总预算。当前/tmp可用约94GiB，工具与本机MinIO已验证；预算为本片明确常量，不新增环境变量、服务、外部凭据、依赖、迁移或镜像。撤销新增API即可回退，不修改原件归属或已有派生数据。
+
+预计超过八文件和三个协作组件：隔离树分别实现stage/租约生命周期与纯测试、单范围响应与真实取消测试；主树拥有授权快照、路由/schema/lifespan、真实DB/API/MinIO和原生浏览器验收、正式API/架构/运维文档、README/CHANGELOG与生成合同。验证保存桶陷阱、未知/非video零I/O、并发prepare容量、重复seek零额外S3复制、独立偏移并发、HEAD/If-Range/空/末端/畸形与超长Range、Cookie跨lease/资源拒绝、过期/撤权/删链/Gate改变、重复取消/关闭未知/TTL/shutdown。仅用验证过一次性namespace，真实TCP和浏览器loadedmetadata/seeked/Canvas读回；生产UI未改，不重复UI视觉矩阵。人工3100/8100、两Worker/Beat和既有业务/24对象/12源文件保持，提交正常hooks及diff检查后清理精确测试资源。完整E02、B13-B与用途切换继续未完成。
