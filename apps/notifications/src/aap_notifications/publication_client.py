@@ -16,6 +16,7 @@ from .publication_contract import (
 )
 
 _PUBLICATION_PATH = "/v1/notifications/publish"
+_MAX_REPLY_BYTES = 4096
 
 
 def _service_token(value: str | SecretStr) -> str:
@@ -87,17 +88,33 @@ class RemotePublicationClient:
                 follow_redirects=False,
                 trust_env=False,
             ) as client:
-                response = await client.post(
+                async with client.stream(
+                    "POST",
                     self._endpoint,
                     content=encode_publication_request(request),
                     headers={
                         "Authorization": f"Bearer {self._service_token}",
                         "Content-Type": "application/json",
                     },
-                )
-            if not 200 <= response.status_code < 300:
-                raise ImmediatePublicationUnavailable()
-            return decode_publication_reply(response.content).published
+                ) as response:
+                    if not 200 <= response.status_code < 300:
+                        raise ImmediatePublicationUnavailable()
+                    content_length = response.headers.get("content-length")
+                    if content_length is not None:
+                        try:
+                            declared_length = int(content_length)
+                        except ValueError:
+                            raise ImmediatePublicationUnavailable() from None
+                        if not 0 <= declared_length <= _MAX_REPLY_BYTES:
+                            raise ImmediatePublicationUnavailable()
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes(
+                        chunk_size=_MAX_REPLY_BYTES + 1
+                    ):
+                        if len(body) + len(chunk) > _MAX_REPLY_BYTES:
+                            raise ImmediatePublicationUnavailable()
+                        body.extend(chunk)
+                    return decode_publication_reply(bytes(body)).published
         except asyncio.CancelledError:
             raise
         except ImmediatePublicationUnavailable:

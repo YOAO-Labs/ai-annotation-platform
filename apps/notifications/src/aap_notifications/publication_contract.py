@@ -241,6 +241,18 @@ def notification_publication_json_schema() -> dict[str, Any]:
         key: value for key, value in request_schema.items() if key != "$defs"
     }
     request_schema["properties"]["message"] = {"anyOf": event_schema["anyOf"]}
+    request_schema["allOf"] = [
+        {
+            "if": {
+                "properties": {"authorization": {"type": "null"}},
+                "required": ["authorization"],
+            },
+            "then": {
+                "properties": {"message": {"$ref": "#/$defs/NotificationSyncEvent"}}
+            },
+            "else": {"properties": {"message": {"$ref": "#/$defs/NotificationEvent"}}},
+        }
+    ]
     reply_schema = {key: value for key, value in reply_schema.items() if key != "$defs"}
     definitions["ImmediatePublicationRequest"] = request_schema
     definitions["ImmediatePublicationReply"] = reply_schema

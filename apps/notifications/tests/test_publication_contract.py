@@ -212,16 +212,21 @@ def test_publication_schema_and_checked_resource_match():
     schema = json.loads(schema_bytes)
     assert schema == notification_publication_json_schema()
     assert schema["$id"] == IMMEDIATE_PUBLICATION_PROTOCOL
+    request_schema = schema["$defs"]["ImmediatePublicationRequest"]
+    conditional = request_schema["allOf"][0]
+    assert conditional["if"]["properties"]["authorization"] == {"type": "null"}
+    assert conditional["then"]["properties"]["message"] == {
+        "$ref": "#/$defs/NotificationSyncEvent"
+    }
+    assert conditional["else"]["properties"]["message"] == {
+        "$ref": "#/$defs/NotificationEvent"
+    }
     assert (
-        schema["$defs"]["ImmediatePublicationRequest"]["properties"]["message"][
-            "anyOf"
-        ][0]["$ref"]
+        request_schema["properties"]["message"]["anyOf"][0]["$ref"]
         == "#/$defs/NotificationEvent"
     )
     assert (
-        schema["$defs"]["ImmediatePublicationRequest"]["properties"]["message"][
-            "anyOf"
-        ][1]["$ref"]
+        request_schema["properties"]["message"]["anyOf"][1]["$ref"]
         == "#/$defs/NotificationSyncEvent"
     )
     assert pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"][

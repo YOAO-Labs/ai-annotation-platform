@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from types import SimpleNamespace
 import uuid
 
+import httpx
 import pytest
 
 from aap_notifications.publication_client import RemotePublicationClient
@@ -71,47 +71,32 @@ def test_client_rejects_unsafe_service_tokens_and_timeouts():
 
 @pytest.mark.asyncio
 async def test_client_posts_once_without_redirects_or_environment_proxy(monkeypatch):
-    seen = {}
+    requests = []
 
-    class Response:
-        status_code = 200
-        content = json.dumps(
-            {"schema": IMMEDIATE_PUBLICATION_PROTOCOL, "published": True}
-        ).encode()
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"schema": IMMEDIATE_PUBLICATION_PROTOCOL, "published": True},
+            request=request,
+        )
 
-    class Client:
-        def __init__(self, **kwargs):
-            seen["client_options"] = kwargs
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            seen["client_closed"] = True
-            return None
-
-        async def post(self, url, **kwargs):
-            seen["url"] = url
-            seen["request"] = kwargs
-            return Response()
-
-    monkeypatch.setitem(
-        __import__("sys").modules, "httpx", SimpleNamespace(AsyncClient=Client)
-    )
+    clients, options = _mock_httpx_transport(monkeypatch, handler)
     client = RemotePublicationClient("http://publisher.test/", "private-service-token")
 
     accepted = await client.publish(_request())
 
     assert accepted is True
-    assert seen["url"] == "http://publisher.test/v1/notifications/publish"
-    assert seen["client_options"] == {
+    assert len(requests) == 1
+    assert str(requests[0].url) == "http://publisher.test/v1/notifications/publish"
+    assert options[0] == {
         "timeout": 10.0,
         "follow_redirects": False,
         "trust_env": False,
     }
-    assert seen["client_closed"]
-    assert seen["request"]["headers"]["Authorization"] == "Bearer private-service-token"
-    assert json.loads(seen["request"]["content"])["message"] == _request().message
+    assert clients[0].is_closed
+    assert requests[0].headers["Authorization"] == "Bearer private-service-token"
+    assert json.loads(requests[0].content)["message"] == _request().message
 
 
 @pytest.mark.asyncio
@@ -125,80 +110,157 @@ async def test_client_posts_once_without_redirects_or_environment_proxy(monkeypa
 async def test_client_sanitizes_http_and_reply_failures(
     monkeypatch, status_code, content
 ):
-    class Response:
-        def __init__(self):
-            self.status_code = status_code
-            self.content = content
+    requests = []
 
-    class Client:
-        def __init__(self, **_kwargs):
-            pass
+    def handler(request):
+        requests.append(request)
+        headers = {"Location": "http://elsewhere.test"} if status_code == 302 else None
+        return httpx.Response(
+            status_code, content=content, headers=headers, request=request
+        )
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def post(self, *_args, **_kwargs):
-            return Response()
-
-    monkeypatch.setitem(
-        __import__("sys").modules, "httpx", SimpleNamespace(AsyncClient=Client)
-    )
+    clients, _options = _mock_httpx_transport(monkeypatch, handler)
     client = RemotePublicationClient("http://publisher.test", "service-token")
 
     with pytest.raises(ImmediatePublicationUnavailable) as error:
         await client.publish(_request())
     assert "wrong" not in str(error.value)
     assert "published" not in str(error.value)
-
-
-@pytest.mark.asyncio
-async def test_client_propagates_cancellation(monkeypatch):
-    class Client:
-        def __init__(self, **_kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def post(self, *_args, **_kwargs):
-            raise asyncio.CancelledError
-
-    monkeypatch.setitem(
-        __import__("sys").modules, "httpx", SimpleNamespace(AsyncClient=Client)
-    )
-    client = RemotePublicationClient("http://publisher.test", "service-token")
-
-    with pytest.raises(asyncio.CancelledError):
-        await client.publish(_request())
+    assert len(requests) == 1
+    assert clients[0].is_closed
 
 
 @pytest.mark.asyncio
 async def test_client_redacts_transport_exception(monkeypatch):
-    class Client:
-        def __init__(self, **_kwargs):
-            pass
+    def handler(_request):
+        raise RuntimeError("https://service:secret@publisher.test private payload")
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def post(self, *_args, **_kwargs):
-            raise RuntimeError("https://service:secret@publisher.test private payload")
-
-    monkeypatch.setitem(
-        __import__("sys").modules, "httpx", SimpleNamespace(AsyncClient=Client)
-    )
+    clients, _options = _mock_httpx_transport(monkeypatch, handler)
     client = RemotePublicationClient("http://publisher.test", "service-token")
 
     with pytest.raises(ImmediatePublicationUnavailable) as error:
         await client.publish(_request())
     assert "secret" not in str(error.value)
     assert "private payload" not in str(error.value)
+    assert clients[0].is_closed
+
+
+def _mock_httpx_transport(monkeypatch, handler):
+    clients = []
+    options = []
+    real_async_client = httpx.AsyncClient
+
+    def create_client(**kwargs):
+        options.append(kwargs.copy())
+        client = real_async_client(
+            transport=httpx.MockTransport(handler),
+            **kwargs,
+        )
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", create_client)
+    return clients, options
+
+
+@pytest.mark.asyncio
+async def test_httpx_streaming_caps_reply_and_closes_response_and_client(monkeypatch):
+    streams = []
+    requests = []
+
+    class OversizedBody(httpx.AsyncByteStream):
+        def __init__(self):
+            self.closed = False
+            streams.append(self)
+
+        async def __aiter__(self):
+            yield b"x" * 4097
+
+        async def aclose(self):
+            self.closed = True
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, stream=OversizedBody(), request=request)
+
+    clients, _options = _mock_httpx_transport(monkeypatch, handler)
+    client = RemotePublicationClient("http://publisher.test", "service-token")
+
+    with pytest.raises(ImmediatePublicationUnavailable):
+        await client.publish(_request())
+
+    assert len(requests) == 1
+    assert streams[0].closed
+    assert clients[0].is_closed
+
+
+@pytest.mark.asyncio
+async def test_httpx_streaming_propagates_cancellation_and_closes_resources(
+    monkeypatch,
+):
+    started = asyncio.Event()
+    release = asyncio.Event()
+    streams = []
+    requests = []
+
+    class BlockingBody(httpx.AsyncByteStream):
+        def __init__(self):
+            self.closed = False
+            streams.append(self)
+
+        async def __aiter__(self):
+            started.set()
+            await release.wait()
+            yield b'{"schema":'
+
+        async def aclose(self):
+            self.closed = True
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, stream=BlockingBody(), request=request)
+
+    clients, _options = _mock_httpx_transport(monkeypatch, handler)
+    client = RemotePublicationClient("http://publisher.test", "service-token")
+    task = asyncio.create_task(client.publish(_request()))
+    await asyncio.wait_for(started.wait(), timeout=2)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert len(requests) == 1
+    assert streams[0].closed
+    assert clients[0].is_closed
+
+
+@pytest.mark.asyncio
+async def test_httpx_read_timeout_is_sanitized_and_closes_response_and_client(
+    monkeypatch,
+):
+    streams = []
+
+    class TimedOutBody(httpx.AsyncByteStream):
+        def __init__(self):
+            self.closed = False
+            streams.append(self)
+
+        async def __aiter__(self):
+            raise httpx.ReadTimeout("private transport details")
+            yield b""
+
+        async def aclose(self):
+            self.closed = True
+
+    def handler(request):
+        return httpx.Response(200, stream=TimedOutBody(), request=request)
+
+    clients, _options = _mock_httpx_transport(monkeypatch, handler)
+    client = RemotePublicationClient("http://publisher.test", "service-token")
+
+    with pytest.raises(ImmediatePublicationUnavailable) as error:
+        await client.publish(_request())
+
+    assert "private transport details" not in str(error.value)
+    assert streams[0].closed
+    assert clients[0].is_closed
