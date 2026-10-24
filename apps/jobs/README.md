@@ -181,7 +181,8 @@ Identity dependency. The API keeps its embedded Celery transport when
 broker.
 
 Consumers include cross-frame propagation, the project, batch, and Data
-Manager annotation-export endpoints, and the existing quality-job dispatch port.
+Manager annotation-export endpoints, and the existing quality and video-tracker
+dispatch ports.
 Cross-frame sends one positional job ID;
 exports send the existing keyword payload. Both use the shared `task_routes`
 resource, which routes exports to the existing `export` queue. Each publication

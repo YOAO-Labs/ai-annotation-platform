@@ -44,18 +44,7 @@
     "resource": "aap_jobs/queue_routes.json",
     "retry": "retain the Celery task_publish_retry policy; no HTTP retry",
     "default_options": [],
-    "qualified_consumer": {
-      "task": "app.workers.cross_frame_job.run_cross_frame_job",
-      "arguments": "one positional job UUID string",
-      "queue": "default",
-      "execution_id": "predeclared by the Jobs API"
-    },
-    "unsupported": [
-      "other task payloads",
-      "custom task options",
-      "canvas/group/chord",
-      "non-JSON serializers"
-    ]
+    "unsupported": ["custom task options", "canvas/group/chord", "non-JSON serializers"]
   },
   "x-security": {
     "service_authentication": "constant-time bearer token checked before request body read",
