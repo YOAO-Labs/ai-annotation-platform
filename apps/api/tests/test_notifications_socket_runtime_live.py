@@ -22,6 +22,7 @@ from redis.exceptions import ResponseError
 from sqlalchemy import delete, update
 from sqlalchemy.engine import URL, make_url
 import websockets
+from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from aap_notifications.realtime_event_contract import notification_event_message
 from aap_notifications.websocket import (
@@ -293,7 +294,7 @@ async def _wait_for_subscribers(owner, channel: str, count: int) -> None:
 
 
 async def _expect_rejected_socket(url: str) -> None:
-    with pytest.raises(websockets.exceptions.InvalidStatus):
+    with pytest.raises(InvalidStatus):
         async with websockets.connect(
             url,
             proxy=None,
@@ -739,7 +740,7 @@ async def test_cold_notifications_owner_behind_api_bridge(
                             )
 
                         await stack.kill_service("notifications-socket")
-                        with pytest.raises(websockets.exceptions.ConnectionClosed):
+                        with pytest.raises(ConnectionClosed):
                             await asyncio.wait_for(socket.recv(), 5)
                         await socket.close()
                         await _wait_for_subscribers(redis_publisher, channel, 0)
@@ -923,12 +924,15 @@ async def test_cold_notifications_owner_behind_api_bridge(
                         }
                     ),
                 )
+            except Exception:
+                try:
+                    record_property("runtime_diagnostics", stack.capture_diagnostics())
+                except Exception:
+                    # Diagnostic failures must not replace the native test failure.
+                    pass
+                raise
             finally:
                 await stack.stop()
-    except Exception:
-        if stack is not None:
-            record_property("runtime_diagnostics", stack.capture_diagnostics())
-        raise
     finally:
         inbox.close()
         try:
