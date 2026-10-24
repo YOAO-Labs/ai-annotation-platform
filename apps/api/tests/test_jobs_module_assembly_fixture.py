@@ -43,18 +43,29 @@ def test_jobs_broker_rejects_foreign_target_or_reused_bearer(broker, token):
         validate_jobs_queue_broker_url(broker, "redis://127.0.0.1:46379/0", token)
 
 
-def test_restored_role_context_keeps_the_existing_database_guard(monkeypatch):
+@pytest.mark.parametrize(
+    "variable,role_name",
+    [
+        ("AAP_MODULE_DATA_PREANNOTATION_RESULT_URL", "preannotation_result_client"),
+        ("AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL", "asset_media_control_client"),
+        ("AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL", "asset_media_worker_client"),
+        ("AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "inference_routing_client"),
+        ("AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL", "labeling_video_writer_client"),
+    ],
+)
+def test_restored_role_context_keeps_the_existing_database_guard(
+    monkeypatch, variable, role_name
+):
     from sqlalchemy.engine import make_url
     from tests.test_jobs_module_assembly_live import _role_urls_for_database
     from tests.test_module_data_roles import _role_url
 
     reference = "postgresql+asyncpg://owner:fixture@127.0.0.1:46379/source_test"
-    variable = "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL"
-    role = "postgresql+asyncpg://preannotation_result_client:fixture@127.0.0.1:46379/source_test"
+    role = f"postgresql+asyncpg://{role_name}:fixture@127.0.0.1:46379/source_test"
     monkeypatch.setenv("TEST_DATABASE_URL", reference)
     monkeypatch.setenv(variable, role)
     with _role_urls_for_database("restored_test"):
-        selected = _role_url(variable, "preannotation_result_client")
+        selected = _role_url(variable, role_name)
         assert make_url(selected).database == "restored_test"
         assert make_url(os.environ["TEST_DATABASE_URL"]).database == "restored_test"
     assert os.environ["TEST_DATABASE_URL"] == reference
@@ -141,6 +152,8 @@ def test_workspace_worker_only_allows_explicit_qualified_queue_opt_in():
     assert _worker_queue_name("owned-worker", "default") == "default"
     assert _worker_queue_name("owned-worker", "export") == "export"
     assert _worker_queue_name("owned-worker", "media") == "media"
+    with pytest.raises(ValueError):
+        _worker_queue_name("owned-worker", "gpu")
     with pytest.raises(ValueError):
         _worker_queue_name("owned-worker", "some-other-queue")
 

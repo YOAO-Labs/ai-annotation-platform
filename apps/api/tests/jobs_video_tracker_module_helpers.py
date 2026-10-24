@@ -716,7 +716,7 @@ async def exercise_video_tracker_queue_and_restore(
     from tests.test_asset_storage_cleanup_runtime import _verify_postgres
     from tests.test_identity_module_assembly_live import _restored_database
     from tests.test_identity_recovery import _postgres_tool
-    from tests.test_identity_recovery_live_helpers import SMTPInbox
+    from tests.identity_recovery_live_helpers import SMTPInbox
     from tests.test_identity_sessions_live import _login_redis
     from tests.test_jobs_module_assembly_live import (
         _assert_owned_broker_target,
@@ -982,8 +982,6 @@ async def exercise_video_tracker_queue_and_restore(
                     "restored_cancel_job_id": restored_phase["cancel_job_id"],
                 },
             )
-            await clone_engine.dispose()
-            clone_engine = None
         return {
             "actor_id": source_phase["actor_id"],
             "source": source_phase,

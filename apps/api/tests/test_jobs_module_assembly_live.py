@@ -87,6 +87,10 @@ _CLONE_ROLE_ENVIRONMENT = (
     "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL",
     "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_CONTAINER_URL",
     "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL",
+    "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
+    "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL",
+    "AAP_MODULE_DATA_INFERENCE_ROUTING_URL",
+    "AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL",
 )
 
 
@@ -125,7 +129,7 @@ def _assert_owned_broker_target(sender: Celery, queue: str = "default") -> None:
         owner.port,
         owner.database,
     ), "Jobs queue must use the verified verifier-owned Redis database"
-    assert queue in {"default", "export", "media"}
+    assert queue in {"default", "export", "media", "gpu"}
     assert _broker_state(sender, queue) == {"queue_size": 0, "unacknowledged": 0}, (
         f"{queue} queue must be empty before the owned worker subscribes"
     )
@@ -1639,3 +1643,15 @@ async def test_cold_jobs_queue_cancel_and_terminal_replay(
         finally:
             inbox.close()
             destroy_guide_scope(guide_scope)
+
+
+async def test_cold_jobs_queue_video_tracker_and_restore(
+    test_engine, tmp_path, record_property
+):
+    from tests.jobs_video_tracker_module_helpers import (
+        exercise_video_tracker_queue_and_restore,
+    )
+
+    await exercise_video_tracker_queue_and_restore(
+        test_engine, tmp_path, record_property
+    )

@@ -211,6 +211,16 @@ and their recovery policies remain unchanged. The current independent-runtime
 qualification status is tracked in the
 [module ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-quality-dispatch).
 
+Video tracking uses the same synchronous client and its existing `gpu` route.
+The API and mask-repair worker select the same dispatcher factory. Creation
+and correction still bind the returned execution ID after accepted publication;
+cancellation still commits the cancelled state and audit before redriving the
+same job. Unconfirmed redrive returns the existing retryable 503, and repeat
+cancellation keeps the single audit. This does not close the publication-to-ID
+binding window or promise exactly-once task delivery. Independent-runtime
+qualification is tracked in the
+[tracker ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-video-tracker-dispatch).
+
 The standalone `apps/jobs/Dockerfile.queue` image runs as UID 10005, exposes no
 host port, and reads `JOBS_QUEUE_BROKER_URL_FILE` and `JOBS_QUEUE_TOKEN_FILE`.
 `docker-compose.jobs-queue.yml` is an optional local assembly; the API must be
