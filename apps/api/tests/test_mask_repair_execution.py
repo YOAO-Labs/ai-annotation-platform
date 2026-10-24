@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -40,6 +41,100 @@ from tests.factory import create_user
 from tests.test_mask_repair_m5 import _seed_repair_issue
 
 pytestmark = pytest.mark.asyncio
+
+
+class _UnitRepairReceipt:
+    def __init__(self, owner, kind, payload):
+        self.owner = owner
+        self.session = owner.db.sync_session
+        self.transaction = self.session.get_transaction()
+        self.kind = kind
+        self.payload = deepcopy(payload)
+
+
+def _install_unit_owner(monkeypatch):
+    """Substitute only original I/O qualification in the control-flow tests.
+
+    These tests exercise real attempts, Annotation/Prediction writes and commit
+    loss. Full source capture, model dispatch and physical receipts are covered
+    separately by the managed repair integration tests.
+    """
+    from app.services import managed_mask_repair as managed
+    from app.services.content_snapshot import ContentError
+
+    class UnitOwner:
+        is_managed = True
+        provenance_key = "original_input"
+        width, height = 5, 3
+
+        def __init__(self, db, task_id, actor_id):
+            self.db, self.task_id, self.actor_id = db, task_id, actor_id
+            self.opened = self.closed = False
+
+        async def open(self):
+            self.opened = True
+
+        async def final(self):
+            assert self.opened and not self.closed
+            return await worker._repair_task(
+                self.db, self.task_id, SimpleNamespace(id=self.actor_id)
+            )
+
+        def receipt(self, kind, payload):
+            assert self.opened and not self.closed
+            assert not self.db.sync_session.in_nested_transaction()
+            assert self.db.sync_session.get_transaction() is not None
+            return _UnitRepairReceipt(self, kind, payload)
+
+        def evidence(self):
+            return {"schema": 1, "width": self.width, "height": self.height}
+
+        async def note_committed_mutation(self, payload, response):
+            assert response.operation_id is not None
+
+        async def recheck_credentials(self):
+            # Account/phase/native checks still run in the actual caller session.
+            await self.final()
+
+        async def close(self, failure=None):
+            assert self.db.sync_session.get_transaction() is None
+            self.closed = True
+
+    original_validate = managed.validate_receipt
+    original_payload = managed.receipt_payload
+
+    async def validate(
+        db, task_id, actor_id, receipt, kind, payload, *, project_id=None
+    ):
+        if type(receipt) is not _UnitRepairReceipt:
+            return await original_validate(
+                db, task_id, actor_id, receipt, kind, payload, project_id=project_id
+            )
+        if (
+            type(receipt.owner) is not UnitOwner
+            or receipt.session is not db.sync_session
+            or receipt.transaction is not db.sync_session.get_transaction()
+            or db.sync_session.in_nested_transaction()
+            or receipt.kind != kind
+            or receipt.payload != payload
+            or receipt.owner.task_id != task_id
+            or (actor_id is not None and receipt.owner.actor_id != actor_id)
+            or receipt.owner.closed
+        ):
+            raise ContentError("repair_original_receipt_invalid")
+        task = await receipt.owner.final()
+        if project_id is not None and task.project_id != project_id:
+            raise ContentError("repair_original_receipt_invalid")
+        return receipt.owner.evidence()
+
+    def payload(receipt):
+        if type(receipt) is _UnitRepairReceipt:
+            return receipt.kind, deepcopy(receipt.payload)
+        return original_payload(receipt)
+
+    monkeypatch.setattr(managed, "validate_receipt", validate)
+    monkeypatch.setattr(managed, "receipt_payload", payload)
+    return UnitOwner
 
 
 @pytest.fixture
@@ -121,6 +216,29 @@ async def repair_world(test_db_url, apply_migrations, monkeypatch):
         }
 
     world.prepare = prepare
+    world.real_owner_selector = worker._reference_owner
+    make_owner = _install_unit_owner(monkeypatch)
+    world.make_owner = make_owner
+
+    async def owner_for(db, factory, attempt, batch, section, unit, node_id):
+        if unit.get("kind") == "rerun_tracker" or not worker.unit_items(
+            batch, section, unit
+        ):
+            return None
+        return make_owner(db, world.task_id, attempt.actor_id)
+
+    async def unit_authority(*args, **kwargs):
+        return None
+
+    # Fake original qualification is local to these committed control-flow
+    # fixtures; replacement delivery/Job/actor checks remain production code.
+    monkeypatch.setattr(worker, "_reference_owner", owner_for)
+    monkeypatch.setattr(
+        "app.services.reference_mask_repair.capture_job_authority", unit_authority
+    )
+    monkeypatch.setattr(
+        "app.services.managed_mask_repair.capture_job_authority", unit_authority
+    )
     monkeypatch.setattr(worker, "_prepare_sam_candidate", prepare)
     monkeypatch.setattr(worker, "_store_result_rle", no_store)
     monkeypatch.setattr(
@@ -232,10 +350,48 @@ async def test_sam_results_and_parent_marker_commit_once(repair_world, lose_comm
     assert (batch.status, job.status, count) == ("completed", "completed", 2)
     ids = batch.result_json["candidates"]["0"]["prediction_ids"]
     assert len(set(ids)) == 2
+    records = batch.result_json["candidates"]["0"]["candidate_records"]
+    assert set(records) == set(ids)
+    async with world.factory() as db:
+        for identifier in ids:
+            prediction = await db.scalar(
+                select(Prediction).where(Prediction.id == uuid.UUID(identifier))
+            )
+            metadata = await db.scalar(
+                select(PredictionMeta).where(
+                    PredictionMeta.prediction_id == prediction.id
+                )
+            )
+            assert records[identifier] == {
+                "result_digest": canonical_digest(prediction.result),
+                "metadata_digest": canonical_digest(metadata.extra),
+            }
     await _forward(world)
     again, _, count = await _state(world)
     assert count == 2
     assert again.result_json == batch.result_json
+
+
+async def test_legacy_managed_delivery_cannot_recapture_source(
+    repair_world, monkeypatch
+):
+    world = repair_world
+    monkeypatch.setattr(worker, "_reference_owner", world.real_owner_selector)
+    reached = []
+
+    async def unexpected(*args, **kwargs):
+        reached.append(True)
+        raise AssertionError("Legacy delivery must stop before model or RLE work")
+
+    monkeypatch.setattr(worker, "_prepare_sam_candidate", unexpected)
+    monkeypatch.setattr(worker, "_store_result_rle", unexpected)
+    await _forward(world)
+    batch, job, count = await _state(world)
+    assert (batch.status, job.status, count) == ("failed", "failed", 0)
+    assert batch.result_json["candidates"]["0"]["reason"] == (
+        "repair_original_requires_new_plan"
+    )
+    assert reached == []
 
 
 async def test_second_candidate_failure_rolls_back_first_and_marker(
@@ -607,6 +763,7 @@ async def test_deterministic_shards_follow_only_committed_versions(
     repair_world, monkeypatch, outside_edit
 ):
     from app.schemas.mask_repair import MaskRepairDryRunRequest
+    from app.core.security import create_access_token
     from app.services.mask_repair import create_repair_plan
     from app.services.raster_mask_storage import build_rle_reference
 
@@ -662,6 +819,19 @@ async def test_deterministic_shards_follow_only_committed_versions(
         db.add(issue)
         await db.flush()
         actor = await db.get(User, world.owner_id)
+        request = Request(
+            {
+                "type": "http",
+                "headers": [
+                    (
+                        b"authorization",
+                        (
+                            "Bearer " + create_access_token(str(actor.id), actor.role)
+                        ).encode(),
+                    )
+                ],
+            }
+        )
         response = await create_repair_plan(
             db,
             project=await db.get(Project, world.project_id),
@@ -672,6 +842,7 @@ async def test_deterministic_shards_follow_only_committed_versions(
                     {"issue_id": issue.id, "kind": "delete_small_islands"},
                 ]
             ),
+            http_request=request,
         )
         planned = await db.scalar(
             select(MaskRepairBatch).where(
@@ -684,7 +855,15 @@ async def test_deterministic_shards_follow_only_committed_versions(
         for item in batch.plan_json["items"]:
             rles[item["result_reference"]["sha256"]] = item["result_rle"]
         first = batch.plan_json["shards"][0]
-        value = await worker._execute_shard(db, batch=batch, shard=first, actor=actor)
+        owner = world.make_owner(db, world.task_id, actor.id)
+        await owner.open()
+        await owner.final()
+        value = await worker._execute_shard(
+            db, batch=batch, shard=first, actor=actor, reference_owner=owner
+        )
+        first_result = value["items"][0]
+        assert first_result["after_facts"]["id"] == first_result["annotation_id"]
+        assert first_result["after_facts"]["version"] == first_result["after_version"]
         batch.result_json = {"shards": {first["id"]: value}}
         if outside_edit:
             second.version += 1

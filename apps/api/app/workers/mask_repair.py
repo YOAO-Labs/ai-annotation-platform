@@ -23,6 +23,7 @@ from app.schemas.mask_mutation import (
 )
 from app.schemas.video_tracker_job import VideoMaskCorrectionRequest
 from app.services import async_job as async_job_svc
+from app.services.content_snapshot import ContentError
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import committed_repair_units
 from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
@@ -65,6 +66,58 @@ from app.services.reference_mask_repair import (
 
 
 _MASK_UPLOAD_LIMIT = 1000
+
+
+def _is_managed(owner) -> bool:
+    return getattr(owner, "is_managed", False) is True
+
+
+def _require_image_owner(task, owner) -> None:
+    if task.file_type == "image" and not is_reference(task.file_path) and owner is None:
+        raise ContentError("repair_original_requires_new_plan")
+
+
+async def _validate_unit_receipt(db, task_id, actor_id, owner, payload):
+    validator = validate_receipt
+    if _is_managed(owner):
+        from app.services.managed_mask_repair import validate_receipt as validator
+
+    return await validator(
+        db, task_id, actor_id, owner.receipt("unit", payload), "unit", payload
+    )
+
+
+def _mutation_receipt(owner, payload):
+    if owner is None:
+        return {}
+    key = (
+        "repair_original_receipt" if _is_managed(owner) else "reference_repair_receipt"
+    )
+    return {key: owner.receipt("mutation", payload.model_dump(mode="json"))}
+
+
+def _prediction_receipt(owner, result):
+    if owner is None:
+        return {}
+    key = (
+        "repair_original_receipt" if _is_managed(owner) else "repair_reference_receipt"
+    )
+    return {key: owner.receipt("prediction", result)}
+
+
+async def _close_repair_owner(db, owner, failure):
+    if _is_managed(owner):
+        from app.services.prediction_originals import settled
+
+        try:
+            await settled(db.rollback())
+        finally:
+            await settled(owner.close(failure))
+    else:
+        try:
+            await db.rollback()
+        finally:
+            await owner.close()
 
 
 def _result_copy(batch: MaskRepairBatch) -> dict[str, Any]:
@@ -115,13 +168,12 @@ async def _execute_shard(
 ) -> dict[str, Any]:
     plan_items = list((batch.plan_json or {}).get("items") or [])
     task_id = uuid.UUID(str(shard["task_id"]))
-    await _repair_task(db, task_id, actor)
+    task = await _repair_task(db, task_id, actor)
+    _require_image_owner(task, reference_owner)
     if reference_owner is None:
         await MaskMutationService(db)._lock_task(task_id)
     else:
-        await validate_receipt(
-            db, task_id, actor.id, reference_owner.receipt("unit", shard), "unit", shard
-        )
+        await _validate_unit_receipt(db, task_id, actor.id, reference_owner, shard)
     shard_items = [plan_items[int(index)] for index in shard.get("item_indexes") or []]
     output_geometries = [
         _load_plan_payload(item["payload"])
@@ -195,16 +247,10 @@ async def _execute_shard(
             task_id,
             payload,
             actor,
-            **(
-                {
-                    "reference_repair_receipt": reference_owner.receipt(
-                        "mutation", payload.model_dump(mode="json")
-                    )
-                }
-                if reference_owner
-                else {}
-            ),
+            **_mutation_receipt(reference_owner, payload),
         )
+        if _is_managed(reference_owner):
+            await reference_owner.note_committed_mutation(payload, response)
         after_version = int(response.result_versions[target_id])
         progressed[target_id] = after_version
         issue = await db.get(MaskQCIssue, uuid.UUID(str(item["issue_id"])))
@@ -212,21 +258,25 @@ async def _execute_shard(
             issue.status = "resolved"
             issue.resolved_by_id = actor.id
             issue.resolved_at = datetime.now(timezone.utc)
-        item_results.append(
-            {
-                "item_index": int(item_index),
-                "issue_id": str(item["issue_id"]),
-                "annotation_id": target_id,
-                "before_version": int(item["before_version"]),
-                "after_version": after_version,
-                "operation_id": str(response.operation_id),
-                "changed_pixels": int(
-                    response.result_versions.get(target_id) is not None
-                    and payload.report.changed_pixels
-                    or 0
-                ),
-            }
-        )
+        item_result = {
+            "item_index": int(item_index),
+            "issue_id": str(item["issue_id"]),
+            "annotation_id": target_id,
+            "before_version": int(item["before_version"]),
+            "after_version": after_version,
+            "operation_id": str(response.operation_id),
+            "changed_pixels": int(
+                response.result_versions.get(target_id) is not None
+                and payload.report.changed_pixels
+                or 0
+            ),
+        }
+        if _is_managed(reference_owner):
+            from app.services.managed_mask_repair import annotation_facts
+
+            target = await db.get(Annotation, uuid.UUID(target_id))
+            item_result["after_facts"] = annotation_facts(target)
+        item_results.append(item_result)
     return {
         "status": "completed",
         "task_id": str(shard["task_id"]),
@@ -250,6 +300,7 @@ async def _prepare_sam_candidate(
         raise RuntimeError("candidate_source_missing")
     if int(annotation.version or 1) != int(item["source_version"]):
         raise RuntimeError("candidate_source_version_conflict")
+    _require_image_owner(task, reference_owner)
     from app.services.reference_access import reject_reference_scope
     from app.services.reference_bindings import task_binding
 
@@ -290,16 +341,19 @@ async def _prepare_sam_candidate(
 
         context = deepcopy(reference_owner.model["context"])
         model_id = reference_owner.model["model_id"]
-    dataset_item = (
-        await db.get(DatasetItem, task.dataset_item_id)
-        if task.dataset_item_id is not None
-        else None
-    )
-    expected_size = (
-        (int(dataset_item.width), int(dataset_item.height))
-        if dataset_item is not None and dataset_item.width and dataset_item.height
-        else None
-    )
+    if _is_managed(reference_owner):
+        expected_size = (reference_owner.width, reference_owner.height)
+    else:
+        dataset_item = (
+            await db.get(DatasetItem, task.dataset_item_id)
+            if task.dataset_item_id is not None
+            else None
+        )
+        expected_size = (
+            (int(dataset_item.width), int(dataset_item.height))
+            if dataset_item is not None and dataset_item.width and dataset_item.height
+            else None
+        )
     client = RoutedMLBackendClient(
         db,
         backend,
@@ -311,6 +365,9 @@ async def _prepare_sam_candidate(
     await db.commit()
 
     async def before_dispatch(transport):
+        if _is_managed(reference_owner):
+            await reference_owner.before_dispatch(transport)
+            return
         setup = await transport.setup()
         reference_owner.validate_capabilities(extract_capabilities(setup))
         await reference_owner.validate()
@@ -402,6 +459,9 @@ async def _commit_sam_candidate(
     from app.services.reference_bindings import task_binding
 
     task, _ = await _candidate_source(db, item, actor, lock_annotation=False)
+    _require_image_owner(task, reference_owner)
+    if _is_managed(reference_owner):
+        await _validate_unit_receipt(db, task.id, actor.id, reference_owner, item)
     if task_binding(task) != prepared["binding"]:
         raise RuntimeError("candidate_input_changed")
     candidates = prepared["candidates"]
@@ -459,15 +519,7 @@ async def _commit_sam_candidate(
             model_version=prepared["model_version"],
             inference_time_ms=prepared["inference_time_ms"],
             source="mask_repair",
-            **(
-                {
-                    "repair_reference_receipt": reference_owner.receipt(
-                        "prediction", result
-                    )
-                }
-                if reference_owner
-                else {}
-            ),
+            **_prediction_receipt(reference_owner, result),
             pipeline_extra={
                 "mask_repair": {
                     "batch_id": str(batch_id),
@@ -659,6 +711,7 @@ async def _dispatch_tracker_handoff(factory, batch_id, job_id, key, child_id):
 
 
 async def _reference_owner(db, factory, attempt, batch, section, unit, node_id):
+    """Select one explicit source owner while keeping legacy reference call sites."""
     items = unit_items(batch, section, unit)
     if not items:
         return None
@@ -669,6 +722,14 @@ async def _reference_owner(db, factory, attempt, batch, section, unit, node_id):
         task and is_reference(task.file_path)
     ):
         return ReferenceRepairUnit(db, factory, attempt, batch, items, node_id)
+    if task and task.file_type == "image" and unit.get("kind") != "rerun_tracker":
+        from app.services.managed_mask_repair import ManagedRepairUnit
+
+        if any(not item.get("original_input") for item in items):
+            raise ContentError("repair_original_requires_new_plan")
+        return ManagedRepairUnit(db, factory, attempt, batch, items, node_id)
+    if any(item.get("original_input") for item in items):
+        raise ContentError("content_binding_changed")
     return None
 
 
@@ -694,6 +755,7 @@ async def _run_forward(
         child_id = None
         async with factory() as db:
             reference_owner = None
+            failure = None
             try:
                 batch, job = await lock_attempt(db, attempt)
                 existing = (_result_copy(batch).get(section) or {}).get(key) or {}
@@ -771,11 +833,15 @@ async def _run_forward(
                         child_id = value["tracker_job_id"]
                     _put_unit(batch, section, key, value)
                     await _progress(db, batch, attempt)
+                    if _is_managed(reference_owner):
+                        await reference_owner.recheck_credentials()
                     await db.commit()
-            except RepairAttemptStopped:
+            except RepairAttemptStopped as exc:
+                failure = exc
                 await db.rollback()
                 return
             except Exception as exc:
+                failure = exc
                 await db.rollback()
                 try:
                     batch, job = await lock_attempt(db, attempt)
@@ -802,12 +868,12 @@ async def _run_forward(
                     )
                     await _progress(db, batch, attempt)
                 await db.commit()
+            except BaseException as exc:
+                failure = exc
+                raise
             finally:
                 if reference_owner:
-                    try:
-                        await db.rollback()
-                    finally:
-                        await reference_owner.close()
+                    await _close_repair_owner(db, reference_owner, failure)
         if child_id:
             await _dispatch_tracker_handoff(
                 factory, attempt.batch_id, attempt.job_id, key, child_id
@@ -893,17 +959,13 @@ async def _rollback_shard(
     entries = list(shard_result.get("items") or [])
     if entries:
         task_id = uuid.UUID(str(plan_items[int(entries[0]["item_index"])]["task_id"]))
-        await _repair_task(db, task_id, actor)
+        task = await _repair_task(db, task_id, actor)
+        _require_image_owner(task, reference_owner)
         if reference_owner is None:
             await MaskMutationService(db)._lock_task(task_id)
         else:
-            await validate_receipt(
-                db,
-                task_id,
-                actor.id,
-                reference_owner.receipt("unit", shard_result),
-                "unit",
-                shard_result,
+            await _validate_unit_receipt(
+                db, task_id, actor.id, reference_owner, shard_result
             )
         await lock_raster_mask_references(
             db,
@@ -928,20 +990,14 @@ async def _rollback_shard(
             for_update=False,
         )
         payload = _rollback_payload(item=item, current_members=members)
-        await service.commit(
+        response = await service.commit(
             uuid.UUID(str(item["task_id"])),
             payload,
             actor,
-            **(
-                {
-                    "reference_repair_receipt": reference_owner.receipt(
-                        "mutation", payload.model_dump(mode="json")
-                    )
-                }
-                if reference_owner
-                else {}
-            ),
+            **_mutation_receipt(reference_owner, payload),
         )
+        if _is_managed(reference_owner):
+            await reference_owner.note_committed_mutation(payload, response)
     return len(entries)
 
 
@@ -968,6 +1024,7 @@ async def _run_rollback(
     for shard_id, shard_result in reversed(completed_shards):
         async with factory() as db:
             reference_owner = None
+            failure = None
             try:
                 batch, job = await lock_attempt(db, attempt)
                 result = _result_copy(batch)
@@ -1003,26 +1060,40 @@ async def _run_rollback(
                     **({"reference_owner": reference_owner} if reference_owner else {}),
                 )
                 versions = {}
+                facts = {}
                 for entry in shard_result.get("items") or []:
                     annotation_id = uuid.UUID(str(entry["annotation_id"]))
                     annotation = await db.get(
                         Annotation, annotation_id, populate_existing=True
                     )
                     versions[str(annotation_id)] = annotation.version
+                    if _is_managed(reference_owner):
+                        from app.services.managed_mask_repair import annotation_facts
+
+                        facts[str(annotation_id)] = annotation_facts(annotation)
                 checkpoints[shard_id] = {
                     "status": "completed",
                     "mutation_count": count,
                     "versions": versions,
                     "completed_at": datetime.now(timezone.utc).isoformat(),
+                    **(
+                        {"annotation_facts": facts}
+                        if _is_managed(reference_owner)
+                        else {}
+                    ),
                 }
                 rollback.update(status="running", shards=checkpoints)
                 result["rollback"] = rollback
                 batch.result_json = result
+                if _is_managed(reference_owner):
+                    await reference_owner.recheck_credentials()
                 await db.commit()
-            except RepairAttemptStopped:
+            except RepairAttemptStopped as exc:
+                failure = exc
                 await db.rollback()
                 return
             except Exception as exc:
+                failure = exc
                 await db.rollback()
                 try:
                     batch, job = await lock_attempt(db, attempt)
@@ -1051,12 +1122,12 @@ async def _run_rollback(
                 await notify_job_terminal(db, job_id=attempt.job_id)
                 await db.commit()
                 return
+            except BaseException as exc:
+                failure = exc
+                raise
             finally:
                 if reference_owner:
-                    try:
-                        await db.rollback()
-                    finally:
-                        await reference_owner.close()
+                    await _close_repair_owner(db, reference_owner, failure)
     async with factory() as db:
         try:
             batch, job = await lock_attempt(db, attempt)
