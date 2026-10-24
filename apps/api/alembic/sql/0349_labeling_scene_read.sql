@@ -127,6 +127,12 @@ DECLARE
     v_track_retired_at timestamptz;
     v_track_updated_at timestamptz;
     v_track_found boolean := false;
+    v_required_keys text[];
+    v_required_key_count integer;
+    v_element jsonb;
+    v_text text;
+    v_limit integer;
+    v_limit_numeric numeric;
     v_data jsonb := pg_catalog.jsonb_build_object(
         'primary_item_id', NULL,
         'frames', '[]'::jsonb,
@@ -142,10 +148,198 @@ DECLARE
         'candidate_counts', '[]'::jsonb
     );
 BEGIN
-    IF p_request ->> 'schema' IS DISTINCT FROM 'aap-labeling-scene-read/v1'
+    IF p_request IS NULL OR pg_catalog.jsonb_typeof(p_request) <> 'object'
+       OR pg_catalog.jsonb_typeof(p_request -> 'schema') <> 'string'
+       OR p_request ->> 'schema' <> 'aap-labeling-scene-read/v1'
+       OR pg_catalog.jsonb_typeof(p_request -> 'action') <> 'string'
        OR v_action IS NULL THEN
         RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
     END IF;
+
+    CASE v_action
+        WHEN 'resolve_primary_link' THEN
+            v_required_keys := ARRAY['schema', 'action', 'task_id'];
+            v_required_key_count := 3;
+        WHEN 'resolve_task_frames' THEN
+            v_required_keys := ARRAY['schema', 'action', 'task_ids'];
+            v_required_key_count := 3;
+        WHEN 'scene_frame_tasks' THEN
+            v_required_keys := ARRAY['schema', 'action', 'scene_id'];
+            v_required_key_count := 3;
+        WHEN 'timeline_tasks' THEN
+            v_required_keys := ARRAY['schema', 'action', 'project_id', 'item_ids'];
+            v_required_key_count := 4;
+        WHEN 'timeline_annotation_summaries' THEN
+            v_required_keys := ARRAY['schema', 'action', 'task_ids', 'track_id'];
+            v_required_key_count := 4;
+        WHEN 'load_command_track', 'load_track_detail', 'load_timeline_track' THEN
+            v_required_keys := ARRAY['schema', 'action', 'project_id', 'scene_id', 'track_id'];
+            v_required_key_count := 5;
+        WHEN 'load_scene_camera_cache' THEN
+            v_required_keys := ARRAY['schema', 'action', 'scene_track_id', 'annotation_ids'];
+            v_required_key_count := 4;
+        WHEN 'load_scene_diagnostics' THEN
+            v_required_keys := ARRAY['schema', 'action', 'project_id', 'scene_id'];
+            v_required_key_count := 4;
+        WHEN 'load_scene_track_cache' THEN
+            v_required_keys := ARRAY['schema', 'action', 'scene_track_id'];
+            v_required_key_count := 3;
+        WHEN 'read_track_members', 'lock_track_members' THEN
+            v_required_keys := ARRAY['schema', 'action', 'project_id', 'track_ids', 'limit'];
+            v_required_key_count := 5;
+        WHEN 'candidate_track_counts' THEN
+            v_required_keys := ARRAY[
+                'schema', 'action', 'project_id', 'task_ids', 'class_name',
+                'exclude_track_id', 'limit'
+            ];
+            v_required_key_count := 7;
+        ELSE
+            RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+    END CASE;
+    IF pg_catalog.jsonb_object_length(p_request) <> v_required_key_count
+       OR NOT (p_request ?& v_required_keys) THEN
+        RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+    END IF;
+
+    CASE v_action
+        WHEN 'resolve_primary_link' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'task_id') <> 'string' THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            PERFORM (p_request ->> 'task_id')::uuid;
+        WHEN 'resolve_task_frames' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'task_ids') <> 'array' THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            FOR v_element IN
+                SELECT value FROM pg_catalog.jsonb_array_elements(p_request -> 'task_ids') AS input_values(value)
+            LOOP
+                IF pg_catalog.jsonb_typeof(v_element) <> 'string' THEN
+                    RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+                END IF;
+                PERFORM (v_element #>> '{}')::uuid;
+            END LOOP;
+        WHEN 'scene_frame_tasks' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'scene_id') <> 'string' THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            PERFORM (p_request ->> 'scene_id')::uuid;
+        WHEN 'timeline_tasks' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'project_id') <> 'string'
+               OR pg_catalog.jsonb_typeof(p_request -> 'item_ids') <> 'array' THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            PERFORM (p_request ->> 'project_id')::uuid;
+            FOR v_element IN
+                SELECT value FROM pg_catalog.jsonb_array_elements(p_request -> 'item_ids') AS input_values(value)
+            LOOP
+                IF pg_catalog.jsonb_typeof(v_element) <> 'string' THEN
+                    RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+                END IF;
+                PERFORM (v_element #>> '{}')::uuid;
+            END LOOP;
+        WHEN 'timeline_annotation_summaries' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'task_ids') <> 'array'
+               OR pg_catalog.jsonb_typeof(p_request -> 'track_id') NOT IN ('string', 'null') THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            FOR v_element IN
+                SELECT value FROM pg_catalog.jsonb_array_elements(p_request -> 'task_ids') AS input_values(value)
+            LOOP
+                IF pg_catalog.jsonb_typeof(v_element) <> 'string' THEN
+                    RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+                END IF;
+                PERFORM (v_element #>> '{}')::uuid;
+            END LOOP;
+        WHEN 'load_command_track', 'load_track_detail', 'load_timeline_track' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'project_id') <> 'string'
+               OR pg_catalog.jsonb_typeof(p_request -> 'scene_id') <> 'string'
+               OR pg_catalog.jsonb_typeof(p_request -> 'track_id') <> 'string'
+               OR pg_catalog.char_length(p_request ->> 'track_id') NOT BETWEEN 1 AND 64 THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            PERFORM (p_request ->> 'project_id')::uuid;
+            PERFORM (p_request ->> 'scene_id')::uuid;
+        WHEN 'load_scene_diagnostics' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'project_id') <> 'string'
+               OR pg_catalog.jsonb_typeof(p_request -> 'scene_id') <> 'string' THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            PERFORM (p_request ->> 'project_id')::uuid;
+            PERFORM (p_request ->> 'scene_id')::uuid;
+        WHEN 'load_scene_track_cache' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'scene_track_id') <> 'string' THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            PERFORM (p_request ->> 'scene_track_id')::uuid;
+        WHEN 'load_scene_camera_cache' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'scene_track_id') <> 'string'
+               OR pg_catalog.jsonb_typeof(p_request -> 'annotation_ids') <> 'array' THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            PERFORM (p_request ->> 'scene_track_id')::uuid;
+            FOR v_element IN
+                SELECT value FROM pg_catalog.jsonb_array_elements(p_request -> 'annotation_ids') AS input_values(value)
+            LOOP
+                IF pg_catalog.jsonb_typeof(v_element) <> 'string' THEN
+                    RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+                END IF;
+                PERFORM (v_element #>> '{}')::uuid;
+            END LOOP;
+        WHEN 'read_track_members', 'lock_track_members' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'project_id') <> 'string'
+               OR pg_catalog.jsonb_typeof(p_request -> 'track_ids') <> 'array'
+               OR pg_catalog.jsonb_typeof(p_request -> 'limit') <> 'number'
+               OR pg_catalog.jsonb_array_length(p_request -> 'track_ids') NOT BETWEEN 1 AND 80 THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            PERFORM (p_request ->> 'project_id')::uuid;
+            FOR v_element IN
+                SELECT value FROM pg_catalog.jsonb_array_elements(p_request -> 'track_ids') AS input_values(value)
+            LOOP
+                IF pg_catalog.jsonb_typeof(v_element) <> 'string'
+                   OR pg_catalog.char_length(v_element #>> '{}') NOT BETWEEN 1 AND 64 THEN
+                    RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+                END IF;
+            END LOOP;
+            v_text := p_request ->> 'limit';
+            IF v_text !~ '^(0|[1-9][0-9]*)$' THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            v_limit_numeric := v_text::numeric;
+            IF v_limit_numeric NOT BETWEEN 1 AND 20001 THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            v_limit := v_limit_numeric::integer;
+        WHEN 'candidate_track_counts' THEN
+            IF pg_catalog.jsonb_typeof(p_request -> 'project_id') <> 'string'
+               OR pg_catalog.jsonb_typeof(p_request -> 'task_ids') <> 'array'
+               OR pg_catalog.jsonb_typeof(p_request -> 'class_name') <> 'string'
+               OR pg_catalog.jsonb_typeof(p_request -> 'exclude_track_id') <> 'string'
+               OR pg_catalog.jsonb_typeof(p_request -> 'limit') <> 'number' THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            PERFORM (p_request ->> 'project_id')::uuid;
+            FOR v_element IN
+                SELECT value FROM pg_catalog.jsonb_array_elements(p_request -> 'task_ids') AS input_values(value)
+            LOOP
+                IF pg_catalog.jsonb_typeof(v_element) <> 'string' THEN
+                    RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+                END IF;
+                PERFORM (v_element #>> '{}')::uuid;
+            END LOOP;
+            v_text := p_request ->> 'limit';
+            IF v_text !~ '^(0|[1-9][0-9]*)$' THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            v_limit_numeric := v_text::numeric;
+            IF v_limit_numeric NOT BETWEEN 1 AND 81 THEN
+                RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+            END IF;
+            v_limit := v_limit_numeric::integer;
+        ELSE
+            RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
+    END CASE;
 
     CASE v_action
         WHEN 'resolve_primary_link' THEN
@@ -830,6 +1024,9 @@ BEGIN
         'request', p_request,
         'data', v_data
     );
+EXCEPTION
+    WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+        RAISE EXCEPTION 'invalid Labeling scene read request' USING ERRCODE = '22023';
 END;
 $function$;
 -- aap-statement-break

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 
@@ -88,6 +89,21 @@ async def test_scene_reads_use_the_single_function_only_owner_capability(test_en
             functions={("scene_read_query", "jsonb")},
             role=_ROLE,
         )
+        for malformed in (
+            {"schema": "aap-labeling-scene-read/v1", "action": "resolve_task_frames"},
+            {
+                "schema": "aap-labeling-scene-read/v1",
+                "action": "resolve_task_frames",
+                "task_ids": [],
+                "extra": True,
+            },
+        ):
+            with pytest.raises(asyncpg.PostgresError) as invalid_request:
+                await connection.fetchval(
+                    "SELECT aap_labeling_v1.scene_read_query($1::jsonb)",
+                    json.dumps(malformed),
+                )
+            assert invalid_request.value.sqlstate == "22023"
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await connection.fetch("SELECT id FROM public.annotations LIMIT 1")
 
