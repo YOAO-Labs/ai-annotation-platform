@@ -98,15 +98,16 @@ last_reviewed: 2026-10-24
 数据版本的导出与物化由 Celery `export` 队列中的 `workers/training_dataset.py`（`run_training_dataset`）驱动：
 
 ```
-[PostgreSQL 单语句快照]
+[API 准备：单语句选择快照、原件完整核验与解码]
         │
-        ▼ (任务/素材/标注引用锁定)
+        ▼ (重新锁定并复核选择、标注与原件后创建版本)
 [Celery Export Worker]
         │
-        ├── 1. 条件 GET 读取 MinIO 原图素材并流式暂存
-        ├── 2. 校验 SHA-256、格式解码与逻辑图像尺寸
+        ├── 1. 优先核验版本保留媒体，缺失时读取已登记原件
+        ├── 2. 完整校验 SHA-256、大小、格式与逻辑图像尺寸
         ├── 3. training_dataset_bridge 几何归一化与连通分组
-        └── 4. 组装规范 YOLO/COCO 目录并发布 ZIP
+        ├── 4. 组装规范目录，上传媒体、掩码与 ZIP 并完整读回
+        └── 5. 复核版本/Job/权限/来源后原子发布 ready 与通知
         │
         ▼
 [版本固定的训练存储位置]
@@ -125,7 +126,17 @@ Worker 的保留媒体读取/写入、包发布与尝试清理，analysis 的图
 
 #### 快照读取一致性
 
-`services/training_datasets.py` 通过单条 PostgreSQL 查询一次性读取工具类别、任务审核状态、素材引用与活跃标注，确保读取处于同一语句快照内，避免大文件复制期间持有数据库连接或锁。
+`services/training_datasets.py` 通过单条 PostgreSQL 查询一次性读取工具类别、任务审核状态、素材引用与活跃标注。`prepare_selection` 在独立读取阶段完成原件读取、完整核验与解码；调用者先释放项目、身份及业务行锁，媒体 helper 不提交调用者的业务修改。`finalize_selection` 不执行对象 I/O，在调用者重新取得串行化锁后复核选择、标注、原件与权限，再由同一业务事务保存版本、版本流关联和 Job。预检后输入变化使创建返回 `409`。
+
+#### 托管图片的原件身份与物化
+
+新快照声明 `managed_original_contract=1`，托管样本的 `original` 收据固定 `schema=1`、`owner_kind`、内容 UUID、SHA-256、大小和逻辑位置 UUID。`training_dataset_originals` 通过 `original_sources.resolve_task` 解析 direct/primary Item 或独立 TaskOriginal 的真实归属；端点、保存桶、对象键与维护代次仅来自当前规范解析，不按用途桶猜测，不写入安全原件收据。先用登记大小检查版本总量，再完整捕获字节并解码；保持单图 256 MiB、1 亿像素、JPEG/PNG/WebP/BMP/TIFF、EXIF 逻辑尺寸及每版本 20,000 样本、20 GiB 上限。
+
+HTTP 捕获准确请求凭证，私有 `snapshot.authorization` 保留原 Key 身份指纹，不保存 Bearer 或将短期 JWT 委派给 Worker。读取前后、真实关闭后和发布前复核创建者、原 Key、项目管理权限、原件关系与维护门禁；托管训练保持 `datasets:read`、`annotations:read`，不借用通用下载接口扩大 scope 要求。受信内部调用显式声明调用身份，不能将缺少 Request 解释为 HTTP 已授权。
+
+Worker 优先从版本输出 owner 读取保留媒体，除快照归属与实际摘要外，新合同还要求字节 SHA/大小匹配冻结 `original`。仅保留媒体缺失时使用同一原件收据沿保存位置读取；本次完整 OriginalSource 只留在内存，最后发布时重核。命中合格副本不要求源任务或来源仍存在，已冻结标签也不重新选择。旧就绪包和合格历史保留媒体继续可用；旧快照缺少原件事实且保留缺失时，零原件 I/O 拒绝回源，不从现行桶、ETag 或同名键补造身份。
+
+原件读取使用独立两槽和耐久 `storage_access` 许可，覆盖暂存、解码及真实关闭。所有原生线程工作经 `physical` 等待实际收尾后，才能关闭临时目录或释放执行锁；未知关闭保留许可和容量责任。媒体、mask 与 ZIP 的 PUT 后完整条件读回核对真实 SHA/大小，失败不能置为 ready。Worker 按 Version→Job 加锁，与取消顺序一致；发布同时复核 attempt、Job/Celery 身份、快照摘要、输出 owner、当前权限、原 Key、维护代次及本次回源事实，再统一提交结果与通知。未收尾的版本输出 `StorageOperation` 阻止重试与删除，失败清理仍使用保存位置及耐久许可。
 
 #### 原地引用的冻结读取
 
@@ -340,6 +351,8 @@ API 预检逐项执行有界严格读取并及时关闭临时快照，报告引�
 
 对于数据持续流入的业务项目，管理员按任务分别配置自动学习策略（`LearningPolicy`）；两个任务共享项目级自动候选串行限制，默认均关闭：
 
+策略检查先保存本次配置与调度上下文并释放业务锁，调用同一 `prepare_selection` 核验原件；重取项目串行锁后，重新检查策略修订、启用状态、配置、基线、权限和活动 Trigger，再调用 `finalize_selection`。较新的编辑或并发检查优先，旧准备结果不能覆盖它们。内部可信调用仍执行策略自身的 scope 与身份校验。
+
 - **语义基线对账**：
   - 系统以有序类别、图像实际素材的 SHA-256 及规范化标签计算数据版本的「语义摘要」。
   - 仅统计训练分区中真正发生图像新增或标签修改的增量样本数，任务分配、标注员身份与元数据变动不计入增长基线。
@@ -426,6 +439,8 @@ Preview 原行、EvaluationRun 的删除意图行分别承担耐久清理责任�
 本地验证前先按[在线训练执行器部署](/ops/deploy/docker-compose#_8-5-受控训练执行器-training-executor)准备固定镜像、基础权重、凭据文件、节点与 GPU 身份，令 API 训练目录和实际执行器一致。执行器不通过 Celery 启动，Compose 只运行已准备的镜像，不承担训练镜像构建。
 
 在确认目标开发数据库与对象存储后，运行 `cd apps/api`，再运行 `PYTHONPATH=. uv run python scripts/seed.py --profile online-training`。这个显式 profile 创建 8 张已审核检测图片和初始数据版本，保留原始 4 张训练图 / 4 张验证图。默认 `demo` profile 不创建这份在线训练基线；夹具也不会自动创建实验、策略或模型发布。失败、取消或中断后可重跑同一命令修复初始版本，仍有执行或清理时按提示等待。
+
+在线训练种子先提交已登记的原图与业务事实，再以显式可信身份执行准备阶段；重新取得项目锁后复查固定请求是否已创建，并完成最终复核。种子不持有源事务锁跨越图片 I/O，也不由媒体 helper 隐式提交种子修改。
 
 配置与命令见[本地开发](../tutorials/local-dev#在线学习与训练执行器联调-可选)；验收过程按[模型回流链路排查](../how-to/debug-model-return)逐段核对。
 
