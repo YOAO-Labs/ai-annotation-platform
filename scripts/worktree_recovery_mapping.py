@@ -40,6 +40,48 @@ def identity(endpoint_url: str, bucket: str) -> str:
     ).hexdigest()
 
 
+def prediction_input_changes(row, *, source_bucket, target_bucket, endpoint_url):
+    """Relocate only an existing current locator; never upgrade a legacy lease."""
+    from app.services import prediction_inputs
+
+    if row.bucket != source_bucket or row.storage_identity != identity(
+        endpoint_url, source_bucket
+    ):
+        raise WorktreeError("预测输入存储身份与备份import用途不一致")
+    version = getattr(row, "contract_version", 1)
+    if type(version) is not int or version not in {1, 2}:
+        raise WorktreeError("预测输入存在未知合同")
+    values = {
+        "bucket": target_bucket,
+        "storage_identity": identity(endpoint_url, target_bucket),
+    }
+    if version == 1:
+        if any(
+            getattr(row, name, None) is not None
+            for name in (
+                "storage_ref",
+                "inventory",
+                "source_ref",
+                "maintenance_revision",
+            )
+        ):
+            raise WorktreeError("历史预测输入含未核验归属")
+        return values
+    try:
+        ref = prediction_inputs._resolve(row)
+        prediction_inputs._inventory(row, row.inventory)
+    except (ValueError, TypeError, AttributeError):
+        raise WorktreeError("预测输入含未知归属或对象收据") from None
+    if ref["endpoint_url"] != endpoint_url.rstrip("/"):
+        raise WorktreeError("预测输入端点与备份不一致")
+    values["storage_ref"] = {
+        **ref,
+        "bucket": target_bucket,
+        "storage_identity": identity(endpoint_url, target_bucket),
+    }
+    return values
+
+
 async def remap_storage(
     db, source: dict, target: dict, endpoint_url: str
 ) -> list[dict]:
@@ -155,6 +197,15 @@ async def remap_storage(
     ):
         for row in await db.scalars(select(model)):
             table = model.__tablename__
+            if model is PredictionInputLease:
+                for field, value in prediction_input_changes(
+                    row,
+                    source_bucket=source[role],
+                    target_bucket=target[role],
+                    endpoint_url=endpoint_url,
+                ).items():
+                    change(row, field, value, table, str(row.id))
+                continue
             if row.bucket != source[role] or row.storage_identity != identity(
                 endpoint_url, source[role]
             ):

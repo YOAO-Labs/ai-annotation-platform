@@ -1,22 +1,34 @@
-"""Own temporary ML inputs; authorization and result qualification stay with callers."""
+"""Own temporary prediction inputs independently of business rows and workers."""
 
 import asyncio
 from contextlib import asynccontextmanager
-import contextvars
+from contextvars import copy_context
+from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import partial
 import hashlib
+import io
 import json
 import logging
 import re
+import time
+from urllib.parse import urlsplit
 import uuid
 
 from botocore.config import Config
 from PIL import Image, ImageOps
-from sqlalchemy import or_, select
+from sqlalchemy import Text, cast, func, or_, select, update
+from sqlalchemy.dialects.postgresql import JSONB, array
+from sqlalchemy.orm import load_only
 
+from app.config import settings
+from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.prediction_input import PredictionInputLease as InputRecord
-from app.services.content_snapshot import ContentError, MAX_BYTES, Snapshot
+from app.db.models.storage_maintenance import StorageOperation
+from app.services import storage_access
+from app.services.content_snapshot import ContentError, MAX_BYTES, MAX_PIXELS, Snapshot
+from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.storage import StorageService
 
 log = logging.getLogger(__name__)
@@ -25,15 +37,68 @@ RECOVERY_DAYS = 7
 RETRY_SECONDS = 60
 MAX_OBJECTS = 10_000
 MAX_TOTAL_BYTES = 4 * 1024**3
+MAX_INVENTORY_BYTES = 4 * 1024**2
+MAX_SOURCE_BYTES = 1024**2
 URL_SECONDS = 60 * 60
+IO_SECONDS = 300
+CHUNK_BYTES = 256 * 1024
+_SHA = re.compile(r"[0-9a-f]{64}")
+_RELATIVE = re.compile(
+    r"(?:original/[0-9a-f]{64}\.(?:jpg|png|webp)|crops/(?:0|[1-9][0-9]{0,9})-[0-9a-f]{64}\.jpg)"
+)
+_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+_REF_FIELDS = frozenset(
+    {
+        "schema",
+        "purpose",
+        "location_id",
+        "config_revision",
+        "binding_generation",
+        "endpoint_url",
+        "bucket",
+        "key_prefix",
+        "storage_identity",
+    }
+)
+_FACTS = (
+    "id",
+    "owner_id",
+    "owner_kind",
+    "task_id",
+    "contract_version",
+    "bucket",
+    "storage_identity",
+    "storage_ref",
+    "maintenance_revision",
+    "created_at",
+    "expires_at",
+    "retain_until",
+    "source_ref",
+)
+_COLUMNS = tuple(getattr(InputRecord, name) for name in _FACTS) + (
+    InputRecord.state,
+    InputRecord.uncertain_write,
+    InputRecord.next_cleanup_at,
+    InputRecord.deleted_at,
+    InputRecord.object_count,
+    InputRecord.size_bytes,
+)
 
 
 def now():
     return datetime.now(timezone.utc)
 
 
+def reject(code="invalid_receipt", status=409):
+    raise ContentError("prediction_input_" + code, status)
+
+
 def input_prefix(identity):
     return f"prediction-inputs/{uuid.UUID(str(identity))}/"
+
+
+def purpose(identity):
+    return "prediction_input_" + uuid.UUID(str(getattr(identity, "id", identity))).hex
 
 
 def make_storage():
@@ -41,59 +106,441 @@ def make_storage():
         client_config=Config(
             connect_timeout=3,
             read_timeout=15,
-            # Retrying PUT can hide an earlier request which still completes late.
             retries={"total_max_attempts": 1, "mode": "standard"},
+            s3={"addressing_style": "path"},
+            signature_version="s3v4",
         )
     )
 
 
+def _identity(endpoint, bucket):
+    return hashlib.sha256(
+        json.dumps([endpoint.rstrip("/"), bucket]).encode()
+    ).hexdigest()
+
+
 def storage_identity(storage):
-    # No credentials or signed URLs. A changed server must not receive old deletions.
-    configuration = [
-        storage.client.meta.endpoint_url.rstrip("/"),
-        storage.import_bucket,
-    ]
-    return hashlib.sha256(json.dumps(configuration).encode()).hexdigest()
+    return _identity(storage.client.meta.endpoint_url, storage.import_bucket)
 
 
-async def settled_io(call, *args, **kwargs):
-    """Do not close an input file while an admitted SDK thread still reads it."""
-    # An executor Future is not a Task cancelled by asyncio.run's shutdown sweep.
-    context = contextvars.copy_context()
-    pending = asyncio.get_running_loop().run_in_executor(
-        None, context.run, partial(call, *args, **kwargs)
+def _endpoint():
+    return (
+        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
     )
-    cancelled = False
+
+
+def _header(value, limit=1024):
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= limit
+        and value.isascii()
+        and all(32 < ord(c) < 127 for c in value)
+    )
+
+
+def _document(value, limit):
+    try:
+        raw = json.dumps(value, allow_nan=False, sort_keys=True, separators=(",", ":"))
+    except (ValueError, TypeError, RecursionError):
+        reject()
+    if len(raw.encode()) > limit:
+        reject("budget_exceeded", 413)
+    return deepcopy(value)
+
+
+def resolve_ref(ref, *, expected_prefix):
+    """Validate a saved import locator; never follow today's default bucket."""
+    if not isinstance(ref, dict) or set(ref) != _REF_FIELDS:
+        reject("legacy_unpinned" if ref is None else "invalid_receipt")
+    try:
+        parsed = urlsplit(ref["endpoint_url"])
+        endpoint_ok = (
+            _header(ref["endpoint_url"], 2048)
+            and "\\" not in ref["endpoint_url"]
+            and parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.path
+            and not parsed.query
+            and not parsed.fragment
+            and parsed.port != 0
+        )
+    except (ValueError, TypeError, AttributeError):
+        endpoint_ok = False
+    if not (
+        type(ref["schema"]) is int
+        and ref["schema"] == 1
+        and ref["purpose"] == "import"
+        and ref["location_id"] == str(LEGACY_LOCATION_ID)
+        and type(ref["config_revision"]) is int
+        and ref["config_revision"] == 1
+        and type(ref["binding_generation"]) is int
+        and ref["binding_generation"] == 1
+        and endpoint_ok
+        and _header(ref["bucket"], 255)
+        and not any(c in ref["bucket"] for c in "/\\?#@%:")
+        and ref["key_prefix"] == expected_prefix
+        and ref["storage_identity"] == _identity(ref["endpoint_url"], ref["bucket"])
+    ):
+        reject()
+    if ref["endpoint_url"] != _endpoint():
+        reject("storage_identity_changed")
+    return deepcopy(ref)
+
+
+def _resolve(record):
+    if record.contract_version != 2:
+        reject("legacy_unpinned")
+    ref = resolve_ref(record.storage_ref, expected_prefix=input_prefix(record.id))
+    if (
+        record.bucket != ref["bucket"]
+        or record.storage_identity != ref["storage_identity"]
+        or type(record.maintenance_revision) is not int
+        or record.maintenance_revision < 1
+    ):
+        reject()
+    return ref
+
+
+async def _drain(pending):
     while not pending.done():
         try:
             await asyncio.shield(pending)
-        except asyncio.CancelledError:
-            cancelled = True
-        except Exception:
-            break
-    if cancelled:
-        try:
-            pending.result()
         except BaseException:
-            pass
-        raise asyncio.CancelledError()
+            continue
     return pending.result()
 
 
+def _uncertainty(original, later):
+    if getattr(later, "storage_operation_unsettled", False):
+        storage_access.mark_unsettled(original)
+
+
+async def settled_io(call, *args, **kwargs):
+    """Retain the real Future through every interruption, including soft limits."""
+    try:
+        pending = asyncio.get_running_loop().run_in_executor(
+            None, copy_context().run, partial(call, *args, **kwargs)
+        )
+    except BaseException as exc:
+        raise storage_access.mark_unsettled(exc)
+    try:
+        return await asyncio.shield(pending)
+    except BaseException as interrupted:
+        try:
+            await _drain(pending)
+        except BaseException as late:
+            _uncertainty(interrupted, late)
+        raise
+
+
+async def _async(call, *, late=None):
+    pending = asyncio.create_task(call)
+    try:
+        return await asyncio.shield(pending)
+    except BaseException as interrupted:
+        try:
+            result = await _drain(pending)
+        except BaseException as later:
+            _uncertainty(interrupted, later)
+        else:
+            if late is not None:
+                try:
+                    await late(result)
+                except BaseException as closing:
+                    _uncertainty(interrupted, closing)
+        raise
+
+
+async def _settle(permit):
+    await _async(permit._settle())
+
+
+@dataclass(frozen=True)
+class InputSnapshot:
+    id: uuid.UUID
+    owner_id: uuid.UUID
+    owner_kind: str
+    task_id: uuid.UUID
+    contract_version: int
+    bucket: str
+    storage_identity: str
+    storage_ref: dict
+    maintenance_revision: int
+    created_at: datetime
+    expires_at: datetime
+    retain_until: datetime
+    source_ref: dict | None
+
+
+def _snapshot(row):
+    result = InputSnapshot(**{name: deepcopy(getattr(row, name)) for name in _FACTS})
+    _resolve(result)
+    return result
+
+
+async def _row(db, identifier, *, lock=False):
+    query = (
+        select(InputRecord)
+        .options(load_only(*_COLUMNS))
+        .where(InputRecord.id == identifier)
+    )
+    if lock:
+        query = query.with_for_update(nowait=True)
+    row = await db.scalar(query.execution_options(populate_existing=True))
+    if row is None:
+        reject("expired")
+    return row
+
+
+def _same(row, record):
+    return all(getattr(row, name) == getattr(record, name) for name in _FACTS)
+
+
+async def _allocate_ref(db, identifier):
+    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
+    binding = await db.get(StorageBinding, "import", populate_existing=True)
+    if (
+        location is None
+        or not location.enabled
+        or location.kind != "s3"
+        or location.config_revision != 1
+        or location.config
+        != {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
+        or binding is None
+        or binding.location_id != LEGACY_LOCATION_ID
+        or binding.generation != 1
+        or binding.bucket != settings.minio_import_bucket
+    ):
+        reject("configuration_changed")
+    ref = {
+        "schema": 1,
+        "purpose": "import",
+        "location_id": str(LEGACY_LOCATION_ID),
+        "config_revision": 1,
+        "binding_generation": 1,
+        "endpoint_url": _endpoint(),
+        "bucket": binding.bucket,
+        "key_prefix": input_prefix(identifier),
+        "storage_identity": _identity(_endpoint(), binding.bucket),
+    }
+    return resolve_ref(ref, expected_prefix=input_prefix(identifier))
+
+
+async def check_metadata(db, inputs, *, lock=True):
+    """Join final caller locks: metadata/Gate only, no guard, commit or new session."""
+    row = await _row(db, inputs.record.id, lock=lock)
+    if (
+        inputs._closed
+        or inputs._unsettled
+        or row.state != "active"
+        or row.expires_at <= now()
+        or not _same(row, inputs.record)
+    ):
+        reject("expired")
+    _resolve(inputs.record)
+    await storage_access.check(
+        db,
+        LEGACY_LOCATION_ID,
+        expected_revision=inputs.record.maintenance_revision,
+        lock=lock,
+    )
+    pending = await db.scalar(
+        select(
+            func.jsonb_path_exists(
+                InputRecord.inventory, '$.objects.* ? (@.state != "verified")'
+            )
+        ).where(InputRecord.id == row.id)
+    )
+    if pending:
+        reject("object_not_verified")
+    return inputs.record
+
+
+def _entry(relative, entry):
+    if not isinstance(relative, str) or _RELATIVE.fullmatch(relative) is None:
+        reject("scope_invalid")
+    if not isinstance(entry, dict) or set(entry) != {
+        "sha256",
+        "size_bytes",
+        "media_type",
+        "state",
+        "etag",
+        "version_id",
+        "write_nonce",
+    }:
+        reject()
+    try:
+        nonce = uuid.UUID(entry["write_nonce"])
+        nonce_valid = str(nonce) == entry["write_nonce"] and nonce.version == 4
+    except (TypeError, ValueError, AttributeError):
+        nonce_valid = False
+    if (
+        not nonce_valid
+        or not isinstance(entry["sha256"], str)
+        or _SHA.fullmatch(entry["sha256"]) is None
+        or type(entry["size_bytes"]) is not int
+        or not 0 < entry["size_bytes"] <= MAX_BYTES
+        or entry["media_type"] not in _TYPES
+        or entry["state"] not in {"planned", "verified"}
+        or not relative.endswith(entry["sha256"] + "." + _TYPES[entry["media_type"]])
+    ):
+        reject()
+    if entry["state"] == "planned":
+        if entry["etag"] is not None or entry["version_id"] is not None:
+            reject()
+    elif not _header(entry["etag"]) or (
+        entry["version_id"] is not None and not _header(entry["version_id"])
+    ):
+        reject()
+    return deepcopy(entry)
+
+
+def _http(response, statuses=(200,)):
+    if (
+        not isinstance(response, dict)
+        or response.get("ResponseMetadata", {}).get("HTTPStatusCode") not in statuses
+    ):
+        reject("storage_unavailable", 503)
+
+
+def _version(response):
+    value = response.get("VersionId")
+    if value in (None, "null"):
+        return None
+    if not _header(value):
+        reject("integrity_mismatch")
+    return value
+
+
+def _deadline(deadline):
+    if time.monotonic() > deadline:
+        reject("storage_timeout", 504)
+
+
+def _owned(response, lease_id, entry):
+    metadata = response.get("Metadata")
+    if (
+        not isinstance(metadata, dict)
+        or metadata.get("aap-prediction-lease") != str(lease_id)
+        or metadata.get("aap-prediction-write") != entry["write_nonce"]
+    ):
+        reject("ownership_mismatch")
+
+
+def _read(client, bucket, key, entry, deadline, *, lease_id, written=None):
+    _deadline(deadline)
+    head = client.head_object(Bucket=bucket, Key=key)
+    _http(head)
+    _owned(head, lease_id, entry)
+    etag, version = head.get("ETag"), _version(head)
+    if (
+        not _header(etag)
+        or type(head.get("ContentLength")) is not int
+        or head["ContentLength"] != entry["size_bytes"]
+    ):
+        reject("integrity_mismatch")
+    expected = written or (entry if entry["state"] == "verified" else None)
+    if expected is not None and (
+        expected.get("etag", expected.get("ETag")) != etag
+        or expected.get("version_id", _version(expected)) != version
+    ):
+        reject("integrity_mismatch")
+    params = {"Bucket": bucket, "Key": key, "IfMatch": etag}
+    if version is not None:
+        params["VersionId"] = version
+    response = client.get_object(**params)
+    body = response.get("Body") if isinstance(response, dict) else None
+    if body is None:
+        raise storage_access.mark_unsettled(
+            ContentError("prediction_input_storage_unavailable", 503)
+        )
+    with storage_access.closing_registered(body):
+        _http(response)
+        _owned(response, lease_id, entry)
+        if (
+            response.get("ETag") != etag
+            or _version(response) != version
+            or type(response.get("ContentLength")) is not int
+            or response["ContentLength"] != entry["size_bytes"]
+        ):
+            reject("integrity_mismatch")
+        digest, size = hashlib.sha256(), 0
+        while True:
+            _deadline(deadline)
+            block = body.read(min(CHUNK_BYTES, entry["size_bytes"] - size + 1))
+            if type(block) is not bytes:
+                reject("integrity_mismatch")
+            if not block:
+                break
+            size += len(block)
+            if size > entry["size_bytes"]:
+                reject("integrity_mismatch")
+            digest.update(block)
+        if size != entry["size_bytes"] or digest.hexdigest() != entry["sha256"]:
+            reject("integrity_mismatch")
+    _deadline(deadline)
+    after = client.head_object(Bucket=bucket, Key=key)
+    _http(after)
+    _owned(after, lease_id, entry)
+    if (
+        after.get("ETag") != etag
+        or _version(after) != version
+        or type(after.get("ContentLength")) is not int
+        or after["ContentLength"] != entry["size_bytes"]
+    ):
+        reject("integrity_mismatch")
+    return {**entry, "state": "verified", "etag": etag, "version_id": version}
+
+
+def _using_storage(record, call, provided=None):
+    ref = _resolve(record)
+    try:
+        storage = provided or make_storage()
+    except BaseException as exc:
+        raise storage_access.mark_unsettled(exc)
+    try:
+        if storage.client.meta.endpoint_url.rstrip("/") != ref["endpoint_url"]:
+            reject("storage_identity_changed")
+        target = urlsplit(ref["endpoint_url"])
+
+        def same_origin(request, **_kwargs):
+            destination = urlsplit(request.url)
+            if (destination.scheme, destination.netloc) != (
+                target.scheme,
+                target.netloc,
+            ):
+                reject("redirect_denied")
+
+        storage.client.meta.events.register("before-send.s3", same_origin)
+        return call(storage)
+    finally:
+        storage_access.close_registered(storage.client)
+
+
 class PredictionInputs:
-    def __init__(self, factory, record, storage):
+    def __init__(self, factory, record, storage=None, *, guard=None):
         self.factory, self.record, self.storage = factory, record, storage
+        self.guard = guard
         self.prefix = input_prefix(record.id)
-        self._objects = {}
-        self._uploaded = set()
-        self._total_bytes = 0
-        self._snapshot = None
-        self._images = []
-        self._closed = False
-        self._uncertain_write = False
+        self._objects, self._uploaded = {}, set()
+        self._snapshot, self._images = None, []
+        self._closed = self._uncertain_write = self._unsettled = False
+        self._lock = asyncio.Lock()
 
     @classmethod
-    async def create(cls, factory, *, owner_id, owner_kind, task_id, storage=None):
+    async def create(
+        cls,
+        factory,
+        *,
+        owner_id,
+        owner_kind,
+        task_id,
+        storage=None,
+        guard=None,
+        source_ref=None,
+    ):
         if owner_kind not in {
             "batch_predict",
             "prediction_retry",
@@ -102,129 +549,383 @@ class PredictionInputs:
             "mask_repair",
         }:
             raise ValueError("unsupported prediction input owner")
-        owner_id, task_id = uuid.UUID(str(owner_id)), uuid.UUID(str(task_id))
-        storage = storage or make_storage()
-        created = now()
-        expires = created + timedelta(seconds=ACTIVE_SECONDS)
-        record = InputRecord(
-            id=uuid.uuid4(),
-            owner_id=owner_id,
-            owner_kind=owner_kind,
-            task_id=task_id,
-            bucket=storage.import_bucket,
-            storage_identity=storage_identity(storage),
-            state="active",
-            uncertain_write=False,
-            expires_at=expires,
-            retain_until=expires + timedelta(days=RECOVERY_DAYS),
-            next_cleanup_at=expires,
+        if guard is not None and not callable(guard):
+            raise TypeError("guard must be an asynchronous authority callback")
+        source_ref = (
+            None if source_ref is None else _document(source_ref, MAX_SOURCE_BYTES)
         )
-        try:
+        if source_ref is not None and not isinstance(source_ref, dict):
+            reject()
+        identifier, started = uuid.uuid4(), now()
+
+        async def allocate():
             async with factory() as db:
-                db.add(record)
+                if guard is not None:
+                    await guard(db)
+                ref = await _allocate_ref(db, identifier)
+                revision = await storage_access.check(db, LEGACY_LOCATION_ID)
+                row = InputRecord(
+                    id=identifier,
+                    owner_id=uuid.UUID(str(owner_id)),
+                    owner_kind=owner_kind,
+                    task_id=uuid.UUID(str(task_id)),
+                    contract_version=2,
+                    storage_ref=ref,
+                    bucket=ref["bucket"],
+                    storage_identity=ref["storage_identity"],
+                    maintenance_revision=revision,
+                    source_ref=source_ref,
+                    inventory={"schema": 1, "objects": {}},
+                    object_count=0,
+                    size_bytes=0,
+                    state="active",
+                    uncertain_write=False,
+                    created_at=started,
+                    expires_at=started + timedelta(seconds=ACTIVE_SECONDS),
+                    retain_until=started
+                    + timedelta(seconds=ACTIVE_SECONDS, days=RECOVERY_DAYS),
+                    next_cleanup_at=started + timedelta(seconds=ACTIVE_SECONDS),
+                )
+                db.add(row)
+                result = _snapshot(row)
                 await db.commit()
-            return cls(factory, record, storage)
-        except BaseException:
-            storage.client.close()
-            raise
+                return result
 
-    def _reserve(self, key, size):
-        if self._closed or now() >= self.record.expires_at:
-            raise ContentError("prediction_input_expired")
-        if not key.startswith(self.prefix):
-            raise ContentError("prediction_input_scope_invalid")
-        if key in self._objects:
-            return key not in self._uploaded
-        if size <= 0 or size > MAX_BYTES:
-            raise ContentError("prediction_input_too_large", 413)
+        record = await _async(allocate())
+        return cls(factory, record, storage, guard=guard)
+
+    async def _fresh(self, db, *, lock=False):
+        row = await _row(db, self.record.id, lock=lock)
         if (
-            len(self._objects) >= MAX_OBJECTS
-            or self._total_bytes + size > MAX_TOTAL_BYTES
+            self._closed
+            or self._unsettled
+            or row.state != "active"
+            or row.expires_at <= now()
         ):
-            raise ContentError("prediction_input_budget_exceeded", 413)
-        self._objects[key] = size
-        self._total_bytes += size
-        return True
+            reject("expired")
+        if not _same(row, self.record):
+            reject()
+        if self.guard is not None:
+            await self.guard(db)
+        await storage_access.check(
+            db, LEGACY_LOCATION_ID, expected_revision=self.record.maintenance_revision
+        )
+        return row
 
-    def _url(self, key):
+    async def check_live(self):
+        """Fresh metadata/authority only; call before acquiring final business locks."""
+
+        async def check():
+            async with self.factory() as db:
+                await self._fresh(db)
+                pending = await db.scalar(
+                    select(
+                        func.jsonb_path_exists(
+                            InputRecord.inventory,
+                            '$.objects.* ? (@.state != "verified")',
+                        )
+                    ).where(InputRecord.id == self.record.id)
+                )
+                if pending:
+                    reject("object_not_verified")
+
+        await _async(check())
+
+    async def _reserve(self, relative, expected):
+        expected = _entry(relative, expected)
+
+        async def reserve():
+            async with self.factory() as db:
+                row = await self._fresh(db, lock=True)
+                old = await db.scalar(
+                    select(InputRecord.inventory["objects"][relative]).where(
+                        InputRecord.id == row.id
+                    )
+                )
+                if old is not None:
+                    old = _entry(relative, old)
+                    if any(
+                        old[k] != expected[k]
+                        for k in ("sha256", "size_bytes", "media_type")
+                    ):
+                        reject()
+                    return old
+                if (
+                    row.object_count >= MAX_OBJECTS
+                    or row.size_bytes + expected["size_bytes"] > MAX_TOTAL_BYTES
+                ):
+                    reject("budget_exceeded", 413)
+                await db.execute(
+                    update(InputRecord)
+                    .where(InputRecord.id == row.id)
+                    .values(
+                        inventory=func.jsonb_set(
+                            InputRecord.inventory,
+                            array(["objects", relative]),
+                            cast(expected, JSONB),
+                            True,
+                        ),
+                        object_count=row.object_count + 1,
+                        size_bytes=row.size_bytes + expected["size_bytes"],
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+                await db.commit()
+                return expected
+
+        entry = await _async(reserve())
+        self._objects[relative] = entry["size_bytes"]
+        return entry
+
+    async def _acquire(self):
+        async with self.factory() as db:
+            await self._fresh(db)
+            return await storage_access.acquire(
+                db,
+                LEGACY_LOCATION_ID,
+                purpose(self.record),
+                expected_revision=self.record.maintenance_revision,
+            )
+
+    async def _io(self, call, *, publish=None):
+        permit = await _async(self._acquire(), late=_settle)
+        failure, result = None, None
+        try:
+            await self.check_live_for_write()
+            result = await settled_io(_using_storage, self.record, call, self.storage)
+            await self.check_live_for_write()
+            if publish is not None:
+                await publish(result)
+        except BaseException as exc:
+            failure = exc
+        finally:
+            if not getattr(failure, "storage_operation_unsettled", False):
+                try:
+                    await _settle(permit)
+                except BaseException as closing:
+                    if failure is None:
+                        failure = closing
+                    else:
+                        _uncertainty(failure, closing)
+        if failure is not None:
+            self._unsettled |= getattr(failure, "storage_operation_unsettled", False)
+            raise failure
+        return result
+
+    async def check_live_for_write(self):
+        async def check():
+            async with self.factory() as db:
+                await self._fresh(db)
+
+        await _async(check())
+
+    def _url(self, storage, relative):
         seconds = min(
             URL_SECONDS, int((self.record.expires_at - now()).total_seconds())
         )
         if seconds <= 0:
-            raise ContentError("prediction_input_expired")
-        try:
-            url = self.storage.generate_download_url(
-                key, expires_in=seconds, bucket=self.record.bucket, align=False
-            )
-            return self.storage.rewrite_host_for_ml_backend(url)
-        except Exception:
-            raise ContentError("prediction_input_url_failed", 503) from None
+            reject("expired")
+        url = storage.generate_download_url(
+            self.prefix + relative,
+            expires_in=seconds,
+            bucket=self.record.bucket,
+            align=False,
+        )
+        return storage.rewrite_host_for_ml_backend(url)
 
-    def upload_crop(self, task, box_index, content):
+    async def _publish(self, relative, expected, verified):
+        async def publish():
+            async with self.factory() as db:
+                row = await self._fresh(db, lock=True)
+                current = await db.scalar(
+                    select(InputRecord.inventory["objects"][relative]).where(
+                        InputRecord.id == row.id
+                    )
+                )
+                if current != expected:
+                    reject()
+                await db.execute(
+                    update(InputRecord)
+                    .where(InputRecord.id == row.id)
+                    .values(
+                        inventory=func.jsonb_set(
+                            InputRecord.inventory,
+                            array(["objects", relative]),
+                            cast(verified, JSONB),
+                            True,
+                        )
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+                try:
+                    await db.commit()
+                except BaseException as exc:
+                    # An acknowledgement failure cannot prove which receipt persisted.
+                    raise storage_access.mark_unsettled(exc)
+
+        await _async(publish())
+
+    async def _upload(self, relative, content, *, sha256, size, media_type):
+        expected = await self._reserve(
+            relative,
+            dict(
+                sha256=sha256,
+                size_bytes=size,
+                media_type=media_type,
+                state="planned",
+                etag=None,
+                version_id=None,
+                write_nonce=str(uuid.uuid4()),
+            ),
+        )
+
+        def physical(storage):
+            body = io.BytesIO(content) if type(content) is bytes else content
+            position = body.tell()
+            try:
+                deadline = time.monotonic() + IO_SECONDS
+                if expected["state"] == "planned":
+                    body.seek(0)
+                    digest, count = hashlib.sha256(), 0
+                    while True:
+                        _deadline(deadline)
+                        block = body.read(min(CHUNK_BYTES, size - count + 1))
+                        if type(block) is not bytes:
+                            reject("snapshot_invalid")
+                        if not block:
+                            break
+                        count += len(block)
+                        if count > size:
+                            reject("snapshot_invalid")
+                        digest.update(block)
+                    if count != size or digest.hexdigest() != sha256:
+                        reject("snapshot_invalid")
+                    body.seek(0)
+                    try:
+                        written = storage.client.put_object(
+                            Bucket=self.record.bucket,
+                            Key=self.prefix + relative,
+                            Body=body,
+                            ContentLength=size,
+                            ContentType=media_type,
+                            CacheControl="private, max-age=3600, immutable",
+                            IfNoneMatch="*",
+                            Metadata={
+                                "aap-prediction-lease": str(self.record.id),
+                                "aap-prediction-write": expected["write_nonce"],
+                            },
+                        )
+                        _http(written)
+                    except Exception as exc:
+                        code = str(
+                            getattr(exc, "response", {})
+                            .get("Error", {})
+                            .get("Code", "")
+                        )
+                        if code not in {"412", "PreconditionFailed"}:
+                            raise
+                        written = None
+                else:
+                    written = None
+                verified = _read(
+                    storage.client,
+                    self.record.bucket,
+                    self.prefix + relative,
+                    expected,
+                    deadline,
+                    lease_id=self.record.id,
+                    written=written,
+                )
+                return verified, self._url(storage, relative)
+            finally:
+                if type(content) is bytes:
+                    storage_access.close_registered(body)
+                else:
+                    try:
+                        body.seek(position)
+                    except BaseException as exc:
+                        raise storage_access.mark_unsettled(exc)
+
+        try:
+
+            async def publish(result):
+                verified, _ = result
+                _entry(relative, verified)
+                if expected != verified:
+                    await self._publish(relative, expected, verified)
+
+            verified, url = await self._io(physical, publish=publish)
+            self._uploaded.add(relative)
+            return url
+        except BaseException as exc:
+            self._uncertain_write = True
+            self._unsettled |= getattr(exc, "storage_operation_unsettled", False)
+            if isinstance(exc, Exception) and not isinstance(exc, ContentError):
+                failure = ContentError("prediction_input_upload_failed", 503)
+                _uncertainty(failure, exc)
+                raise failure from None
+            raise
+
+    async def upload_crop(self, task, box_index, content):
         if (
             uuid.UUID(str(task.id)) != self.record.task_id
             or type(box_index) is not int
-            or box_index < 0
+            or not 0 <= box_index <= 9_999_999_999
+            or type(content) is not bytes
         ):
-            raise ContentError("prediction_input_scope_invalid")
+            reject("scope_invalid")
+        if not 0 < len(content) <= MAX_BYTES:
+            reject("too_large", 413)
         digest = hashlib.sha256(content).hexdigest()
-        key = f"{self.prefix}crops/{box_index}-{digest}.jpg"
-        if self._reserve(key, len(content)):
-            try:
-                self.storage.put_bytes(
-                    key, content, content_type="image/jpeg", bucket=self.record.bucket
-                )
-                self._uploaded.add(key)
-            except BaseException as exc:
-                self._uncertain_write = True
-                if isinstance(exc, Exception):
-                    raise ContentError("prediction_input_upload_failed", 503) from None
-                raise
-        return self._url(key)
+        async with self._lock:
+            return await self._upload(
+                f"crops/{box_index}-{digest}.jpg",
+                content,
+                sha256=digest,
+                size=len(content),
+                media_type="image/jpeg",
+            )
 
     async def upload_snapshot(self, snapshot):
-        """Transfer ownership of an already strictly verified snapshot, never its source."""
-        if self._snapshot is not None or not isinstance(snapshot, Snapshot):
-            raise ContentError("prediction_input_snapshot_invalid")
-        suffix = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}.get(
-            snapshot.media_type
-        )
-        if (
-            snapshot._closed
-            or snapshot.inspection_error
-            or suffix is None
-            or not re.fullmatch(r"[0-9a-f]{64}", snapshot.sha256)
-        ):
-            raise ContentError("prediction_input_snapshot_invalid")
-        key = f"{self.prefix}original/{snapshot.sha256}.{suffix}"
-        self._reserve(key, snapshot.size)
-        self._snapshot = snapshot
-        snapshot.file.seek(0)
-        try:
-            await settled_io(
-                self.storage.client.put_object,
-                Bucket=self.record.bucket,
-                Key=key,
-                Body=snapshot.file,
-                ContentLength=snapshot.size,
-                ContentType=snapshot.media_type,
+        """Transfer ownership of one strictly verified Snapshot, never its source."""
+        async with self._lock:
+            if (
+                self._snapshot is not None
+                or not isinstance(snapshot, Snapshot)
+                or snapshot._closed
+                or snapshot.inspection_error
+                or snapshot.media_type not in _TYPES
+                or not isinstance(snapshot.sha256, str)
+                or _SHA.fullmatch(snapshot.sha256) is None
+                or type(snapshot.size) is not int
+                or not 0 < snapshot.size <= MAX_BYTES
+                or type(snapshot.width) is not int
+                or type(snapshot.height) is not int
+                or snapshot.width <= 0
+                or snapshot.height <= 0
+                or snapshot.width * snapshot.height > MAX_PIXELS
+            ):
+                reject("snapshot_invalid")
+            self._snapshot = snapshot
+            relative = f"original/{snapshot.sha256}.{_TYPES[snapshot.media_type]}"
+            return await self._upload(
+                relative,
+                snapshot.file,
+                sha256=snapshot.sha256,
+                size=snapshot.size,
+                media_type=snapshot.media_type,
             )
-            self._uploaded.add(key)
-        except BaseException as exc:
-            self._uncertain_write = True
-            if isinstance(exc, Exception):
-                raise ContentError("prediction_input_upload_failed", 503) from None
-            raise
-        return self._url(key)
 
     def load_image(self, task):
         if (
             self._closed
+            or self._unsettled
             or now() >= self.record.expires_at
             or uuid.UUID(str(task.id)) != self.record.task_id
             or not self._snapshot
+            or self._snapshot._closed
         ):
-            raise ContentError("prediction_input_snapshot_invalid")
+            reject("snapshot_invalid")
         self._snapshot.file.seek(0)
         with Image.open(self._snapshot.file) as image:
             oriented = ImageOps.exif_transpose(image)
@@ -234,34 +935,73 @@ class PredictionInputs:
                 oriented.close()
         if result.size != (self._snapshot.width, self._snapshot.height):
             result.close()
-            raise ContentError("image_size_mismatch")
+            reject("image_size_mismatch")
         self._images.append(result)
         return result
 
+    async def _seal(self):
+        async with self.factory() as db:
+            row = await _row(db, self.record.id, lock=True)
+            if row.state == "deleted":
+                return
+            if not _same(row, self.record):
+                reject()
+            row.state = "cleanup_pending"
+            row.uncertain_write |= self._uncertain_write or self._unsettled
+            row.next_cleanup_at = now()
+            await db.commit()
+
     async def close(self):
-        if self._closed:
-            return
-        self._closed = True
-        try:
-            async with self.factory() as db:
-                record = await db.get(InputRecord, self.record.id)
-                if record:
-                    record.state = "cleanup_pending"
-                    record.uncertain_write = (
-                        record.uncertain_write or self._uncertain_write
+        # Waiting for another upload's lock is also part of physical ownership.
+        await _async(self._close())
+
+    async def _close(self):
+        async with self._lock:
+            if self._closed:
+                if self._unsettled:
+                    raise storage_access.mark_unsettled(
+                        ContentError("prediction_input_close_unknown", 503)
                     )
-                    record.next_cleanup_at = now()
-                    await db.commit()
-            await purge_input(self.factory, self.record.id, storage=self.storage)
-        except Exception:
-            # The independent record was committed before the first PUT.
-            log.warning("Prediction input cleanup deferred input=%s", self.record.id)
-        finally:
-            for image in self._images:
-                image.close()
-            if self._snapshot:
-                self._snapshot.close()
-            self.storage.client.close()
+                return
+            self._closed = True
+            failure = None
+            for resource in [
+                *self._images,
+                *([self._snapshot] if self._snapshot else []),
+            ]:
+                try:
+                    await settled_io(storage_access.close_registered, resource)
+                except BaseException as closing:
+                    self._unsettled |= getattr(
+                        closing, "storage_operation_unsettled", False
+                    )
+                    if failure is None:
+                        failure = closing
+                    else:
+                        _uncertainty(failure, closing)
+            try:
+                await _async(self._seal())
+                if not self._unsettled:
+                    await purge_input(self.factory, self.record.id)
+            except BaseException as exc:
+                if failure is None:
+                    failure = exc
+                else:
+                    _uncertainty(failure, exc)
+            if failure is not None:
+                if self._unsettled:
+                    storage_access.mark_unsettled(failure)
+                if not isinstance(failure, Exception) or getattr(
+                    failure, "storage_operation_unsettled", False
+                ):
+                    raise failure
+                log.warning(
+                    "Prediction input cleanup deferred input=%s", self.record.id
+                )
+            elif self._unsettled:
+                raise storage_access.mark_unsettled(
+                    ContentError("prediction_input_close_unknown", 503)
+                )
 
 
 @asynccontextmanager
@@ -273,65 +1013,290 @@ async def prediction_inputs(factory, **owner):
         await inputs.close()
 
 
+def _operations(identifier, *, ignore=None):
+    query = select(StorageOperation.id).where(
+        StorageOperation.purpose == purpose(identifier)
+    )
+    if ignore is not None:
+        query = query.where(StorageOperation.id != ignore)
+    return query.exists()
+
+
+def _inventory(record, value):
+    value = _document(value, MAX_INVENTORY_BYTES)
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"schema", "objects"}
+        or type(value["schema"]) is not int
+        or value["schema"] != 1
+        or not isinstance(value["objects"], dict)
+        or len(value["objects"]) > MAX_OBJECTS
+    ):
+        reject()
+    objects = {
+        relative: _entry(relative, entry)
+        for relative, entry in value["objects"].items()
+    }
+    if (
+        record.object_count != len(objects)
+        or record.size_bytes != sum(entry["size_bytes"] for entry in objects.values())
+        or record.size_bytes > MAX_TOTAL_BYTES
+    ):
+        reject()
+    return objects
+
+
+def _listed(client, record, expected, deadline, *, versions=False):
+    prefix = input_prefix(record.id)
+    rows, markers, seen = {}, {}, set()
+    while True:
+        _deadline(deadline)
+        params = {"Bucket": record.bucket, "Prefix": prefix, "MaxKeys": 1000, **markers}
+        response = (
+            client.list_object_versions(**params)
+            if versions
+            else client.list_objects_v2(**params)
+        )
+        _http(response)
+        if type(response.get("IsTruncated")) is not bool:
+            reject("integrity_mismatch")
+        if versions and response.get("DeleteMarkers"):
+            reject("unknown_object")
+        values = response.get("Versions" if versions else "Contents", [])
+        if not isinstance(values, list):
+            reject("integrity_mismatch")
+        for item in values:
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("Key"), str)
+                or not item["Key"].startswith(prefix)
+            ):
+                reject("unknown_object")
+            relative = item["Key"][len(prefix) :]
+            entry = expected.get(relative)
+            if (
+                entry is None
+                or relative in rows
+                or type(item.get("Size")) is not int
+                or item["Size"] != entry["size_bytes"]
+                or not _header(item.get("ETag"))
+                or (entry["state"] == "verified" and item.get("ETag") != entry["etag"])
+            ):
+                reject("unknown_object")
+            if versions:
+                if not _header(item.get("VersionId")):
+                    reject("unknown_object")
+                if entry["state"] == "verified" and item["VersionId"] != (
+                    entry["version_id"] or "null"
+                ):
+                    reject("unknown_object")
+            rows[relative] = item
+            if len(rows) > MAX_OBJECTS:
+                reject("budget_exceeded", 413)
+        if not response["IsTruncated"]:
+            return rows
+        if versions:
+            key, version = (
+                response.get("NextKeyMarker"),
+                response.get("NextVersionIdMarker"),
+            )
+            if not _header(key) or not _header(version):
+                reject("integrity_mismatch")
+            next_markers = {"KeyMarker": key, "VersionIdMarker": version}
+        else:
+            token = response.get("NextContinuationToken")
+            if not _header(token, 4096):
+                reject("integrity_mismatch")
+            next_markers = {"ContinuationToken": token}
+        marker = tuple(next_markers.items())
+        if marker in seen:
+            reject("integrity_mismatch")
+        seen.add(marker)
+        if len(seen) > MAX_OBJECTS + 1:
+            reject("budget_exceeded", 413)
+        markers = next_markers
+
+
+def _delete_known(storage, record, inventory):
+    deadline = time.monotonic() + IO_SECONDS
+    visible = _listed(storage.client, record, inventory, deadline)
+    versions = _listed(storage.client, record, inventory, deadline, versions=True)
+    if not set(visible) <= set(versions):
+        reject("integrity_mismatch")
+    observations = {}
+    for relative, item in versions.items():
+        observed = _read(
+            storage.client,
+            record.bucket,
+            input_prefix(record.id) + relative,
+            inventory[relative],
+            deadline,
+            lease_id=record.id,
+        )
+        if (
+            observed["etag"] != item["ETag"]
+            or (observed["version_id"] or "null") != item["VersionId"]
+        ):
+            reject("unknown_object")
+        observations[relative] = observed
+    for relative, item in versions.items():
+        _deadline(deadline)
+        result = storage.client.delete_object(
+            Bucket=record.bucket,
+            Key=item["Key"],
+            VersionId=item["VersionId"],
+            IfMatch=observations[relative]["etag"],
+        )
+        _http(result, (200, 204))
+    if _listed(storage.client, record, inventory, deadline) or _listed(
+        storage.client, record, inventory, deadline, versions=True
+    ):
+        reject("integrity_mismatch")
+
+
 async def purge_input(factory, input_id, *, storage=None):
-    owned_storage = storage is None
-    storage = storage or make_storage()
-    try:
+    """Only exact saved inventory may be removed; unknown operations never age out."""
+    input_id = uuid.UUID(str(input_id))
+    record, inventory, permit = None, None, None
+
+    async def select_owner():
         async with factory() as db:
-            record = await db.scalar(
+            row = await db.scalar(
                 select(InputRecord)
+                .options(load_only(*_COLUMNS))
                 .where(InputRecord.id == input_id)
                 .with_for_update(skip_locked=True)
                 .execution_options(populate_existing=True)
             )
             checked = now()
             if (
-                not record
-                or record.next_cleanup_at > checked
-                or (record.state == "active" and record.expires_at > checked)
+                row is None
+                or row.state == "deleted"
+                or row.next_cleanup_at > checked
+                or (row.state == "active" and row.expires_at > checked)
             ):
-                return "skipped"
-            if record.state == "active":
-                record.state = "cleanup_pending"
-                record.uncertain_write = True
-            record.last_cleanup_at = checked
-            record.next_cleanup_at = checked + timedelta(seconds=RETRY_SECONDS)
-            matched = (
-                record.bucket == storage.import_bucket
-                and record.storage_identity == storage_identity(storage)
-            )
-            record.error_code = None if matched else "storage_identity_changed"
-            bucket = record.bucket
-            await db.commit()
-            if not matched:
-                return "deferred"
-        try:
-            await settled_io(
-                storage.delete_prefix, input_prefix(input_id), bucket=bucket
-            )
-        except Exception:
-            async with factory() as db:
-                record = await db.get(InputRecord, input_id)
-                if record:
-                    record.error_code = "storage_cleanup_failed"
-                    await db.commit()
-            log.warning("Prediction input deletion deferred input=%s", input_id)
-            return "deferred"
-        async with factory() as db:
-            record = await db.scalar(
-                select(InputRecord).where(InputRecord.id == input_id).with_for_update()
-            )
-            if record:
-                if record.uncertain_write and record.retain_until > now():
-                    record.error_code = None
-                    await db.commit()
-                    return "retained"
-                await db.delete(record)
+                return None
+            row.next_cleanup_at = checked + timedelta(seconds=RETRY_SECONDS)
+            row.last_cleanup_at = checked
+            if row.contract_version != 2 or row.storage_ref is None:
+                row.error_code = "legacy_unpinned"
                 await db.commit()
-        return "removed"
+                return "deferred"
+            if await db.scalar(select(_operations(input_id))):
+                row.error_code = "storage_operation_unsettled"
+                await db.commit()
+                return "deferred"
+            if row.state == "active":
+                row.state, row.uncertain_write = "cleanup_pending", True
+            size = await db.scalar(
+                select(func.octet_length(cast(InputRecord.inventory, Text))).where(
+                    InputRecord.id == input_id
+                )
+            )
+            if size is None or size > MAX_INVENTORY_BYTES:
+                reject("budget_exceeded", 413)
+            document = await db.scalar(
+                select(InputRecord.inventory).where(InputRecord.id == input_id)
+            )
+            objects = _inventory(row, document)
+            saved = _snapshot(row)
+            await db.commit()
+            return saved, objects
+
+    async def fresh(*, lock=False):
+        async with factory() as db:
+            row = await _row(db, input_id, lock=lock)
+            if (
+                row.state != "cleanup_pending"
+                or not _same(row, record)
+                or await db.scalar(select(_operations(input_id, ignore=permit.id)))
+            ):
+                reject("cleanup_busy")
+            await storage_access.check(
+                db, LEGACY_LOCATION_ID, expected_revision=permit.revision
+            )
+            return row
+
+    async def error(exc):
+        async with factory() as db:
+            row = await _row(db, input_id, lock=True)
+            if row.state != "deleted":
+                row.error_code = getattr(
+                    exc, "code", "prediction_input_storage_cleanup_failed"
+                )
+                if getattr(exc, "storage_operation_unsettled", False):
+                    row.uncertain_write = True
+                await db.commit()
+
+    selected = await _async(select_owner())
+    if selected is None or isinstance(selected, str):
+        return selected or "skipped"
+    record, inventory = selected
+    failure, outcome = None, "deferred"
+    try:
+
+        async def acquire():
+            async with factory() as db:
+                return await storage_access.acquire(
+                    db, LEGACY_LOCATION_ID, purpose(record)
+                )
+
+        permit = await _async(acquire(), late=_settle)
+        await _async(fresh(lock=True))
+        await settled_io(
+            _using_storage,
+            record,
+            lambda client: _delete_known(client, record, inventory),
+            storage,
+        )
+        await _async(fresh(lock=True))
+
+        async def finish():
+            async with factory() as db:
+                row = await _row(db, input_id, lock=True)
+                if (
+                    row.state != "cleanup_pending"
+                    or not _same(row, record)
+                    or await db.scalar(select(_operations(input_id, ignore=permit.id)))
+                ):
+                    reject("cleanup_busy")
+                await storage_access.check(
+                    db, LEGACY_LOCATION_ID, expected_revision=permit.revision, lock=True
+                )
+                if row.uncertain_write and row.retain_until > now():
+                    result = "retained"
+                else:
+                    row.state, row.deleted_at = "deleted", now()
+                    result = "removed"
+                row.error_code = None
+                await db.commit()
+                return result
+
+        outcome = await _async(finish())
+    except BaseException as exc:
+        failure = exc
+        try:
+            await _async(error(exc))
+        except BaseException as later:
+            _uncertainty(failure, later)
     finally:
-        if owned_storage:
-            storage.client.close()
+        if permit is not None and not getattr(
+            failure, "storage_operation_unsettled", False
+        ):
+            try:
+                await _settle(permit)
+            except BaseException as closing:
+                if failure is None:
+                    failure = closing
+                else:
+                    _uncertainty(failure, closing)
+    if failure is not None:
+        if not isinstance(failure, Exception) or getattr(
+            failure, "storage_operation_unsettled", False
+        ):
+            raise failure
+        log.warning("Prediction input deletion deferred input=%s", input_id)
+    return outcome
 
 
 async def maintain(factory, *, limit=50):
@@ -341,6 +1306,7 @@ async def maintain(factory, *, limit=50):
                 await db.scalars(
                     select(InputRecord.id)
                     .where(
+                        InputRecord.state != "deleted",
                         InputRecord.next_cleanup_at <= now(),
                         or_(
                             InputRecord.state == "cleanup_pending",
@@ -353,10 +1319,10 @@ async def maintain(factory, *, limit=50):
             ).all()
         )
     counts = {"removed": 0, "retained": 0, "deferred": 0, "skipped": 0}
-    for identity in ids:
+    for identifier in ids:
         try:
-            counts[await purge_input(factory, identity)] += 1
+            counts[await purge_input(factory, identifier)] += 1
         except Exception:
             counts["deferred"] += 1
-            log.warning("Prediction input recovery deferred input=%s", identity)
+            log.warning("Prediction input recovery deferred input=%s", identifier)
     return counts
