@@ -302,7 +302,7 @@ async def source_task(world, *, origin="direct", status="pending"):
         task.status = status
     else:
         dataset = Dataset(
-            display_id="video-" + uuid.uuid4().hex[:16],
+            display_id="vr-" + uuid.uuid4().hex[:16],
             name="Committed video source",
             created_by=world.actor,
         )
