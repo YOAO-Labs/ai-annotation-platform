@@ -952,3 +952,15 @@ registry按Authority、session、资源与完整冻结来源复用ready stage；
 人工3100/8100、两Worker及独立Beat健康，实际API已服务新增合同，迁移头0231；11张业务表指纹、24对象完整SHA与12源文件保持。本片无Worker代码、迁移、依赖、配置、镜像或版本变化。test/e2e停止并销毁，两个数据库、两个专用Redis与18桶独立查验不存在；命名浏览器关闭，两棵干净且补丁等价的隔离树/分支移除，任务探针/日志/截图/测试构建缓存按归属清理。人工环境、本地虚拟环境、生成类型和工作树身份保留。
 
 完整E02、B13-B与整套epic继续执行，完整用途切换关闭。下一片B13-B2-B2接原生视频客户端的prepare/释放/失效恢复、Task与Item惰性身份及session/task切换；派生poster/proxy/frame/chunk必须有独立事实，不借原件SHA获得归属。其他原件消费者继续逐项实施。
+
+## E02-B13-B2-B2 Design — 浏览器原视频与租约生命周期
+
+基于 `cd8349a80` 的两路只读盘点，原生媒体只有VideoKonvaStage中的video；Task/Item DTO、旧manifest、manifest-v2及chunk fallback仍按当前用途桶签整段视频。精确帧只使用v2的Item/chunk信息，没有消费整段fallback地址。三个视频seed已实际写原字节但没有登记现有原件归属。新协议可处理独立TaskOriginal视频，但既有工作台metadata仅来自直接DatasetItem；本片不暗中新增独立视频探测能力。
+
+本片统一托管video DTO的惰性身份路径，清空原件file_url；主manifest返回metadata及准确Task身份路径，video_url可空，既有playback_path不作为原件来源。v2与chunk fallback同样撤除整段视频签名。poster/frame/chunk继续明确为尚未接管的派生链路，不套原件身份。浏览器只把prepare得到的严格同源相对地址交给video；原容器/编码不能解码时明确失败，绝不退回旧file_url、file-url、转码路径或签名原件。Dataset视频的旧新页链接同步改为显式受限的认证原件下载，512MiB完整下载上限保持，5GiB仅是播放准备上限。
+
+客户端复用OriginalOwner及身份查询，严格核对video、content UUID/SHA、准确lease/media path及有效期限；相机资源拒绝。prepare采用当前Bearer和session，完成后重核owner/取消/同session token轮换，迟到租约按准确资源释放。清理DELETE使用隔离的同源请求及捕获凭证，不触发apiClient的401全局退出，防止旧账号清理退出新账号；失败由服务端TTL兜底。HEAD仅对已校验路径用Cookie、不带Bearer，410才允许有界重新准备；403/409、编码错误与容量失败保持可辨认，不循环重试旧地址。429仅对已知准备/容量代码作有限退避。
+
+逻辑工作台按账号/session/Task/内容身份退休，覆盖precise/preview/bitmap和迟到seek；同内容租约更新不重挂整个逻辑舞台，不丢当前帧、草稿或导航。原生传输源先pause/remove src/load，再释放旧租约；新源通过现有loadedmetadata/FrameClock对齐最新帧。到期前提前prepare并切换新路径以复用未退休stage；短自然期限不形成忙循环，失败提供明确重试。账号/任务切换、跨标签页不完整凭证、卸载/HMR均停止旧媒体和定时器，不把旧结果应用到新owner。准备和失效期间不允许仅凭metadata成功进入依赖画面的QC流程；真实源就绪参与门禁。
+
+隔离树分别负责后端DTO/manifest/视频seed及协议客户端与纯回归；主树负责React生命周期、原生播放器/检查器与QC接入、正式文档和实际浏览器验收。验证身份/prepare失败零签名降级、迟到prepare/双取消、StrictMode、过期/410重建、codec错误不重建、撤权、同session token刷新与新session退休、切Task/关闭、暂停草稿及播放/seek/Canvas。只在已验证的一次性test/e2e环境写入；补真实视频seed归属，不放宽生产读取。保留人工3100/8100及原业务/24对象/12文件，正常hooks提交后清理精确资源；无依赖、迁移、配置、镜像、Worker或版本改动。派生归属和其余原件消费者仍属后续切片，完整E02与用途切换未完成。
