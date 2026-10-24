@@ -8,6 +8,38 @@
 > 依赖：EPIC-01 的标识与适配契约；EPIC-11 的最小权限规则必须随 M1 一起交付。
 > 下游：EPIC-03 原地注册、EPIC-05 读取、EPIC-07 迁移、EPIC-09 存储控制台。
 
+## 本轮实施定案：E02-B9 审计归档固定归属与源分区事务保护
+
+基于干净HEAD `d65949ea4` 延续整套实施/提交授权，使用think工作流核对既有决策及真实调用，不另设批准轮次。当前归档只从当前桶按固定月键上传，PUT后直接DROP；缺独立回执、完整回读、真实源OID/整月边界与并发INSERT保护。Worker running/失败尚未独立提交，上传失败被吞掉；通用取消未与DROP串行。源码、角色脚本及PostgreSQL16官方LOCK/分区维护规则已核对；本片按完整归档消费者交付，不把改桶或空分区成功当成安全归档。
+
+0226增加独立AuditArchiveOutput：UUID、Job UUID快照（无FK）、year/month、public源schema/table、父/子OID历史快照、UTC自然月起止日期、格式修订1、源行数/规范JSONL字节数/源SHA、压缩SHA/大小、严格audit-archive存储引用、created_at、pending/ready和一次published_at。精确候选键 `{year}/{month:02d}/{uuid}.jsonl.gz`，每次尝试独立且条件创建；同月最多一个ready，遇已归档月的人为重建源分区保留在线并报冲突，不覆盖或选择最新代际。所有身份/内容/时间事实不可变，状态只pending→ready；无账号或源表依赖，不能删除归属行。复用受限restore标记，仅允许表owner在恢复事务中映射bucket/identity；有事实时拒绝破坏性downgrade。源OID只保留历史，恢复不改成目标OID，pending不自动继续DROP。
+
+源只接受public.audit_logs的普通直接叶分区、规范 `audit_logs_yYYYYmMM` 名称及完整UTC月边界，父表必须按created_at范围分区；拒绝默认/子分区、外表、其他schema同名和不符附件/OID。retain_months必须为正整数，不用0/负数触发清空；候选只取完整结束且保留期外月份。ensure_future同样核对真正附件、OID与完整边界；同名独立表不被IF NOT EXISTS冒认。所有动态标识符由严格规范化身份生成、限定schema并quote。
+
+初次事务明确READ COMMITTED，先取得月份xact advisory互斥，仅对目标child取SHARE NOWAIT，获锁后重核catalog，按 `(id,created_at)` 服务器流式游标生成确定性gzip（mtime=0），规范JSONL逐行计数/摘要并写唯一末行 `_partition_meta`。不整月载入内存；受600秒核验预算、每行16MiB、源256GiB/一千万行、压缩64GiB约束，超限保留源并明确失败。meta记录格式、月份和源身份、行数及源内容回执；读取API沿用meta作为末条普通dict，total为源行数加1。先提交pending与所有独立回执并释放源锁，才在durable storage permit中条件PUT、条件完整回读压缩SHA和完整解压语义；所有句柄与线程真实收尾，临时文件由本次尝试关闭。失败、取消、关闭/提交应答未知不补偿删除，不按年龄回收pending。
+
+最终新READ COMMITTED事务取得同月xact advisory、Job及owner锁，确认当前尝试仍running且未取消，锁child SHARE NOWAIT并复核同一父/子OID、附件/边界，重新流式计算完整源回执。内容变化拒绝DROP并保留源和候选。全部本地重算通过后才尝试 `LOCK TABLE ONLY public.audit_logs IN ACCESS EXCLUSIVE MODE NOWAIT` 和child ACCESS EXCLUSIVE NOWAIT；不能等待锁升级，避免已持父表ROW EXCLUSIVE且等待child的routed INSERT形成死锁。重查catalog、pending回执、维护Gate及取消，限定schema DROP；同事务写ready、published_at、AUDIT_ARCHIVE审计和Job已提交月份/计数。父表锁不跨S3 I/O；最终锁冲突回滚并保留源。拒绝复用旧REPEATABLE READ/SERIALIZABLE snapshot；初次/最终新事务在任何SELECT前确定隔离级别。最终commit应答未知不以源缺失猜成功、不删候选；只认持久ready事实，未知pending不重放。
+
+Worker显式耐久create/running；按每月成功事务保存进度/结果，失败如实保存failed及固定错误码并保留已发布月，绝不吞错误冒充completed。中途取消在各安全边界检查，cancel接口对audit_archive使用与最终DROP相同Job锁；先赢则禁止后续DROP，DROP先赢则保留该月、取消剩余。已终态不得被迟到结果或signal覆盖；原signals锁和无user_id的系统Job语义复用，不新增用户通知。其他track_job调用不改。
+
+两个既有GET保留URI、分页参数、DTO形状及super_admin权限，不增加scope。list只查ready归属，不扫描当前桶；无已登记owner的月份返回结构化409明确历史未知，已知缺失404、完整性409、临时存储/关闭未知503。read在I/O前后锁原账号/原Key hash/scopes/expiry和当前super_admin角色，按UUID许可完整条件读保存桶、关闭句柄并校验全部压缩和解压内容，只保留请求分页窗口；不能先slice跳过尾部损坏，不返回MinIO地址。当前审计页没有归档UI，本片不新增页面。归档没有自动过期/物理清理，未知旧月对象保留待独立清单接管；本片不提供猜测接管工具。
+
+本片超过8文件：隔离树一负责模型/0226、严格存储/确定性codec与测试；隔离树二负责catalog/两次快照/最终DDL流程及并发回归；主树负责API/原授权、Worker/取消、对应测试、恢复夹具/映射、maintenance实测夹具和正式文档/派生合同与真实验收。最小替代是在固定月键上保存bucket并立即DROP，但无法证明源快照、上传字节和并发写入一致，因此保留独立候选。最脆弱前提是物理传输和最终commit是否确认结束，设计通过永久保留未知pending和不自动重放承受失败。新增服务内部模块不新增进程/依赖/环境变量/外部账号或凭据；沿用所属DB/MinIO/Redis及维护连接，不改共享配置、镜像或版本。
+
+```text
+已验证源身份 -> child SHARE / 流式JSONL+gzip -> pending回执提交并释锁
+                                                       |
+                             durable permit -> 条件PUT + 完整回读/解压
+                                                       |
+新事务 -> 月份/Job/owner锁 -> child SHARE / 全源重算 -> ONLY parent NOWAIT
+                                                       |
+                       child NOWAIT + catalog/Gate/取消复核 -> DROP + ready + audit + progress提交
+API -> 原super_admin/Key -> UUID读取许可/保存桶完整核验 -> 当前授权/同owner/Gate -> 有界分页
+恢复 -> 仅bucket/identity映射，源OID/内容/状态/已删除源与未知历史均保持
+```
+
+验证以已确认owner的一次性test命名空间为唯一DB目标：严格schema/0226/restore/禁止删除、确定性三态内容和空分区、相同id不同created_at、同键异桶/损坏/缺失/压缩炸弹/尾部坏行/句柄关闭；旧未知零I/O、角色/原Key两窗变化及自然到期；真实数据库并发旧月INSERT、当前月不受网络阻塞、父路由INSERT与NOWAIT失败、rename/detach/同名换OID/错误边界、两Worker交错、read isolation；pending提交失败零PUT、上传失败零DROP、最终DDL/ready/audit原子回滚、未知commit与取消各顺序、持久failed和迟到终态。真实HTTP/MinIO/当前maintenance Worker归档非空旧月并经API完整读回、缺失/损坏拒绝、取消/失败和源销毁后的离线恢复。源/目标随机拥有资源、ready已DROP源/pending仍有源及旧无owner字节均恢复，原OID不改。同步README、CHANGELOG、API/async-jobs、用户审计、架构和部署恢复文档；Ruff、OpenAPI/codegen、SDK合同、文档生成/build、正常hooks和diff通过后记录Outcome。无样式变更，不重复完整主题矩阵；如浏览器能展示现有Job/接口上下文则验收现有流程，不虚构归档UI。保留人工3100/8100、两Worker/Beat及原24对象/12文件字节，迁移/刷新仅所属环境。全部测试资源/产物按owner清理；完整E02及用途切换继续active/关闭。LAN脚本给runtime审计DDL而基础/生产维护用owner，部署按实际权限核查，本片不声称生产独占、Object Lock、RPO/RTO或规模资格。
+
 ## 本轮实施定案：E02-B8 报告附件固定归属与认证字节传输
 
 基于干净HEAD `547fe6f05` 延续整套实施和提交授权。只读核对确认截图直传当前bug桶、无独立回执且URL可重放；报告只按前缀接受key，旧screenshot_url还允许任意字符串；两个Web下载入口用普通链接，未携带HTTPBearer。审计归档另有PUT后直接DROP分区、缺源快照围栏和固定归属的完整缺口，记录为下一独立消费者阶段，本片不借改选桶声称它已完成。
