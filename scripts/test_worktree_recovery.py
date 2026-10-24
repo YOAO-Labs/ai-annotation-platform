@@ -192,6 +192,8 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         from app.db.models.export_output import ExportOutput
         from app.db.models.bug_attachment_upload import BugAttachmentUpload
         from app.db.models.comment_attachment_upload import CommentAttachmentUpload
+        from app.db.models.guide_asset_upload import GuideAssetUpload
+        from app.db.models.project_guide_asset import ProjectGuideAsset
         from app.db.models.audit_archive_output import AuditArchiveOutput
         from app.services.dataset_assets import LEGACY_LOCATION_ID
 
@@ -213,6 +215,8 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             output=ExportOutput,
             bug_attachment=BugAttachmentUpload,
             comment_attachment=CommentAttachmentUpload,
+            guide_asset=GuideAssetUpload,
+            guide_reference=ProjectGuideAsset,
             archive=AuditArchiveOutput,
         )
         self.source, self.target, self.endpoint = (
@@ -249,6 +253,12 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         )
         comment_endpoint.start()
         self.addCleanup(comment_endpoint.stop)
+        guide_endpoint = patch(
+            "app.services.guide_asset_storage._runtime_endpoint",
+            return_value=self.endpoint,
+        )
+        guide_endpoint.start()
+        self.addCleanup(guide_endpoint.stop)
         archive_endpoint = patch(
             "app.services.audit_archive_storage._runtime_endpoint",
             return_value=self.endpoint,
@@ -520,6 +530,31 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             storage_identity=identity(self.endpoint, self.source["MINIO_BUCKET"]),
         )
         self.rows[CommentAttachmentUpload] = [comment]
+        guide = SimpleNamespace(
+            id=uuid.UUID(int=34),
+            owner_id=uuid.UUID(int=35),
+            project_id=project_id,
+            sha256=hashlib.sha256(b"<svg/>").hexdigest(),
+            size_bytes=6,
+            mime_type="image/svg+xml",
+            file_name="guide.svg",
+            created_at=comment.created_at,
+            state="ready",
+            retired_at=None,
+            last_attempted_at=comment.created_at,
+            storage_ref={
+                **comment.storage_ref,
+                "object_key": f"projects/{project_id}/guide/{uuid.UUID(int=34)}",
+            },
+        )
+        self.rows[GuideAssetUpload] = [guide]
+        self.rows[ProjectGuideAsset] = [
+            SimpleNamespace(
+                project_id=project_id,
+                upload_id=guide.id,
+                created_at=comment.created_at,
+            )
+        ]
         self.db = SimpleNamespace(
             get=AsyncMock(
                 return_value=SimpleNamespace(
@@ -540,7 +575,9 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
     async def test_every_durable_physical_owner_is_relocated(self):
         from app.services import original_cache, prediction_inputs
 
+        references = deepcopy(self.rows[self.models.guide_reference])
         ledger = await remap_storage(self.db, self.source, self.target, self.endpoint)
+        self.assertEqual(self.rows[self.models.guide_reference], references)
         self.assertEqual(
             {entry["table"] for entry in ledger},
             {
@@ -560,6 +597,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 "export_outputs",
                 "bug_attachment_uploads",
                 "comment_attachment_uploads",
+                "guide_asset_uploads",
                 "audit_archive_outputs",
             },
         )
@@ -592,6 +630,14 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(
                             row.storage_ref["bucket"], self.target["MINIO_BUCKET"]
                         )
+                        if row is self.rows[self.models.guide_asset][0]:
+                            self.assertEqual(row.id, uuid.UUID(int=34))
+                            self.assertEqual(row.owner_id, uuid.UUID(int=35))
+                            self.assertEqual(row.project_id, uuid.UUID(int=12))
+                            self.assertEqual(row.mime_type, "image/svg+xml")
+                            self.assertEqual(row.size_bytes, 6)
+                            self.assertEqual(row.state, "ready")
+                            continue
                         self.assertEqual(row.bound_comment_id, uuid.UUID(int=33))
                         self.assertEqual(row.annotation_id, uuid.UUID(int=31))
                         self.assertEqual(
@@ -921,6 +967,116 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 field,
             )
 
+    async def test_unknown_guide_asset_refuses_without_any_partial_mutation(self):
+        from worktree_recovery_fixture import digest
+
+        original = deepcopy(self.rows)
+        mutations = [
+            ("schema", True),
+            ("purpose", "avatars"),
+            ("bucket", self.source["MINIO_EXPORT_BUCKET"]),
+            ("object_key", "projects/foreign/guide/unknown"),
+            (
+                "object_key",
+                f"comment-attachments/{uuid.UUID(int=12)}/{uuid.UUID(int=34)}",
+            ),
+            (
+                "object_key",
+                f"projects/{uuid.UUID(int=36)}/guide/{uuid.UUID(int=34)}",
+            ),
+            (
+                "object_key",
+                f"projects/{uuid.UUID(int=12)}/guide/{uuid.UUID(int=36)}",
+            ),
+            ("storage_identity", "f" * 64),
+            ("endpoint_url", "https://elsewhere.invalid"),
+            ("location_id", str(uuid.UUID(int=37))),
+            ("config_revision", 2),
+            ("binding_generation", 2),
+            ("unknown", "not-a-locator-fact"),
+        ]
+        for field, value in mutations:
+            self.rows = deepcopy(original)
+            self.rows[self.models.guide_asset][0].storage_ref[field] = value
+            before = digest(
+                {
+                    model.__tablename__: [vars(row) for row in rows]
+                    for model, rows in self.rows.items()
+                }
+            )
+            with (
+                self.subTest(field=field, value=value),
+                self.assertRaises(WorktreeError),
+            ):
+                await remap_storage(self.db, self.source, self.target, self.endpoint)
+            after = digest(
+                {
+                    model.__tablename__: [vars(row) for row in rows]
+                    for model, rows in self.rows.items()
+                }
+            )
+            self.assertEqual(before, after)
+            self.db.flush.assert_not_awaited()
+            self.db.execute.assert_not_awaited()
+
+    def test_protected_guide_owner_allows_only_bucket_and_identity_changes(self):
+        from worktree_recovery_fixture import digest, protected_row
+
+        row = deepcopy(vars(self.rows[self.models.guide_asset][0]))
+        base = digest(protected_row("guide_asset_uploads", row))
+        for field in ("bucket", "storage_identity"):
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "mapped"
+            self.assertEqual(
+                base, digest(protected_row("guide_asset_uploads", changed))
+            )
+        for field in row.keys() - {"storage_ref"}:
+            with self.subTest(field=field):
+                self.assertNotEqual(
+                    base,
+                    digest(
+                        protected_row("guide_asset_uploads", {**row, field: "changed"})
+                    ),
+                )
+        for field in row["storage_ref"].keys() - {"bucket", "storage_identity"}:
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "changed"
+            with self.subTest(ref_field=field):
+                self.assertNotEqual(
+                    base, digest(protected_row("guide_asset_uploads", changed))
+                )
+        changed = deepcopy(row)
+        changed["storage_ref"]["unknown"] = "extra fact"
+        self.assertNotEqual(base, digest(protected_row("guide_asset_uploads", changed)))
+
+    def test_guide_refs_and_project_revision_are_entirely_protected(self):
+        from worktree_recovery_fixture import digest, protected_row
+        from app.services import guide_asset_storage
+
+        guide = self.rows[self.models.guide_asset][0]
+        rows = {
+            "project_guide_assets": vars(self.rows[self.models.guide_reference][0]),
+            "projects": {
+                "id": guide.project_id,
+                "owner_id": guide.owner_id,
+                "guide_assets": [guide_asset_storage.entry(guide)],
+                "guide_assets_revision": 2,
+                "annotation_guide": "![shared](guide image)",
+            },
+        }
+        for table, row in rows.items():
+            self.assertEqual(protected_row(table, row), row)
+            for field in row:
+                with self.subTest(table=table, field=field):
+                    self.assertNotEqual(
+                        digest(protected_row(table, row)),
+                        digest(protected_row(table, {**row, field: "changed"})),
+                    )
+        self.assertNotEqual(
+            digest(protected_row("project_guide_assets", rows["project_guide_assets"])),
+            digest([]),
+        )
+
     async def test_unknown_audit_archive_refuses_without_partial_mapping(self):
         original = deepcopy(self.rows)
         for field, value in [
@@ -1053,6 +1209,54 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(WorktreeError):
             await remap_storage(self.db, self.source, self.target, self.endpoint)
         self.db.flush.assert_not_awaited()
+
+
+class GuideAssetFixtureTests(unittest.TestCase):
+    def test_fixture_bytes_really_cover_all_five_supported_image_types(self):
+        import io
+        from PIL import Image
+        from app.services import guide_asset_storage
+        from worktree_recovery_guide_assets import CASES, content_for
+
+        self.assertEqual(
+            {case[2] for case in CASES}, set(guide_asset_storage.ALLOWED_TYPES)
+        )
+        self.assertEqual({case[1] for case in CASES}, {"pending", "ready", "retired"})
+        for case, _, _, image_format in CASES:
+            raw = content_for(case)
+            self.assertGreater(len(raw), 0)
+            self.assertLessEqual(len(raw), guide_asset_storage.MAX_BYTES)
+            if image_format is not None:
+                with io.BytesIO(raw) as source, Image.open(source) as image:
+                    self.assertEqual(image.format, image_format)
+                    self.assertEqual(image.size, (2, 2))
+                    image.verify()
+            else:
+                self.assertEqual(
+                    raw,
+                    b'<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="blue"/></svg>\n',
+                )
+
+    def test_missing_origin_and_legacy_identities_cannot_collide_with_owners(self):
+        from worktree_recovery_guide_assets import CASES, identifier, legacy_entry
+
+        ids = [identifier("upload", case[0]) for case in CASES]
+        ids += [
+            identifier("original-project"),
+            identifier("original-actor"),
+            identifier("current-copy"),
+            identifier("legacy"),
+        ]
+        self.assertEqual(len(ids), len(set(ids)))
+        entry = legacy_entry(
+            uuid.UUID(int=12), datetime(2026, 10, 24, 1, 2, 3, tzinfo=timezone.utc)
+        )
+        self.assertEqual(
+            set(entry), {"key", "original_name", "content_type", "size", "uploaded_at"}
+        )
+        self.assertEqual(entry["uploaded_at"], "2026-10-24T01:02:03Z")
+        self.assertTrue(entry["key"].endswith(str(identifier("legacy"))))
+        self.assertNotIn(identifier("legacy"), ids[: len(CASES)])
 
 
 if __name__ == "__main__":

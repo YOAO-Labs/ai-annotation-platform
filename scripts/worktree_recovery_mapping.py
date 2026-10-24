@@ -69,11 +69,13 @@ async def remap_storage(
     from app.db.models.bug_attachment_upload import BugAttachmentUpload
     from app.db.models.audit_archive_output import AuditArchiveOutput
     from app.db.models.comment_attachment_upload import CommentAttachmentUpload
+    from app.db.models.guide_asset_upload import GuideAssetUpload
     from app.services import avatar_storage
     from app.services import export_storage
     from app.services import bug_attachment_storage
     from app.services import audit_archive_storage
     from app.services import comment_attachment_storage
+    from app.services import guide_asset_storage
     from app.services import (
         training_dataset_storage,
         training_run_storage,
@@ -294,6 +296,28 @@ async def remap_storage(
                 "storage_identity": identity(endpoint_url, bucket),
             },
             CommentAttachmentUpload.__tablename__,
+            str(row.id),
+        )
+    for row in await db.scalars(select(GuideAssetUpload)):
+        try:
+            owner = guide_asset_storage.resolve(row)
+        except ValueError:
+            raise WorktreeError("指南图片含未知归属或内容回执") from None
+        if (
+            owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
+            or owner.bucket != source["MINIO_BUCKET"]
+        ):
+            raise WorktreeError("指南图片归属与备份源不一致")
+        bucket = target["MINIO_BUCKET"]
+        change(
+            row,
+            "storage_ref",
+            {
+                **owner.ref,
+                "bucket": bucket,
+                "storage_identity": identity(endpoint_url, bucket),
+            },
+            GuideAssetUpload.__tablename__,
             str(row.id),
         )
     for row in await db.scalars(select(AuditArchiveOutput)):
