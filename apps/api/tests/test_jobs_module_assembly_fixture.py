@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pytest
 
 from tests.identity_module_assembly_helpers import (
@@ -34,6 +35,24 @@ def test_jobs_broker_accepts_owned_authenticated_or_password_free_local_target(b
 def test_jobs_broker_rejects_foreign_target_or_reused_bearer(broker, token):
     with pytest.raises(ValueError):
         validate_jobs_queue_broker_url(broker, "redis://127.0.0.1:46379/0", token)
+
+
+def test_restored_role_context_keeps_the_existing_database_guard(monkeypatch):
+    from sqlalchemy.engine import make_url
+    from tests.test_jobs_module_assembly_live import _role_urls_for_database
+    from tests.test_module_data_roles import _role_url
+
+    reference = "postgresql+asyncpg://owner:fixture@127.0.0.1:46379/source_test"
+    variable = "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL"
+    role = "postgresql+asyncpg://preannotation_result_client:fixture@127.0.0.1:46379/source_test"
+    monkeypatch.setenv("TEST_DATABASE_URL", reference)
+    monkeypatch.setenv(variable, role)
+    with _role_urls_for_database("restored_test"):
+        selected = _role_url(variable, "preannotation_result_client")
+        assert make_url(selected).database == "restored_test"
+        assert make_url(os.environ["TEST_DATABASE_URL"]).database == "restored_test"
+    assert os.environ["TEST_DATABASE_URL"] == reference
+    assert os.environ[variable] == role
 
 
 def test_jobs_queue_image_requires_complete_source_bound_inputs():
