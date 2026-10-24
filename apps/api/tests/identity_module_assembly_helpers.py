@@ -462,26 +462,37 @@ class IdentityModuleStack:
         return re.sub(r"ak_[A-Za-z0-9_-]+", "<redacted-key>", value)
 
     def capture_diagnostics(self) -> str:
-        records = {}
-        containers = self._verify_project_ownership()
-        for service, details in containers.items():
-            result = subprocess.run(
-                ["docker", "logs", "--tail", "100", details["Id"]],
-                env=self._compose_environment,
-                capture_output=True,
-                text=True,
-                timeout=20,
-                check=False,
-            )
-            records[service] = {
-                "state": details.get("State"),
-                "logs": self.redact(result.stdout + result.stderr),
-            }
         path = (
             ROOT / ".worktree" / f"identity-module-diagnostics-{self.project_name}.json"
         )
+        compose_environment_ready = self._compose_env_file.is_file()
+        override_ready = self._override_file.is_file()
+        if not compose_environment_ready or not override_ready:
+            records = {
+                "state": "configuration_not_prepared",
+                "compose_environment_ready": compose_environment_ready,
+                "override_ready": override_ready,
+            }
+        else:
+            records = {}
+            containers = self._verify_project_ownership()
+            for service, details in containers.items():
+                result = subprocess.run(
+                    ["docker", "logs", "--tail", "100", details["Id"]],
+                    env=self._compose_environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+                records[service] = {
+                    "state": details.get("State"),
+                    "logs": self.redact(result.stdout + result.stderr),
+                }
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.touch(mode=0o600, exist_ok=True)
         path.write_text(json.dumps(records, indent=2) + "\n")
+        path.chmod(0o600)
         return str(path)
 
     async def start(self, database_name: str | None = None) -> None:

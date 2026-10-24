@@ -215,6 +215,48 @@ def test_optional_identity_secret_mounts_are_empty_by_default_and_selected_only_
     )
 
 
+@pytest.mark.parametrize(
+    ("prepared_files", "environment_ready", "override_ready"),
+    [
+        ((), False, False),
+        (("compose",), True, False),
+        (("override",), False, True),
+    ],
+)
+def test_unprepared_diagnostics_skip_docker_and_record_minimal_state(
+    tmp_path, monkeypatch, prepared_files, environment_ready, override_ready
+):
+    stack = IdentityModuleStack.__new__(IdentityModuleStack)
+    stack._compose_env_file = tmp_path / "compose.env"
+    stack._override_file = tmp_path / "compose.override.yml"
+    stack.project_name = "notifications-unprepared-" + uuid.uuid4().hex
+    if "compose" in prepared_files:
+        stack._compose_env_file.write_text("partial\n", encoding="utf-8")
+    if "override" in prepared_files:
+        stack._override_file.write_text("partial\n", encoding="utf-8")
+
+    def reject_docker_lookup(*_args, **_kwargs):
+        pytest.fail("Unprepared diagnostics must not query Docker or Compose")
+
+    monkeypatch.setattr(
+        IdentityModuleStack, "_verify_project_ownership", reject_docker_lookup
+    )
+    monkeypatch.setattr(
+        "tests.identity_module_assembly_helpers.subprocess.run", reject_docker_lookup
+    )
+
+    path = Path(stack.capture_diagnostics())
+    try:
+        assert json.loads(path.read_text(encoding="utf-8")) == {
+            "state": "configuration_not_prepared",
+            "compose_environment_ready": environment_ready,
+            "override_ready": override_ready,
+        }
+        assert path.stat().st_mode & 0o777 == 0o600
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def _required_native_inputs() -> dict[str, str]:
     names = (
         "AAP_IDENTITY_RUNTIME_IMAGE",
