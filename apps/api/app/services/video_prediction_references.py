@@ -487,6 +487,7 @@ class _Receipt:
 
 
 async def validate_receipt(db, task_id, project_id, receipt):
+    """Return private evidence; callers must project any public provenance."""
     if (
         type(receipt) is not _Receipt
         or receipt.issuer is not _ISSUER
@@ -504,7 +505,7 @@ async def validate_receipt(db, task_id, project_id, receipt):
         receipt.owner.bindings[task_id], json.loads(receipt.binding)
     ) or not _same(evidence, json.loads(receipt.evidence)):
         reject("prediction_video_receipt_invalid")
-    return public_provenance(evidence)
+    return deepcopy(evidence)
 
 
 class VideoPredictionJob:
@@ -895,7 +896,7 @@ class VideoPredictionJob:
                     reject("prediction_video_model_changed")
                 await _pool(self.db, self.project_id, backend.id, row["pool_id"])
             models.append({**row, "executed_registry_id": actual})
-        return public_provenance(
+        return bounded(
             {
                 **self.bindings[task_id],
                 "schema": 1,

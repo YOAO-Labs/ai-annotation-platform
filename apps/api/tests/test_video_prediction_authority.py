@@ -443,16 +443,21 @@ async def test_private_receipt_rechecks_exact_current_binding_in_same_top_transa
     monkeypatch,
 ):
     world = setup_job()
-    public = video.public_provenance(evidence(world))
-    check = AsyncMock(return_value=public)
+    private = evidence(world)
+    check = AsyncMock(return_value=private)
     monkeypatch.setattr(world.owner, "_final_check", check)
     receipt = await world.owner.final_receipt(world.task)
-    assert (
-        await video.validate_receipt(
-            world.db, world.task.id, world.task.project_id, receipt
-        )
-        == public
+    validated = await video.validate_receipt(
+        world.db, world.task.id, world.task.project_id, receipt
     )
+    assert validated == private
+    assert validated["original"]["bucket"] == "saved-bucket"
+    assert validated["original"]["facts"] == private["original"]["facts"]
+    assert validated["models"][0]["declaration"] == private["models"][0]["declaration"]
+    assert "credentials" not in authority.encoded(validated)
+    validated["original"]["facts"]["relation"]["file_path"] = "changed"
+    assert private["original"]["facts"]["relation"]["file_path"] == "saved/clip.mp4"
+    assert "bucket" not in authority.encoded(video.public_provenance(private))
     assert check.await_count == 2
     for forged in (
         object(),
@@ -473,15 +478,24 @@ async def test_private_receipt_rechecks_exact_current_binding_in_same_top_transa
         )
 
 
+@pytest.mark.parametrize("drift", ["probe", "locator", "facts", "declaration"])
 async def test_receipt_rejects_payload_or_source_drift_even_before_second_write(
     monkeypatch,
+    drift,
 ):
     world = setup_job()
-    public = video.public_provenance(evidence(world))
-    check = AsyncMock(return_value=public)
+    private = evidence(world)
+    check = AsyncMock(return_value=private)
     monkeypatch.setattr(world.owner, "_final_check", check)
     receipt = await world.owner.final_receipt(world.task)
-    public["probe"]["video"]["width"] = 256
+    if drift == "probe":
+        private["probe"]["video"]["width"] = 256
+    elif drift == "locator":
+        private["original"]["bucket"] = "current-bucket"
+    elif drift == "facts":
+        private["original"]["facts"]["relation"]["item_id"] = str(uuid.uuid4())
+    else:
+        private["models"][0]["declaration"]["model"]["params"] = {"changed": True}
     with pytest.raises(ContentError, match="receipt_invalid"):
         await video.validate_receipt(
             world.db, world.task.id, world.task.project_id, receipt
@@ -883,6 +897,13 @@ async def test_final_sql_metadata_fences_closed_source_owned_copy_and_exact_task
     )
     evidence = await world.owner._final_check(world.task.id)
     assert evidence["input_version_id"] == "immutable-version"
+    assert evidence["original"] == world.proof["tasks"][0]["original"]
+    assert evidence["file_path"] == world.task.file_path
+    assert (
+        evidence["models"][0]["declaration"] == world.proof["models"][0]["declaration"]
+    )
+    assert "credentials" not in authority.encoded(evidence)
+    assert "bucket" not in authority.encoded(video.public_provenance(evidence))
     metadata.assert_awaited_once_with(world.db, inputs)
     if drift == "source":
         source.unsettled = True
