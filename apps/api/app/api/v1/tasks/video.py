@@ -1276,7 +1276,7 @@ async def propagate_video_track(
         request=request,
         status_code=202,
         detail={
-            "task_id": str(task.id),
+            "task_id": str(task_id),
             "annotation_id": str(annotation_id),
             "dataset_item_id": str(ctx.dataset_item_id),
             "segment_id": str(body.segment_id) if body.segment_id else None,
@@ -1337,7 +1337,7 @@ async def track_video(
         request=request,
         status_code=202,
         detail={
-            "task_id": str(task.id),
+            "task_id": str(task_id),
             "annotation_id": str(payload.source_annotation_id)
             if payload.source_annotation_id
             else None,

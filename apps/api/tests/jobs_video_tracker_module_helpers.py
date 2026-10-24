@@ -701,6 +701,17 @@ async def _exercise_api_tracker_phase(
             "success_status": completed_success["status"],
             "cancel_status": cancelled_after_delivery["status"],
         }
+    except BaseException:
+        try:
+            record_property(
+                "video_tracker_jobs_queue_diagnostics", stack.capture_diagnostics()
+            )
+        except Exception as diagnostic_error:
+            record_property(
+                "video_tracker_jobs_queue_diagnostics_error",
+                type(diagnostic_error).__name__,
+            )
+        raise
     finally:
         if (
             worker_started
@@ -1103,18 +1114,6 @@ async def exercise_video_tracker_queue_and_restore(
             "restored": restored_phase,
             "readback": readback,
         }
-    except BaseException:
-        if stack is not None:
-            try:
-                record_property(
-                    "video_tracker_jobs_queue_diagnostics", stack.capture_diagnostics()
-                )
-            except Exception as diagnostic_error:
-                record_property(
-                    "video_tracker_jobs_queue_diagnostics_error",
-                    type(diagnostic_error).__name__,
-                )
-        raise
     finally:
         try:
             for worker in reversed(workers):
