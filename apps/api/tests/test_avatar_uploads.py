@@ -4,6 +4,7 @@ import asyncio
 from datetime import timedelta
 import io
 import threading
+from unittest.mock import AsyncMock
 import uuid
 
 from fastapi import HTTPException
@@ -459,6 +460,9 @@ async def test_publish_commit_failure_never_deletes_candidate(
     commit_applied, test_engine, objects, monkeypatch
 ):
     """Real transactions prove the pending row survives rollback of publication."""
+    # Keep the fault-injection fixture independent of immutable audit history;
+    # its account and object rows are explicitly removed below.
+    monkeypatch.setattr(avatar_uploads.AuditService, "log", AsyncMock())
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     identifier = uuid.uuid4()
     async with maker() as db:
