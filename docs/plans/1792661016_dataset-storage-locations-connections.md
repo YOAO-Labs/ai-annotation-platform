@@ -1397,3 +1397,21 @@ schema4 领域、迁移、物理传输、冻结输入与时间重放、真实计
 只读复核确认图片预标主流水线、ROI 和两类失败重试仍通过 `storage.resolve_task_url`／`_load_task_image` 使用当前桶，混合引用作业的 managed 成员也回退旧读取；独立 TaskOriginal 与 primary-only 关系尚未消费 canonical locator。下一片先闭合现有图片 bulk／workbench 预标和失败重试，不重新建设已完成的逐帧视频原件读取，也不扩展新的点云 ML 功能。
 
 实施前先定稿原请求／精确 Task 集合与配置／来源证明、同一完整核验 stage 的整图和 ROI、现有 PredictionInputLease 的固定保存位置／独立对象清单及真实收尾、末端来源／Key／批次分派复核，以及无可信来源历史重试的明确兼容策略。现有部分 ML backend 按去 query 的 URL 路径缓存 embedding，重新签同一路径不足以证明消费本次字节；应使用每次尝试独立的精确输入副本路径，保持后端协议并避免重建 ML 镜像。同步 interactive／predict-test、secondary、mask repair 和整段视频 Tracker 继续作为独立后续消费者，本段尚非实施或验收结果。
+
+## E02-B13-B3-I Design — 图片预标与失败重试的固定输入
+
+本片闭合现有 image 项目的 bulk／workbench 后台预标、整图／ROI 多阶段和单条／整 Job 两种失败重试。沿用 composer、管线验证、队列、原生掩码写入与普通预测采纳；不增加 ML 后端协议，不重建镜像。同步交互、secondary、mask repair 的托管来源及整段视频 Tracker 仍独立后续实施，已有引用入口的输入副本共享物理实现必须保持可用。
+
+所有新图片请求在入队前冻结过滤后的准确 Task 集合、执行配置和 schema2 服务端来源证明，包含原请求 JWT 的期限／generation／jti 或 API Key 的准确身份／权限／期限证明。沿用实际入口所需 scope，不为托管请求额外要求 tasks:read；引用仍保留既有读取 scope。来源集合独立于已有 1MiB 配置快照，最多 1000 Task、序列化证明最多 1MiB；skip_predicted 先过滤，空集合保持空集合。幂等 pending 重投复用原选择、快照和来源，不重新捕获；历史未记录托管来源的图片消息不得在 Worker 补造证明，明确要求重新发起。
+
+沿现有 ReferencePredictionJob 扩展混合输入编排，不增加竞争 Job owner。托管成员通过 original_sources 冻结 TaskOriginal、直接 Item 或 primary-only 关系，以及原件内容、保存位置、配置和维护代次；来源摘要覆盖完整 canonical 事实和准确关系，不猜测当前用途桶。Worker 在物理读取前后、每次 ML 派发前和最终保存前复核原请求、项目／Task 范围与相同来源。原件条件读取、完整 SHA／长度、64MiB／3200万像素检查后，整图和全部 ROI 共用同一份 Snapshot。物理许可覆盖读取、文件真实关闭与异常收尾；软限时、取消和任意 BaseException 均排空实际线程／Body／client，未知关闭保留耐久责任。
+
+直接扩展无业务级联 FK 的 PredictionInputLease：新合同 version2 保存固定 import storage_ref 和只追加的精确相对 key 清单；对象先独立提交 planned 责任，再条件创建、完整 GET／EOF／SHA／size 与对象身份回读，最后单调发布 verified。每次尝试使用新的 UUID 前缀及内容 SHA 路径，原图和所有裁剪共用一个 lease。保持单对象 64MiB、10000 对象／4GiB 累计、2小时活动租约、最长1小时且不对齐续期的 URL 和7天恢复观察期；已开始但未确认关闭的物理责任不因期限自动解除。ROI 先做有界纯裁剪，再在异步管线层逐项 await 上传，不在同步回调内隐藏事件循环或 DB 事务。
+
+清理复用现有维护任务，按保存位置、准确对象清单和版本执行，未知 key／版本或任意位置上同 purpose 的未收尾 StorageOperation 均阻断删除。旧无 pin／清单 lease 保留事实并返回 legacy_unpinned，不按当前配置回填或盲删前缀。迁移约束固定身份／期限、追加清单及单调状态，downgrade 拒绝已有新合同责任；离线恢复只映射操作位置，不改变原来源证明、对象事实、首次期限或恢复执行。
+
+最终写入在原 Job→Actor／Project／Key→Batch／Task 锁规则下，先复核准确来源与配置并取得不可伪造的事务绑定 receipt，再执行 overwrite 删除和整题预测／计数提交。引用原生掩码资格保持，托管 receipt 不借引用资格或后端 JSON 冒充来源；受保护 original_input 元信息只由服务端写入。保留 root 按 parent_stage is None 判断、非零 root、多层 ROI 谱系和 keep_parent／drop_box 语义，撤权／来源变化不能降格为可提交部分成功。bulk 的未分配 draft 保持 draft，工作台锁和终态规则不放宽。
+
+完全失败和部分失败均保存冻结的原来源绑定。两种重试入口重新取得当前请求授权并冻结当前 Task 版本，但复用原配置和原图片内容／来源，不能将旧 Task version 与新授权混为一谈。缺可信来源或配置的历史托管图片失败保留记录并明确拒绝直接重试，用户可重新发起新预标；迟到 Worker 消息亦执行相同拒绝。部分重试保留旧候选，成功仅替换准确旧候选。
+
+实施在本地 Design HEAD 的隔离工作树；根工作树独占新建可销毁 test／e2e 数据库。验证真实登记的 TaskOriginal／DatasetAsset／primary-only、当前桶陷阱、整图与 crop 实际像素、同键变化、撤权／取消／软限时、非零 root／深层谱系、覆写事务、幂等和两个重试入口；覆盖共享引用／缓存／修复回归，以及真实 HTTP／独立 Celery／MinIO 和源销毁后的隔离恢复。同步正式用户／API／架构文档和 CHANGELOG，刷新人工 Worker 并保持3100／8100、原业务和字节指纹，按归属清理测试产物。整套 Epic、完整 E02／B13 和完整用途切换仍未完成。
