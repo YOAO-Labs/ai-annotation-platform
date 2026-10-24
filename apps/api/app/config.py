@@ -207,6 +207,15 @@ class Settings(BaseSettings):
     minio_media_cache_bucket: str = "media-cache"
     # v0.10.17 · 审计冷分区归档独立桶。归档后永久保留,合规相关,与运营数据物理隔离。
     minio_audit_archive_bucket: str = "audit-archive"
+    # Optional read-only binding for Audit archive administration. Empty endpoint keeps
+    # the existing API storage binding; credentials are separate from general MinIO.
+    audit_archive_read_s3_endpoint_url: str = ""
+    audit_archive_read_s3_region: str = "us-east-1"
+    audit_archive_read_s3_bucket: str = "audit-archive"
+    audit_archive_read_s3_access_key_id: str = Field(default="", repr=False)
+    audit_archive_read_s3_access_key_id_file: str = ""
+    audit_archive_read_s3_secret_access_key: str = Field(default="", repr=False)
+    audit_archive_read_s3_secret_access_key_file: str = ""
     # v0.10.27 · 导入预标注 / 导出标注产物的短生命周期独立桶,各挂整桶 7 天 lifecycle。
     minio_import_bucket: str = "import"
     minio_export_bucket: str = "export"

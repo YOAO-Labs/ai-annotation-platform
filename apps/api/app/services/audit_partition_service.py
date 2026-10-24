@@ -2,17 +2,48 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from collections.abc import Iterator
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_audit.maintenance_config import load_archive_s3_config
 from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
 from aap_audit.maintenance_contract import AuditPartition
 from aap_audit.partitions import AuditPartitionManager
 
+from app.config import settings
 from app.services.audit import AuditAction, AuditService
 from app.services.storage import storage_service
 
 
 class AuditPartitionService:
+    @staticmethod
+    @contextmanager
+    def _archive_read_manager() -> Iterator[AuditPartitionManager]:
+        prefix = "AUDIT_ARCHIVE_READ_S3"
+        config = load_archive_s3_config(
+            {
+                f"{prefix}_ENDPOINT_URL": settings.audit_archive_read_s3_endpoint_url,
+                f"{prefix}_REGION": settings.audit_archive_read_s3_region,
+                f"{prefix}_BUCKET": settings.audit_archive_read_s3_bucket,
+                f"{prefix}_ACCESS_KEY_ID": settings.audit_archive_read_s3_access_key_id,
+                f"{prefix}_ACCESS_KEY_ID_FILE": settings.audit_archive_read_s3_access_key_id_file,
+                f"{prefix}_SECRET_ACCESS_KEY": settings.audit_archive_read_s3_secret_access_key,
+                f"{prefix}_SECRET_ACCESS_KEY_FILE": settings.audit_archive_read_s3_secret_access_key_file,
+            },
+            prefix=prefix,
+        )
+        if config is None:
+            yield AuditPartitionManager(None, storage_service)
+            return
+
+        storage = config.archive_storage()
+        try:
+            yield AuditPartitionManager(None, storage)
+        finally:
+            storage.close()
+
     @staticmethod
     def _manager(db: AsyncSession) -> AuditPartitionManager:
         async def record_archive(
@@ -62,10 +93,10 @@ class AuditPartitionService:
 
     @staticmethod
     def list_archives() -> list[dict]:
-        return AuditPartitionManager(None, storage_service).list_archives()
+        with AuditPartitionService._archive_read_manager() as manager:
+            return manager.list_archives()
 
     @staticmethod
     def read_archive_rows(year: int, month: int) -> list[dict] | None:
-        return AuditPartitionManager(None, storage_service).read_archive_rows(
-            year, month
-        )
+        with AuditPartitionService._archive_read_manager() as manager:
+            return manager.read_archive_rows(year, month)
