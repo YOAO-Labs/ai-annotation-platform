@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12 与 B13 各切片至 B3-I completed locally；B3-J 托管图片同步交互、预测测试与原生 Mask 同源接受已定稿实施。完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A、B1–B12 与 B13 各切片至 B3-J completed locally。完整 E02 继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -1459,3 +1459,19 @@ README、CHANGELOG Unreleased、用户预标指南、预测 API／架构、存�
 操作层、私有 native receipt、原件来源身份与独立提交夹具已合入；主树接通两个同步入口，先释放初始业务锁，再冻结提示元数据、核验原图及真实尺寸、读取原 Mask，并分别签入 original_input／reference_input。原生接受沿同一私有 receipt 贯穿 Prediction／Annotation 与尺寸校验；Mask 写入后及提交前复核原凭据时钟、Key 与 JWT 注销缓存，保留旧 Mask 错误字段及 scope 语义。
 
 当前一次性环境的重点回归 72 项全部通过，覆盖三来源、实际输入版本、两端点、来源与凭据变化、原生 create／refine／过期候选精确重放、真实事务私有凭据边界及写入期间过期／JWT 注销的整体回滚；提示／会话／代理 67 项检查通过。夹具已修正编号长度、分区派生外键、触发器写入范围及请求事务生命周期，未放宽生产约束。真实 ASGI／HTTP／MinIO 验收、引用及共享服务最终回归、人工环境复核和精确清理仍在进行，本节不作为 J Outcome，完整 E02／B13 与整套 Epic 继续活动。
+
+## E02-B13-B3-J Outcome — 同步图片推理与原生候选同源接受
+
+2026-10-25 完成本地验收。同步原件适配器 `6fa951f56`、私有原生接受 receipt `49e72fdef`、主接线 `752680b2e`、实际选池后的派发前复核 `d89e63674`、真实验收脚本 `878a61ee2` 及来源失效恢复提示 `2e0ea741a` 已合入。迁移头保持 0239，无新增表、AsyncJob 或 ML 协议，不重建镜像。
+
+predict-test／interactive-annotating 覆盖 TaskOriginal、直接 DatasetItem 和 primary-only 三种 canonical 原件，完整核验一次后使用尝试独立、非 null VersionId 的临时副本。候选与 logits 共同绑定严格的 original_input 安全投影；正常标注编辑不改变原件身份，缺可信来源的历史候选不能补默认值。setup、实际选池后的模型调用前及最终发布分别复核原凭据、Task／Batch、来源与 Gate；最终锁内没有对象或模型 I/O。保留原管理者测试权限、交互开关及 Mask 提示读取 scope，不扩大其他入口权限。
+
+原生 create／refine／精确重放复用同 session／顶层事务的不可伪造私有 receipt，贯穿 Prediction、Annotation 与真实图片尺寸校验；先完整读原件并确认关闭，再取得最终业务锁。Mask 写入期间 API Key 过期或 JWT 注销均整体回滚。原 Key、来源、提示版本或 Task 变化拒绝在途结果；来源变化及历史候选缺证据时向用户明确提示刷新页面后重新推理。Decision 的内部来源事实不进入公开响应。
+
+保留各轮 JUnit，按 classname／参数化用例名称合并最终结果，395 个不同 pytest 用例通过，无当前失败、错误或跳过；不计已删除的 predict-test/setup 组合，因为该入口本来没有 setup。最终 77 项包含真实引用 Mask 修复及 native 回归；另已通过真实引用缓存后台预测，共享提示／会话／代理、路由、RLE writer、Pipeline、幂等与引用同步／原生链路均通过。早期夹具问题已修正隔离 schema、分区派生外键、触发器表范围和请求事务；清理断言承认已删除输入的耐久 tombstone，物理版本仍由真实 HEAD／清单另行验证，未放宽生产约束或改写清理期限。
+
+真实 ASGI HTTP（无鉴权或 DB 依赖替换）→受控 CPU HTTP 后端→MinIO 的最终验收覆盖三来源的两个端点、两种来源的原生 create／refine／重放与 logits 续点，实际下载固定版本并核对 SHA、字节、非方形 128×96 像素。真实 GET 后撤 Key 返回 403、改 canonical 绑定返回 409。最终运行的十二个输入与十二次签名 GET 对应，等待真实 next_cleanup_at 并分轮清理后无临时对象、版本、删除标记或未收尾操作，原件仍在。两轮脚本和旧链路的整个 test 模式最终二十八条输入均为 deleted，无活动 Job、其他 DB 客户端或 StorageOperation。受控输出不授予真实模型精度、GPU、独立 TCP API、浏览器或生产性能资格；本片无新 schema，不重复宣称新的备份恢复资格。
+
+人工 3100／8100、两 Worker／绑定 Beat 均健康，十二表 155 行、24 对象完整字节和十二源文件指纹完全一致。新增用途仅由同步 API 调用；Worker 默认路由调用及任务合同保持，未触发镜像重建。test 数据库、专属 Redis 和九桶由所属 launcher 销毁，独立 doctor 实际核对均不存在；四棵干净且 patch 等价的隔离树已移除。任务日志、JUnit、缓存及文档构建产物按归属清理，保留人工环境、虚拟环境、共享依赖与生成类型。
+
+README、CHANGELOG Unreleased、SAM 用户指南、ML／任务 API 和预测架构已同步；OpenAPI 无漂移、codegen、docs build、Ruff／格式、正常 hooks 与 diff 检查通过。下一片先推进托管图片 secondary 二次推理的原件、独立 crop 与父标注最终事务；Mask repair、视频 Tracker、E10 真实训练消费和生产回收仍为独立完整切片。完整 E02／B13 与整套 Epic 未完成，完整用途切换关闭。
