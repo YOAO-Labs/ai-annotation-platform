@@ -63,6 +63,7 @@ class Storage:
             "ETag": '"' + hashlib.sha256(raw).hexdigest() + '"',
             "Metadata": dict(self.world.metadata.get((bucket, key), {})),
             "ResponseMetadata": {"HTTPStatusCode": 200},
+            **self.world.headers,
         }
 
     def head_object(self, *, Bucket, Key):
@@ -91,7 +92,13 @@ class Storage:
 
     def list_object_versions(self, *, Bucket, Prefix, **kwargs):
         rows = self.list_objects_v2(Bucket=Bucket, Prefix=Prefix)["Contents"]
-        rows = [{**row, "VersionId": "null"} for row in rows]
+        rows = [
+            {
+                **row,
+                "VersionId": self._head(Bucket, row["Key"]).get("VersionId", "null"),
+            }
+            for row in rows
+        ]
         if self.world.extra_version and rows:
             rows.append({**rows[0], "VersionId": "unknown-version"})
         return {
@@ -102,7 +109,8 @@ class Storage:
         }
 
     def delete_object(self, *, Bucket, Key, VersionId, IfMatch):
-        assert VersionId == "null" and IfMatch == self._head(Bucket, Key)["ETag"]
+        head = self._head(Bucket, Key)
+        assert VersionId == head.get("VersionId", "null") and IfMatch == head["ETag"]
         self.world.deleted.append((Bucket, Key))
         del self.world.objects[Bucket, Key]
         self.world.metadata.pop((Bucket, Key), None)
@@ -170,6 +178,7 @@ async def world(test_engine, monkeypatch):
             corrupt_read=False,
             fail_close=False,
             extra_version=False,
+            headers={},
         )
         monkeypatch.setattr(owner, "make_storage", lambda: Storage(world))
         yield world
@@ -648,3 +657,50 @@ async def test_412_requires_prior_durable_lease_and_nonce_not_just_same_sha(
         row = await lease(world, current.record.id)
         assert row.inventory["objects"][relative] == entry
     assert not world.puts
+
+
+@pytest.mark.parametrize("field", ["ETag", "VersionId"])
+async def test_full_readback_publishes_maximum_ascii_header_receipt(world, field):
+    # Exercise the actual migration trigger, including PostgreSQL's ARE parser.
+    world.headers[field] = "a" * 1024
+    current = await inputs(world)
+    await current.upload_crop(SimpleNamespace(id=current.record.task_id), 0, b"crop")
+    row = await lease(world, current.record.id)
+    entry = next(iter(row.inventory["objects"].values()))
+    assert entry["state"] == "verified"
+    assert len(entry["etag" if field == "ETag" else "version_id"]) == 1024
+    await current.close()
+    assert (await lease(world, current.record.id)).state == "deleted"
+    assert not world.objects
+
+
+@pytest.mark.parametrize("field", ["etag", "version_id"])
+@pytest.mark.parametrize("header", ["a" * 1025, "non-ascii-é", "line\nbreak", ""])
+async def test_database_refuses_out_of_contract_header_receipt(world, field, header):
+    current = await inputs(world)
+    digest = hashlib.sha256(b"crop").hexdigest()
+    relative = f"crops/0-{digest}.jpg"
+    await current._reserve(
+        relative,
+        dict(
+            sha256=digest,
+            size_bytes=4,
+            media_type="image/jpeg",
+            state="planned",
+            etag=None,
+            version_id=None,
+            write_nonce=str(uuid.uuid4()),
+        ),
+    )
+    async with world.factory() as db:
+        row = await db.get(Lease, current.record.id)
+        inventory = deepcopy(row.inventory)
+        entry = inventory["objects"][relative]
+        entry.update(state="verified", etag='"valid-etag"', version_id=None)
+        entry[field] = header
+        with pytest.raises(DBAPIError):
+            await db.execute(
+                update(Lease).where(Lease.id == row.id).values(inventory=inventory)
+            )
+        await db.rollback()
+    await current.close()

@@ -161,9 +161,13 @@ def upgrade():
             END IF;
             IF NOT COALESCE(((entry->>'state'='planned' AND entry->'etag'='null'::jsonb AND entry->'version_id'='null'::jsonb)
                 OR (entry->>'state'='verified' AND jsonb_typeof(entry->'etag')='string'
-                    AND entry->>'etag' ~ '^[!-~]{1,1024}$'
+                    AND octet_length(entry->>'etag') BETWEEN 1 AND 1024
+                    AND length(entry->>'etag')=octet_length(entry->>'etag')
+                    AND entry->>'etag' ~ '^[!-~]+$'
                     AND (entry->'version_id'='null'::jsonb OR (jsonb_typeof(entry->'version_id')='string'
-                        AND entry->>'version_id' ~ '^[!-~]{1,1024}$')))),false) THEN
+                        AND octet_length(entry->>'version_id') BETWEEN 1 AND 1024
+                        AND length(entry->>'version_id')=octet_length(entry->>'version_id')
+                        AND entry->>'version_id' ~ '^[!-~]+$')))),false) THEN
                 RAISE EXCEPTION 'Invalid prediction verification receipt' USING ERRCODE='23514';
             END IF;
             count_objects:=count_objects+1;
