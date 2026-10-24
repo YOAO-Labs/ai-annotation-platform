@@ -167,16 +167,30 @@ async def _cleanup_world(test_engine):
             await cleanup.commit()
 
 
+async def _job_rows_on(connection, ids):
+    rows = await connection.execute(
+        text(
+            "SELECT id::text,project_id::text,retained_project_id::text,kind,status,payload "
+            "FROM public.async_jobs WHERE id=ANY(CAST(:ids AS uuid[])) ORDER BY id"
+        ),
+        {"ids": ids},
+    )
+    return rows.all()
+
+
 async def _job_rows(engine, ids):
     async with engine.connect() as connection:
-        rows = await connection.execute(
+        return await _job_rows_on(connection, ids)
+
+
+async def _workspace_guard_definition(engine):
+    async with engine.connect() as connection:
+        return await connection.scalar(
             text(
-                "SELECT id::text,project_id::text,retained_project_id::text,kind,status,payload "
-                "FROM public.async_jobs WHERE id=ANY(CAST(:ids AS uuid[])) ORDER BY id"
-            ),
-            {"ids": ids},
+                "SELECT pg_catalog.pg_get_functiondef("
+                "'aap_workspace_fixture_v1.guard_project_cleanup(uuid[])'::regprocedure)"
+            )
         )
-        return rows.all()
 
 
 async def _assert_contract(test_engine):
@@ -211,7 +225,11 @@ async def _assert_contract(test_engine):
         "bigint",
         "v",
         True,
-        ["search_path=pg_catalog, pg_temp"],
+        [
+            "search_path=pg_catalog, pg_temp",
+            "TimeZone=UTC",
+            "DateStyle=ISO, YMD",
+        ],
         "jobs_code",
         True,
         False,
@@ -237,8 +255,7 @@ async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_
                             "pg_catalog.has_table_privilege(current_user,'public.async_jobs','INSERT'), "
                             "pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','INSERT'), "
                             "pg_catalog.has_table_privilege(current_user,'public.async_jobs','UPDATE'), "
-                            "pg_catalog.has_table_privilege(current_user,'public.async_jobs','DELETE'), "
-                            "pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','DELETE')"
+                            "pg_catalog.has_table_privilege(current_user,'public.async_jobs','DELETE')"
                         )
                     )
                 ).one()
@@ -249,7 +266,6 @@ async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_
                     False,
                     False,
                     True,
-                    False,
                     False,
                 )
 
@@ -345,6 +361,80 @@ async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_
             )
     finally:
         await api_engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        pytest.param(
+            {
+                "schema": "aap-workspace-e2e-fixtures/v1",
+                "ok": True,
+                "reason": None,
+                "unexpected": "extra",
+            },
+            id="extra-field",
+        ),
+        pytest.param(
+            {"schema": "aap-workspace-e2e-fixtures/v1", "ok": True},
+            id="missing-reason",
+        ),
+        pytest.param(
+            {
+                "schema": "aap-workspace-e2e-fixtures/v1",
+                "ok": "true",
+                "reason": None,
+            },
+            id="non-boolean-ok",
+        ),
+        pytest.param("invalid-reply", id="non-object"),
+        pytest.param(None, id="json-null"),
+    ],
+)
+async def test_fixture_cleanup_rejects_malformed_workspace_guard_replies_rollback_only(
+    test_engine, reply, record_property
+):
+    _identity_api_url(test_engine)
+    before_definition = await _workspace_guard_definition(test_engine)
+    async with _cleanup_world(test_engine) as world:
+        before_rows = await _job_rows(test_engine, world["all_ids"])
+        async with test_engine.connect() as owner:
+            transaction = await owner.begin()
+            try:
+                assert await owner.scalar(text("SELECT session_user::text")) == (
+                    test_engine.url.username
+                )
+                encoded = json.dumps(reply, ensure_ascii=False).replace("'", "''")
+                await owner.execute(
+                    text(
+                        "CREATE OR REPLACE FUNCTION "
+                        "aap_workspace_fixture_v1.guard_project_cleanup(p_project_ids uuid[]) "
+                        "RETURNS jsonb LANGUAGE sql VOLATILE PARALLEL UNSAFE SECURITY DEFINER "
+                        "SET search_path = pg_catalog, pg_temp SET TimeZone TO 'UTC' "
+                        "SET DateStyle TO 'ISO, YMD' "
+                        f"AS $function$ SELECT '{encoded}'::pg_catalog.jsonb $function$"
+                    )
+                )
+                await owner.execute(text("SET LOCAL ROLE identity_api_consumer"))
+                assert await owner.scalar(text("SELECT current_user::text")) == _ROLE
+                savepoint = await owner.begin_nested()
+                with pytest.raises(DBAPIError) as rejected:
+                    await owner.scalar(text(_CALL), {"ids": [world["project_id"]]})
+                assert _sqlstate(rejected.value) == "22023"
+                await savepoint.rollback()
+                assert await _job_rows_on(owner, world["all_ids"]) == before_rows
+            finally:
+                if transaction.is_active:
+                    await transaction.rollback()
+
+        assert await _job_rows(test_engine, world["all_ids"]) == before_rows
+        assert await _workspace_guard_definition(test_engine) == before_definition
+        record_property(
+            "jobs_fixture_cleanup_malformed_guard_reply",
+            json.dumps(
+                {"sqlstate": "22023", "jobs_unchanged": True, "ddl_rolled_back": True}
+            ),
+        )
 
 
 async def _video_fixture_snapshot(engine, fixture):
