@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.schemas._jsonb_types import CocoRleMaskRef
+from app.services.raster_object_storage import RasterObjectStorageError
 from app.services.raster_mask_storage import (
     MAX_RLE_OBJECT_BYTES,
     canonical_rle_bytes,
@@ -36,6 +37,7 @@ from app.utils.raster_mask_gzip import (
     decompress_mask_gzip,
 )
 from tests.test_raster_mask_storage import memory_mask_storage as _storage
+from tests.test_raster_mask_storage import mask_owner_for, ready_mask_owner
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
 
@@ -133,12 +135,12 @@ def test_compress_mask_gzip_is_symmetric_and_idempotent():
     assert decompress_mask_gzip(a) == data
 
 
-async def test_store_coco_rle_gzip_content_addressed():
+async def test_store_coco_rle_gzip_content_addressed(db_session):
     """gzip path stores .json.gz, sha256 over uncompressed canonical bytes,
     and the reference schema matches the uncompressed form except for
     object_key suffix + encoding marker."""
     storage = _storage()
-    reference = await store_coco_rle_gzip(RLE, storage=storage)
+    reference = await store_coco_rle_gzip(RLE, storage=storage, db=db_session)
 
     assert reference["encoding"] == "coco_rle_ref"
     assert reference["storage_encoding"] == "gzip"
@@ -154,92 +156,91 @@ async def test_store_coco_rle_gzip_content_addressed():
     # put_object was called with the gzipped body (smaller than canonical).
     put_kwargs = storage.client.put_object.call_args.kwargs
     assert put_kwargs["ContentType"] == "application/gzip"
-    assert put_kwargs["Key"] == reference["object_key"]
+    owner = await mask_owner_for(db_session, reference)
+    assert put_kwargs["Key"] == owner.storage_ref["object_key"]
+    assert put_kwargs["Key"] == f"raster-masks/objects/{owner.id}.json.gz"
+    assert put_kwargs["Key"] != reference["object_key"]
     stored_body = put_kwargs["Body"]
     # The stored body is gzip bytes (magic header) and decompresses to canonical.
     assert stored_body[:2] == b"\x1f\x8b"
     assert decompress_mask_gzip(stored_body) == canonical
 
 
-async def test_load_coco_rle_gzip_roundtrip():
+async def test_load_coco_rle_gzip_roundtrip(db_session):
     """store gzip → load → original counts; all digest/byte/run checks pass."""
     storage = _storage()
-    reference = await store_coco_rle_gzip(RLE, storage=storage)
+    reference = await store_coco_rle_gzip(RLE, storage=storage, db=db_session)
     body = storage.client.put_object.call_args.kwargs["Body"]
     stream = BytesIO(body)
     stream.close = MagicMock()
     storage.open_body = lambda _raw: stream
 
-    payload = await load_coco_rle(reference, storage=storage)
+    payload = await load_coco_rle(reference, storage=storage, db=db_session)
     assert payload["counts"] == [1, 2, 2, 1]
     assert payload["size"] == [2, 3]
     assert payload["encoding"] == "coco_rle"
     stream.close.assert_called_once()
 
 
-async def test_load_coco_rle_backward_compat_json():
-    """legacy uncompressed .json reference still loads unchanged."""
+async def test_load_coco_rle_backward_compat_json(db_session):
+    """The unchanged portable JSON DTO resolves its independent UUID owner."""
     storage = _storage()
-    reference = await store_coco_rle(RLE, storage=storage)
+    reference = await store_coco_rle(RLE, storage=storage, db=db_session)
     assert reference["object_key"].endswith(".json")
     body = storage.client.put_object.call_args.kwargs["Body"]
     stream = BytesIO(body)
     stream.close = MagicMock()
     storage.open_body = lambda _raw: stream
 
-    payload = await load_coco_rle(reference, storage=storage)
+    payload = await load_coco_rle(reference, storage=storage, db=db_session)
     assert payload["counts"] == [1, 2, 2, 1]
 
 
-async def test_gzip_writer_falls_back_when_reader_ratio_would_reject():
+async def test_gzip_writer_falls_back_when_reader_ratio_would_reject(db_session):
     highly_compressible = {
         "encoding": "coco_rle",
         "size": [1, 4000],
         "counts": [0] * 4000 + [4000],
     }
     storage = _storage()
-    reference = await store_coco_rle_gzip(highly_compressible, storage=storage)
+    reference = await store_coco_rle_gzip(
+        highly_compressible, storage=storage, db=db_session
+    )
     assert reference["encoding"] == "coco_rle_ref"
     assert reference["object_key"].endswith(".json")
     assert "storage_encoding" not in reference
 
 
-async def test_load_coco_rle_gzip_rejects_digest_mismatch():
+async def test_load_coco_rle_gzip_rejects_digest_mismatch(db_session):
     """gzip path still enforces the digest check over decompressed canonical."""
     storage = _storage()
-    reference = await store_coco_rle_gzip(RLE, storage=storage)
+    reference = await store_coco_rle_gzip(RLE, storage=storage, db=db_session)
     # Swap in a gzip body whose decompressed canonical has a different counts
     # array → its sha256 won't match the reference.
     other = {"encoding": "coco_rle", "size": [2, 3], "counts": [6]}
     other_canonical = canonical_rle_bytes(other)
     stream = BytesIO(compress_mask_gzip(other_canonical))
     stream.close = MagicMock()
-    storage.objects[reference["object_key"]] = stream.getvalue()
+    owner = await mask_owner_for(db_session, reference)
+    storage.objects[owner.storage_ref["object_key"]] = stream.getvalue()
     storage.open_body = lambda _raw: stream
-    with pytest.raises(ValueError, match="digest mismatch"):
-        await load_coco_rle(reference, storage=storage)
+    with pytest.raises(RasterObjectStorageError) as rejected:
+        await load_coco_rle(reference, storage=storage, db=db_session)
+    assert rejected.value.code == "raster_object_storage_integrity_mismatch"
 
 
-async def test_load_coco_rle_gzip_rejects_over_uncompressed():
-    """a stored gzip body that decompresses past the cap is rejected."""
+async def test_load_coco_rle_gzip_rejects_over_uncompressed(db_session):
+    """An oversized replacement fails the independent stored receipt first."""
     storage = _storage()
-    # Build a reference whose object_key ends in .json.gz (shape-only; the
-    # digest is irrelevant because decompression rejects before digest check).
+    reference, key = await ready_mask_owner(db_session, storage, RLE, compressed=True)
     big = b"x" * (MAX_UNCOMPRESSED_BYTES + 1)
-    stream = BytesIO(compress_mask_gzip(big))
-    stream.close = MagicMock()
-    reference = {
-        "encoding": "coco_rle_gzip",
-        "size": [2, 2],
-        "object_key": "raster-masks/sha256/ab/cd/" + "a" * 64 + ".json.gz",
-        "sha256": "a" * 64,
-        "runs": 1,
-        "bytes": MAX_UNCOMPRESSED_BYTES + 1,
-    }
-    storage.objects[reference["object_key"]] = stream.getvalue()
-    storage.open_body = lambda _raw: stream
-    with pytest.raises(ValueError, match="MAX_UNCOMPRESSED_BYTES"):
-        await load_coco_rle(reference, storage=storage)
+    corrupted = compress_mask_gzip(big)
+    storage.objects[key] = corrupted
+    with pytest.raises(RasterObjectStorageError) as rejected:
+        await load_coco_rle(reference, storage=storage, db=db_session)
+    assert rejected.value.code == "raster_object_storage_integrity_mismatch"
+    storage.client.get_object.assert_not_called()
+    assert storage.objects[key] == corrupted
 
 
 def test_canonical_rle_bytes_gzip_pairs_match_reference():

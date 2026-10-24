@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import gzip
 import hashlib
 from io import BytesIO
@@ -8,13 +9,20 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
+import uuid
 
 import pytest
 from botocore.exceptions import ClientError
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.config import settings
+from app.db.models.raster_mask_object import RasterMaskObject
+from app.services import raster_object_storage, storage_access
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     build_rle_reference,
+    build_rle_gzip_reference,
     canonical_rle_bytes,
     load_coco_rle,
     lock_raster_mask_references,
@@ -27,7 +35,10 @@ from app.services.raster_mask_storage import (
 def memory_mask_storage(*, get_error: Exception | None = None):
     """Boto-shaped bytes, identities and conditional operations for RLE tests."""
     storage = MagicMock()
-    storage.bucket = "annotation-data"
+    storage.bucket = settings.minio_bucket
+    storage.client.meta.endpoint_url = f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}".rstrip(
+        "/"
+    )
     storage.objects = {}
     storage.open_body = BytesIO
 
@@ -63,39 +74,106 @@ def memory_mask_storage(*, get_error: Exception | None = None):
     return storage
 
 
-async def test_store_coco_rle_uses_content_addressed_key_and_put_if_absent():
+async def mask_owner_for(db, reference, *, state="ready"):
+    """Read committed independent ownership through the actual caller engine."""
+    async with async_sessionmaker(
+        storage_access.engine(db), expire_on_commit=False
+    )() as session:
+        row = await session.scalar(
+            select(RasterMaskObject).where(
+                RasterMaskObject.logical_key == reference["object_key"],
+                RasterMaskObject.state == state,
+            )
+        )
+        assert row is not None
+        return row
+
+
+async def ready_mask_owner(db, storage, rle, *, compressed=False, encoded_data=None):
+    """Preload known historical bytes with a real immutable ready receipt."""
+    reference = (build_rle_gzip_reference if compressed else build_rle_reference)(rle)
+    data = (
+        encoded_data
+        if encoded_data is not None
+        else gzip.compress(canonical_rle_bytes(rle), mtime=1)
+        if compressed
+        else canonical_rle_bytes(rle)
+    )
+    async with async_sessionmaker(
+        storage_access.engine(db), expire_on_commit=False
+    )() as session:
+        row = RasterMaskObject(
+            id=uuid.uuid4(),
+            **raster_object_storage.content(reference, data),
+            state="pending",
+            created_at=datetime.now(timezone.utc),
+        )
+        row.storage_ref = await raster_object_storage.allocate(session, row)
+        session.add(row)
+        await session.flush()
+        key = row.storage_ref["object_key"]
+        storage.objects[key] = data
+        row.state = "ready"
+        row.published_at = row.last_used_at = datetime.now(timezone.utc)
+        await session.commit()
+    return reference, key
+
+
+async def test_store_coco_rle_uses_content_addressed_key_and_put_if_absent(db_session):
     storage = memory_mask_storage()
     reference = await store_coco_rle(
         {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]},
         storage=storage,
+        db=db_session,
     )
     assert reference["encoding"] == "coco_rle_ref"
     assert reference["object_key"].endswith(f"{reference['sha256']}.json")
     assert reference["runs"] == 4
     storage.client.put_object.assert_called_once()
 
-    existing = memory_mask_storage()
-    existing.objects[reference["object_key"]] = canonical_rle_bytes(
-        {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
-    )
+    owner = await mask_owner_for(db_session, reference)
+    physical_key = owner.storage_ref["object_key"]
+    assert physical_key == f"raster-masks/objects/{owner.id}.json"
+    assert physical_key != reference["object_key"]
+    assert set(storage.objects) == {physical_key}
+    storage.client.put_object.reset_mock()
     await store_coco_rle(
         {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]},
-        storage=existing,
+        storage=storage,
+        db=db_session,
     )
-    existing.client.put_object.assert_not_called()
+    storage.client.put_object.assert_not_called()
 
 
-async def test_load_coco_rle_verifies_reference_metadata():
+async def test_unknown_legacy_logical_bytes_do_not_authorize_a_read(db_session):
+    storage = memory_mask_storage()
+    rle = {"encoding": "coco_rle", "size": [3, 7], "counts": [2, 19]}
+    reference = build_rle_reference(rle)
+    original = canonical_rle_bytes(rle)
+    storage.objects[reference["object_key"]] = original
+    with pytest.raises(raster_object_storage.RasterObjectStorageError) as rejected:
+        await load_coco_rle(reference, storage=storage, db=db_session)
+    assert rejected.value.code == "raster_object_storage_unpinned"
+    assert rejected.value.status_code == 409
+    storage.client.head_object.assert_not_called()
+    storage.client.get_object.assert_not_called()
+    assert storage.objects == {reference["object_key"]: original}
+
+
+async def test_load_coco_rle_verifies_reference_metadata(db_session):
     storage = memory_mask_storage()
     reference = await store_coco_rle(
         {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]},
         storage=storage,
+        db=db_session,
     )
     body = storage.client.put_object.call_args.kwargs["Body"]
     stream = BytesIO(body)
     stream.close = MagicMock()
     storage.open_body = lambda _raw: stream
-    assert (await load_coco_rle(reference, storage=storage))["counts"] == [
+    assert (await load_coco_rle(reference, storage=storage, db=db_session))[
+        "counts"
+    ] == [
         1,
         2,
         2,
@@ -104,56 +182,64 @@ async def test_load_coco_rle_verifies_reference_metadata():
     stream.close.assert_called_once()
 
 
-async def test_load_coco_rle_rejects_digest_mismatch():
+async def test_load_coco_rle_rejects_digest_mismatch(db_session):
     storage = memory_mask_storage()
     reference = await store_coco_rle(
         {"encoding": "coco_rle", "size": [2, 3], "counts": [6]},
         storage=storage,
+        db=db_session,
     )
     stream = BytesIO(b'{"encoding":"coco_rle","size":[2,3],"counts":[0,6]}')
     stream.close = MagicMock()
-    storage.objects[reference["object_key"]] = stream.getvalue()
+    owner = await mask_owner_for(db_session, reference)
+    storage.objects[owner.storage_ref["object_key"]] = stream.getvalue()
     storage.open_body = lambda _raw: stream
-    with pytest.raises(ValueError, match="digest mismatch"):
-        await load_coco_rle(reference, storage=storage)
+    with pytest.raises(raster_object_storage.RasterObjectStorageError) as rejected:
+        await load_coco_rle(reference, storage=storage, db=db_session)
+    assert rejected.value.code == "raster_object_storage_integrity_mismatch"
 
 
 @pytest.mark.parametrize("compressed", [False, True])
-async def test_store_rejects_corrupt_existing_object_without_overwrite(compressed):
+async def test_store_rejects_corrupt_existing_object_without_overwrite(
+    compressed, db_session
+):
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
     storage = memory_mask_storage()
-    key = build_rle_reference(rle)["object_key"] + (".gz" if compressed else "")
+    _, key = await ready_mask_owner(db_session, storage, rle, compressed=compressed)
     storage.objects[key] = b"corrupt"
     writer = store_coco_rle_gzip if compressed else store_coco_rle
-    with pytest.raises(ValueError):
-        await writer(rle, storage=storage)
+    with pytest.raises(raster_object_storage.RasterObjectStorageError) as rejected:
+        await writer(rle, storage=storage, db=db_session)
+    assert rejected.value.code == "raster_object_storage_integrity_mismatch"
     assert storage.objects[key] == b"corrupt"
     storage.client.put_object.assert_not_called()
     storage.client.delete_object.assert_not_called()
 
 
-async def test_store_requires_conditional_creation_and_full_readback():
+async def test_store_requires_conditional_creation_and_full_readback(db_session):
     storage = memory_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
-    await store_coco_rle(rle, storage=storage)
+    await store_coco_rle(rle, storage=storage, db=db_session)
     assert storage.client.put_object.call_args.kwargs["IfNoneMatch"] == "*"
     storage.client.get_object.assert_called_once()
 
 
-async def test_store_reuses_historical_gzip_with_different_mtime():
+async def test_store_reuses_historical_gzip_with_different_mtime(db_session):
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
     storage = memory_mask_storage()
-    key = build_rle_reference(rle)["object_key"] + ".gz"
     original = gzip.compress(canonical_rle_bytes(rle), mtime=1)
-    storage.objects[key] = original
-    reference = await store_coco_rle_gzip(rle, storage=storage)
-    assert reference["object_key"] == key
+    expected, key = await ready_mask_owner(
+        db_session, storage, rle, compressed=True, encoded_data=original
+    )
+    reference = await store_coco_rle_gzip(rle, storage=storage, db=db_session)
+    assert reference == expected
+    assert reference["object_key"] != key
     assert storage.objects[key] == original
     storage.client.put_object.assert_not_called()
     storage.client.get_object.assert_called_once()
 
 
-async def test_cancelled_store_drains_thread_before_releasing_caller_lock():
+async def test_cancelled_store_drains_thread_before_releasing_caller_lock(db_session):
     storage = memory_mask_storage()
     entered, release, finished = threading.Event(), threading.Event(), threading.Event()
     put = storage.client.put_object.side_effect
@@ -174,6 +260,7 @@ async def test_cancelled_store_drains_thread_before_releasing_caller_lock():
             await store_coco_rle(
                 {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]},
                 storage=storage,
+                db=db_session,
             )
 
     task = asyncio.create_task(caller())
@@ -194,7 +281,7 @@ async def test_cancelled_store_drains_thread_before_releasing_caller_lock():
 
 
 @pytest.mark.parametrize("correct_winner", [False, True])
-async def test_conditional_creation_race_verifies_winner(correct_winner):
+async def test_conditional_creation_race_verifies_winner(correct_winner, db_session):
     storage = memory_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
 
@@ -205,10 +292,11 @@ async def test_conditional_creation_race_verifies_winner(correct_winner):
 
     storage.client.put_object.side_effect = race
     if correct_winner:
-        await store_coco_rle(rle, storage=storage)
+        await store_coco_rle(rle, storage=storage, db=db_session)
     else:
-        with pytest.raises(ValueError, match="digest mismatch"):
-            await store_coco_rle(rle, storage=storage)
+        with pytest.raises(raster_object_storage.RasterObjectStorageError) as rejected:
+            await store_coco_rle(rle, storage=storage, db=db_session)
+        assert rejected.value.code == "raster_object_storage_integrity_mismatch"
     storage.client.put_object.assert_called_once()
     storage.client.delete_object.assert_not_called()
 
@@ -221,21 +309,31 @@ async def test_conditional_creation_race_verifies_winner(correct_winner):
         ("put_object", "AccessDenied"),
     ],
 )
-async def test_store_does_not_treat_other_provider_errors_as_reusable(operation, code):
+async def test_store_does_not_treat_other_provider_errors_as_reusable(
+    operation, code, db_session
+):
     storage = memory_mask_storage()
+    rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
+    if operation == "head_object":
+        await ready_mask_owner(db_session, storage, rle)
     failure = ClientError({"Error": {"Code": code}}, operation)
     getattr(storage.client, operation).side_effect = failure
-    with pytest.raises(ClientError) as raised:
+    with pytest.raises(raster_object_storage.RasterObjectStorageError) as raised:
         await store_coco_rle(
-            {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}, storage=storage
+            rle,
+            storage=storage,
+            db=db_session,
         )
-    assert raised.value is failure
+    expected = (
+        "integrity_mismatch" if code == "ConditionalRequestConflict" else "unavailable"
+    )
+    assert raised.value.code == "raster_object_storage_" + expected
     storage.client.get_object.assert_not_called()
     if operation == "head_object":
         storage.client.put_object.assert_not_called()
 
 
-async def test_store_rejects_corrupt_bytes_after_successful_put():
+async def test_store_rejects_corrupt_bytes_after_successful_put(db_session):
     storage = memory_mask_storage()
     put = storage.client.put_object.side_effect
 
@@ -245,20 +343,28 @@ async def test_store_rejects_corrupt_bytes_after_successful_put():
         return result
 
     storage.client.put_object.side_effect = corrupt
-    with pytest.raises(ValueError, match="digest mismatch"):
+    reference = build_rle_reference(
+        {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
+    )
+    with pytest.raises(raster_object_storage.RasterObjectStorageError) as rejected:
         await store_coco_rle(
-            {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}, storage=storage
+            {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]},
+            storage=storage,
+            db=db_session,
         )
+    assert rejected.value.code == "raster_object_storage_integrity_mismatch"
+    pending = await mask_owner_for(db_session, reference, state="pending")
+    assert pending.published_at is None
+    assert pending.storage_ref["object_key"] in storage.objects
     storage.client.put_object.assert_called_once()
     storage.client.delete_object.assert_not_called()
 
 
 @pytest.mark.parametrize("version", [None, "null", "version-1"])
-async def test_read_pins_real_version_and_rechecks_current_key(version):
+async def test_read_pins_real_version_and_rechecks_current_key(version, db_session):
     storage = memory_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
-    reference = build_rle_reference(rle)
-    storage.objects[reference["object_key"]] = canonical_rle_bytes(rle)
+    reference, _ = await ready_mask_owner(db_session, storage, rle)
     head, get = (
         storage.client.head_object.side_effect,
         storage.client.get_object.side_effect,
@@ -281,22 +387,21 @@ async def test_read_pins_real_version_and_rechecks_current_key(version):
 
     storage.client.head_object.side_effect = versioned_head
     storage.client.get_object.side_effect = versioned_get
-    assert await load_coco_rle(reference, storage=storage) == rle
+    assert await load_coco_rle(reference, storage=storage, db=db_session) == rle
     assert storage.client.head_object.call_count == 2
 
 
 @pytest.mark.parametrize("stage", ["response", "after_close"])
-async def test_read_rejects_identity_changes_and_closes_body(stage):
+async def test_read_rejects_identity_changes_and_closes_body(stage, db_session):
     storage = memory_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
-    reference = build_rle_reference(rle)
+    reference, physical_key = await ready_mask_owner(db_session, storage, rle)
     raw = canonical_rle_bytes(rle)
-    storage.objects[reference["object_key"]] = raw
 
     class Replaced(BytesIO):
         def close(self):
             if stage == "after_close":
-                storage.objects[reference["object_key"]] = b"Z" * len(raw)
+                storage.objects[physical_key] = b"Z" * len(raw)
             super().close()
 
     stream = Replaced(raw)
@@ -307,26 +412,25 @@ async def test_read_rejects_identity_changes_and_closes_body(stage):
             **get(**kwargs),
             "ETag": '"different"',
         }
-    with pytest.raises(ValueError, match="changed during read"):
-        await load_coco_rle(reference, storage=storage)
+    with pytest.raises(raster_object_storage.RasterObjectStorageError) as rejected:
+        await load_coco_rle(reference, storage=storage, db=db_session)
+    assert rejected.value.code == "raster_object_storage_integrity_mismatch"
     assert stream.closed
 
 
 @pytest.mark.parametrize(
     "mode", ["short_chunks", "truncated", "overflow", "read_error", "close_error"]
 )
-async def test_read_bounds_and_real_stream_closure(mode, monkeypatch):
-    import app.services.raster_mask_storage as module
-
+async def test_read_bounds_and_real_stream_closure(mode, monkeypatch, db_session):
     storage = memory_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
-    reference = build_rle_reference(rle)
+    reference, _ = await ready_mask_owner(db_session, storage, rle)
     raw = canonical_rle_bytes(rle)
-    storage.objects[reference["object_key"]] = raw
-    monkeypatch.setattr(module, "MAX_RLE_OBJECT_BYTES", len(raw))
+    monkeypatch.setattr(raster_object_storage, "CHUNK_BYTES", 5)
 
     class Chunked(BytesIO):
         def read(self, size=-1):
+            assert 0 < size <= 5
             if mode == "read_error":
                 raise OSError("read failed")
             return super().read(min(size, 3) if mode == "short_chunks" else size)
@@ -342,10 +446,16 @@ async def test_read_bounds_and_real_stream_closure(mode, monkeypatch):
     stream = Chunked(content)
     storage.open_body = lambda _raw: stream
     if mode == "short_chunks":
-        assert await load_coco_rle(reference, storage=storage) == rle
+        assert await load_coco_rle(reference, storage=storage, db=db_session) == rle
     else:
-        with pytest.raises((ValueError, OSError)) as raised:
-            await load_coco_rle(reference, storage=storage)
+        with pytest.raises(raster_object_storage.RasterObjectStorageError) as raised:
+            await load_coco_rle(reference, storage=storage, db=db_session)
+        expected = (
+            "unavailable"
+            if mode in ("read_error", "close_error")
+            else "integrity_mismatch"
+        )
+        assert raised.value.code == "raster_object_storage_" + expected
         if mode == "close_error":
             assert raised.value.storage_operation_unsettled
     assert stream.closed
@@ -356,19 +466,22 @@ async def test_read_bounds_and_real_stream_closure(mode, monkeypatch):
     [
         ("NoSuchKey", "missing"),
         ("NoSuchVersion", "missing"),
-        ("PreconditionFailed", "changed during read"),
+        ("PreconditionFailed", "integrity_mismatch"),
     ],
 )
-async def test_read_preserves_missing_and_changed_error_contract(code, reason):
+async def test_read_preserves_missing_and_changed_error_contract(
+    code, reason, db_session
+):
     storage = memory_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
-    reference = build_rle_reference(rle)
-    storage.objects[reference["object_key"]] = canonical_rle_bytes(rle)
+    reference, _ = await ready_mask_owner(db_session, storage, rle)
     storage.client.get_object.side_effect = ClientError(
         {"Error": {"Code": code}}, "GetObject"
     )
-    with pytest.raises(ValueError, match=reason):
-        await load_coco_rle(reference, storage=storage)
+    with pytest.raises(raster_object_storage.RasterObjectStorageError) as rejected:
+        await load_coco_rle(reference, storage=storage, db=db_session)
+    assert rejected.value.code == "raster_object_storage_" + reason
+    assert rejected.value.status_code == (404 if reason == "missing" else 409)
 
 
 @pytest.mark.parametrize(
@@ -380,24 +493,24 @@ async def test_read_preserves_missing_and_changed_error_contract(code, reason):
         ("close_unknown", "cancel"),
     ],
 )
-async def test_interrupted_load_drains_real_stream(stage, interrupt, monkeypatch):
-    import app.services.raster_mask_storage as module
+async def test_interrupted_load_drains_real_stream(
+    stage, interrupt, monkeypatch, db_session
+):
     from app.observability.metrics import RASTER_MASK_CONTENT_OPERATIONS_TOTAL
 
     storage = memory_mask_storage()
     rle = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
-    reference = build_rle_reference(rle)
+    reference, _ = await ready_mask_owner(db_session, storage, rle)
     raw = canonical_rle_bytes(rle)
-    storage.objects[reference["object_key"]] = raw
     entered, release = threading.Event(), threading.Event()
     draining = asyncio.Event()
-    finish = module.finish
+    finish = storage_access.finish
 
     async def observed_finish(task):
         draining.set()
         return await finish(task)
 
-    monkeypatch.setattr(module, "finish", observed_finish)
+    monkeypatch.setattr(storage_access, "finish", observed_finish)
     success_counter = RASTER_MASK_CONTENT_OPERATIONS_TOTAL.labels(
         operation="load", outcome="success"
     )
@@ -422,13 +535,13 @@ async def test_interrupted_load_drains_real_stream(stage, interrupt, monkeypatch
 
     stream = Blocked(raw)
     storage.open_body = lambda _raw: stream
-    operation = load_coco_rle(reference, storage=storage)
-    task = asyncio.create_task(
-        asyncio.wait_for(operation, 0.05) if interrupt == "timeout" else operation
-    )
+    operation = load_coco_rle(reference, storage=storage, db=db_session)
+    task = asyncio.create_task(operation)
     try:
         assert await asyncio.to_thread(entered.wait, 5)
-        if interrupt == "cancel":
+        if interrupt == "timeout":
+            task = asyncio.create_task(asyncio.wait_for(task, 0.05))
+        else:
             task.cancel()
         await asyncio.wait_for(draining.wait(), 2)
         if interrupt == "cancel":
@@ -452,7 +565,9 @@ async def test_interrupted_load_drains_real_stream(stage, interrupt, monkeypatch
 async def test_reference_locks_are_sorted_deduplicated_and_verified(monkeypatch):
     import app.services.raster_mask_storage as module
 
-    db = SimpleNamespace(execute=AsyncMock())
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: True))
+    )
     refs = [
         {"object_key": "raster-masks/sha256/b.json", "sha256": "b"},
         {"object_key": "raster-masks/sha256/a.json", "sha256": "a"},
@@ -460,6 +575,8 @@ async def test_reference_locks_are_sorted_deduplicated_and_verified(monkeypatch)
     ]
     load = AsyncMock()
     monkeypatch.setattr(module, "load_coco_rle", load)
+    bind = AsyncMock()
+    monkeypatch.setattr("app.services.raster_mask_objects.bind_publications", bind)
 
     assert await lock_raster_mask_references(db, {"items": refs}) == [
         "raster-masks/sha256/a.json",
@@ -470,6 +587,30 @@ async def test_reference_locks_are_sorted_deduplicated_and_verified(monkeypatch)
         "aap:raster-mask:raster-masks/sha256/b.json",
     ]
     assert [call.args[0]["sha256"] for call in load.call_args_list] == ["a", "b"]
+    bind.assert_awaited_once_with(db, {"items": refs})
+    assert all(
+        "pg_try_advisory_xact_lock" in str(call.args[0])
+        for call in db.execute.await_args_list
+    )
+
+
+async def test_reference_lock_conflict_rejects_before_read_or_binding(monkeypatch):
+    import app.services.raster_mask_storage as module
+
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: False))
+    )
+    load, bind = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(module, "load_coco_rle", load)
+    monkeypatch.setattr("app.services.raster_mask_objects.bind_publications", bind)
+    with pytest.raises(RasterMaskContractError) as rejected:
+        await lock_raster_mask_references(
+            db, {"object_key": "raster-masks/sha256/a.json"}
+        )
+    assert rejected.value.status_code == 409
+    assert rejected.value.detail["reason"] == "mask_content_busy"
+    load.assert_not_awaited()
+    bind.assert_not_awaited()
 
 
 @pytest.mark.asyncio
