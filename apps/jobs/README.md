@@ -10,6 +10,9 @@ full flush and compiled INSERT/defaults/RETURNING through the fixed
 mask preserves UPDATE OF triggers, partial flush and default timestamp expiry.
 Ordered commands retain partial writes when a later Python conversion raises.
 Payload and result remain producer projections with native JSON values.
+Without private table INSERT, creation is pending-only; callers that need a
+terminal row must create it pending, then apply the terminal fields in the same
+unit of work.
 
 The native contract also provides fixed row/execution-ID reads, video-summary
 insertion, pending-only dispatch failure, batch cancellation/deletion and

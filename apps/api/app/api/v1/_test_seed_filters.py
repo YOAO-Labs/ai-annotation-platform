@@ -1515,26 +1515,25 @@ async def _seed_operations(
             kind="batch_predict",
             project_id=project_a.id,
             user_id=admin.id,
-            status="completed",
-            progress_pct=100,
+            status="pending",
+            progress_pct=0,
             payload={
                 "model_key": "filter-detector",
                 "prompt": ids.job_prompt("alpha complete"),
             },
-            result={"success_count": 2},
+            result={},
         ),
         AsyncJob(
             kind="export",
             project_id=project_b.id,
             user_id=admin.id,
-            status="failed",
-            progress_pct=40,
+            status="pending",
+            progress_pct=0,
             payload={
                 "model_key": "filter-export",
                 "prompt": ids.job_prompt("beta failed"),
             },
             result={},
-            error_message="fixture failure",
         ),
     ]
     db.add_all(jobs)
@@ -1566,6 +1565,13 @@ async def _seed_operations(
     ]
     db.add_all(bugs)
     await identity.create_invitations(invitations)
+    jobs[0].status = "completed"
+    jobs[0].progress_pct = 100
+    jobs[0].result = {"success_count": 2}
+    jobs[1].status = "failed"
+    jobs[1].progress_pct = 40
+    jobs[1].error_message = "fixture failure"
+    await db.flush()
     audit_rows = []
     request_id_token = request_id_var.set(None)
     try:
