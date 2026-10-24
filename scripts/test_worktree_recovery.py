@@ -193,6 +193,10 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         from app.db.models.bug_attachment_upload import BugAttachmentUpload
         from app.db.models.comment_attachment_upload import CommentAttachmentUpload
         from app.db.models.guide_asset_upload import GuideAssetUpload
+        from app.db.models.raster_mask_object import (
+            RasterMaskObject,
+            RasterMaskPublication,
+        )
         from app.db.models.project_guide_asset import ProjectGuideAsset
         from app.db.models.audit_archive_output import AuditArchiveOutput
         from app.services.dataset_assets import LEGACY_LOCATION_ID
@@ -217,6 +221,8 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             comment_attachment=CommentAttachmentUpload,
             guide_asset=GuideAssetUpload,
             guide_reference=ProjectGuideAsset,
+            raster_object=RasterMaskObject,
+            raster_publication=RasterMaskPublication,
             archive=AuditArchiveOutput,
         )
         self.source, self.target, self.endpoint = (
@@ -259,6 +265,12 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         )
         guide_endpoint.start()
         self.addCleanup(guide_endpoint.stop)
+        raster_endpoint = patch(
+            "app.services.raster_object_storage._runtime_endpoint",
+            return_value=self.endpoint,
+        )
+        raster_endpoint.start()
+        self.addCleanup(raster_endpoint.stop)
         archive_endpoint = patch(
             "app.services.audit_archive_storage._runtime_endpoint",
             return_value=self.endpoint,
@@ -555,6 +567,33 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 created_at=comment.created_at,
             )
         ]
+        from app.services import raster_object_storage
+        from worktree_recovery_raster_objects import encoded
+
+        reference, raw = encoded("ready-json")
+        raster = SimpleNamespace(
+            id=uuid.UUID(int=38),
+            **raster_object_storage.content(reference, raw),
+            state="ready",
+            created_at=comment.created_at,
+            published_at=comment.created_at,
+            last_used_at=comment.created_at,
+            retired_at=None,
+            last_attempted_at=comment.created_at,
+            storage_ref={
+                **comment.storage_ref,
+                "object_key": raster_object_storage.key_for(uuid.UUID(int=38)),
+            },
+        )
+        self.rows[RasterMaskObject] = [raster]
+        self.rows[RasterMaskPublication] = [
+            SimpleNamespace(
+                id=uuid.UUID(int=39),
+                object_id=raster.id,
+                gate_revision=1,
+                created_at=comment.created_at,
+            )
+        ]
         self.db = SimpleNamespace(
             get=AsyncMock(
                 return_value=SimpleNamespace(
@@ -576,8 +615,10 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         from app.services import original_cache, prediction_inputs
 
         references = deepcopy(self.rows[self.models.guide_reference])
+        publications = deepcopy(self.rows[self.models.raster_publication])
         ledger = await remap_storage(self.db, self.source, self.target, self.endpoint)
         self.assertEqual(self.rows[self.models.guide_reference], references)
+        self.assertEqual(self.rows[self.models.raster_publication], publications)
         self.assertEqual(
             {entry["table"] for entry in ledger},
             {
@@ -598,6 +639,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 "bug_attachment_uploads",
                 "comment_attachment_uploads",
                 "guide_asset_uploads",
+                "raster_mask_objects",
                 "audit_archive_outputs",
             },
         )
@@ -637,6 +679,14 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(row.mime_type, "image/svg+xml")
                             self.assertEqual(row.size_bytes, 6)
                             self.assertEqual(row.state, "ready")
+                            continue
+                        if row is self.rows[self.models.raster_object][0]:
+                            self.assertEqual(row.id, uuid.UUID(int=38))
+                            self.assertEqual(row.storage_encoding, "identity")
+                            self.assertEqual(row.state, "ready")
+                            self.assertEqual(row.stored_sha256, row.canonical_sha256)
+                            self.assertEqual(row.published_at, row.created_at)
+                            self.assertEqual(row.last_used_at, row.created_at)
                             continue
                         self.assertEqual(row.bound_comment_id, uuid.UUID(int=33))
                         self.assertEqual(row.annotation_id, uuid.UUID(int=31))
@@ -1077,6 +1127,104 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             digest([]),
         )
 
+    async def test_unknown_raster_object_refuses_without_partial_mapping(self):
+        from worktree_recovery_fixture import digest
+
+        original = deepcopy(self.rows)
+        mutations = [
+            ("schema", True),
+            ("purpose", "avatars"),
+            ("bucket", self.source["MINIO_EXPORT_BUCKET"]),
+            ("bucket", "outside-backup"),
+            ("object_key", "raster-masks/sha256/old.json"),
+            ("object_key", f"raster-masks/objects/{uuid.UUID(int=40)}.json"),
+            ("storage_identity", "f" * 64),
+            ("endpoint_url", "https://elsewhere.invalid"),
+            ("location_id", str(uuid.UUID(int=40))),
+            ("config_revision", 2),
+            ("binding_generation", 2),
+            ("unknown", "unrecognized-fact"),
+        ]
+        for field, value in mutations:
+            self.rows = deepcopy(original)
+            self.rows[self.models.raster_object][0].storage_ref[field] = value
+            before = digest(
+                {
+                    model.__tablename__: [vars(row) for row in rows]
+                    for model, rows in self.rows.items()
+                }
+            )
+            with self.subTest(field=field), self.assertRaises(WorktreeError):
+                await remap_storage(self.db, self.source, self.target, self.endpoint)
+            after = digest(
+                {
+                    model.__tablename__: [vars(row) for row in rows]
+                    for model, rows in self.rows.items()
+                }
+            )
+            self.assertEqual(before, after)
+            self.db.execute.assert_not_awaited()
+            self.db.flush.assert_not_awaited()
+
+    def test_raster_owner_protects_both_receipts_generation_and_times(self):
+        from worktree_recovery_fixture import digest, protected_row
+
+        row = deepcopy(vars(self.rows[self.models.raster_object][0]))
+        base = digest(protected_row("raster_mask_objects", row))
+        for field in ("bucket", "storage_identity"):
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "mapped"
+            self.assertEqual(
+                base, digest(protected_row("raster_mask_objects", changed))
+            )
+        for field in row.keys() - {"storage_ref"}:
+            with self.subTest(field=field):
+                self.assertNotEqual(
+                    base,
+                    digest(
+                        protected_row("raster_mask_objects", {**row, field: "changed"})
+                    ),
+                )
+        for field in row["storage_ref"].keys() - {"bucket", "storage_identity"}:
+            changed = deepcopy(row)
+            changed["storage_ref"][field] = "changed"
+            with self.subTest(ref_field=field):
+                self.assertNotEqual(
+                    base, digest(protected_row("raster_mask_objects", changed))
+                )
+        changed = deepcopy(row)
+        changed["storage_ref"]["unknown"] = "extra fact"
+        self.assertNotEqual(base, digest(protected_row("raster_mask_objects", changed)))
+
+    def test_raster_publication_and_portable_references_are_fully_protected(self):
+        from app.services import raster_object_storage
+        from worktree_recovery_fixture import digest, protected_row
+
+        reference = raster_object_storage.reference(
+            self.rows[self.models.raster_object][0]
+        )
+        rows = {
+            "raster_mask_publications": vars(
+                self.rows[self.models.raster_publication][0]
+            ),
+            "annotations": {
+                "id": "annotation",
+                "geometry": {"type": "raster_mask", "mask": reference},
+            },
+            "training_dataset_versions": {
+                "id": "version",
+                "snapshot": {"mask": reference},
+            },
+        }
+        for table, row in rows.items():
+            self.assertEqual(protected_row(table, row), row)
+            for field in row:
+                with self.subTest(table=table, field=field):
+                    self.assertNotEqual(
+                        digest(protected_row(table, row)),
+                        digest(protected_row(table, {**row, field: "changed"})),
+                    )
+
     async def test_unknown_audit_archive_refuses_without_partial_mapping(self):
         original = deepcopy(self.rows)
         for field, value in [
@@ -1209,6 +1357,163 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(WorktreeError):
             await remap_storage(self.db, self.source, self.target, self.endpoint)
         self.db.flush.assert_not_awaited()
+
+
+class RasterObjectFixtureTests(unittest.TestCase):
+    def test_fixture_contains_exact_canonical_and_historical_gzip_bytes(self):
+        import gzip
+        from app.services import raster_object_storage
+        from app.services.raster_mask_storage import canonical_rle_bytes
+        from worktree_recovery_raster_objects import (
+            CASES,
+            HISTORICAL_GZIP_MTIME,
+            encoded,
+            rle_for,
+        )
+
+        self.assertEqual({case[1] for case in CASES}, {"pending", "ready", "retired"})
+        self.assertEqual({case[2] for case in CASES}, {"identity", "gzip"})
+        for case, _, encoding, index in CASES:
+            reference, raw = encoded(case)
+            facts = raster_object_storage.content(reference, raw)
+            canonical = canonical_rle_bytes(rle_for(index))
+            self.assertEqual(
+                facts["canonical_sha256"], hashlib.sha256(canonical).hexdigest()
+            )
+            self.assertEqual(facts["stored_sha256"], hashlib.sha256(raw).hexdigest())
+            self.assertEqual(facts["stored_size_bytes"], len(raw))
+            if encoding == "gzip":
+                self.assertEqual(gzip.decompress(raw), canonical)
+                self.assertEqual(
+                    int.from_bytes(raw[4:8], "little"), HISTORICAL_GZIP_MTIME
+                )
+                self.assertNotEqual(facts["stored_sha256"], facts["canonical_sha256"])
+            else:
+                self.assertEqual(raw, canonical)
+
+    def test_generations_share_only_logical_content_not_candidate_identity(self):
+        from app.services import raster_object_storage
+        from worktree_recovery_raster_objects import (
+            CASES,
+            GUARDED_CASES,
+            encoded,
+            identifier,
+            legacy,
+        )
+
+        before, raw_before = encoded("retired-generation")
+        after, raw_after = encoded("ready-generation")
+        self.assertEqual(before, after)
+        self.assertEqual(raw_before, raw_after)
+        self.assertNotEqual(
+            raster_object_storage.key_for(identifier("owner", "retired-generation")),
+            raster_object_storage.key_for(identifier("owner", "ready-generation")),
+        )
+        ids = [identifier("owner", case[0]) for case in CASES]
+        ids += [identifier("publication", case) for case in GUARDED_CASES]
+        ids += [identifier("operation", "pending-write"), identifier("task", "deleted")]
+        self.assertEqual(len(ids), len(set(ids)))
+        legacy_ref, _ = legacy()
+        self.assertNotIn(
+            legacy_ref["object_key"],
+            {encoded(case[0])[0]["object_key"] for case in CASES},
+        )
+
+    def test_object_independence_and_publication_restrict_are_model_facts(self):
+        from app.db.models.raster_mask_object import (
+            RasterMaskObject,
+            RasterMaskPublication,
+        )
+
+        self.assertFalse(RasterMaskObject.__table__.foreign_keys)
+        refs = list(RasterMaskPublication.__table__.foreign_keys)
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0].target_fullname, "raster_mask_objects.id")
+        self.assertEqual(refs[0].ondelete, "RESTRICT")
+
+
+class RasterObjectSeedTests(unittest.IsolatedAsyncioTestCase):
+    async def test_deleted_source_removes_business_rows_without_retiring_owner(self):
+        from app.db.models.annotation import Annotation
+        from app.db.models.raster_mask_object import (
+            RasterMaskObject,
+            RasterMaskPublication,
+        )
+        from app.db.models.raster_mask_upload import RasterMaskUpload
+        from app.db.models.storage_maintenance import StorageOperation
+        from app.db.models.task import Task
+        from worktree_recovery_raster_objects import identifier, seed_raster_objects
+
+        actor, project = (
+            SimpleNamespace(id=uuid.uuid4()),
+            SimpleNamespace(id=uuid.uuid4()),
+        )
+        task = SimpleNamespace(id=uuid.uuid4())
+        db = SimpleNamespace(
+            get=AsyncMock(return_value=SimpleNamespace(revision=13)),
+            scalar=AsyncMock(return_value=task),
+            add=Mock(),
+            flush=AsyncMock(),
+            delete=AsyncMock(),
+        )
+        storage = SimpleNamespace(bucket="recovery-annotations", client=Mock())
+        from app.services import raster_object_storage
+        from app.services.dataset_assets import LEGACY_LOCATION_ID
+
+        async def allocate(_db, row):
+            return {
+                "schema": 1,
+                "purpose": "annotations",
+                "location_id": str(LEGACY_LOCATION_ID),
+                "config_revision": 1,
+                "binding_generation": 1,
+                "endpoint_url": "http://recovery.invalid:9000",
+                "bucket": storage.bucket,
+                "object_key": raster_object_storage.key_for(
+                    row.id, row.storage_encoding
+                ),
+                "storage_identity": identity(
+                    "http://recovery.invalid:9000", storage.bucket
+                ),
+            }
+
+        with (
+            patch.object(raster_object_storage, "allocate", side_effect=allocate),
+            patch.object(
+                raster_object_storage,
+                "_runtime_endpoint",
+                return_value="http://recovery.invalid:9000",
+            ),
+        ):
+            await seed_raster_objects(
+                db,
+                actor=actor,
+                project=project,
+                storage=storage,
+                now=datetime(2026, 10, 24, tzinfo=timezone.utc),
+            )
+        removed = [call.args[0] for call in db.delete.await_args_list]
+        self.assertEqual([type(row) for row in removed], [Annotation, Task])
+        self.assertEqual(removed[0].task_id, removed[1].id)
+        self.assertNotEqual(removed[1].id, task.id)
+        added = [call.args[0] for call in db.add.call_args_list]
+        owners = [row for row in added if isinstance(row, RasterMaskObject)]
+        source_owner = next(
+            row for row in owners if row.id == identifier("owner", "deleted-task")
+        )
+        self.assertEqual(source_owner.state, "ready")
+        self.assertNotIn(source_owner, removed)
+        self.assertEqual(len(owners), 7)
+        self.assertEqual(sum(isinstance(row, RasterMaskUpload) for row in added), 1)
+        guards = [row for row in added if isinstance(row, RasterMaskPublication)]
+        self.assertEqual([row.gate_revision for row in guards], [13, 13])
+        operation = next(row for row in added if isinstance(row, StorageOperation))
+        self.assertEqual(operation.revision, 13)
+        self.assertEqual(
+            operation.purpose,
+            "raster_object_write_" + identifier("owner", "pending-write").hex,
+        )
+        self.assertEqual(storage.client.put_object.call_count, 7)
 
 
 class GuideAssetFixtureTests(unittest.TestCase):

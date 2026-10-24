@@ -57,6 +57,7 @@ def protected_row(table, row):
             "audit_archive_outputs",
             "comment_attachment_uploads",
             "guide_asset_uploads",
+            "raster_mask_objects",
         }
         and result.get("storage_ref") is not None
     ):
@@ -605,6 +606,11 @@ async def seed(db, external: Path):
         await seed_guide_assets(
             db, actor=actor, project=project, storage=storage, now=now
         )
+        from worktree_recovery_raster_objects import seed_raster_objects
+
+        await seed_raster_objects(
+            db, actor=actor, project=project, storage=storage, now=now
+        )
         from worktree_recovery_audit_archives import seed_audit_archives
 
         await seed_audit_archives(db, storage=storage, now=now)
@@ -899,6 +905,9 @@ async def verify_application(db, external: Path):
     from worktree_recovery_guide_assets import verify_guide_assets
 
     guide_assets = await verify_guide_assets(db, storage=storage)
+    from worktree_recovery_raster_objects import verify_raster_objects
+
+    raster_objects = await verify_raster_objects(db, storage=storage)
     from worktree_recovery_audit_archives import verify_audit_archives
 
     audit_archives = await verify_audit_archives(db, storage=storage)
@@ -993,6 +1002,7 @@ async def verify_application(db, external: Path):
         **bug_attachments,
         **comment_attachments,
         **guide_assets,
+        **raster_objects,
         **audit_archives,
         "pinned_training_versions": ready_count + partial_count,
         "pinned_training_deletions": deletion_count,
