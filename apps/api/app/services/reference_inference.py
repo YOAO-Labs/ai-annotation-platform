@@ -21,11 +21,11 @@ from app.db.models.user import User
 from app.services.content_snapshot import ContentError
 from app.services.dataset_content import content_http_error, key_authority
 from app.services.dataset_references import reference_context, reference_snapshot
+from app.services.image_inference_authority import authorize_image_operation
 from app.services.prediction_inputs import PredictionInputs
 from app.services.project_access import resolve_project_access
 from app.services.project_write_guard import (
     _busy_lock_error,
-    assert_phase_write_allowed,
     lock_actor_project_authority,
     lock_actor_scope,
 )
@@ -55,6 +55,8 @@ _ISSUER = object()
 
 
 class ReferenceImageOperation:
+    provenance_key = "reference_input"
+
     def __init__(self, db, task, actor, request, operation, prompt_source=None):
         if operation not in {"predict_test", "interactive_predict", "ai_mask_accept"}:
             raise ValueError("unsupported reference image operation")
@@ -75,43 +77,13 @@ class ReferenceImageOperation:
         )
 
     async def _authorize(self, db, task, actor):
-        from app.api.v1.tasks._shared import (
-            _assert_task_visible,
-            _assert_task_editable,
-            _assert_review_adjustment_evidence,
-            assert_annotation_write_allowed,
+        await authorize_image_operation(
+            db,
+            task,
+            actor_id=self.actor_id,
+            project_id=self.project_id,
+            operation=self.operation,
         )
-
-        actor = await db.get(User, self.actor_id, populate_existing=True)
-        project = await db.get(Project, self.project_id, populate_existing=True)
-        if (
-            actor is None
-            or not actor.is_active
-            or project is None
-            or project.data_type != "image"
-            or task.project_id != self.project_id
-            or task.file_type != "image"
-        ):
-            raise ContentError("prediction_authority_revoked", 403)
-        access = await resolve_project_access(db, user=actor, project=project)
-        if self.operation == "predict_test":
-            if not access.is_manager:
-                raise ContentError("prediction_authority_revoked", 403)
-        else:
-            if project.ai_interactive_enabled is False:
-                raise ContentError("ai_interactive_disabled", 403)
-            assert_annotation_write_allowed(task, access)
-            await _assert_review_adjustment_evidence(db, task, actor, access)
-            _assert_task_editable(task, actor, access=access)
-            await assert_phase_write_allowed(db, task, actor, lock_membership=False)
-            if any(
-                lock.user_id != actor.id
-                for lock in await TaskLockService(db).active_locks(
-                    task.id, cleanup=False
-                )
-            ):
-                raise ContentError("prediction_task_locked")
-        await _assert_task_visible(db, task, actor, access=access)
 
     async def _task(self):
         task = await self.db.get(Task, self.task_id, populate_existing=True)
@@ -271,7 +243,33 @@ async def reference_image_operation(
     prompt_source=None,
 ):
     if not is_reference(task.file_path):
-        yield None
+        if task.file_type != "image":
+            yield None
+            return
+        from app.services import prediction_originals as originals
+        from app.services.managed_image_inference import ManagedImageOperation
+
+        owner = ManagedImageOperation(
+            db, task, actor, request, operation, prompt_source
+        )
+        failure = None
+        try:
+            await owner.open(factory, annotations_read=annotations_read)
+            yield owner
+        except BaseException as exc:
+            failure = exc
+            if isinstance(exc, DBAPIError) and _busy_lock_error(exc):
+                raise HTTPException(
+                    409, detail={"code": "managed_inference_busy"}
+                ) from None
+            if isinstance(exc, Exception):
+                raise content_http_error(exc) from None
+            raise
+        finally:
+            try:
+                await originals.settled(db.rollback())
+            finally:
+                await owner.close(failure)
         return
     owner = ReferenceImageOperation(db, task, actor, request, operation, prompt_source)
     try:
