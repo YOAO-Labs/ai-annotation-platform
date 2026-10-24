@@ -336,3 +336,101 @@ async def test_key_missing_annotations_read_is_rejected_before_physical_io(
     response = await state.client.get(state.route, headers=state.headers)
     assert response.status_code == 403
     assert not state.transport.verified and not state.transport.signed
+
+
+async def test_key_rotated_after_read_context_exit_is_rechecked_before_ready_response(
+    committed_pyramid, monkeypatch
+):
+    from app.api.v1.tasks import image_pyramid as api
+
+    state, changed = committed_pyramid, False
+    building_generation = api._building_generation
+
+    async def building_after_rotation(db, asset):
+        nonlocal changed
+        result = await building_generation(db, asset)
+        assert state.transport.verified and state.transport.signed
+        async with state.factory() as independent:
+            # This specifically covers the gap after reading()'s successful
+            # post-check and durable Permit settlement, before GET returns.
+            assert (
+                await independent.scalar(
+                    select(StorageOperation.id).where(
+                        StorageOperation.purpose == objects.purpose(state.output_id)
+                    )
+                )
+                is None
+            )
+            await independent.execute(
+                update(ApiKey)
+                .where(ApiKey.id == state.key_id)
+                .values(key_hash=hash_password("rotated-after-reading-exited"))
+            )
+            await independent.commit()
+        changed = True
+        return result
+
+    monkeypatch.setattr(api, "_building_generation", building_after_rotation)
+    response = await state.client.get(state.route, headers=state.headers)
+    assert changed and response.status_code == 403, response.text
+    assert "overview" not in response.json() and "storage.invalid" not in response.text
+
+
+async def test_invalid_manifest_metadata_invalidates_ready_and_can_retry_after_cooldown(
+    committed_pyramid, monkeypatch
+):
+    state, queued = committed_pyramid, []
+    monkeypatch.setattr(
+        "app.api.v1.tasks.image_pyramid.settings.image_pyramid_auto_generate", False
+    )
+    monkeypatch.setattr(
+        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
+        lambda *args, **kwargs: queued.append((args, kwargs)) or "metadata-retry",
+    )
+    async with state.factory() as db:
+        generation = await db.get(ImagePyramidGeneration, (state.asset_id, 1))
+        generation.overview_width += 1
+        await db.commit()
+
+    # Real validate_inventory rejects this metadata with ContentError, rather
+    # than the physical transport's ImagePyramidStorageError. Authorization and
+    # the independent output-owner checks remain entirely real.
+    response = await state.client.get(state.route, headers=state.headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "inconsistent"
+    assert response.json()["error_code"] == "image_pyramid_storage_invalid_receipt"
+    assert response.json()["retryable"] is True
+    assert not state.transport.signed
+    async with state.factory() as db:
+        generation = await db.get(ImagePyramidGeneration, (state.asset_id, 1))
+        asset = await db.get(ImagePyramidAsset, state.asset_id)
+        assert generation.status == "failed" and asset.active_generation is None
+        assert generation.error_code == "image_pyramid_storage_invalid_receipt"
+        assert (
+            await db.scalar(
+                select(StorageOperation.id).where(
+                    StorageOperation.purpose == objects.purpose(state.output_id)
+                )
+            )
+            is None
+        )
+
+    cooling = await state.client.post(state.route + "/retry", headers=state.headers)
+    assert cooling.status_code == 429 and not queued
+    async with state.factory() as db:
+        await db.execute(
+            update(ImagePyramidGeneration)
+            .where(
+                ImagePyramidGeneration.asset_id == state.asset_id,
+                ImagePyramidGeneration.generation == 1,
+            )
+            .values(updated_at=pyramids.utcnow() - timedelta(hours=1))
+        )
+        await db.commit()
+    retried = await state.client.post(state.route + "/retry", headers=state.headers)
+    assert retried.status_code == 202 and retried.json()["status"] == "queued", (
+        retried.text
+    )
+    args, options = queued[0]
+    assert args == ("task", state.task_id)
+    assert options["delegation"]["original"] == state.original

@@ -7,10 +7,8 @@ from datetime import timedelta
 
 import pytest
 from PIL import Image
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.db.models.dataset_asset import DatasetAsset
 from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
 from app.services import image_pyramid as pyramids
 from app.services import image_pyramid_objects as objects
@@ -113,7 +111,7 @@ async def test_asset_owner_constraint_rejects_zero_or_two_owners(
                 await db_session.flush()
 
 
-async def test_prepare_generation_is_singleflight_and_fences_source_replacement(
+async def test_prepare_generation_is_singleflight_and_fences_metadata_rebinding(
     db_session, super_admin
 ):
     user, _ = super_admin
@@ -136,10 +134,9 @@ async def test_prepare_generation_is_singleflight_and_fences_source_replacement(
         is first
     )
 
-    registered = await db_session.scalar(
-        select(DatasetAsset).where(DatasetAsset.dataset_item_id == item.id)
-    )
-    registered.checksum_value = "b" * 64
+    # Dimensions may be corrected without replacing immutable verified content.
+    # They are still part of the exact input receipt owned by an earlier job.
+    item.width += 1
     await db_session.flush()
     replacement_owner = await pyramids.owner_for_dataset_item(db_session, item)
     with pytest.raises(ContentError, match="content_binding_changed"):
@@ -244,17 +241,14 @@ async def test_manifest_and_asset_url_endpoints_are_bounded_and_deduplicate(
     assert asset.active_generation is None and generation.status == "failed"
 
 
-async def test_source_replacement_invalidates_ready_generation(
+async def test_original_metadata_rebinding_invalidates_ready_generation(
     db_session, httpx_client, super_admin, transport
 ):
     user, token = super_admin
     task, item = await make_image_task(db_session, user.id)
     asset, generation, output, manifest = await ready_generation(db_session, item)
     transport.register(output, manifest)
-    registered = await db_session.scalar(
-        select(DatasetAsset).where(DatasetAsset.dataset_item_id == item.id)
-    )
-    registered.checksum_value = "c" * 64
+    item.width += 1
     await db_session.flush()
     response = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/image-pyramid",
