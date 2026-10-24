@@ -172,7 +172,7 @@ async def test_real_probe_same_descriptor_fixed_version_and_cleanup_after_source
     await inputs.close()
     row = await lease(world, inputs.record.id)
     assert row.state == "deleted" and row.inventory == before
-    assert not world.objects and not world.versions[next(iter(world.versions))]
+    assert not world.objects and not world.versions
     assert all(body.closed for body in world.bodies)
     assert all(client.closed for client in world.clients)
 
@@ -225,6 +225,7 @@ async def test_invalid_stage_or_probe_never_plans_or_sends_object(world, change)
     elif change == "unsupported_magic":
         source.file.seek(0)
         source.file.write(b"not a container")
+        source.file.flush()
     elif change == "size":
         source.size += 1
     elif change == "sha":
@@ -362,7 +363,7 @@ async def test_video_storage_failure_retains_exact_responsibility(
 
 
 async def test_repeated_cancellation_waits_for_real_video_put_and_preserves_borrowed_stage(
-    world, real_video
+    world, real_video, monkeypatch
 ):
     source, given = real_video
     inputs = await create(world)
@@ -382,7 +383,16 @@ async def test_repeated_cancellation_waits_for_real_video_put_and_preserves_borr
     assert all(client.closed for client in world.clients)
     await inputs.close()
     assert not source.file.closed
+    row = await lease(world, inputs.record.id)
+    assert row.state == "cleanup_pending" and row.uncertain_write
+    assert not world.objects and not world.versions
+    before = deepcopy(row.inventory)
+    monkeypatch.setattr(
+        owner, "now", lambda: inputs.record.retain_until + timedelta(seconds=1)
+    )
+    assert (await owner.maintain(world.factory))["removed"] == 1
     assert (await lease(world, inputs.record.id)).state == "deleted"
+    assert (await lease(world, inputs.record.id)).inventory == before
 
 
 @pytest.mark.parametrize(

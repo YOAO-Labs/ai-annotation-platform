@@ -350,7 +350,7 @@ async def test_post_read_freshness_failure_closes_source_without_probe(
 
     def capture(*args, **kwargs):
         assert not world.sessions
-        result = stage(release=args[6])
+        result = stage(release=args[5])
         captured.append(result)
         return result
 
@@ -403,7 +403,7 @@ async def test_repeated_cancellation_drains_late_physical_work_before_release(
         if boundary == "capture":
             started.set()
             assert release.wait(3)
-        result = stage(release=args[6])
+        result = stage(release=args[5])
         captured.append(result)
         return result
 
@@ -476,7 +476,7 @@ async def test_unknown_probe_process_preserves_descriptor_and_source_admission(
     captured = []
 
     def capture(*args, **kwargs):
-        result = stage(release=args[6])
+        result = stage(release=args[5])
         captured.append(result)
         return result
 

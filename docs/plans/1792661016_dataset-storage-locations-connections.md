@@ -1581,3 +1581,11 @@ stage、读取线程、provider Body／client、probe 子进程、模型请求�
 M1 使用真实提交的三来源夹具，覆盖 annotations 已保存位置与当前桶同键陷阱、同 SHA 改 owner、非方形真实视频与伪旧 metadata；实际 API 首次执行、两种失败 retry、predict-test、normal／bulk accept、只读／写 scope、旧 proof／delivery／已清理原 Job、非零 root 与当前队列。M2 增加 direct Item／Segment、普通／无源／多源／combo、正反向／跨窗／session／correction 与父 repair handoff，覆盖全量／局部／region 审核及真实 RLE。两片都覆盖读取后和最终写入中的 Key／JWT／角色／批次／编辑锁／Gate／来源／父标注／模型竞争、并发一次提交、错窗／错尺寸／过量结果拒绝、重复取消与未知关闭。
 
 真实验收使用所属 test launcher、真实 ASGI 鉴权／DB、独立 Celery 与 MinIO；受控 HTTP 模型实际 GET 固定非 null 视频版本、核完整 SHA／长度并真实解帧，再返回受控候选。到真实 next_cleanup_at 后验证精确版本、历史版本和删除标记不存在、零未收尾责任、canonical 原件保持。M1 新 schema 须做迁移往返／v3 tombstone 降级拒绝及销毁源后的隔离恢复；M2 再验证自身新增证据。受控结果不授予真实 SAM／YOLO 权重、GPU、规模性能或生产资格。刷新所属运行环境的受影响 Worker，保持 3100／8100、两个 Worker／Beat 及原业务／原件指纹；按归属清理后分别记录 M1／M2 Outcome，不提前将整项 E02 或整套 Epic 标完。
+
+### M1 实施检查点 — 原件、固定版本输入与任务授权
+
+2026-10-25，视频临时输入及 0241 窄迁移 `21107e41b`、三 canonical 原件完整读取与同 FD 探测 `e48fb3087`、任务／模型声明／实际派发及事务 receipt `6268a0647`、完整私有证据与安全公开投影分离 `161576e20` 已合入。源 FD 与许可保持到真实关闭；版本化临时副本不接管源 FD，库存、首次期限和不可确定写入的保留责任不改写。
+
+所属一次性 test 环境完成 131 项视频输入／原件／authority 专项；与首轮既有输入 owner 回归按 classname／用例名合并，最终 188 个不同用例通过，无当前失败、错误或跳过。首轮夹具的回调参数下标、写入后 FD 可见性和取消后的保留期限预期已修正；生产校验未放宽。该证据覆盖基础服务与数据库约束，不代表 API／Celery 整视频链路、实际模型输出、整项 M1 或新的全量恢复已验收。
+
+隔离集成树继续接项目预标、两种失败重试、同步 predict-test 和普通候选采纳；YOLO 聚合框轨迹与 SAM 逐帧框／多边形／掩码按真实格式分别核对，不能只保留框来缩小原有能力。当前人工 3100／8100 及两个监督单元仍健康，继续提供已验收的 L；人工库尚未应用 0241，本检查点不把新视频阶段视为人工交付。
