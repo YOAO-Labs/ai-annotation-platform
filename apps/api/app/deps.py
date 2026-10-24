@@ -162,9 +162,9 @@ def get_batch_prediction_dispatcher() -> BatchPredictionDispatcher:
 
 def get_video_tracker_job_dispatcher() -> VideoTrackerJobDispatcher:
     """Bind video tracker execution at the HTTP composition boundary."""
-    from app.workers.video_tracker_dispatch import CeleryVideoTrackerJobDispatcher
+    from app.services.jobs_queue import build_video_tracker_job_dispatcher
 
-    return CeleryVideoTrackerJobDispatcher()
+    return build_video_tracker_job_dispatcher()
 
 
 async def get_current_principal(

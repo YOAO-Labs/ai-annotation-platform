@@ -15,6 +15,7 @@ from aap_jobs.queue_contract import (
 from app.config import settings
 from app.services.job_execution_control import JobExecutionControl
 from app.services.quality_job_dispatch import QualityJobDispatcher, QualityRunKind
+from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 
 _MAX_TOKEN_BYTES = 4096
 _QUALITY_RUN_TASKS = {
@@ -175,6 +176,18 @@ class JobsQueueQualityDispatcher:
         )
 
 
+class JobsQueueVideoTrackerDispatcher:
+    __slots__ = ()
+
+    def dispatch_tracker_job(self, job_id: uuid.UUID) -> str:
+        execution_id = str(uuid.uuid4())
+        return dispatch_job_sync(
+            task_name="app.workers.video_tracker.run_video_tracker_job",
+            execution_id=execution_id,
+            args=[str(job_id)],
+        )
+
+
 def build_quality_job_dispatcher() -> QualityJobDispatcher:
     """Select the configured transport without loading worker tasks remotely."""
     if settings.jobs_queue_url:
@@ -182,3 +195,12 @@ def build_quality_job_dispatcher() -> QualityJobDispatcher:
     from app.workers.quality_dispatch import CeleryQualityJobDispatcher
 
     return CeleryQualityJobDispatcher()
+
+
+def build_video_tracker_job_dispatcher() -> VideoTrackerJobDispatcher:
+    """Select the tracker transport without loading worker tasks remotely."""
+    if settings.jobs_queue_url:
+        return JobsQueueVideoTrackerDispatcher()
+    from app.workers.video_tracker_dispatch import CeleryVideoTrackerJobDispatcher
+
+    return CeleryVideoTrackerJobDispatcher()

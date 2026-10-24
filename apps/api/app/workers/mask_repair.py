@@ -10,8 +10,8 @@ from app.application.mask_repair_execution import (
 )
 from app.config import settings
 from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
+from app.services.jobs_queue import build_video_tracker_job_dispatcher
 from app.workers.celery_app import celery_app
-from app.workers.video_tracker_dispatch import CeleryVideoTrackerJobDispatcher
 
 
 async def _run_mask_repair(
@@ -61,7 +61,7 @@ async def _rollback_mask_repair(
 
 @celery_app.task(bind=True, name="app.workers.mask_repair.run_mask_repair")
 def run_mask_repair(self, batch_id: str) -> None:
-    tracker_dispatcher = CeleryVideoTrackerJobDispatcher()
+    tracker_dispatcher = build_video_tracker_job_dispatcher()
     asyncio.run(
         _run_mask_repair(
             batch_id,
