@@ -1026,3 +1026,23 @@ README、CHANGELOG Unreleased、评估用户指南、API合同和存储架构文
 API捕获准确JWT/Key并维持原datasets:read/write、annotations:read；创建和接纳的最终事务在既有业务锁下复核原请求、完整原件与Gate，辅助检查不得提交Job/Batch事务。新轮次authorization只保存原Key proof的不可逆指纹，后台持续核对创建者、当前权限和原Key；不持久保存Bearer或把JWT短寿命套到24小时后台窗口。Worker异步拥有准备流程，复制、归一化、PNG写回和关闭均等待真实线程收尾，发布前复核attempt/claim/generation/status及原件。未知关闭保留额度与耐久许可，取消后不能生成可用输入或迟到发布。
 
 主树负责AL适配、三个业务入口、Worker调用、跨入口回归、文档与真实验收；隔离树升级AL自有原件夹具和相关现有用例，不修改共享key-only报告替身。使用已验证新test/e2e命名空间、真实MinIO/HTTP与当前checkout Celery；合成completed收据只验证输入执行链，不宣称真实模型推理。刷新受影响人工Worker通过原监督服务进行，不重建镜像；保留人工3100/8100、Beat、业务/24对象/12文件。正常hooks提交后核对精确资源清理，完整E02/B13和用途切换继续未完成。
+
+## E02-B13-B3-B Outcome — 主动学习三处原件输入
+
+夹具与既有调用回归 `7a9988ac2`、物理生命周期回归 `513282196`，主集成 `d888f5051`。预览／创建、Worker缺失PNG重建及接纳前整个去重／Scene组均沿已登记原件解析与保存位置读取，删除猜桶的共享同步读取；完整E02/B13与整套epic继续执行，完整用途切换关闭，不分配发布版本。
+
+新规格original_contract=1固定安全原件收据：内容owner、UUID/SHA/大小及逻辑位置，不把桶、端点、凭据或后台Key指纹放入公开来源快照。每次物理操作固定完整关系、位置及Gate代次，复制／归一化和真实关闭后重核；同SHA换owner或逻辑位置仍拒绝，正常维护恢复与受控桶映射不改跨轮次身份。32成员、128MiB总量、16MiB单图、1600万像素及既有检测／分割、分组和排除预算保持。旧spec不回填，报告、已有合格PNG与拒绝仍可用，缺少原件事实的回源补图和新增接纳明确409；坏PNG不静默回源修复。
+
+HTTP维持原三个scope并复核准确JWT／Key；新后台authorization保存原Key proof不可逆指纹，轮换同ID密钥、scope或期限改变均拒绝。最终创建和接纳在原业务事务与锁内复核，helper不提交Job／Batch。Worker异步拥有读取、PNG写回／完整读回及关闭，以attempt／claim／generation／status阻止迟到交付；真实线程未退出或关闭未知仍持有责任。实际轮询暴露Key访问记录更新与NOWAIT复核冲突：现以连接级SAVEPOINT有限重试，不flush／提交外层业务写入，真实撤权不重试；持续暂忙保持可恢复lost，不误报撤权或损坏输入。
+
+最终322个不同本地后端API／服务／数据库及纯用例、4个SDK合同和30个Web用例通过，无剩余失败；13项既有按用途不适用的参数组合按原条件跳过。统计按最终同名用例去重，包含66项物理生命周期回归，不重复累计重跑。覆盖三条原件路径在解码／真实关闭期间的Key、账号、Gate与owner变化，读取前换owner零I/O、预览到创建的代次变化、JWT关闭后过期、旧规格兼容、真实格式／EXIF、反复取消、未知关闭、事务不提前提交及独立数据库事务的Key锁冲突／真实撤权／持续占用。
+
+一次性18100/13100跑通12项真实HTTP／MinIO／当前checkout Celery检查：四个原件含独立TaskOriginal，保存桶的同名陷阱不替代原件；原三个scope创建、后台补图／完整排序、四张保留PNG摘要、同键篡改拒绝且零决策、恢复后完整接纳并创建人工批次通过。推理端只提供合成completed收据，实际派发计数零，不构成真实模型推理或GPU资格。浏览器确认完整排序、16像素真实候选图片、4/4接纳与固定批次历史，实际跳转批次设置，无页面异常或横向溢出；本片无UI样式变化，不重复视觉矩阵。fixture的健康观测须刷新后才通过现有资格检查，没有削弱生产检查。
+
+README、CHANGELOG Unreleased、用户／API／架构文档同步；OpenAPI导出无合同漂移，codegen、Web类型检查、docs build、Ruff／format、正常提交hooks和diff检查通过。无依赖、配置、迁移、镜像或版本变化。人工Worker确认idle后通过原监督服务刷新，两个各72任务注册及队列保持，实际无owner UUID的选样任务派发返回；独立Beat未重启，3100/8100和迁移头0231正常，11表完整行指纹、24对象完整SHA和12源文件不变。
+
+验收环境操作账本为零；test中的三个storage-adoption未知关闭账本来自既有故障用例并按合同保留，未伪造清零。测试客户端退出后，两个完整自有一次性mode销毁，数据库、Redis和18桶独立查验不存在。自有浏览器与合成收据服务关闭，两棵干净且patch等价隔离树／分支移除；任务报告、探针、截图与测试／构建缓存按归属清理，保留人工环境、本地虚拟环境、生成类型及工作树身份。
+
+## 下一片范围 — 点云质检Worker原件输入
+
+只读盘点确认点云质检仍沿create_quality_run／build_source_snapshot → point_cloud_quality Worker → execute_scan → \_read_normalized_pointcloud／\_read_pointcloud按当前datasets_bucket读取PCD，并按路径与轴约定缓存。下一片先定稿冻结原件owner／内容／逻辑位置、后台持续reviewer权限及准确任务可见性、取消／代次与真实解析收尾的合同；不能借用AL的manager权限替代既有REVIEW_WRITE，也不能为旧快照按当前owner补造证据。保持256MiB、5000 Task／20000标注、ASCII／非压缩binary PCD及ISO轴归一化；相机只读标定／尺寸，像素与派生链另片。实施前进一步复核当前调用者、历史结果兼容与发布事务，未将盘点称为该消费者已迁移。
