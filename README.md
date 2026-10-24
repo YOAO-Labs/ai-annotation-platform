@@ -68,6 +68,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 训练版本的 ZIP、保留图片与掩码使用[固定存储归属](./docs-site/user-guide/online-learning/data-versions.md#固定存储归属与历史版本)，重试、下载、评估及增强预览读取同一版本位置，删除意图也保留该归属。历史未固定版本须先显式核验保留副本；改变当前训练桶不会重解释已有版本，端点身份不符时明确拒绝。
 
+训练实验也在创建时[固定整个产物前缀](./docs-site/user-guide/online-learning/experiments.md#产物位置与历史实验)，各次执行和续训共用该归属。候选模型的下载、安装及权重初始化沿同项目来源实验与执行记录解析位置，与输入数据版本各自独立。旧实验可查看元数据，使用或删除产物前须由管理员通过 [storage-pin API](./docs-site/api/guides/training-datasets.md#实验产物归属与历史核验) 显式核验；清理和离线恢复保留固定事实。
+
 实例分割还可显式选择原生 RLE 桥接，保留画笔／SAM 修正、孔洞、断连和重叠实例。检测与分割各自维护发布及自动策略，原生掩码回流和像素评估见[实例分割链路](./docs-site/dev/concepts/instance-segmentation-learning.md)。
 
 模型市场分为模型目录与协议能力。已发布的 Ultralytics 图片检测模型可在普通预标、工作台当前题 AI 和裁剪检测管线中选择，各阶段固定模型与类别来源，失败按原管线重试。操作见[模型回流](./docs-site/user-guide/online-learning/models.md)，接口见[项目模型目录](./docs-site/api/guides/projects.md#项目可用模型目录)。

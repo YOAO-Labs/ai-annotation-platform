@@ -117,7 +117,7 @@ last_reviewed: 2026-10-24
 
 `TrainingDatasetVersion.storage_ref` 在新版本创建事务中、首个对象写入前保存平台 Location、配置修订、training 绑定代次、精确 endpoint/bucket/prefix 和物理身份。固定前缀为 `projects/{project_id}/datasets/{version_id}/`，涵盖 `media/`、`masks/` 及各 attempt 的 ZIP；归属与内容 snapshot/manifest 分开，不改变历史训练摘要。`training_dataset_storage` 是共同解析 owner，已有版本不再依据当前 `training_bucket` 解释历史键。
 
-Worker 的保留媒体读取/写入、包发布与尝试清理，analysis 的图片/掩码读取（包括逐样本评估），训练 assignment 的 dataset URL 和增强 preview 的源 URL 均解析同一归属。解析在 I/O 前核对实际客户端端点和精确子键；当前用途桶变化不改已有归属，同端点凭据仍由原 StorageService 管理。端点变化、未知身份或越界键明确失败，不试探其他桶，也不改冻结 `run.config`、preview.spec 或 input_digest。运行权重和预览结果的存储 owner 独立保留。
+Worker 的保留媒体读取/写入、包发布与尝试清理，analysis 的图片/掩码读取（包括逐样本评估），训练 assignment 的 dataset URL 和增强 preview 的源 URL 均解析同一归属。解析在 I/O 前核对实际客户端端点和精确子键；当前用途桶变化不改已有归属，同端点凭据仍由原 StorageService 管理。端点变化、未知身份或越界键明确失败，不试探其他桶，也不改冻结 `run.config`、preview.spec 或 input_digest。实验权重由下述 Run 归属解析，预览结果仍保留独立存储 owner。
 
 旧 NULL 归属通过显式 `storage-pin` 操作核验当前保留副本后一次性固定，迁移和普通 GET 不自动接管。候选只读已持久绑定，版本 advisory 执行锁排除活跃构建；有界完整核验后再次复查当前管理权限、API Key、版本状态/attempt/内容摘要、候选及维护代次，再原子保存归属和核验范围/清单摘要。就绪包与独立媒体/掩码都要验证；失败/取消版本已有副本须有独立输入 SHA，对象自报摘要不能补成历史内容证据。未知键、无法解释的旧 attempt 或核验不确定均不写归属、不删对象。
 
@@ -202,6 +202,16 @@ API 预检逐项执行有界严格读取并及时关闭临时快照，报告引�
         ├── 4. 实时截获 stdout/stderr 脱敏并落盘采样
         └── 5. 退出时确认整个进程组消亡，固化退出回执
 ```
+
+#### 实验产物的固定归属
+
+`TrainingRun.storage_ref` 固定 `projects/{project_id}/runs/{run_id}/`，`purpose=training-run`；平台 API、自动策略与参数搜索在新实验创建事务中、首个 attempt 前显式分配。`new_attempt` 和续训不隐式分配。`training_run_storage` 复用归属校验器，并强制键位于该实验下规范的 `attempts/{attempt_id}/` 非空子路径；执行还须通过 `run_id` 外键属于该实验。输入数据使用 `TrainingDatasetVersion` 自己的归属，与产物独立。
+
+上传签名、完成核验、检查点续训、报告及观测日志文件、脱敏副本、模型注册和后续消费均解析 Run owner。`TrainedModelVersion` 通过同项目 Run/Attempt 外键与精确发布清单解析来源，不另存物理归属；模型安装、下载、评估和初始化不从当前 training 桶或目标实验推断来源。冻结配置、初始化 pin、模型 artifact/provenance、内容摘要和共享训练协议保持原合同。
+
+增量迁移 0221 保留旧 NULL，元数据读取仍允许，文件 I/O、签名、上传、领取、续训和注册明确拒绝；停止、失败及资源收尾继续遵守原 fence。显式核验只接收所有 attempt 已终态且无资源租约的实验，从持久 training 绑定发现候选，完整验证独立 upload/publication 清单、SHA/大小和 attempt metadata，拒绝未知额外对象。脱敏副本须能从独立核验的原日志按已知规则重建；不反序列化权重、不回读可变输入、不修补产物。读取后复核权限/API Key、配置与清单指纹、绑定及维护代次，再原子固定当前保留副本证据。
+
+删除事务将完整归属复制到独立 `TrainingStorageDeletion`；NULL 旧实验或数据版本清理意图拒绝物理删除。数据库拒绝普通改写和含固定事实的破坏性降级，离线恢复仅允许表 owner 显式映射 bucket/identity。部署与旧执行器收尾见[运维步骤](/ops/deploy/storage-recovery#训练实验产物归属的部署顺序)。增强预览、逐样本评估和主动学习的自身输出仍保留独立合同，整个 training 用途切换仍未开放；不增加 ML/执行器协议，也不构成实际 GPU 输入或生命周期资格验收。
 
 #### 资源租约与协作文件锁
 
