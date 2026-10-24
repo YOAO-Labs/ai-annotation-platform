@@ -35,6 +35,7 @@ from tests.identity_recovery_live_helpers import SMTPInbox
 from tests.notifications_module_acceptance_helpers import (
     actor_socket_redis_url,
     api_redis_url,
+    new_fernet_mail_key,
     required_module_inputs,
     verify_notification_publish_database_role,
 )
@@ -356,7 +357,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                 secret=identity_secret,
                 api_secret=api_secret,
                 control=control,
-                mail_key=secrets.token_urlsafe(32),
+                mail_key=new_fernet_mail_key(),
                 login_redis_url=login_redis_url,
                 publisher_redis_url=publisher_redis_url,
                 smtp_port=inbox.port,
@@ -759,6 +760,24 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                 ).all()
                             )
                         recipient_ids = {row.user_id for row in pending_notifications}
+                        actor_notification_ids = {
+                            str(row.id)
+                            for row in pending_notifications
+                            if row.user_id == actor.id
+                        }
+                        other_recipient_notification_ids = {
+                            str(row.id)
+                            for row in pending_notifications
+                            if row.user_id != actor.id
+                        }
+                        assert actor_notification_ids
+                        assert other_recipient_notification_ids
+                        assert actor_notification_ids.isdisjoint(
+                            other_recipient_notification_ids
+                        )
+                        assert (
+                            actor_notification_ids | other_recipient_notification_ids
+                        ) == {str(value) for value in notification_ids}
                         await owner_subscriber.subscribe(
                             *(f"notify:{value}" for value in recipient_ids)
                         )
@@ -910,8 +929,10 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                         is not None
                                     )
                                     assert str(deleted_notice_id) not in restored_by_id
-                                    assert set(map(str, notification_ids)) <= set(
-                                        restored_by_id
+                                    restored_ids = set(restored_by_id)
+                                    assert actor_notification_ids <= restored_ids
+                                    assert other_recipient_notification_ids.isdisjoint(
+                                        restored_ids
                                     )
 
                                     async with websockets.connect(

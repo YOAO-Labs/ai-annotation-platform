@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from uuid import UUID, uuid4
 
 import asyncpg
+from cryptography.fernet import Fernet
 from kombu import Connection, Exchange, Producer, Queue
 import pytest
 import redis.asyncio as redis
@@ -42,6 +43,12 @@ _API_REDIS_ACL_COMMANDS = (
     "+evalsha",
     "+script|load",
 )
+
+
+def new_fernet_mail_key() -> str:
+    """Generate a fixture key accepted by the Identity mail-encryption contract."""
+
+    return Fernet.generate_key().decode("ascii")
 
 
 def api_redis_acl_commands() -> tuple[str, ...]:

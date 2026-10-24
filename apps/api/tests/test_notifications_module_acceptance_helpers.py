@@ -1,3 +1,4 @@
+from cryptography.fernet import Fernet
 from sqlalchemy.engine import URL
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from tests.notifications_module_acceptance_helpers import (
     api_redis_acl_commands,
     kombu_fanout_channel_pattern,
+    new_fernet_mail_key,
     notification_publish_database_url,
 )
 
@@ -18,6 +20,12 @@ def _database_url(**changes):
         port=55432,
         database="notifications_fixture_test",
     ).set(**changes)
+
+
+def test_generated_fixture_mail_key_is_accepted_by_fernet():
+    key = new_fernet_mail_key()
+
+    assert isinstance(Fernet(key.encode("ascii")), Fernet)
 
 
 def test_publisher_role_url_stays_on_the_owned_test_database():
