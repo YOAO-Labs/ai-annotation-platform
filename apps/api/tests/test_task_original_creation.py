@@ -350,16 +350,28 @@ async def test_unknown_task_write_keeps_exact_permit_and_never_retries(
     assert len(client.calls) == calls
 
 
+@pytest.mark.parametrize("stream_fallback", [False, True])
 async def test_cancelled_task_completion_drains_copy_and_preserves_ledger(
-    task_creation_db, client
+    task_creation_db, client, monkeypatch, stream_fallback
 ):
     db = task_creation_db
     row = await allocation(db)
+    client.versioned = stream_fallback
     stage(client, row)
+    client.versioned = False
+    if stream_fallback:
+        copy = client.upload_part_copy
+
+        def no_echo(**params):
+            result = copy(**params)
+            result.pop("CopySourceVersionId")
+            return result
+
+        monkeypatch.setattr(client, "upload_part_copy", no_echo)
     entered, release = threading.Event(), threading.Event()
 
     def hold(operation, params):
-        if operation == "copy":
+        if operation == ("part" if stream_fallback else "copy"):
             entered.set()
             assert release.wait(5)
 

@@ -1635,6 +1635,9 @@ def private_report(path):
         report["error_type"] = type(exc).__name__
         if isinstance(exc, WorktreeError):
             report["error_message"] = str(exc)
+        code = getattr(exc, "code", None)
+        if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,127}", code):
+            report["error_code"] = code
         report["frames"] = [
             {"file": Path(frame.filename).name, "line": frame.lineno}
             for frame in traceback.extract_tb(exc.__traceback__)

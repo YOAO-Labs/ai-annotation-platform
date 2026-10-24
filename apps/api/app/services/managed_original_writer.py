@@ -226,6 +226,7 @@ def prepare_stream(
     content_type,
     max_bytes,
     timeout_seconds=TIMEOUT_SECONDS,
+    _check=None,
 ):
     """Prepare parts while hashing actual bytes; completion is a separate step."""
     _locator(bucket, key)
@@ -239,7 +240,7 @@ def prepare_stream(
     )
     if part_bytes > MAX_PART_BYTES:
         raise WriterError("creation_part_budget_exceeded")
-    check = _clock(timeout_seconds)
+    check = _check if _check is not None else _clock(timeout_seconds)
     upload_id, parts, head = None, [], bytearray()
     sha, md5, size = hashlib.sha256(), hashlib.md5(), 0
     try:
@@ -427,6 +428,62 @@ def _proof(value):
         raise WriterError("creation_invalid_input")
 
 
+def _prepare_pinned_stream(
+    client, source_bucket, source_key, bucket, key, source, content_type, seconds, check
+):
+    """Replace an unqualified server copy with a fully verified bounded stream."""
+    body, prepared = None, None
+    params = {
+        "Bucket": source_bucket,
+        "Key": source_key,
+        "VersionId": source.version_id,
+        "IfMatch": source.etag,
+    }
+    try:
+        try:
+            check()
+            _require_conditions(client, params)
+            check()
+            response = client.get_object(**params)
+            body = response.get("Body")
+            check()
+            if _observation(response, source_bucket, source_key) != source.observation:
+                raise WriterError("creation_source_changed")
+            if not callable(getattr(body, "read", None)):
+                raise WriterError("creation_invalid_response")
+
+            prepared = prepare_stream(
+                client,
+                bucket,
+                key,
+                body,
+                content_type=content_type,
+                max_bytes=source.size_bytes,
+                timeout_seconds=seconds,
+                _check=check,
+            )
+            if any(
+                getattr(prepared, field) != getattr(source, field)
+                for field in ("sha256", "md5", "size_bytes", "head_bytes")
+            ):
+                raise WriterError("creation_source_changed")
+        finally:
+            if body is not None:
+                _close(body)
+        # A version-pinned read cannot adopt a source which stopped being
+        # current while its bytes or handle were still being consumed.
+        check()
+        current = client.head_object(Bucket=source_bucket, Key=source_key)
+        check()
+        if _observation(current, source_bucket, source_key) != source.observation:
+            raise WriterError("creation_source_changed")
+        return prepared
+    except BaseException as exc:
+        if prepared is not None and prepared.upload_id is not None:
+            _abort(client, bucket, key, prepared.upload_id)
+        raise _failure(exc) from None
+
+
 def prepare_copy(
     client,
     source_bucket,
@@ -460,7 +517,7 @@ def prepare_copy(
             source.sha256, source.md5, 0, source.head_bytes, None, (), bucket, key
         )
     check = _clock(timeout_seconds)
-    upload_id = None
+    upload_id, abort_started = None, False
     try:
         check()
         upload_id = _start(client, bucket, key, content_type)
@@ -477,6 +534,26 @@ def prepare_copy(
             CopySource=copy,
             CopySourceIfMatch=source.etag,
         )
+        if source.version_id is not None and "CopySourceVersionId" not in response:
+            # Some S3-compatible services omit the copy-source version echo.
+            # Do not infer that they copied the requested immutable version.
+            # Settle this exact MPU before preparing an independently hashed
+            # pinned stream, under the same original deadline and owner.
+            abort_started = True
+            _abort(client, bucket, key, upload_id)
+            upload_id = None
+            check()
+            return _prepare_pinned_stream(
+                client,
+                source_bucket,
+                source_key,
+                bucket,
+                key,
+                source,
+                content_type,
+                timeout_seconds,
+                check,
+            )
         if _version(response.get("CopySourceVersionId")) != source.version_id:
             raise WriterError("creation_source_changed")
         etag = response.get("CopyPartResult", {}).get("ETag")
@@ -494,7 +571,7 @@ def prepare_copy(
             key,
         )
     except BaseException as exc:
-        if upload_id is not None:
+        if upload_id is not None and not abort_started:
             _abort(client, bucket, key, upload_id)
         raise _failure(exc) from None
 

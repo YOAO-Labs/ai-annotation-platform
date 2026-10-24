@@ -191,9 +191,8 @@ def fixture(
         # Child output is private and may contain SQL details. Report frames only.
         import re
 
-        frames = re.findall(
-            r'File "([^"]+)", line (\d+)', log.read_text(errors="replace")
-        )
+        diagnostic = log.read_text(errors="replace")
+        frames = re.findall(r'File "([^"]+)", line (\d+)', diagnostic)
         frame = next(
             (
                 (Path(name).name, line)
@@ -202,8 +201,16 @@ def fixture(
             ),
             ("child", "unknown"),
         )
+        # ContentError codes are deliberately non-secret. Preserve only the
+        # strict code, never a SQL/provider message from the private child log.
+        codes = re.findall(
+            r"^app\.services\.content_snapshot\.ContentError: ([a-z][a-z0-9_]{0,127})$",
+            diagnostic,
+            re.MULTILINE,
+        )
+        code = f"，{codes[-1]}" if codes else ""
         raise WorktreeError(
-            f"应用恢复夹具 {action} 失败（{frame[0]}:{frame[1]}，退出码{result.returncode}）"
+            f"应用恢复夹具 {action} 失败（{frame[0]}:{frame[1]}，退出码{result.returncode}{code}）"
         )
     return json.loads(output.read_text())
 
