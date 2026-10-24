@@ -21,6 +21,14 @@ from tests.test_module_data_roles import _role_url
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def _worker_queue_name(identity: str, queue_name: str | None = None) -> str:
+    if queue_name is None:
+        return f"aap_workspace_worker_{identity}"
+    if queue_name != "default":
+        raise ValueError("Only the explicit default worker queue is supported")
+    return queue_name
+
+
 class WorkspaceCeleryWorker:
     """Run an installed API artifact as a real worker on owned PG/Redis peers."""
 
@@ -36,6 +44,7 @@ class WorkspaceCeleryWorker:
         object_store_access_key: str,
         object_store_secret_key: str,
         object_store_buckets: dict[str, str] | None = None,
+        queue_name: str | None = None,
     ) -> None:
         self.test_engine = test_engine
         self.directory = Path(directory).resolve()
@@ -64,7 +73,7 @@ class WorkspaceCeleryWorker:
         self.identity = uuid.uuid4().hex[:20]
         self.network_name = f"aap-workspace-worker-{self.identity}"
         self.container_name = self.network_name
-        self.queue = self.network_name.replace("-", "_")
+        self.queue = _worker_queue_name(self.identity, queue_name)
         self.node_name = f"{self.network_name}@worker"
         self.container_id: str | None = None
         self.network_id: str | None = None
