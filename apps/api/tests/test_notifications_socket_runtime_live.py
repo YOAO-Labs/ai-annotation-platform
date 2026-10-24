@@ -13,6 +13,7 @@ import uuid
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import asyncpg
+from cryptography.fernet import Fernet
 import httpx
 import pytest
 import redis.asyncio as redis
@@ -398,13 +399,15 @@ async def test_cold_notifications_owner_behind_api_bridge(
             _login_redis() as (login_redis_url, _),
             _publisher_redis() as (publisher_redis_url, redis_publisher),
         ):
+            mail_key = Fernet.generate_key().decode()
+            assert isinstance(Fernet(mail_key.encode()), Fernet)
             stack = IdentityModuleStack(
                 test_engine,
                 tmp_path,
                 secret=identity_secret,
                 api_secret=api_secret,
                 control=control,
-                mail_key=secrets.token_urlsafe(32),
+                mail_key=mail_key,
                 login_redis_url=login_redis_url,
                 publisher_redis_url=publisher_redis_url,
                 smtp_port=inbox.port,
@@ -586,14 +589,14 @@ async def test_cold_notifications_owner_behind_api_bridge(
                                 await redis_publisher.publish(channel, pending_frame)
                                 == 1
                             )
-                            await asyncio.sleep(0.42)
+                            await asyncio.sleep(0.20)
                             await pending.commit()
                         finally:
                             await pending.close()
                         assert (await asyncio.wait_for(socket.recv(), 5)).encode(
                             "utf-8"
                         ) == pending_frame
-                        assert time.monotonic() - precommit_started >= 0.40
+                        assert time.monotonic() - precommit_started >= 0.18
 
                         restricted = await _insert_notification(
                             seed,
