@@ -35,7 +35,12 @@ from app.services.ml_client import PredictionResult
 from app.services.reference_inference import validate_native_receipt
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_references import reference_world as reference_world
-from tests.test_prediction_inputs import input_world as input_world
+from tests.managed_image_inference_fixtures import (
+    assert_inputs_retired,
+    db_session as db_session,
+    input_world as input_world,
+    sync_world as sync_world,
+)
 from tests.test_ml_backend_project_scope import _seed_backend
 from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_ai_mask_accept import accept_storage_mocks as accept_storage_mocks
@@ -85,6 +90,9 @@ async def inference_world(
         inputs=input_world,
         calls=[],
         during=None,
+        source_files=[],
+        factory=input_world.factory,
+        monkeypatch=monkeypatch,
         mask=False,
         logits=False,
     )
@@ -177,14 +185,9 @@ async def call(client, world, actor_headers, entry="interactive", context=None):
 
 
 async def assert_clean(world):
-    assert not world.inputs.objects
-    async with world.inputs.factory() as db:
-        assert not await db.scalar(
-            select(PredictionInputLease.id).where(
-                PredictionInputLease.task_id == world.task_id
-            )
-        )
-    assert all(storage.closed for storage in world.inputs.storages)
+    await assert_inputs_retired(
+        world, world.task_id, world.monkeypatch, require_records=False
+    )
 
 
 @pytest.mark.parametrize("entry", ["interactive", "test"])
@@ -353,11 +356,16 @@ async def test_failure_and_cancellation_leave_cleanup_owner(
                 )
             ).all()
         )
-        assert bool(records) == (failure == "put")
-        for record in records:
-            assert record.state == "cleanup_pending" and record.uncertain_write
-            await db.delete(record)
-        await db.commit()
+        if failure == "put":
+            assert records
+            assert all(
+                record.state == "cleanup_pending" and record.uncertain_write
+                for record in records
+            )
+        else:
+            assert all(record.state == "deleted" for record in records)
+    assert not w.inputs.versions
+    assert all(storage.closed for storage in w.inputs.storages)
 
 
 def accept_body(response):
@@ -620,7 +628,10 @@ async def test_private_native_receipt_cannot_escape_its_write(
         db_session,
         task,
         actor,
-        SimpleNamespace(state=SimpleNamespace(api_key_id=None)),
+        SimpleNamespace(
+            state=SimpleNamespace(api_key_id=None),
+            headers={"authorization": "Bearer " + super_admin[1]},
+        ),
         data,
     )
     await validate_native_receipt(
