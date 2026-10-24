@@ -12,6 +12,15 @@ dependencies = ["pydantic>=2.10.0"]
 [project.optional-dependencies]
 postgres = ["sqlalchemy[asyncio]>=2.0.0"]
 runtime = ["asyncpg>=0.30.0", "pydantic-settings>=2.6.0", "redis>=5.2.0"]
+websocket = [
+    "aap-identity-admission[http]",
+    "aap-owner-data",
+    "asyncpg>=0.30.0",
+    "pydantic-settings>=2.6.0",
+    "redis>=5.2.0",
+    "starlette>=1.0.0",
+    "uvicorn[standard]>=0.46.0",
+]
 test = [
     "pydantic-settings>=2.6.0",
     "pytest>=8.3.0",
@@ -20,6 +29,7 @@ test = [
 
 [project.scripts]
 aap-notifications-publisher = "aap_notifications.delivery_worker:main"
+aap-notifications-socket = "aap_notifications.websocket_runtime:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aap_notifications"]
@@ -44,6 +54,10 @@ packages = ["src/aap_notifications"]
 "src/aap_notifications/delivery_read.schema.json" = "aap_notifications/delivery_read.schema.json"
 "src/aap_notifications/notification_delivery_protocol.schema.json" = "aap_notifications/notification_delivery_protocol.schema.json"
 "src/aap_notifications/realtime_event.schema.json" = "aap_notifications/realtime_event.schema.json"
+
+[tool.uv.sources]
+aap-identity-admission = { path = "../_shared/identity_admission", editable = true }
+aap-owner-data = { path = "../_shared/owner_data", editable = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
