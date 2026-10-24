@@ -46,6 +46,7 @@ const mockState = vi.hoisted(() => {
     setTransformHandler = vi.fn();
     setDecimateThreshold = vi.fn();
     clearPointCloud = vi.fn();
+    retirePointCloud = vi.fn();
     setPointCloudVisible = vi.fn();
     setBoxes = vi.fn();
     setMeasurementPaths = vi.fn();
@@ -655,8 +656,83 @@ describe("usePointCloudScene camera continuity", () => {
     act(() =>
       useAuthStore.getState().setAuth("owner-second-login", { id: "point-cloud-owner" } as never),
     );
-    expect(scene.clearPointCloud).toHaveBeenCalled();
+    expect(scene.retirePointCloud).toHaveBeenCalled();
     expect(oldOptions.shouldCommit()).toBe(false);
     view.unmount();
+  });
+  it("cancels and fences an old-session camera-save animation frame and clears view continuity", async () => {
+    useAuthStore.getState().setAuth("camera-first", { id: "camera-owner" } as never);
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let sequence = 0;
+    const request = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      const id = ++sequence;
+      callbacks.set(id, callback);
+      return id;
+    });
+    const cancel = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    const oldSave = vi.fn(),
+      newSave = vi.fn();
+    let save = oldSave;
+    const viewportRef = { current: document.createElement("div") };
+    const sceneRef = { current: null };
+    const view = renderHook(() =>
+      usePointCloudScene({
+        viewportRef,
+        sceneRef: sceneRef as never,
+        pcdDecimate: 100,
+        pointSize: 0.06,
+        showGrid: true,
+        showAxisGizmo: true,
+        cameraDamping: 0.1,
+        persistCameraView: true,
+        pointCloudUrl: "camera-owned-frame.pcd",
+        continuityKey: "camera-owned-scene",
+        axisConvention: "iso_8855",
+        boxes: [],
+        selectedId: null,
+        selectedPsrEditable: false,
+        pointcloudCamera: null,
+        onWorkbenchLayoutChange: save,
+        onViewModeChange: vi.fn(),
+        onTransformPreview: vi.fn(),
+        onTransformCommit: vi.fn(),
+      }),
+    );
+    try {
+      await waitFor(() =>
+        expect(view.result.current.loadedPointCloudUrl).toBe("camera-owned-frame.pcd"),
+      );
+      const scene = mockState.instances[0];
+      act(() => {
+        scene.currentView = RUNTIME_VIEW;
+        scene.viewChangeHandler?.(RUNTIME_VIEW);
+      });
+      const cameraFrame = sequence;
+      const oldCallbacks = [...callbacks.values()];
+      expect(request).toHaveBeenCalled();
+      save = newSave;
+      act(() =>
+        useAuthStore.getState().setAuth("camera-second-login", { id: "camera-owner" } as never),
+      );
+      expect(cancel).toHaveBeenCalledWith(cameraFrame);
+      // Invoke cancelled callbacks as an adversarial scheduler would; the owner fence still applies.
+      act(() => oldCallbacks.forEach((callback) => callback(performance.now())));
+      expect(oldSave).not.toHaveBeenCalled();
+      expect(newSave).not.toHaveBeenCalled();
+      await waitFor(() => expect(scene.loadPcd).toHaveBeenCalledTimes(2));
+      expect(scene.applyViewState).not.toHaveBeenCalledWith(RUNTIME_VIEW);
+      expect(scene.retirePointCloud).toHaveBeenCalled();
+      await waitFor(() => expect(view.result.current.isLoading).toBe(false));
+      act(() => scene.viewChangeHandler?.(ACCOUNT_VIEW));
+      const newCameraFrame = sequence;
+      act(() => callbacks.get(cameraFrame)?.(performance.now()));
+      act(() => callbacks.get(newCameraFrame)?.(performance.now()));
+      expect(newSave).toHaveBeenCalledTimes(1);
+      expect(newSave).toHaveBeenLastCalledWith({ pointcloudCamera: ACCOUNT_VIEW });
+    } finally {
+      view.unmount();
+      request.mockRestore();
+      cancel.mockRestore();
+    }
   });
 });
