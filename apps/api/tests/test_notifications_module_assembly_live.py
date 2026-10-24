@@ -32,7 +32,7 @@ from aap_notifications.websocket import (
 from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.db.models.user import User
-from tests.factory import DEFAULT_PASSWORD, create_membership
+from tests.factory import DEFAULT_PASSWORD, create_membership, create_task
 from tests.identity_module_assembly_helpers import IdentityModuleStack
 from tests.identity_recovery_live_helpers import SMTPInbox
 from tests.notifications_module_acceptance_helpers import (
@@ -155,15 +155,16 @@ async def _publish_from_node_consumer(
     return response
 
 
-async def _feedback_issue(client, *, project_id, body):
+async def _feedback_issue(client, *, project_id, task_id, body):
     result = await _request(
         client,
         "POST",
         "/api/v1/feedbacks",
         json={
             "kind": "issue",
-            "anchor_type": "project",
+            "anchor_type": "task",
             "project_id": str(project_id),
+            "task_id": str(task_id),
             "body": body,
         },
     )
@@ -373,6 +374,7 @@ async def _wait_for_delivery_state(maker, operation_id, state, *, timeout=20):
     raise AssertionError(f"Notifications outbox did not reach {state}")
 
 
+@pytest.mark.parametrize("socket_world", ["retain_history"], indirect=True)
 @pytest.mark.asyncio
 async def test_notifications_module_cold_composition_and_full_restore(
     test_engine, socket_world, tmp_path, record_property
@@ -623,9 +625,13 @@ async def test_notifications_module_cold_composition_and_full_restore(
                             preference_sync
                         )
 
+                        async with seed.begin() as db:
+                            task = await create_task(db, project_id=project.id)
+                            task.reviewer_id = actor.id
                         issue_id = await _feedback_issue(
                             api,
                             project_id=project.id,
+                            task_id=task.id,
                             body="Notifications cold composition root",
                         )
                         first_reply_id = await _feedback_reply(
@@ -1112,6 +1118,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                     ],
                                     "restored_owner_attempt": 2,
                                     "new_ordinary_event_after_restore": True,
+                                    "socket_world_history_retention_mode": "retain_history",
                                 },
                                 sort_keys=True,
                             ),

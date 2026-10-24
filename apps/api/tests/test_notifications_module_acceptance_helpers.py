@@ -38,16 +38,17 @@ def test_generated_fixture_mail_key_is_accepted_by_fernet():
 
 
 @pytest.mark.asyncio
-async def test_feedback_issue_posts_schema_valid_project_anchor():
+async def test_feedback_issue_posts_schema_valid_task_anchor():
     project_id = uuid.UUID("60000000-0000-4000-8000-000000000001")
     feedback_id = uuid.UUID("60000000-0000-4000-8000-000000000002")
+    task_id = uuid.UUID("60000000-0000-4000-8000-000000000006")
     captured = {}
 
     def handle(request):
         body = json.loads(request.content)
         payload = AnnotationFeedbackCreate.model_validate(body)
-        assert payload.anchor_type == "project"
-        assert payload.task_id is None
+        assert payload.anchor_type == "task"
+        assert payload.task_id == task_id
         captured["body"] = body
         return httpx.Response(200, json={"id": str(feedback_id)})
 
@@ -57,16 +58,20 @@ async def test_feedback_issue_posts_schema_valid_project_anchor():
     ) as client:
         assert (
             await _feedback_issue(
-                client, project_id=project_id, body="Project-scoped test issue"
+                client,
+                project_id=project_id,
+                task_id=task_id,
+                body="Task-scoped test issue",
             )
             == feedback_id
         )
 
     assert captured["body"] == {
         "kind": "issue",
-        "anchor_type": "project",
+        "anchor_type": "task",
         "project_id": str(project_id),
-        "body": "Project-scoped test issue",
+        "task_id": str(task_id),
+        "body": "Task-scoped test issue",
     }
 
 
