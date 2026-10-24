@@ -44,6 +44,8 @@ _TABLES = (
     "task_batches",
     "task_locks",
     "datasets",
+    "project_datasets",
+    "storage_location_probes",
     "dataset_items",
     "dataset_assets",
     "dataset_asset_locations",
