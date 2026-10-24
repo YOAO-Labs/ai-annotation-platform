@@ -32,7 +32,7 @@ from aap_notifications.websocket import (
 from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.db.models.user import User
-from tests.factory import DEFAULT_PASSWORD, create_membership, create_task
+from tests.factory import DEFAULT_PASSWORD, create_membership
 from tests.identity_module_assembly_helpers import IdentityModuleStack
 from tests.identity_recovery_live_helpers import SMTPInbox
 from tests.notifications_module_acceptance_helpers import (
@@ -155,20 +155,31 @@ async def _publish_from_node_consumer(
     return response
 
 
-async def _feedback_issue(client, *, project_id, task_id, body):
+async def _feedback_issue(client, *, project_id, body):
     result = await _request(
         client,
         "POST",
         "/api/v1/feedbacks",
         json={
             "kind": "issue",
-            "anchor_type": "task",
+            "anchor_type": "project",
             "project_id": str(project_id),
-            "task_id": str(task_id),
             "body": body,
         },
     )
     return uuid.UUID(result["id"])
+
+
+def _batch_predict_terminal_job(job_id, *, user_id, project_id):
+    return AsyncJob(
+        id=job_id,
+        kind="batch_predict",
+        user_id=user_id,
+        project_id=project_id,
+        status="completed",
+        payload={},
+        result={},
+    )
 
 
 async def _feedback_reply(client, issue_id, *, body, headers=None):
@@ -398,6 +409,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
     pubsub = None
     publisher_admin = None
     socket = None
+    diagnostics_captured = False
     snapshot = tmp_path / "notifications-module.dump"
     operation_ids = []
     try:
@@ -611,12 +623,9 @@ async def test_notifications_module_cold_composition_and_full_restore(
                             preference_sync
                         )
 
-                        async with seed.begin() as db:
-                            task = await create_task(db, project_id=project.id)
                         issue_id = await _feedback_issue(
                             api,
                             project_id=project.id,
-                            task_id=task.id,
                             body="Notifications cold composition root",
                         )
                         first_reply_id = await _feedback_reply(
@@ -705,7 +714,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         denied_inbox = await _request(
                             api, "GET", "/api/v1/notifications?limit=100"
                         )
-                        assert any(
+                        assert not any(
                             item["id"] == str(denied_notice_id)
                             for item in denied_inbox["items"]
                         )
@@ -792,27 +801,17 @@ async def test_notifications_module_cold_composition_and_full_restore(
 
                         commit_job_id = uuid.uuid4()
                         rollback_job_id = uuid.uuid4()
-                        async with seed.begin() as db:
-                            db.add_all(
-                                [
-                                    AsyncJob(
-                                        id=commit_job_id,
-                                        kind="batch_predict",
-                                        user_id=actor.id,
-                                        status="completed",
-                                        payload={},
-                                        result={},
-                                    ),
-                                    AsyncJob(
-                                        id=rollback_job_id,
-                                        kind="batch_predict",
-                                        user_id=actor.id,
-                                        status="completed",
-                                        payload={},
-                                        result={},
-                                    ),
-                                ]
+                        terminal_jobs = [
+                            _batch_predict_terminal_job(
+                                job_id, user_id=actor.id, project_id=project.id
                             )
+                            for job_id in (commit_job_id, rollback_job_id)
+                        ]
+                        assert all(
+                            job.project_id == project.id for job in terminal_jobs
+                        )
+                        async with seed.begin() as db:
+                            db.add_all(terminal_jobs)
                         precommit_started = asyncio.get_running_loop().time()
                         await _run_terminal_in_api(
                             stack, commit_job_id, commit=True, delay=0.20
@@ -1117,6 +1116,14 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                 sort_keys=True,
                             ),
                         )
+                    except Exception:
+                        diagnostics_captured = True
+                        if stack is not None:
+                            with suppress(Exception):
+                                record_property(
+                                    "runtime_diagnostics", stack.capture_diagnostics()
+                                )
+                        raise
                     finally:
                         if socket is not None:
                             with suppress(Exception):
@@ -1124,7 +1131,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         await api.aclose()
                         await stack.stop()
             except Exception:
-                if stack is not None:
+                if stack is not None and not diagnostics_captured:
                     with suppress(Exception):
                         record_property(
                             "runtime_diagnostics", stack.capture_diagnostics()

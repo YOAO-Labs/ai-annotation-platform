@@ -1,8 +1,17 @@
+import json
+import uuid
+
 from cryptography.fernet import Fernet
+import httpx
+from app.schemas.annotation_feedback import AnnotationFeedbackCreate
 from sqlalchemy.engine import URL
 
 import pytest
 
+from tests.test_notifications_module_assembly_live import (
+    _batch_predict_terminal_job,
+    _feedback_issue,
+)
 from tests.notifications_module_acceptance_helpers import (
     api_redis_acl_commands,
     kombu_fanout_channel_pattern,
@@ -26,6 +35,51 @@ def test_generated_fixture_mail_key_is_accepted_by_fernet():
     key = new_fernet_mail_key()
 
     assert isinstance(Fernet(key.encode("ascii")), Fernet)
+
+
+@pytest.mark.asyncio
+async def test_feedback_issue_posts_schema_valid_project_anchor():
+    project_id = uuid.UUID("60000000-0000-4000-8000-000000000001")
+    feedback_id = uuid.UUID("60000000-0000-4000-8000-000000000002")
+    captured = {}
+
+    def handle(request):
+        body = json.loads(request.content)
+        payload = AnnotationFeedbackCreate.model_validate(body)
+        assert payload.anchor_type == "project"
+        assert payload.task_id is None
+        captured["body"] = body
+        return httpx.Response(200, json={"id": str(feedback_id)})
+
+    async with httpx.AsyncClient(
+        base_url="http://notifications-test",
+        transport=httpx.MockTransport(handle),
+    ) as client:
+        assert (
+            await _feedback_issue(
+                client, project_id=project_id, body="Project-scoped test issue"
+            )
+            == feedback_id
+        )
+
+    assert captured["body"] == {
+        "kind": "issue",
+        "anchor_type": "project",
+        "project_id": str(project_id),
+        "body": "Project-scoped test issue",
+    }
+
+
+def test_batch_predict_terminal_fixture_keeps_project_scope():
+    job_id = uuid.UUID("60000000-0000-4000-8000-000000000003")
+    user_id = uuid.UUID("60000000-0000-4000-8000-000000000004")
+    project_id = uuid.UUID("60000000-0000-4000-8000-000000000005")
+
+    job = _batch_predict_terminal_job(job_id, user_id=user_id, project_id=project_id)
+
+    assert job.kind == "batch_predict"
+    assert job.user_id == user_id
+    assert job.project_id == project_id
 
 
 def test_publisher_role_url_stays_on_the_owned_test_database():
