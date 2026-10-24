@@ -55,6 +55,51 @@ def owned(body, *, size=None):
     )
 
 
+@pytest.mark.parametrize("outcome", ["normal", "cancel", "unsettled"])
+async def test_retired_stage_close_is_off_loop_and_owned_until_real_completion(
+    provider, outcome
+):
+    entered, release = threading.Event(), threading.Event()
+
+    class SlowClose(io.BytesIO):
+        def close(self):
+            entered.set()
+            assert release.wait(2)
+            if outcome == "unsettled":
+                raise mark_unsettled(OSError("unknown local close"))
+            super().close()
+
+    file = SlowClose(RAW)
+    stage = owned(file)
+    operation = asyncio.create_task(service.close_stage(stage))
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        await asyncio.sleep(0)
+        assert not operation.done() and not file.closed
+        assert service._slots._value == 1
+        if outcome == "cancel":
+            operation.cancel()
+            await asyncio.sleep(0)
+            operation.cancel()
+            await asyncio.sleep(0)
+            assert not operation.done() and service._slots._value == 1
+    finally:
+        release.set()
+    if outcome == "cancel":
+        with pytest.raises(asyncio.CancelledError):
+            await operation
+    elif outcome == "unsettled":
+        with pytest.raises(OSError) as caught:
+            await operation
+        assert caught.value.storage_operation_unsettled
+        assert service._slots._value == 1
+        io.BytesIO.close(file)
+        return
+    else:
+        await operation
+    assert file.closed and service._slots._value == 2
+
+
 async def test_download_limits_are_explicit_and_socket_budget_is_separate(
     provider, monkeypatch
 ):

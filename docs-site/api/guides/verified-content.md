@@ -26,6 +26,24 @@ last_reviewed: 2026-10-24
 
 独立 verify 不创建 DatasetItem、Asset 或任务；需另外调用[登记接口](./dataset-sources#逐条登记原地图片)生成引用样本。已核验内容也不意味着原图以后一直在线；预览状态不由此次核验推导。
 
+## 认证通用原件下载
+
+下列新增接口读取托管原件的完整二进制，不进行图片解码。工作台现有签名地址与原生视频播放尚未迁移；调用者须明确使用认证客户端，不能将需要 Bearer 的路径直接放进原生 `<img>` 或 `<video>`。
+
+| 资源        | 身份路径（GET）                                            | 下载路径（GET）                                   | 授权                                                 |
+| ----------- | ---------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------- |
+| Task 主原件 | `/files/tasks/{task_id}/original-identity`                 | `/files/tasks/{task_id}/original`                 | `tasks:read` 与当前 Task 可见性                      |
+| 相机原件    | `/files/tasks/{task_id}/links/{link_id}/original-identity` | `/files/tasks/{task_id}/links/{link_id}/original` | `tasks:read`、当前 Task 可见性及其精确 camera\_ 关联 |
+| DatasetItem | `/datasets/{dataset_id}/items/{item_id}/original-identity` | `/datasets/{dataset_id}/items/{item_id}/original` | `datasets:read` 与当前 Dataset 管理权限              |
+
+身份响应包含 `owner_kind=dataset_asset|task_original`、`content_id`、`sha256`、`size_bytes`、`media_type`、`verification_state=verified`、`original_availability=unchecked` 和 `download_path`。这里的 `media_type` 是 image/video/point_cloud/other 等业务类别；身份查询不访问对象，既不证明当前在线，也不执行下载预算检查。响应不返回端点、桶或对象键。
+
+下载必须同时提交 `content_id` UUID 与小写64位 `sha256`；可直接使用身份中的平台相对 `download_path`。旧身份或关联变化返回409，不按当前用途桶猜读。服务器从保存位置完整读取并核对 SHA、大小和当前目标条件，再复核原请求凭证、当前权限、精确关联及维护门禁；核验失败不发送原件字节。知道可见 Task 不能用于读取其他 Task 的相机链接；知道 Item ID 不能绕过路径中的 Dataset 归属。
+
+响应固定 `application/octet-stream`、安全固定文件名 `attachment`、`Cache-Control: no-store`、`X-Content-Type-Options: nosniff`，包含准确 `Content-Length`、SHA强ETag和 `X-Content-SHA256`。单文件最多512MiB，超限413且不读取对象；同时两份暂存，满额429。复制与发送各120秒为合作式期限，取消和超时会等待真实线程/句柄收尾，不能理解为硬墙钟保证。暂存额度覆盖响应至真实文件关闭，与原图片核验四槽独立。
+
+本接口拒绝 Range（416），不提供 HEAD（405）或条件304快捷返回。BMP/TIFF/GIF/SVG、点云、视频和空文件均保持已核验原始字节，但是否能由浏览器解码是独立能力；超过512MiB的视频需后续播放方案，不能先整段转Blob作为默认播放。原地引用返回409 `reference_requires_verified_content`，继续使用下文既有图片接口，不扩大引用格式合同。未知、未核验、多原件位置或冲突关系明确拒绝，无签名URL降级。
+
 ## 图片任务
 
 | 方法 | 路径                                        | 行为                                                                           |

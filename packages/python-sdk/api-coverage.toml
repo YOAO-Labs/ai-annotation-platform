@@ -1,5 +1,5 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning", "storage", "storage-locations", "dataset-sources", "files"]
+watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning", "storage", "storage-locations", "dataset-sources", "files", "originals"]
 
 [operations]
 "DELETE /api/v1/projects/{project_id}/guide-assets" = { status = "excluded", reason = "web-only" }
@@ -406,6 +406,12 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "GET /api/v1/dataset-scans/{run_id}/entries/{path_digest}/content" = { status = "excluded", reason = "separate-connector-epic" }
 "GET /api/v1/files/tasks/{task_id}/content" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/files/tasks/{task_id}/content-identity" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/files/tasks/{task_id}/original-identity" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/files/tasks/{task_id}/original" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/files/tasks/{task_id}/links/{link_id}/original-identity" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/files/tasks/{task_id}/links/{link_id}/original" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/datasets/{dataset_id}/items/{item_id}/original-identity" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/datasets/{dataset_id}/items/{item_id}/original" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/files/tasks/{task_id}/file-url" = { status = "excluded", reason = "workbench-internal" }
 "POST /api/v1/files/upload-init" = { status = "excluded", reason = "workbench-internal" }
 "POST /api/v1/files/upload-complete/{task_id}" = { status = "excluded", reason = "workbench-internal" }

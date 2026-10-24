@@ -531,6 +531,17 @@
 | GET | `/notification-preferences` |
 | PUT | `/notification-preferences` |
 
+## `originals.py`
+
+| Method | Path |
+|---|---|
+| GET | `/files/tasks/{task_id}/original-identity` |
+| GET | `/files/tasks/{task_id}/original` |
+| GET | `/files/tasks/{task_id}/links/{link_id}/original-identity` |
+| GET | `/files/tasks/{task_id}/links/{link_id}/original` |
+| GET | `/datasets/{dataset_id}/items/{item_id}/original-identity` |
+| GET | `/datasets/{dataset_id}/items/{item_id}/original` |
+
 ## `point_cloud_quality.py`
 
 | Method | Path |
@@ -1042,4 +1053,4 @@
 
 ---
 
-_共 95 模块 / 605 路由_
+_共 96 模块 / 611 路由_

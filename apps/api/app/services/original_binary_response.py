@@ -50,6 +50,25 @@ def _response_error(exc):
     return ContentError("content_source_unavailable", 503)
 
 
+async def close_stage(stage):
+    """Close a retired stage off-loop and retain ownership through cancellation."""
+    context = contextvars.copy_context()
+    try:
+        pending = asyncio.get_running_loop().run_in_executor(
+            None, context.run, stage.close
+        )
+    except BaseException as exc:
+        raise mark_unsettled(exc)
+    _, failure, cancelled = await _drain(pending)
+    if cancelled:
+        error = asyncio.CancelledError()
+        if getattr(failure, "storage_operation_unsettled", False):
+            mark_unsettled(error)
+        raise error
+    if failure is not None:
+        raise failure
+
+
 class BinaryResponse(StreamingResponse):
     def __init__(self, stage):
         self.stage = stage

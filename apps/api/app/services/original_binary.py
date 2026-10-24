@@ -135,7 +135,7 @@ async def snapshot(
         if current != source:
             raise ContentError("content_binding_changed")
 
-    from app.services.original_binary_response import capture_download
+    from app.services.original_binary_response import capture_download, close_stage
 
     stage = None
     try:
@@ -168,5 +168,5 @@ async def snapshot(
         return stage
     except BaseException:
         if stage is not None:
-            stage.close()
+            await close_stage(stage)
         raise
