@@ -18,6 +18,7 @@ from app.db.models.task import Task
 from app.observability.metrics import record_raster_mask_content_operation
 from app.services.raster_mask_capabilities import evaluate_raster_mask_capabilities
 from app.services.storage import StorageService, storage_service
+from app.services.storage_access import close_registered, finish, mark_unsettled
 from app.utils.raster_mask_gzip import (
     MAX_COMPRESSED_BYTES,
     MAX_EXPANSION_RATIO,
@@ -689,30 +690,131 @@ def build_rle_gzip_reference(rle: dict[str, Any]) -> dict[str, Any]:
 def _put_object_sync(
     storage: StorageService, *, key: str, body: bytes, content_type: str
 ) -> None:
-    """Sync boto3 put wrapped so both the async and sync helpers share one path."""
-    if storage.verify_upload(key) is None:
-        storage.client.put_object(
-            Bucket=storage.bucket,
-            Key=key,
-            Body=body,
-            ContentType=content_type,
-        )
+    """Create without overwriting, then verify the complete canonical content."""
+    head = _head_object_sync(storage, key=key)
+    if head is None:
+        try:
+            storage.client.put_object(
+                Bucket=storage.bucket,
+                Key=key,
+                Body=body,
+                ContentType=content_type,
+                IfNoneMatch="*",
+            )
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") not in (
+                "PreconditionFailed",
+                "412",
+            ):
+                raise
+    compressed = key.endswith(".json.gz")
+    actual = _get_object_sync(
+        storage,
+        key=key,
+        max_bytes=MAX_COMPRESSED_BYTES if compressed else MAX_RLE_OBJECT_BYTES,
+        head=head,
+    )
+    if compressed:
+        # Historical gzip headers carry mtime; canonical content is the identity.
+        actual = decompress_mask_gzip(actual)
+        body = decompress_mask_gzip(body)
+    if actual != body:
+        raise ValueError("stored mask RLE digest mismatch")
 
 
-def _get_object_sync(storage: StorageService, *, key: str, max_bytes: int) -> bytes:
-    """Sync boto3 get with a caller-selected compressed/uncompressed bound."""
+def _head_object_sync(storage: StorageService, *, key: str) -> dict | None:
     try:
-        response = storage.client.get_object(Bucket=storage.bucket, Key=key)
+        return storage.client.head_object(Bucket=storage.bucket, Key=key)
     except ClientError as exc:
         code = str(exc.response.get("Error", {}).get("Code", ""))
         if code in {"NoSuchKey", "404", "NotFound"}:
-            raise ValueError("stored mask RLE object is missing") from exc
+            return None
         raise
+
+
+def _object_identity(metadata: dict) -> tuple[str, int, str | None]:
+    etag = metadata.get("ETag")
+    length = metadata.get("ContentLength")
+    version = metadata.get("VersionId")
+    if (
+        not isinstance(etag, str)
+        or not etag.strip()
+        or type(length) is not int
+        or length < 0
+        or (version is not None and (not isinstance(version, str) or not version))
+    ):
+        raise ValueError("stored mask RLE object identity is invalid")
+    return etag, length, None if version == "null" else version
+
+
+def _get_object_sync(
+    storage: StorageService,
+    *,
+    key: str,
+    max_bytes: int,
+    head: dict | None = None,
+) -> bytes:
+    """Read one bounded identity and verify the current key after actual close."""
+    head = head if head is not None else _head_object_sync(storage, key=key)
+    if head is None:
+        raise ValueError("stored mask RLE object is missing")
+    identity = _object_identity(head)
+    etag, length, version = identity
+    if length > max_bytes:
+        raise ValueError("stored mask RLE exceeds its stored byte limit")
+    condition = {"IfMatch": etag}
+    if version is not None:
+        condition["VersionId"] = version
     try:
-        data = response["Body"].read(max_bytes + 1)
+        response = storage.client.get_object(
+            Bucket=storage.bucket, Key=key, **condition
+        )
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        if code in {"NoSuchKey", "NoSuchVersion", "404", "NotFound"}:
+            raise ValueError("stored mask RLE object is missing") from exc
+        if code in {"PreconditionFailed", "412"}:
+            raise ValueError("stored mask RLE object changed during read") from exc
+        raise
+    stream = response["Body"]
+    try:
+        if _object_identity(response) != identity:
+            raise ValueError("stored mask RLE object changed during read")
+        chunks, consumed = [], 0
+        while True:
+            chunk = stream.read(max_bytes + 1 - consumed)
+            if not isinstance(chunk, bytes):
+                raise ValueError("stored mask RLE response must contain bytes")
+            if not chunk:
+                break
+            consumed += len(chunk)
+            if consumed > max_bytes:
+                raise ValueError("stored mask RLE exceeds its stored byte limit")
+            chunks.append(chunk)
+        if consumed != length:
+            raise ValueError("stored mask RLE byte count mismatch")
     finally:
-        response["Body"].close()
-    return data
+        close_registered(stream)
+    after = _head_object_sync(storage, key=key)
+    if after is None:
+        raise ValueError("stored mask RLE object is missing")
+    if _object_identity(after) != identity:
+        raise ValueError("stored mask RLE object changed during read")
+    return b"".join(chunks)
+
+
+async def _run_content_io(call, *args, **kwargs):
+    """A cancelled await must not release its caller's locks before thread exit."""
+    task = asyncio.create_task(asyncio.to_thread(call, *args, **kwargs))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError as interrupted:
+        try:
+            await finish(task)
+        except BaseException as late:
+            if getattr(late, "storage_operation_unsettled", False):
+                mark_unsettled(interrupted)
+        raise
 
 
 def store_coco_rle_sync(
@@ -740,7 +842,7 @@ async def store_coco_rle(
     """Async wrapper of :func:`store_coco_rle_sync` (boto3 I/O in ``to_thread``)."""
     return await _observe_content_operation(
         "store",
-        asyncio.to_thread(store_coco_rle_sync, rle, storage=storage),
+        _run_content_io(store_coco_rle_sync, rle, storage=storage),
     )
 
 
@@ -777,7 +879,7 @@ async def store_coco_rle_gzip(
     """
     return await _observe_content_operation(
         "store",
-        asyncio.to_thread(store_coco_rle_gzip_sync, rle, storage=storage),
+        _run_content_io(store_coco_rle_gzip_sync, rle, storage=storage),
     )
 
 
@@ -847,7 +949,7 @@ async def load_coco_rle(
     """Async wrapper of :func:`load_coco_rle_sync` (boto3 I/O in ``to_thread``)."""
     return await _observe_content_operation(
         "load",
-        asyncio.to_thread(load_coco_rle_sync, reference, storage=storage),
+        _run_content_io(load_coco_rle_sync, reference, storage=storage),
     )
 
 

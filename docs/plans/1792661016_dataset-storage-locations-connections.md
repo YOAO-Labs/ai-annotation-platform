@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11 completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -705,3 +705,27 @@ Web useGuideAssets改认证raw上传及完整内容读取，复用silentPost/sil
 OpenAPI、类型与605路由索引生成通过，正式API/用户/架构/恢复文档和SDK coverage同步；类型检查、Web lint、CSS tokens、文档检查、正常hooks及diff检查通过，lint有四条既存warning。人工3100/8100已应用0228，受控刷新两Worker和单独监督Beat；两Worker均注册72任务，路由与实际GC派发正常，Beat周期300秒。迁移前后及测试清理后均核对11张业务表指纹、24对象完整SHA与12源文件保持，新表为空、修订初值正确。未重建镜像或改变共享配置、依赖与版本。
 
 test/e2e进程停止，两个mode各自DB、专用Redis和九桶销毁后独立查验不存在；命名浏览器关闭，探针、日志、测试缓存及七棵已集成且干净的隔离树按归属清理。人工服务和工作树本地生成类型保留。完整E02继续active、完整用途切换关闭；下一片优先持久RLE，独立Task原件、已有Dataset位置的读取消费者、金字塔和视频派生分别收口。
+
+## E02-B12-A Design — RLE 写入核验与取消收尾
+
+基于干净HEAD `baade317e` 继续既有实施授权，先交付可独立合并的存储闭环修复。源码和只读审查确认：`_put_object_sync`把HEAD存在当成功，损坏同键对象可产生成功ref；`verify_upload`还会把全部ClientError视为缺失。裸to_thread取消后物理线程继续，调用者却可能已回滚预留并释放内容锁。本片只修这些当前配置下可触发的问题；完整B12仍须另行交付独立物理owner、保存位置读取与owner清理，不把本片视为用途切换就绪。
+
+最小实现保持同步/异步store/load签名、内容寻址键、portable DTO、4MiB canonical/8MiB压缩/膨胀比限制、现有配额/引用事务锁和24小时GC。严格HEAD只将404/NoSuchKey/NotFound视为缺失；新建带IfNoneMatch="\*"，只有并发412转为读取赢家，409及其它错误原样失败。新对象、现存对象和412赢家均经固定长度/ETag/有效VersionId、条件GET、有界分段完整读取、真实关闭及当前键末端HEAD核验后才成功。失败不覆盖或补偿删除。条件写语义依据[Amazon S3官方说明](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html)，不将HEAD存在或PUT应答单独当完整内容证明。
+
+JSON必须与本次canonical原字节一致；gzip完整有界解压后比对同一canonical字节。历史gzip带mtime，同内容压缩字节可不同，不能以本次压缩字节强制拒绝旧对象，也不修改旧对象。载入仍校验canonical SHA、尺寸、runs、bytes与规范键。两个编码都核对实际响应身份及末端当前对象，不用历史VersionId HEAD冒充当前键检查。
+
+异步store/load复用storage_access.finish与close_registered，持有shield线程任务；重复取消或外层超时均先等待线程和句柄收尾，再抛原中断，迟到成功不变成调用成功，迟到关闭未知保留unsettled标记。依据[Python asyncio取消说明](https://docs.python.org/3.12/library/asyncio-task.html#shielding-from-cancellation)保留任务强引用并显式drain。观测仍只记录一次外层操作，取消不记成功，不增加高基数标签、重试层或新超时参数。该修复延长现有内容锁至线程结束，但不冒充解决所有writer与引用提交之间的间隔或永久未知句柄责任；这些随完整owner协议交付。
+
+预计八文件：存储服务、三个低层测试文件、segmentation在线闭环测试、Mask用户指南、CHANGELOG与本计划。测试provider必须真实实现条件PUT/GET、身份元数据与关闭，不在生产代码识别Mock放宽。先用损坏同键和取消线程红测证实；随后覆盖JSON/gzip历史mtime、条件竞争、权限错误、损坏回读、VersionId/null、末端替换、短读/截断/超界/关闭失败、重复取消和超时、指标单次计数。纯单测使用当前虚拟环境；涉及迁移/在线闭环只用验证过的一次性test mode。实际本机MinIO验证条件创建与历史gzip复用，人工API/Worker受控刷新并保持24对象/12文件。无UI/DTO/依赖/配置/镜像/版本变化；正常hooks、相关回归与diff通过后记录Outcome并清理任务产物。
+
+## E02-B12-A Outcome — RLE 条件创建、完整核验与线程收尾
+
+八文件实现保持既有内容键、DTO、同步/异步入口、gzip兼容和24小时GC。严格HEAD不再吞权限/服务异常；缺失才条件创建，412赢家也必须完整核验。条件GET固定对象身份，有界读至EOF、真实关闭，再检查当前键；新建、现存或并发赢家损坏均拒绝，未覆盖或补偿删除。历史gzip按完整canonical内容比较，保留原压缩字节。GET缺失、已删除版本和条件冲突继续作为内容错误，保留API的409及缺失分类，不误报为存储503。异步操作以强引用shield并drain，重复取消与超时等待线程收尾后仍抛中断，迟到关闭未知保留unsettled，取消不计成功。
+
+改前五个红测全部失败，准确复现两个编码损坏同键被接受、无条件创建/无回读、历史gzip未核验及取消提前释放锁。改后三套低层66项通过，覆盖条件竞争、403/409、写后损坏、真实VersionId/null、末端替换、短读/截断/超界、读取/关闭失败、阻塞PUT、读取/关闭期间重复取消和外部超时。一次性test中的人工Mask API、portable导入导出、预测内容、开关/配额、GC及segmentation训练/人工审核闭环六套81项通过；合计147项无失败或跳过。训练闭环使用确定性transport/ML替身，不代表真实框架或GPU资格。
+
+真实本机MinIO完成四组检查：JSON新建/复用完整读回，mtime=1的历史gzip复用后原字节保持，损坏JSON/gzip拒绝且不覆盖，以及强制两个初次HEAD均缺失的并发创建。实际PUT结果为一个成功、一个PreconditionFailed，两调用均完整读取同一正确赢家。五个探针对象精确移除，之前对象集合保持。未改UI，不重复浏览器矩阵。CHANGELOG与Mask用户指南同步，Ruff/format、文档可读性200页、frontmatter199页、正常hooks与diff检查通过。
+
+人工3100/8100在确认两Worker无active/reserved/scheduled及相关队列为空后，通过原拥有服务受控刷新；新PID、当前源码、两Worker各72任务、队列与实际cleanup派发、Beat及10项doctor均正常。再次完整核对11张业务表指纹、24对象SHA和12源文件保持，迁移头仍0228，无新迁移。一次性test停止并销毁，DB、Redis及九桶独立查验不存在；探针、日志、测试缓存按归属清理，保留人工服务及本地类型。没有重建镜像、发布版本、修改共享配置或安装依赖。
+
+本片只完成写入核验与线程收尾，完整E02仍active、完整用途切换仍关闭。下一片继续持久RLE独立归属：统一store/load的全部调用者及同步loader、物理写入前耐久pending、保存位置和实际内容回执、全部权威引用与既有保留期下的owner清理、未知历史及未知收尾保留、Task删除和恢复映射。不能只接管人工上传，不能把RasterMaskUpload的Task级配额账当独立物理owner，也不重复新建已有Dataset原件归属。

@@ -35,15 +35,9 @@ from app.utils.raster_mask_gzip import (
     compress_mask_gzip,
     decompress_mask_gzip,
 )
+from tests.test_raster_mask_storage import memory_mask_storage as _storage
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
-
-
-def _storage(*, exists: bool = False) -> MagicMock:
-    storage = MagicMock()
-    storage.bucket = "annotation-data"
-    storage.verify_upload.return_value = {} if exists else None
-    return storage
 
 
 def test_constants_match_adr_0052_d6():
@@ -174,7 +168,7 @@ async def test_load_coco_rle_gzip_roundtrip():
     body = storage.client.put_object.call_args.kwargs["Body"]
     stream = BytesIO(body)
     stream.close = MagicMock()
-    storage.client.get_object.return_value = {"Body": stream}
+    storage.open_body = lambda _raw: stream
 
     payload = await load_coco_rle(reference, storage=storage)
     assert payload["counts"] == [1, 2, 2, 1]
@@ -191,7 +185,7 @@ async def test_load_coco_rle_backward_compat_json():
     body = storage.client.put_object.call_args.kwargs["Body"]
     stream = BytesIO(body)
     stream.close = MagicMock()
-    storage.client.get_object.return_value = {"Body": stream}
+    storage.open_body = lambda _raw: stream
 
     payload = await load_coco_rle(reference, storage=storage)
     assert payload["counts"] == [1, 2, 2, 1]
@@ -220,7 +214,8 @@ async def test_load_coco_rle_gzip_rejects_digest_mismatch():
     other_canonical = canonical_rle_bytes(other)
     stream = BytesIO(compress_mask_gzip(other_canonical))
     stream.close = MagicMock()
-    storage.client.get_object.return_value = {"Body": stream}
+    storage.objects[reference["object_key"]] = stream.getvalue()
+    storage.open_body = lambda _raw: stream
     with pytest.raises(ValueError, match="digest mismatch"):
         await load_coco_rle(reference, storage=storage)
 
@@ -233,7 +228,6 @@ async def test_load_coco_rle_gzip_rejects_over_uncompressed():
     big = b"x" * (MAX_UNCOMPRESSED_BYTES + 1)
     stream = BytesIO(compress_mask_gzip(big))
     stream.close = MagicMock()
-    storage.client.get_object.return_value = {"Body": stream}
     reference = {
         "encoding": "coco_rle_gzip",
         "size": [2, 2],
@@ -242,6 +236,8 @@ async def test_load_coco_rle_gzip_rejects_over_uncompressed():
         "runs": 1,
         "bytes": MAX_UNCOMPRESSED_BYTES + 1,
     }
+    storage.objects[reference["object_key"]] = stream.getvalue()
+    storage.open_body = lambda _raw: stream
     with pytest.raises(ValueError, match="MAX_UNCOMPRESSED_BYTES"):
         await load_coco_rle(reference, storage=storage)
 

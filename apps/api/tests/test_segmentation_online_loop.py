@@ -91,6 +91,8 @@ def memory_objects(monkeypatch, training_config_fixture):  # noqa: F811
     values = {}
 
     def put(*, Bucket, Key, Body, Metadata=None, **kwargs):
+        if kwargs.get("IfNoneMatch") == "*" and (Bucket, Key) in values:
+            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
         raw = Body.read() if hasattr(Body, "read") else bytes(Body)
         values[Bucket, Key] = (raw, dict(Metadata or {}))
         return {"ETag": '"' + hashlib.sha256(raw).hexdigest() + '"'}

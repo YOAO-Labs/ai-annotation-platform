@@ -20,6 +20,7 @@ from app.services.raster_mask_storage import (
     lock_raster_mask_references,
     store_coco_rle,
 )
+from tests.test_raster_mask_storage import memory_mask_storage as _storage
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 5]}
 EXPECTED_ERROR_REASONS = {
@@ -37,15 +38,6 @@ EXPECTED_ERROR_REASONS = {
 
 def _counter_value(counter, **labels: str) -> float:
     return float(counter.labels(**labels)._value.get())
-
-
-def _storage(*, get_error: Exception | None = None):
-    storage = MagicMock()
-    storage.bucket = "annotation-data"
-    storage.verify_upload.return_value = None
-    if get_error is not None:
-        storage.client.get_object.side_effect = get_error
-    return storage
 
 
 @pytest.mark.parametrize(
