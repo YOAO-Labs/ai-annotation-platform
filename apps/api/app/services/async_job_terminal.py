@@ -28,6 +28,7 @@ helper, because flattening those values would erase the difference between
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -220,12 +221,81 @@ async def reconcile_training_dataset(db, job, *, cancelled, error):
         )
     ).scalar_one_or_none()
     if version is not None and _locks_open(version.status):
-        version.status = "cancelled" if cancelled else "failed"
-        version.error_code = "cancelled" if cancelled else "worker_failed"
-        version.error_message = (
-            "训练数据构建已取消" if cancelled else "构建进程异常终止，可重试同一快照"
+        _finish_training_dataset(version, cancelled=cancelled)
+
+
+def _finish_training_dataset(version, *, cancelled):
+    version.status = "cancelled" if cancelled else "failed"
+    version.error_code = "cancelled" if cancelled else "worker_failed"
+    version.error_message = (
+        "训练数据构建已取消" if cancelled else "构建进程异常终止，可重试同一快照"
+    )
+    version.completed_at = _now()
+
+
+def _training_execution(args, kwargs):
+    """Use the actual task envelope, never infer a signal's attempt from live rows."""
+    names = ("version_id", "job_id", "attempt_id")
+    args = () if args is None else args
+    kwargs = {} if kwargs is None else kwargs
+    if (
+        not isinstance(args, (list, tuple))
+        or len(args) > len(names)
+        or not isinstance(kwargs, dict)
+        or set(kwargs) != set(names[len(args) :])
+    ):
+        return None
+    try:
+        return tuple(
+            uuid.UUID(str(value))
+            for value in (*args, *(kwargs[n] for n in names[len(args) :]))
         )
-        version.completed_at = _now()
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+async def signal_training_dataset(
+    db, job_id, celery_task_id, *, task_args=None, task_kwargs=None, cancelled, error
+):
+    """Match the worker's Version -> Job lock order and exact execution fence."""
+    from app.db.models.training_dataset import TrainingDatasetVersion
+    from app.services import async_job as jobs
+
+    expected = _training_execution(task_args, task_kwargs)
+    if expected is None or expected[1] != job_id:
+        return False
+    version_id, expected_job_id, attempt_id = expected
+    version = await db.scalar(
+        select(TrainingDatasetVersion)
+        .where(TrainingDatasetVersion.id == version_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        version is None
+        or version.async_job_id != expected_job_id
+        or version.attempt_id != attempt_id
+        or not _locks_open(version.status)
+    ):
+        return False
+    job = await jobs.lock_job(db, expected_job_id)
+    if (
+        job is None
+        or job.kind != "training_dataset"
+        or job.celery_task_id != celery_task_id
+        or job.project_id != version.project_id
+        or job.user_id != version.creator_id
+        or not isinstance(job.payload, dict)
+        or job.payload.get("training_dataset_id") != str(version.id)
+        or not _locks_open(job.status)
+    ):
+        return False
+    if cancelled:
+        await jobs.mark_cancelled(db, job.id)
+    else:
+        await jobs.mark_failed(db, job.id, error=error or "")
+    _finish_training_dataset(version, cancelled=cancelled)
+    return True
 
 
 DOMAIN_TERMINAL_RECONCILERS["training_dataset"] = reconcile_training_dataset

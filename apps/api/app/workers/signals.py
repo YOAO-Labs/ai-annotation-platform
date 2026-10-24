@@ -45,6 +45,8 @@ async def _apply_terminal(
     *,
     cancelled: bool,
     error: str | None = None,
+    task_args=None,
+    task_kwargs=None,
 ) -> None:
     """Run the shared fallback skeleton for one celery task id."""
 
@@ -56,6 +58,22 @@ async def _apply_terminal(
         async with SessionLocal() as db:
             aj = await async_job_svc.find_by_celery_task_id(db, celery_task_id)
             if aj is None:
+                return
+            if aj.kind == "training_dataset":
+                from app.services.async_job_terminal import signal_training_dataset
+
+                changed = await signal_training_dataset(
+                    db,
+                    aj.id,
+                    celery_task_id,
+                    task_args=task_args,
+                    task_kwargs=task_kwargs,
+                    cancelled=cancelled,
+                    error=error,
+                )
+                if changed:
+                    await notify_job_terminal(db, job_id=aj.id)
+                    await db.commit()
                 return
             if aj.kind == "prediction_retry" and (aj.payload or {}).get(
                 "prediction_authority"
@@ -141,12 +159,12 @@ async def _apply_terminal(
         await engine.dispose()
 
 
-async def _mark_failed(celery_task_id: str, error: str) -> None:
-    await _apply_terminal(celery_task_id, cancelled=False, error=error)
+async def _mark_failed(celery_task_id: str, error: str, **execution) -> None:
+    await _apply_terminal(celery_task_id, cancelled=False, error=error, **execution)
 
 
-async def _mark_cancelled(celery_task_id: str) -> None:
-    await _apply_terminal(celery_task_id, cancelled=True)
+async def _mark_cancelled(celery_task_id: str, **execution) -> None:
+    await _apply_terminal(celery_task_id, cancelled=True, **execution)
 
 
 @task_failure.connect
@@ -155,14 +173,16 @@ def _on_task_failure(  # noqa: ARG001
     task_id=None,
     exception=None,
     einfo=None,
-    **kwargs,
+    args=None,
+    kwargs=None,
+    **signal_kwargs,
 ):
     """Fallback: an exception the task body did not catch."""
     if not task_id:
         return
     try:
         error = f"{type(exception).__name__}: {exception}" if exception else "unknown"
-        asyncio.run(_mark_failed(task_id, error))
+        asyncio.run(_mark_failed(task_id, error, task_args=args, task_kwargs=kwargs))
     except Exception:
         log.exception("async_jobs signal _on_task_failure failed")
 
@@ -181,6 +201,12 @@ def _on_task_revoked(  # noqa: ARG001
     if not task_id:
         return
     try:
-        asyncio.run(_mark_cancelled(task_id))
+        asyncio.run(
+            _mark_cancelled(
+                task_id,
+                task_args=getattr(request, "args", None),
+                task_kwargs=getattr(request, "kwargs", None),
+            )
+        )
     except Exception:
         log.exception("async_jobs signal _on_task_revoked failed")
