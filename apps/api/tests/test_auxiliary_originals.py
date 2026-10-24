@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
-from sqlalchemy import delete, text, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models.dataset import Scene
@@ -240,3 +240,69 @@ async def test_physical_baseexception_and_repeated_cancel_drain_before_source_cl
 
     with pytest.raises(Stop):
         await creation._drain(asyncio.create_task(fail()))
+
+
+@pytest.mark.asyncio
+async def test_successful_future_still_latches_external_baseexception(monkeypatch):
+    class Stop(BaseException):
+        pass
+
+    original = asyncio.shield
+
+    async def interrupt_after_done(future):
+        await original(future)
+        raise Stop()
+
+    monkeypatch.setattr(asyncio, "shield", interrupt_after_done)
+    physical = creation._Physical()
+    assert await physical.run(lambda: "late success") == "late success"
+    assert isinstance(physical.interrupted, Stop)
+
+
+async def test_interrupted_late_unknown_keeps_durable_permit(
+    auxiliary_db, client, monkeypatch
+):
+    from app.services import managed_original_writer as writer
+    from app.db.models.storage_maintenance import StorageOperation
+
+    entered, release = threading.Event(), threading.Event()
+    allocation = await creation.allocate_auxiliary(
+        auxiliary_db,
+        dataset_id=uuid.uuid4(),
+        kind="map",
+        source_contract=map_source(),
+        logical_path="map/original",
+        max_bytes=100,
+        authority={"policy": "owned-test"},
+    )
+
+    def unknown(*args, **kwargs):
+        entered.set()
+        release.wait(5)
+        raise writer.WriterError("creation_complete_unknown", outcome="unknown")
+
+    monkeypatch.setattr(writer, "prepare_stream", unknown)
+    operation = asyncio.create_task(
+        creation._execute(auxiliary_db, allocation, io.BytesIO(b"bytes"))
+    )
+    await asyncio.to_thread(entered.wait, 2)
+    operation.cancel()
+    await asyncio.sleep(0)
+    operation.cancel()
+    await asyncio.sleep(0)
+    assert not operation.done()
+    release.set()
+    with pytest.raises(ContentError) as failure:
+        await operation
+    assert failure.value.storage_operation_unsettled is True
+    row = await creation._read(auxiliary_db, allocation["id"])
+    assert row["status"] == "unknown"
+    async with service.storage_access.engine(auxiliary_db).connect() as connection:
+        assert (
+            await connection.scalar(
+                select(StorageOperation.id).where(
+                    StorageOperation.id == row["operation_id"]
+                )
+            )
+            is not None
+        )

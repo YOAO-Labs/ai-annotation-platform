@@ -518,7 +518,7 @@ class _Physical:
         try:
             return await asyncio.shield(future)
         except BaseException as exc:
-            if future.done():
+            if future.done() and (future.cancelled() or future.exception() is not None):
                 return future.result()
             # Adopt late client/preparation/receipt results in the caller so its
             # normal persistence and finally-close path still owns every handle.
@@ -532,6 +532,7 @@ async def _physical(db, row, stream):
 
     client, prepared, completion_started = None, None, False
     physical = _Physical()
+    failure = None
     try:
         client = await physical.run(
             create_client, timeout_seconds=row["timeout_seconds"]
@@ -658,7 +659,8 @@ async def _physical(db, row, stream):
                 ContentError("managed_original_readback_persistence_unknown", 503)
             ) from None
         return verified.head_bytes
-    except BaseException:
+    except BaseException as exc:
+        failure = exc
         if prepared is not None and not completion_started:
             # A failed freeze/config fence may clean only its exact unfinished
             # MPU. This never deletes or retries the final object.
@@ -684,7 +686,7 @@ async def _physical(db, row, stream):
                     ContentError("managed_original_close_unknown", 503)
                 ) from None
 
-        if physical.interrupted is not None:
+        if physical.interrupted is not None and failure is None:
             raise physical.interrupted
 
 
