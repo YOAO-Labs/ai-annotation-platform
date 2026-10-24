@@ -729,3 +729,23 @@ JSON必须与本次canonical原字节一致；gzip完整有界解压后比对同
 人工3100/8100在确认两Worker无active/reserved/scheduled及相关队列为空后，通过原拥有服务受控刷新；新PID、当前源码、两Worker各72任务、队列与实际cleanup派发、Beat及10项doctor均正常。再次完整核对11张业务表指纹、24对象SHA和12源文件保持，迁移头仍0228，无新迁移。一次性test停止并销毁，DB、Redis及九桶独立查验不存在；探针、日志、测试缓存按归属清理，保留人工服务及本地类型。没有重建镜像、发布版本、修改共享配置或安装依赖。
 
 本片只完成写入核验与线程收尾，完整E02仍active、完整用途切换仍关闭。下一片继续持久RLE独立归属：统一store/load的全部调用者及同步loader、物理写入前耐久pending、保存位置和实际内容回执、全部权威引用与既有保留期下的owner清理、未知历史及未知收尾保留、Task删除和恢复映射。不能只接管人工上传，不能把RasterMaskUpload的Task级配额账当独立物理owner，也不重复新建已有Dataset原件归属。
+
+## E02-B12-B Design — 持久 RLE 独立候选与业务发布保护
+
+基于干净HEAD `dd33fd62e`，延续整套实施和提交授权，三路只读审查已核对真实调用。本片完整接管持久RLE的store/load及GC，不将新增几个定位字段当作完成。现有RasterMaskUpload只保留Task级配额，不能承担物理归属；portable CocoRleMaskRef禁止额外字段，其object_key继续是canonical SHA加编码的逻辑键。实际对象改用 `raster-masks/objects/{ownerUUID}.json[.gz]`，由独立RasterMaskObject保存严格位置。新候选无User/Project/Task级联FK；未知旧逻辑键、JSON与字节不扫描认领，纯读取零I/O明确409，条件304也必须先核验归属与门禁。
+
+0229新增raster_mask_objects和raster_mask_publications。Object固定UUID、logical_key、canonical_sha256/canonical_size_bytes、height/width/runs、identity或gzip编码、stored_sha256/stored_size_bytes、九字段annotations storage_ref和created_at；JSON两套SHA/大小必须相等，gzip分别保存。logical_key必须与canonical SHA、分片和编码后缀严格一致，物理键与UUID和编码严格一致。全局部分唯一为logical_key WHERE state=ready，不能按桶分组。状态仅pending→ready/retired、ready→retired；published_at首次ready设置且不可改，last_used_at仅成功store复用单调前进，retired_at首次退休后不可改。pending物写前独立提交；未知提交、取消、失败与未知关闭保留，不续写旧pending、不反向复活。物理失败后新调用可用另一UUID候选，旧候选仍保留责任。
+
+已存在ready必须沿保存桶完整核验canonical与实际存储回执，然后重核同一不可变快照/ready/Gate并更新last_used_at。无ready时分配独立候选，条件PUT并完整回读、真实关闭后，在独立的 `aap:rle-publish:{logical_key}` 短锁下发布ready；该锁不与调用者已持有的旧内容锁或Task锁重名。竞争已有赢家时先释锁、完整核验赢家，再短锁重核；只在明确成功后退休本次已完成候选，不补偿物删。若同逻辑键后续合法重建，旧portable引用可解析到内容事实完全相同的新ready；本协议不承诺旧代次引用永久拒读。没有新规范内容写入时，旧未知引用不能借键或当前桶获得owner。
+
+独立连接绝不回取调用者Task、配额或内容advisory锁，也不提交调用者事务。使用当前caller bind的独立会话；无caller的读取使用本次操作自有engine并dispose，不跨Worker事件循环复用asyncpg池。默认同步store/load同样走独立归属，不保留当前桶后门；同步入口只在无活动事件循环的线程运行，有活动loop时明确要求async入口，训练物化与样本评估的现有线程调用保持。原有训练存储接管的显式冻结副本loader继续保留。低层纯物理I/O与归属流程分层，测试显式验证各层，不在生产代码识别Mock或省略owner校验。
+
+仅靠24小时宽限不能保护长视频逐帧物化至最终staged_result之间的间隙，因此增加耐久Publication。它只FK独立Object、保存不可变id/created_at和准入Gate修订，不依赖业务行。所有实际async写入传入caller db，物理I/O前独立提交guard；caller db.info仅跟踪本次精确guard ID，不作为存储真值。普通进度commit不得清除guard。最终发布引用或上传预留时，在原业务事务重核同ready、内容事实和Gate，再DELETE本caller/key的准确guard，与业务引用commit原子结清；回滚或应答未知留下guard。竞争赢家时候选guard转为赢家的新guard必须与候选退休同一独立事务，不能失去保护窗口。无caller的独立内容写入依赖首次发布/最后成功使用后的24小时宽限，后续业务引用仍须通过统一验证；生产async writer不得遗漏caller。未知Publication不按年龄删除。
+
+保留现有内容锁用于已知引用的提交校验，改为有冲突明确409的try advisory，避免持业务行锁继续等待多键环。预测AAP/COCO导入在首次store前NOWAIT锁Task，修正现存内容→Task与人工Task→内容反序。QC新region通过guard原子发布到issue，避免给每条扫描积累内容→issue长锁；普通Tracker的guard跨进度commit保留，到取消保留候选或最终staged提交才结清。Annotation导入、预测、AI采纳、转换、修复、区域视频审核、controlled segmentation和两个seed均接统一store/helper，不改变其业务事务或原权限。人工upload最终把已验证guard与未绑定RasterMaskUpload预留一起提交，后续绑定仍按原quota语义。
+
+GC不再列当前桶前缀，只筛独立owner。保留训练非ready快照、部署trial、活动Annotation、Prediction、可用Tracker候选、accept/revision/QC/repair及期限，并补当前可用MaskReviewScope.region_mask_ref和新鲜未绑定上传预留。候选扫描只用于筛选；在内容锁→发布锁→owner的同序短事务中重新查全部引用、Publication和准确UUID read/write/delete许可。ready超过published_at/last_used_at后的24小时且无保活者先提交retired屏障，本轮结束；后续才沿保存位置物删retired，真实收尾与确认后删除记录。退休对象不可重挂，新同内容候选不复用旧UUID物理键。pending、未知关闭/操作、未知旧键和失败删除保持独立责任；dry_run不推进状态。
+
+本片超过八文件，按当前本地HEAD建三棵隔离树：领域/0229/严格存储及约束测试；独立store/load/Publication/owner GC流程及生命周期测试；全部writer接入、预测锁顺序/304与对应回归。主树集成统一入口与引用查询、恢复白名单/夹具、隔离测试的独立记录清理、正式API/用户/架构/运维文档及真实验收。恢复仅映射bucket/storage_identity，保留UUID物理键、逻辑键、两套回执、状态、首次时间、guard和所有冻结JSON；未知桶拒绝。新增表不新增Worker任务或调度，仍为72任务；不新增进程、凭据、依赖、环境变量、部署目标或镜像重建。
+
+验证迁移/严格类型/不可变/受限恢复与降级保护；JSON/gzip、同逻辑异桶陷阱、未知零I/O、缺失/损坏/末端替换、竞争赢家/失败pending和退休后新UUID；caller持Task/内容锁时独立分配、进度commit后guard保持、最终业务commit原子结清、rollback/未知应答及未知关闭保留；当前复核scope保活、全部十类既有来源/期限、24小时边界、guard/真实打开句柄与GC交错、Task删除后owner存续、旧GC不触碰新代次。真实HTTP/MinIO、当前Worker及来源销毁后的离线恢复必须覆盖完整闭环；纯单测不替代实际归属。保留人工3100/8100、24对象/12源文件及业务指纹，应用0229并受控刷新所属Worker。完整E02与其它消费者继续执行，完整用途切换仍关闭，生产迁移、RPO/RTO与真实训练框架资格独立核验。
