@@ -672,11 +672,13 @@ async def test_get_task_exposes_video_metadata(
     assert body["thumbnail_url"] == "http://storage.local/thumbnails/poster.webp"
 
 
-async def test_video_manifest_returns_signed_urls(
+@pytest.mark.parametrize("playback_path", [None, "playback/clip.mp4"])
+async def test_video_manifest_exposes_lazy_task_identity_and_only_signs_poster(
     db_session,
     httpx_client,
     super_admin,
     monkeypatch,
+    playback_path,
 ):
     user, token = super_admin
     project = Project(
@@ -704,7 +706,7 @@ async def test_video_manifest_returns_signed_urls(
             "video": {
                 "fps": 30,
                 "frame_count": 90,
-                "playback_path": "playback/clip.mp4",
+                "playback_path": playback_path,
                 "playback_codec": "h264",
                 "poster_frame_path": "posters/clip.webp",
             }
@@ -743,12 +745,15 @@ async def test_video_manifest_returns_signed_urls(
     assert resp.status_code == 200
     body = resp.json()
     assert body["task_id"] == str(task.id)
-    assert body["video_url"] == "http://storage.local/playback/clip.mp4"
+    assert body["original_identity_path"] == (
+        f"/api/v1/files/tasks/{task.id}/original-identity"
+    )
+    assert body["video_url"] is None
     assert body["poster_url"] == "http://storage.local/posters/clip.webp"
     assert body["metadata"]["fps"] == 30
-    assert body["metadata"]["playback_path"] == "playback/clip.mp4"
+    assert body["metadata"]["playback_path"] == playback_path
     assert body["expires_in"] == 3600
-    assert signed == [("playback/clip.mp4", 3600), ("posters/clip.webp", 3600)]
+    assert signed == [("posters/clip.webp", 3600)]
 
 
 async def test_video_frame_timetable_returns_ffprobe_rows(

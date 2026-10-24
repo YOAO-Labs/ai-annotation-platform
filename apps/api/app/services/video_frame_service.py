@@ -113,10 +113,6 @@ def _estimated_pts_ms(frame_index: int, metadata: VideoMetadata) -> int | None:
     return int(round((frame_index / metadata.fps) * 1000))
 
 
-def _source_key(item: DatasetItem, metadata: VideoMetadata) -> str:
-    return metadata.playback_path or item.file_path
-
-
 def _asset_url(key: str) -> str:
     try:
         return storage_service.generate_download_url(
@@ -299,7 +295,6 @@ async def list_chunks(
         dataset_item_id=ctx.item.id,
         task_id=ctx.task_id,
         chunk_size_frames=settings.video_chunk_size_frames,
-        fallback_video_url=_asset_url(_source_key(ctx.item, ctx.metadata)),
         chunks=[_chunk_out(row) for row in rows],
     )
     await _warmup_neighbor_chunks(db, ctx, requested_ids)
@@ -555,7 +550,6 @@ async def manifest_v2(
     return VideoManifestV2Response(
         task_id=ctx.task_id,
         dataset_item_id=ctx.item.id,
-        video_url=_asset_url(_source_key(ctx.item, ctx.metadata)),
         poster_url=_asset_url(poster_key) if poster_key else None,
         fps=ctx.metadata.fps,
         frame_count=ctx.metadata.frame_count,
@@ -594,7 +588,7 @@ def source_key_for_item(item: DatasetItem) -> str:
     原始视频在 datasets_bucket。不要返回 `playback_path`(浏览器播放用的 h264 转码版,
     存在 media_cache_bucket): 用它会(1)与 worker 的 datasets_bucket 不匹配 → HeadObject
     404 抽帧全失败;(2)转码重编码后帧数 / 时序可能与原视频不一致 → 破坏 D2「frame_index
-    永远对齐原视频帧号」。playback_path 只用于浏览器 <video> 播放 URL(见 _source_key)。
+    永远对齐原视频帧号」。浏览器原件播放使用核验后的原字节，派生播放副本另有归属合同。
     """
     return item.file_path
 

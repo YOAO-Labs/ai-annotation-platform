@@ -47715,6 +47715,17 @@
           "metadata": {
             "$ref": "#/components/schemas/VideoMetadata"
           },
+          "original_identity_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Identity Path"
+          },
           "poster_url": {
             "anyOf": [
               {
@@ -47732,13 +47743,19 @@
             "type": "string"
           },
           "video_url": {
-            "title": "Video Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Url"
           }
         },
         "required": [
           "task_id",
-          "video_url",
           "metadata"
         ],
         "title": "TaskVideoManifestResponse",
@@ -56458,13 +56475,19 @@
             "title": "Task Id"
           },
           "video_url": {
-            "title": "Video Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Url"
           }
         },
         "required": [
           "dataset_item_id",
-          "video_url",
           "chunks_manifest_url",
           "frame_timetable_url",
           "frame_service_base",

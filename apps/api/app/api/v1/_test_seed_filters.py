@@ -799,7 +799,11 @@ async def _seed_image_semantics(
 
 
 async def _seed_video_review(
-    db: AsyncSession, ids: _FilterIds, users: dict[str, Any], video_key: str
+    db: AsyncSession,
+    ids: _FilterIds,
+    users: dict[str, Any],
+    video_key: str,
+    video_payload: bytes,
 ) -> FilteringVideoManifest:
     from app.db.models.annotation import Annotation
     from app.db.models.prediction import Prediction
@@ -863,6 +867,7 @@ async def _seed_video_review(
             file_type="video",
             width=1280,
             height=720,
+            original_payload=video_payload,
             metadata={
                 "video": {
                     "duration_ms": 9600,
@@ -1638,14 +1643,15 @@ async def build_filtering_seed(
         / "docs-site/public/home/sam-tools/smart-point.webm"
     )
     video_key = f"{ids.storage_prefix}video.webm"
+    video_payload = video_source.read_bytes()
     storage_service.client.put_object(
         Bucket=storage_service.datasets_bucket,
         Key=video_key,
-        Body=video_source.read_bytes(),
+        Body=video_payload,
         ContentType="video/webm",
     )
     image = await _seed_image_semantics(db, ids, users, image_key, image_svg)
-    video = await _seed_video_review(db, ids, users, video_key)
+    video = await _seed_video_review(db, ids, users, video_key, video_payload)
     paging = await _seed_paging(db, ids, users, image_key, image_svg)
     lidar = await _seed_lidar(db, ids, users, ids.storage_prefix)
     operations = await _seed_operations(db, ids, users)

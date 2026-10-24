@@ -25,13 +25,15 @@ def lazy_only(monkeypatch):
 
 
 @pytest.mark.parametrize("surface", ["list", "detail", "next", "data_manager"])
+@pytest.mark.parametrize("file_type", ["image", "video"])
 async def test_unknown_task_metadata_uses_lazy_identity_in_every_serializer_caller(
-    db_session, httpx_client, super_admin, lazy_only, surface
+    db_session, httpx_client, super_admin, lazy_only, surface, file_type
 ):
     actor, token = super_admin
     project = await create_project(db_session, owner_id=actor.id)
     task = await create_task(db_session, project_id=project.id)
-    task.file_path = "unknown-legacy/image.png"
+    task.file_path = f"unknown-legacy/{file_type}"
+    task.file_type = file_type
     await db_session.flush()
     await db_session.refresh(task, ["updated_at"])
     project_id, task_id = project.id, task.id
@@ -60,8 +62,9 @@ async def test_unknown_task_metadata_uses_lazy_identity_in_every_serializer_call
 
 
 @pytest.mark.parametrize("surface", ["list", "detail"])
+@pytest.mark.parametrize("file_type", ["image", "video"])
 async def test_unknown_item_remains_unverified_metadata_with_lazy_identity(
-    db_session, httpx_client, super_admin, lazy_only, surface
+    db_session, httpx_client, super_admin, lazy_only, surface, file_type
 ):
     actor, token = super_admin
     dataset = Dataset(
@@ -71,9 +74,9 @@ async def test_unknown_item_remains_unverified_metadata_with_lazy_identity(
     await db_session.flush()
     item = DatasetItem(
         dataset_id=dataset.id,
-        file_name="legacy.png",
-        file_path="unknown-legacy/item.png",
-        file_type="image",
+        file_name=f"legacy.{file_type}",
+        file_path=f"unknown-legacy/item.{file_type}",
+        file_type=file_type,
         content_hash="1" * 32,
     )
     db_session.add(item)
@@ -94,8 +97,8 @@ async def test_unknown_item_remains_unverified_metadata_with_lazy_identity(
 
 
 @pytest.mark.parametrize("dataset_bound", [False, True])
-async def test_video_dto_keeps_its_explicit_playback_migration_branch(
-    db_session, super_admin, monkeypatch, dataset_bound
+async def test_video_dto_uses_exact_lazy_identity_without_signing(
+    db_session, super_admin, lazy_only, dataset_bound
 ):
     actor = super_admin[0]
     project = await create_project(db_session, owner_id=actor.id)
@@ -118,30 +121,34 @@ async def test_video_dto_keeps_its_explicit_playback_migration_branch(
     task.dataset_item_id = item.id if dataset_bound else None
     await db_session.flush()
     await db_session.refresh(task, ["updated_at"])
-    signed = []
-
-    def sign(key, **kwargs):
-        signed.append((key, kwargs["bucket"]))
-        return "https://storage.invalid/video"
-
-    monkeypatch.setattr(storage_service, "generate_download_url", sign)
     task_dto = _task_with_url(task)
     item_dtos, total = await DatasetService(db_session).list_items(dataset.id)
     assert total == 1
-    assert (
-        task_dto.file_url == item_dtos[0]["file_url"] == "https://storage.invalid/video"
+    assert task_dto.file_url is None and item_dtos[0]["file_url"] is None
+    assert task_dto.original_identity_path == (
+        f"/api/v1/files/tasks/{task.id}/original-identity"
     )
-    assert task_dto.original_identity_path is None
-    assert item_dtos[0]["original_identity_path"] is None
-    assert signed == [
-        (
-            task.file_path,
-            storage_service.datasets_bucket
-            if dataset_bound
-            else storage_service.bucket,
-        ),
-        (item.file_path, storage_service.datasets_bucket),
-    ]
+    assert item_dtos[0]["original_identity_path"] == (
+        f"/api/v1/datasets/{dataset.id}/items/{item.id}/original-identity"
+    )
+
+
+async def test_reference_video_dto_does_not_advertise_managed_playback(
+    db_session, super_admin, lazy_only
+):
+    from app.services.reference_keys import reference_key
+
+    project = await create_project(db_session, owner_id=super_admin[0].id)
+    task = await create_task(db_session, project_id=project.id)
+    task.file_type = "video"
+    task.file_path = reference_key(uuid.uuid4(), "a" * 64)
+    await db_session.flush()
+    await db_session.refresh(task, ["updated_at"])
+
+    dto = _task_with_url(task)
+    assert dto.storage_mode == "reference"
+    assert dto.file_url is None and dto.original_identity_path is None
+    assert dto.content_sha256 == "a" * 64
 
 
 async def test_image_thumbnail_signing_remains_separate_from_original_identity(

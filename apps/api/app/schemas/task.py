@@ -122,7 +122,8 @@ class TaskMaskCapabilitiesResponse(BaseModel):
 class TaskVideoManifestResponse(BaseModel):
     task_id: UUID
     dataset_item_id: UUID | None = None
-    video_url: str
+    original_identity_path: str | None = None
+    video_url: str | None = None
     poster_url: str | None = None
     metadata: VideoMetadata
     expires_in: int = 3600

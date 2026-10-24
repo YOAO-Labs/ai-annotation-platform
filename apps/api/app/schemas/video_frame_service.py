@@ -114,7 +114,7 @@ class VideoSegmentsResponse(BaseModel):
 class VideoManifestV2Response(BaseModel):
     task_id: UUID | None = None
     dataset_item_id: UUID
-    video_url: str
+    video_url: str | None = None
     poster_url: str | None = None
     fps: float | None = None
     frame_count: int | None = None

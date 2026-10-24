@@ -17,6 +17,8 @@ service, mirroring the existing `test_seed_router.py` harness.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import hashlib
 import uuid
 
 import pytest
@@ -45,6 +47,105 @@ async def _cleanup_owned(client, namespace: str):
 
 def _owned_project_name(namespace: str) -> str:
     return f"E2E Owned {namespace}"
+
+
+@contextmanager
+def _restore_video_seed_objects(monkeypatch):
+    """Restore only the exact shared fixture keys written by this test."""
+    from botocore.exceptions import ClientError
+
+    from app.services.storage import storage_service
+
+    client = storage_service.client
+    put_object = client.put_object
+    previous = {}
+
+    def record_put(**kwargs):
+        locator = (kwargs["Bucket"], kwargs["Key"])
+        assert locator[1].startswith("e2e/video/")
+        if locator not in previous:
+            try:
+                obj = client.get_object(Bucket=locator[0], Key=locator[1])
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] != "NoSuchKey":
+                    raise
+                previous[locator] = None
+            else:
+                body = obj["Body"]
+                try:
+                    previous[locator] = {
+                        "Body": body.read(),
+                        **{
+                            name: obj[name]
+                            for name in (
+                                "ContentType",
+                                "Metadata",
+                                "CacheControl",
+                                "ContentDisposition",
+                                "ContentEncoding",
+                                "ContentLanguage",
+                                "Expires",
+                            )
+                            if name in obj
+                        },
+                    }
+                finally:
+                    body.close()
+        return put_object(**kwargs)
+
+    monkeypatch.setattr(client, "put_object", record_put)
+    try:
+        yield
+    finally:
+        for (bucket, key), obj in previous.items():
+            if obj is None:
+                client.delete_object(Bucket=bucket, Key=key)
+            else:
+                put_object(Bucket=bucket, Key=key, **obj)
+
+
+async def _assert_verified_video_bytes(db_session, task_id):
+    from app.services import original_sources
+    from app.services.storage import storage_service
+
+    source = await original_sources.resolve_task(db_session, uuid.UUID(task_id))
+    assert source.media_type == "video" and source.bucket is not None
+    body = storage_service.client.get_object(
+        Bucket=source.bucket, Key=source.object_key
+    )["Body"]
+    try:
+        payload = body.read()
+    finally:
+        body.close()
+    assert payload
+    assert source.size_bytes == len(payload)
+    assert source.sha256 == hashlib.sha256(payload).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("route", "fixture"),
+    [("video-task", None), ("video-webcodecs", "malformed-samples")],
+)
+async def test_video_seeds_register_actual_original_bytes(
+    httpx_client, db_session, route, fixture
+):
+    body = await _build_owned(httpx_client, A)
+    try:
+        # Register after the owned image seed so this fixture owns only video writes.
+        with pytest.MonkeyPatch.context() as video_patch:
+            with _restore_video_seed_objects(video_patch):
+                payload = {"project_id": body["project_id"]}
+                if fixture is not None:
+                    payload["fixture"] = fixture
+                response = await httpx_client.post(
+                    f"/api/v1/__test/seed/{route}", json=payload
+                )
+                assert response.status_code == 200, response.text
+                await _assert_verified_video_bytes(
+                    db_session, response.json()["task_id"]
+                )
+    finally:
+        assert (await _cleanup_owned(httpx_client, A)).status_code == 200
 
 
 @pytest.mark.parametrize(
@@ -583,6 +684,8 @@ async def test_owned_filtering_fixture_is_namespaced_and_converges(
         db_session, uuid.UUID(manifest_a["image"]["task_ids"]["cross_object"])
     )
     assert image_source.media_type == "image" and image_source.size_bytes > 0
+    for task_id in manifest_a["video"]["task_ids"].values():
+        await _assert_verified_video_bytes(db_session, task_id)
     for task_id in manifest_a["lidar"]["task_ids"]:
         source = await original_sources.resolve_task(db_session, uuid.UUID(task_id))
         assert source.media_type == "point_cloud" and source.size_bytes > 0
@@ -650,6 +753,7 @@ async def test_owned_filtering_fixture_is_namespaced_and_converges(
         )
         == 4
     )
+    assert (await _cleanup_owned(httpx_client, B)).status_code == 200
 
 
 async def test_owned_lidar_fixture_is_namespaced(

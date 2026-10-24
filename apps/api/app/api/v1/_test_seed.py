@@ -2344,6 +2344,7 @@ async def seed_video_task(
     )
     db.add(item)
     await db.flush()
+    await _register_fixture_original(db, item, video)
     task = Task(
         project_id=project_id,
         batch_id=batch.id,
@@ -2496,6 +2497,7 @@ async def seed_video_webcodecs(
     )
     db.add(item)
     await db.flush()
+    await _register_fixture_original(db, item, mp4_bytes)
     # Keep native presentation evidence independent of intentionally damaged chunk metadata.
     db.add_all(
         [

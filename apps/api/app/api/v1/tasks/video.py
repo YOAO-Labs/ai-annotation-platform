@@ -168,51 +168,6 @@ async def get_video_manifest(
     if not metadata.fps or not metadata.frame_count:
         raise HTTPException(status_code=503, detail="Video metadata not ready")
 
-    video_path = metadata.playback_path or task.file_path
-    # v0.10.17 · playback/* 走 media-cache 桶,原始源文件走 datasets 桶
-    video_bucket = storage_service.bucket_for_cache_key(video_path, default=bucket)
-    try:
-        video_url = storage_service.generate_download_url(
-            video_path,
-            expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,
-            bucket=video_bucket,
-        )
-    except ClientError as exc:
-        code = (exc.response.get("Error") or {}).get("Code")
-        if code in {"NoSuchKey", "404", "NotFound"}:
-            raise HTTPException(
-                status_code=404, detail="Video file not available"
-            ) from exc
-        logger.exception(
-            "Failed to generate video manifest URL task_id=%s bucket=%s key=%s",
-            task.id,
-            video_bucket,
-            video_path,
-        )
-        raise HTTPException(
-            status_code=503, detail="Video storage unavailable"
-        ) from exc
-    except BotoCoreError as exc:
-        logger.exception(
-            "Failed to generate video manifest URL task_id=%s bucket=%s key=%s",
-            task.id,
-            video_bucket,
-            video_path,
-        )
-        raise HTTPException(
-            status_code=503, detail="Video storage unavailable"
-        ) from exc
-    except Exception as exc:
-        logger.exception(
-            "Unexpected video manifest URL error task_id=%s bucket=%s key=%s",
-            task.id,
-            video_bucket,
-            video_path,
-        )
-        raise HTTPException(
-            status_code=503, detail="Video storage unavailable"
-        ) from exc
-
     poster_path = metadata.poster_frame_path or thumb
     poster_url: str | None = None
     poster_bucket: str | None = None
@@ -254,7 +209,7 @@ async def get_video_manifest(
     return TaskVideoManifestResponse(
         task_id=task.id,
         dataset_item_id=task.dataset_item_id,
-        video_url=video_url,
+        original_identity_path=f"/api/v1/files/tasks/{task.id}/original-identity",
         poster_url=poster_url,
         metadata=metadata,
         expires_in=VIDEO_MANIFEST_URL_EXPIRES_IN,

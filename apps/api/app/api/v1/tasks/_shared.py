@@ -695,7 +695,7 @@ def _task_with_url(
     本 helper 仅负责无法从 ORM 直读的部分：
 
     * ``original_identity_path`` — authenticated original identity lookup
-    * ``file_url`` / ``thumbnail_url`` — video compatibility / derived media
+    * ``thumbnail_url`` — derived media
     * ``image_width`` / ``image_height`` / ``blurhash`` —— 来源可能是
       task 自身或关联的 :class:`DatasetItem`
     * ``assignee`` / ``reviewer`` (UserBrief) —— 调用方批量解析后传入
@@ -719,14 +719,6 @@ def _task_with_url(
             _, content_sha256 = parse_reference(task.file_path)
         except ValueError:
             pass
-    elif task.file_type == "video":
-        # Native video playback keeps its separate migration contract.
-        try:
-            file_url = storage_service.generate_download_url(
-                task.file_path, bucket=bucket
-            )
-        except Exception:
-            file_url = None
     else:
         # A lookup address is not a claim that the original is verified/readable.
         original_identity_path = f"/api/v1/files/tasks/{task.id}/original-identity"

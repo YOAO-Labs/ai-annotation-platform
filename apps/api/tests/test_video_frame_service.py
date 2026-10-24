@@ -77,19 +77,30 @@ async def _make_video_task(db_session, owner_id):
     return task, item
 
 
-async def test_video_manifest_v2_exposes_service_urls(
-    db_session, httpx_client, super_admin, monkeypatch
+@pytest.mark.parametrize("playback_path", [None, "playback/clip.mp4"])
+async def test_video_manifest_v2_exposes_derived_service_urls_only(
+    db_session, httpx_client, super_admin, monkeypatch, playback_path
 ):
     user, token = super_admin
     task, item = await _make_video_task(db_session, user.id)
+    item.metadata_ = {
+        "video": {**item.metadata_["video"], "playback_path": playback_path}
+    }
+    await db_session.flush()
     monkeypatch.setattr(
         "app.services.video_segment_service.settings.video_segment_size_frames",
         30,
     )
 
+    signed = []
+
+    def sign(key, **kwargs):
+        signed.append(key)
+        return f"http://storage.local/{key}"
+
     monkeypatch.setattr(
         "app.services.video_frame_service.storage_service.generate_download_url",
-        lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
+        sign,
     )
 
     task_resp = await httpx_client.get(
@@ -106,7 +117,7 @@ async def test_video_manifest_v2_exposes_service_urls(
     body = task_resp.json()
     assert body["task_id"] == str(task.id)
     assert body["dataset_item_id"] == str(item.id)
-    assert body["video_url"] == "http://storage.local/playback/clip.mp4"
+    assert body["video_url"] is None
     assert body["poster_url"] == "http://storage.local/posters/clip.webp"
     assert body["chunks_manifest_url"].endswith(f"/api/v1/tasks/{task.id}/video/chunks")
     assert body["frame_service_base"].endswith(f"/api/v1/tasks/{task.id}/video/frames")
@@ -118,6 +129,8 @@ async def test_video_manifest_v2_exposes_service_urls(
         (2, 60, 89),
     ]
     assert video_resp.json()["dataset_item_id"] == str(item.id)
+    assert video_resp.json()["video_url"] is None
+    assert signed == ["posters/clip.webp", "posters/clip.webp"]
 
 
 async def test_video_segments_facade_lists_lazy_segments(
@@ -538,9 +551,12 @@ async def test_video_chunks_create_pending_rows_and_enqueue(
     task, item = await _make_video_task(db_session, user.id)
     queued: list[tuple[str, list[int]]] = []
 
+    def reject_original_signing(*args, **kwargs):
+        pytest.fail("Pending chunks must not sign an original or playback proxy")
+
     monkeypatch.setattr(
         "app.services.video_frame_service.storage_service.generate_download_url",
-        lambda key, expires_in=3600, bucket=None: f"http://storage.local/{key}",
+        reject_original_signing,
     )
     monkeypatch.setattr(
         "app.workers.media.ensure_video_chunks.delay",
@@ -554,7 +570,7 @@ async def test_video_chunks_create_pending_rows_and_enqueue(
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["fallback_video_url"] == "http://storage.local/playback/clip.mp4"
+    assert body["fallback_video_url"] is None
     assert [chunk["chunk_id"] for chunk in body["chunks"]] == [0, 1]
     assert {chunk["status"] for chunk in body["chunks"]} == {"pending"}
     assert queued == [(str(item.id), [0, 1])]
