@@ -111,6 +111,7 @@ from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_output import ExportOutput
+from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_storage_deletion import TrainingStorageDeletion
 from app.db.models.project_task_dataset import (
@@ -327,7 +328,7 @@ __all__ += ["ManagedOriginalCreation"]
 
 __all__ += ["AvatarUpload"]
 
-__all__ += ["ExportOutput"]
+__all__ += ["ExportOutput", "ExportMediaBundle"]
 
 __all__ += ["BugAttachmentUpload"]
 

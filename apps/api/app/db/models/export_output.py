@@ -7,10 +7,12 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -48,6 +50,7 @@ COALESCE((
 class ExportOutput(Base):
     __tablename__ = "export_outputs"
     __table_args__ = (
+        UniqueConstraint("media_bundle_id", name="uq_export_output_media_bundle"),
         CheckConstraint("media IN ('image','video')", name="ck_export_output_media"),
         CheckConstraint(
             "length(format) BETWEEN 1 AND 1000 AND format !~ '[[:cntrl:]]'",
@@ -80,6 +83,14 @@ class ExportOutput(Base):
     # Snapshots have no FK: cache, project or job deletion must retain cleanup facts.
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    media_bundle_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "export_media_bundles.id",
+            name="fk_export_output_media_bundle",
+            ondelete="RESTRICT",
+        ),
+    )
     media: Mapped[str] = mapped_column(String(5), nullable=False)
     format: Mapped[str] = mapped_column(Text, nullable=False)
     file_count: Mapped[int] = mapped_column(Integer, nullable=False)
