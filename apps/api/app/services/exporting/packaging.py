@@ -315,7 +315,7 @@ if __name__ == "__main__":
 _FETCH_POINTCLOUDS_TEMPLATE = lidar_fetch.FETCH_POINTCLOUDS_TEMPLATE
 _FETCH_LIDAR_IMAGES_TEMPLATE = lidar_fetch.FETCH_LIDAR_IMAGES_TEMPLATE
 
-_FETCH_TRUSTED_MEDIA_TEMPLATE = '''#!/usr/bin/env python3
+_FETCH_NUSCENES_MEDIA_TEMPLATE = '''#!/usr/bin/env python3
 """Materialize the exact trusted media tree from media_manifest.json."""
 import hashlib
 import json
@@ -418,8 +418,8 @@ if __name__ == "__main__":
     sys.exit(main())
 '''
 
-# Backward-compatible import surface for existing nuScenes script tests.
-_FETCH_NUSCENES_MEDIA_TEMPLATE = _FETCH_TRUSTED_MEDIA_TEMPLATE
+# NuScenes auxiliary media retains its existing transport and budget.
+_FETCH_TRUSTED_MEDIA_TEMPLATE = lidar_fetch.FETCH_TRUSTED_MEDIA_TEMPLATE
 
 
 def _dataset_name_for_task(task: Task, item: DatasetItem | None) -> str:
@@ -1529,7 +1529,9 @@ async def _build_lidar_export_zip(
                             if target not in {"kitti", "pointmask"}:
                                 continue
                             prefix = f"{target}/" if multi else ""
-                            zf.writestr(f"{prefix}images/{cam}/", "")
+                            directory = f"{prefix}images/{cam}/"
+                            if directory not in zf.NameToInfo:
+                                zf.writestr(directory, "")
                             zf.writestr(
                                 f"{prefix}calib_raw/{cam}/{frame_key}.json",
                                 json.dumps(
@@ -1811,7 +1813,9 @@ async def _build_lidar_export_zip(
                             }
                             for skipped in result.skipped
                         )
-                        zf.writestr(f"{prefix}velodyne/", "")
+                        directory = f"{prefix}velodyne/"
+                        if directory not in zf.NameToInfo:
+                            zf.writestr(directory, "")
                         file_count += 1
                     elif target == "pointmask":
                         source_point_count = (
@@ -1831,7 +1835,9 @@ async def _build_lidar_export_zip(
                                 category_map=cat_map,
                             ),
                         )
-                        zf.writestr(f"{prefix}velodyne/", "")
+                        directory = f"{prefix}velodyne/"
+                        if directory not in zf.NameToInfo:
+                            zf.writestr(directory, "")
                         file_count += 1
 
         for target in targets:

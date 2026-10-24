@@ -705,3 +705,21 @@ def test_gc_post_delete_unknown_object_is_not_deleted_or_reported_clean():
         for method, params in client.calls
         if method == "delete"
     )
+
+
+@pytest.mark.parametrize("public", ["", "/minio", "https://media.example.test/minio"])
+def test_saved_media_signing_honors_public_gateway_without_changing_signature(
+    monkeypatch, public
+):
+    row, client = record(), Client()
+    raw = (
+        physical._runtime_endpoint()
+        + "/saved-export-bucket/"
+        + physical.prefix_for(BUNDLE)
+        + RELATIVE
+        + "?signature=a%2Fb&expires=123"
+    )
+    monkeypatch.setattr(physical.settings, "minio_public_url", public)
+    monkeypatch.setattr(client, "generate_presigned_url", lambda *a, **kw: raw)
+    expected = raw if not public else public + raw[len(physical._runtime_endpoint()) :]
+    assert physical.signed_url(client, row, RELATIVE) == expected

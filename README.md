@@ -78,7 +78,7 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 训练实验也在创建时[固定整个产物前缀](./docs-site/user-guide/online-learning/experiments.md#产物位置与历史实验)，各次执行和续训共用该归属。候选模型的下载、安装及权重初始化沿同项目来源实验与执行记录解析位置，与输入数据版本各自独立。旧实验可查看元数据，使用或删除产物前须由管理员通过 [storage-pin API](./docs-site/api/guides/training-datasets.md#实验产物归属与历史核验) 显式核验；清理和离线恢复保留固定事实。
 
-异步导出产物也保存[独立归属与固定期限](./docs-site/api/guides/export.md#产物归属与固定期限)，重复导出从原位置校验并只签剩余窗口；未知上传结果保留候选责任，到期清理可重试。
+异步导出产物也保存[独立归属与固定期限](./docs-site/api/guides/export.md#产物归属与固定期限)，重复导出从原位置校验并只签剩余窗口；未知上传结果保留候选责任，到期清理可重试。点云 KITTI、Point Mask 与多相机 COCO 使用核验后的独立媒体副本，ZIP 与媒体共用固定截止；NuScenes 的原始辅助文件仍按既有路径处理。
 
 新上传头像也固定实际位置与完整内容摘要，更换或清除时保留可重试的清理责任。历史上传头像没有固定归属时，请在[个人资料](./docs-site/user-guide/reference/settings.md#个人资料)重新上传或选择内置头像；升级与待核对文件处理见[存储恢复部署说明](./docs-site/ops/deploy/storage-recovery.md#上传头像归属的部署顺序)。
 

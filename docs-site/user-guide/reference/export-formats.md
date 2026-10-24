@@ -374,7 +374,15 @@ AAP JSON 是单文档格式，落在包根的 `annotations.json`（无 per-image
 
 ## 点云标准训练格式
 
-`lidar` 项目导出统一走异步 zip 管线，可选 **AAP JSON / KITTI 3D / nuScenes / Point Mask**。标准点云目标只打包标注、标定、manifest 和回源脚本；相机图片与点云本体通过预签名 URL 回源。
+`lidar` 项目导出统一走异步 ZIP 管线，可选 **AAP JSON / Multi-camera COCO / KITTI 3D / nuScenes / Point Mask**。标准点云目标打包标注、标定、manifest 和下载脚本。
+
+KITTI、Point Mask 与 Multi-camera COCO 在请求时固定标注、关联和标定。后台按原件登记的位置完整核对 SHA-256 和大小，再逐字节保存独立交付副本；manifest 中的链接指向这些副本，不依赖当前数据集默认桶。ZIP 和副本共用请求时起七天的截止，重复导出命中缓存也不会延长。下载脚本校验 SHA-256、大小及安全相对路径；当链接为站内相对路径时，使用 `python fetch_images.py --base-url https://平台地址`（点云脚本为 `fetch_pointclouds.py`，多相机 COCO 为 `fetch_media.py`）。链接过期后请重新发起导出。恢复到新桶后，应重新导出生成新的媒体链接。
+
+KITTI 交付主 PCD 和所选相机；Point Mask 交付主 PCD 和全部关联相机；Multi-camera COCO 只要求相机图片，不额外要求主 PCD。当前只支持已核验登记的托管原件；外部目录引用需要先复制导入。相机名称或帧名称造成输出文件重名时，预检会拒绝并要求修正名称。
+
+Point Mask 的 `.label` 长度严格为原 PCD 记录数乘四，使用小端 uint32 和从一开始的类别编号，零表示未标注。NaN／Inf 记录仍占原始序号；越界索引、未知类别或与实际记录数不符的声明会使作业失败，不静默截断或过滤。
+
+单次相机图片最多 20,000 张、每张 256MiB、合计 20GiB；PCD 最多 1,000 帧、每帧 256MiB／400 万记录、合计 4GiB／一亿记录。超过预算请缩小项目或批次范围。NuScenes 的原始 `lidar.bin` 和地图仍使用其既有资产合同；混合导出中的这些辅助文件尚未采用同一独立副本流程。
 
 | 目标       | 主要文件                                                                                            | 用途                                                           |
 | ---------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
@@ -419,8 +427,8 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 ├── velodyne/                      # 空占位目录，fetch_pointclouds.py 回源点云到此
 ├── images/
 │   └── cam_front/                 # 空占位目录，fetch_images.py 回源相机图到此
-├── pointclouds_manifest.json      # 点云预签名 URL + expires_at
-├── images_manifest.json           # 相机图预签名 URL + expires_at
+├── pointclouds_manifest.json      # 副本 URL + SHA-256 / size_bytes / expires_at
+├── images_manifest.json           # 副本 URL + SHA-256 / size_bytes / expires_at
 ├── export_report.json             # 可见性跳过明细与导出计数
 ├── fetch_pointclouds.py
 └── fetch_images.py

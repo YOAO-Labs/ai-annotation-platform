@@ -253,7 +253,9 @@ def _json_source(source):
     )
 
 
-def media_inputs(project_id, sources, source_export_bucket):
+def media_inputs(
+    project_id, sources, source_export_bucket, *, source_public_path_prefix=""
+):
     """Historical synthetic Task/Job context, not execution qualification."""
     task_id = str(identifier("historical-media-task", "retained"))
     media, logical = [], {}
@@ -289,6 +291,7 @@ def media_inputs(project_id, sources, source_export_bucket):
         "fixture": {
             "qualification": "offline-retained-bytes-only",
             "source_export_bucket": source_export_bucket,
+            "source_public_path_prefix": source_public_path_prefix,
         },
     }
     return frozen, {"pointmask": logical}
@@ -417,7 +420,16 @@ async def seed_media_bundles(db, *, project, storage):
     )
 
     sources = await seed_media_sources(db, project=project, storage=storage)
-    frozen, logical = media_inputs(project.id, sources, storage.export_bucket)
+    from app.config import settings
+
+    frozen, logical = media_inputs(
+        project.id,
+        sources,
+        storage.export_bucket,
+        source_public_path_prefix=urlsplit(settings.minio_public_url or "").path.rstrip(
+            "/"
+        ),
+    )
     digest = hashlib.sha256(
         json.dumps(frozen, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()
     ).hexdigest()
@@ -563,6 +575,7 @@ async def verify_media_bundles(db, *, storage):
         )
         assert len(document["media"]) == row.object_count == 2
         old_bucket = row.input_snapshot["fixture"]["source_export_bucket"]
+        public_prefix = row.input_snapshot["fixture"]["source_public_path_prefix"]
         assert old_bucket != owner.bucket
         for entry in document["media"]:
             assert {
@@ -573,7 +586,8 @@ async def verify_media_bundles(db, *, storage):
                 == row.logical_paths["targets"][entry["target"]][entry["path"]]
             )
             assert (
-                unquote(urlsplit(entry["url"]).path) == f"/{old_bucket}/{entry['key']}"
+                unquote(urlsplit(entry["url"]).path)
+                == f"{public_prefix}/{old_bucket}/{entry['key']}"
             )
         assert not list(
             await db.scalars(

@@ -725,3 +725,36 @@ async def test_registered_preflight_real_database_canonical_link_only(
     assert result.ready, result.model_dump()
     assert result.checked_tasks == 1 and tuple(db.dirty) == before
     assert db.in_transaction()
+
+
+async def test_exact_frozen_worker_inputs_recheck_parent_rules_without_auxiliary_io(
+    world, monkeypatch
+):
+    from app.services.exporting import lidar_frozen
+
+    parent, _member, _track = manual_members(world)
+    world.view.annotations.remove(parent)
+    world.snapshot.update(
+        project_id=str(world.project.id),
+        batch_id=None,
+        targets=["coco-multicamera", "nuscenes"],
+        options={},
+    )
+    monkeypatch.setattr(lidar_frozen, "FrozenLidar", lambda snapshot: world.view)
+    with pytest.raises(ContentError, match="multicamera_coco_parent_invalid"):
+        await preflight.assert_frozen_lidar_ready(world.snapshot)
+    assert world.calls == []
+
+
+@pytest.mark.parametrize(
+    "code", ["original_source_budget_exceeded", "original_relation_budget_exceeded"]
+)
+async def test_canonical_budget_failure_is_actionable_in_preflight(
+    world, monkeypatch, code
+):
+    async def too_large(*args, **kwargs):
+        raise ContentError(code, 422)
+
+    monkeypatch.setattr(preflight, "_collect_registered", too_large)
+    result = await report(world, ("pointmask",))
+    assert not result.ready and codes(result) == {"lidar_export_input_budget_exceeded"}

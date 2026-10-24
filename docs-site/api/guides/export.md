@@ -25,6 +25,16 @@ last_reviewed: 2026-10-24
 
 当前输出上限64GiB，完整读取以600秒协作预算和独立字节数约束，分块计算摘要。存储身份或端点不符明确失败，不回退当前桶；未确认关闭的读取permit会阻止退休清理。新内部归属不在公开result中返回，既有object_key/download_url字段继续使用。此能力不开放整个export用途切换。
 
+## 点云独立媒体交付
+
+点云项目的 `kitti`、`pointmask`、`coco-multicamera` 通过项目或批次入口登记冻结输入；selected-task 仍不支持这些场景格式。同步预检只读取可信登记及格式配置，不下载原件。Worker 执行时重新核对原请求凭据和冻结输入，逐文件条件读取、核对完整 SHA／大小、保存并回读独立副本，最后复核输入和权限才发布 ZIP 与完成结果。冻结后的修改需要重新发起导出，不能混入旧作业。
+
+媒体 manifest 保留原逻辑路径，包含独立副本的 `presigned_url` 和 `expires_at`。KITTI／Point Mask 使用 `sha256`、`size_bytes`；Multi-camera COCO 保留 `source_sha256`、`source_file_size`。链接使用部署配置的公共存储网关；相对路径需要给下载脚本传入 `--base-url https://平台地址`，既有绝对签名链接保持原值。KITTI 只复制所选相机与主 PCD；Point Mask 复制所有相机与主 PCD；Multi-camera COCO 复制所有相机且不强制 PCD。主 PCD 支持 ASCII、binary、binary_compressed；Point Mask 使用实际原始记录数，包含非有限记录的原序号，生成精确四字节标签。原件身份不明、同一路径冲突或超出预算均拒绝，不按当前桶猜测读取。
+
+每次 HTTP 请求预分配独立 bundle、ZIP UUID 和媒体 UUID，Worker 一次 claim、固定 3600 秒，不续约或接管。ZIP 和媒体共用登记时起 168 小时的截止；缓存同时完整验证保存的 ZIP 与媒体，只签剩余窗口。损坏或缺失的缓存重新生成独立交付，不覆盖旧对象。已发布媒体保留到固定截止，即使 Job、项目或缓存索引消失；未发布的关联 ZIP／副本在明确尝试结束后才进入可重试回收。任何相关未知存储操作继续阻止删除。
+
+私有输入、清单和 `lidar_media` 证明不出现在公开 Job DTO。项目预检及实际导出仍沿用既有 `export.annotations` 能力；批次预检保留项目可见性要求，不新增 `tasks:read`／`annotations:read`。旧未完成点云 Job 缺少媒体合同会失败，需要重新导出。恢复映射只改变保存桶和身份，保留 ZIP 内历史媒体 URL 与原期限，并失效准确关联的缓存；恢复后重新导出生成新的链接。NuScenes raw／map 辅助文件尚未进入此合同，混合包只在上述三目标及其共享主 PCD／相机上使用独立副本。
+
 ## 导出数据契约
 
 新 ZIP 包含 `data_contract.json`，单文档 JSON 在自身保留等价元数据。每个目标分别记录 `task`、`media_type`、`format`、可用任务和来源；多目标 ZIP 的 `contracts[]` 不能简化成全局单一任务。普通标注导出标记 `training_qualified=false`，训练仍须经过专门的数据预检与严格几何桥接。

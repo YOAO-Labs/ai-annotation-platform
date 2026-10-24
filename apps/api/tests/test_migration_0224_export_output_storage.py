@@ -10,15 +10,37 @@ import uuid
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
-from sqlalchemy import inspect, text, update
+from sqlalchemy import MetaData, Table, inspect, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import registry
 
 from app.config import settings
-from app.db.models.export_output import ExportOutput
+from app.db.models.export_output import ExportOutput as CurrentExportOutput
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
+
+
+# Keep this migration test on the historical schema. The current ORM also has
+# the 0234 media association, whose separate migration is qualified elsewhere.
+class ExportOutput:
+    pass
+
+
+registry().map_imperatively(
+    ExportOutput,
+    Table(
+        "export_outputs",
+        MetaData(),
+        *(
+            column._copy()
+            for column in CurrentExportOutput.__table__.columns
+            if column.name != "media_bundle_id"
+        ),
+    ),
+)
+
 
 CREATED = datetime(2026, 1, 1, tzinfo=timezone.utc)
 LEGACY_CACHE = uuid.UUID(int=98)

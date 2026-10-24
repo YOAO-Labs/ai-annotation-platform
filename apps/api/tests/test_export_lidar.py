@@ -43,6 +43,19 @@ from app.services.task_dataset_link import link_items
 from tests.factory import create_project
 
 
+async def _register_metadata_sources(db, *items):
+    # These preflight fixtures exercise DB facts only, with no physical reads.
+    from app.services.dataset_assets import register_item_asset
+
+    for item in items:
+        await register_item_asset(
+            db,
+            item,
+            sha256=hashlib.sha256(item.file_path.encode()).hexdigest(),
+            size_bytes=item.file_size or 37,
+        )
+
+
 def _ann(
     *,
     task_id: uuid.UUID | None = None,
@@ -420,7 +433,7 @@ def test_pointmask_builds_uint32_labels_with_one_based_category_ids():
                 },
             )
         ],
-        source_point_count=None,
+        source_point_count=5,
         category_map={"car": 1},
     )
 
@@ -624,6 +637,8 @@ async def test_lidar_preflight_reports_axis_size_and_calibration_issues(
             (camera_item.id, "camera_front", "front"),
         ],
     )
+
+    await _register_metadata_sources(db_session, lidar_item, camera_item)
 
     report = await preflight_lidar_export(
         db_session,
@@ -831,6 +846,8 @@ async def test_lidar_export_zip_writes_standard_targets(
         )
     )
     await db_session.flush()
+
+    await _register_metadata_sources(db_session, lidar_item, cam_item, cam_back_item)
 
     with monkeypatch.context() as scope_patch:
         scope_patch.setattr(

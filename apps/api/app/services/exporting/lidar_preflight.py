@@ -308,6 +308,7 @@ _REGISTERED_ISSUES = {
     "kitti_camera_role_not_found": "导出范围内存在缺少所选相机通道的任务",
     "multicamera_coco_camera_missing": "导出范围内存在没有关联相机图像的任务",
     "lidar_export_empty": "导出范围内没有任务",
+    "multicamera_coco_export_empty": "多相机 COCO 导出范围内没有任务",
     "lidar_export_input_budget_exceeded": "导出范围超过媒体、标注或冻结数据预算，请缩小范围",
     "lidar_export_input_invalid": "导出范围包含无效的登记数据",
     "lidar_export_pointmask_invalid": "点掩码的索引列表或类别无效",
@@ -355,6 +356,18 @@ async def preflight_lidar_export(
                     if exc.code in _REGISTERED_ISSUES
                     else "lidar_export_original_unavailable"
                 )
+                if exc.code in {
+                    "original_source_budget_exceeded",
+                    "original_relation_budget_exceeded",
+                }:
+                    code = "lidar_export_input_budget_exceeded"
+                if exc.code == "lidar_export_empty":
+                    if "kitti" in targets and not (
+                        options and options.kitti_camera_role
+                    ):
+                        code = "kitti_camera_required"
+                    elif "coco-multicamera" in targets:
+                        code = "multicamera_coco_export_empty"
                 return LidarExportPreflightResponse(
                     ready=False,
                     camera_roles=[],
@@ -1647,4 +1660,35 @@ async def assert_lidar_export_ready(
     )
     if not report.ready:
         raise LidarExportPreflightFailed(report)
+    return report
+
+
+async def assert_frozen_lidar_ready(snapshot):
+    """Recheck G1 business rules on the exact captured inputs without I/O.
+
+    Mixed NuScenes auxiliary objects retain their G2 transport boundary; this
+    check only repeats rules for the independently delivered G1 targets.
+    """
+    from app.services.exporting.lidar_frozen import FrozenLidar
+
+    class NoLiveReads:
+        def __getattr__(self, _name):
+            raise ContentError("lidar_export_unfrozen_preflight")
+
+    report = await _preflight_lidar_export(
+        NoLiveReads(),
+        project_id=uuid.UUID(snapshot["project_id"]),
+        batch_id=uuid.UUID(snapshot["batch_id"]) if snapshot["batch_id"] else None,
+        targets=[
+            target
+            for target in snapshot["targets"]
+            if target in {"kitti", "pointmask", "coco-multicamera"}
+        ],
+        options=LidarExportOptions.model_validate(
+            snapshot["options"].get("lidar") or {}
+        ),
+        frozen=_RegisteredPreflight(snapshot, FrozenLidar(snapshot)),
+    )
+    if not report.ready:
+        raise ContentError(report.issues[0].code, 409)
     return report

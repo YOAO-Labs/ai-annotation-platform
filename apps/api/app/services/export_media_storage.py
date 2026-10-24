@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from app.config import settings
+from app.services.storage import storage_service
 from app.services.storage_access import (
     close_registered,
     closing_registered,
@@ -609,11 +610,12 @@ def signed_url(client, record, relative, *, now=None):
     if seconds <= 0:
         _reject("expired")
     try:
-        return client.generate_presigned_url(
+        raw = client.generate_presigned_url(
             "get_object",
             Params={"Bucket": owner.bucket, "Key": key},
             ExpiresIn=min(RETENTION_SECONDS, seconds),
         )
+        return storage_service._public_url(raw)
     except Exception as exc:
         raise _translate(exc) from None
 

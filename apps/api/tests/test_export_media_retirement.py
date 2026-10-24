@@ -527,3 +527,44 @@ async def test_database_pending_zip_and_media_retire_independently_legacy_pendin
     assert not client.calls
     assert (await retirement.cleanup(db))["deleted"] == 1
     assert (await db.get(Bundle, row.id)).state == "deleted"
+
+
+async def test_database_zip_cleanup_observes_bundle_reads_at_any_location_before_limit(
+    gc_db, monkeypatch
+):
+    db = gc_db
+    rows = [await database_owner(db) for _ in range(4)]
+    outputs = []
+    for row in rows:
+        ref = {
+            key: value for key, value in row.storage_ref.items() if key != "key_prefix"
+        }
+        ref["object_key"] = export_storage.key_for(
+            "image", row.project_id, row.job_id, row.zip_output_id
+        )
+        outputs.append(
+            await model_tests._zip(db, row, created_at=row.created_at, storage_ref=ref)
+        )
+    for index, row in enumerate(rows[:3]):
+        db.add(
+            StorageOperation(
+                id=uuid.uuid4(),
+                location_id=uuid.uuid4(),
+                revision=1,
+                purpose=retirement.purposes(row)[index],
+                node_id="unknown-close",
+                started_at=datetime.now(timezone.utc) - timedelta(days=100),
+            )
+        )
+    await db.commit()
+    deleted = []
+    monkeypatch.setattr(
+        export_storage, "delete", lambda receipt: deleted.append(receipt.id)
+    )
+    result = await export_outputs.cleanup(db, limit=1)
+    assert result["outputs_deleted"] == 1 and deleted == [outputs[3].id]
+    for row in outputs[:3]:
+        assert (await db.get(ExportOutput, row.id)).state == "pending"
+        counters = {"removed": 0}
+        assert not await export_outputs._cleanup_one(db, row.id, counters)
+    assert await db.scalar(select(func.count()).select_from(StorageOperation)) == 3

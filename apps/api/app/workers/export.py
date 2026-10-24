@@ -609,6 +609,7 @@ async def _run_export(
     lock_owner: str | None = None
     lock_acquired = False
     reference_media = None
+    owned_lidar = False
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -636,6 +637,28 @@ async def _run_export(
                     # A duplicate delivery for the same durable job must not
                     # build or publish a second artifact.
                     return
+                if {"kitti", "pointmask", "coco-multicamera"}.intersection(
+                    targets
+                ) or "lidar_media" in (job_row.payload or {}):
+                    project = await db.get(Project, proj_uuid)
+                    if (
+                        project is not None and project.data_type == "lidar"
+                    ) or "lidar_media" in (job_row.payload or {}):
+                        from app.workers.lidar_export import run_owned
+
+                        owned_lidar = True
+                        await db.rollback()
+                        await run_owned(
+                            db,
+                            project_id=project_id,
+                            batch_id=batch_id,
+                            task_ids=task_ids,
+                            targets=targets,
+                            opts=opts,
+                            async_job_id=async_job_id,
+                            celery_task_id=celery_task_id,
+                        )
+                        return
                 await async_job_svc.mark_running(
                     db, job_uuid, celery_task_id=celery_task_id
                 )
@@ -887,6 +910,10 @@ async def _run_export(
                 )
             except Exception as exc:  # noqa: BLE001
                 await db.rollback()
+                if owned_lidar:
+                    # The owned branch fences its exact lease before every
+                    # terminal write; the generic handler must not overwrite it.
+                    raise
                 if isinstance(exc, ExportBuildInProgress):
                     raise
                 # A failed PUT, cancellation, or unknown commit outcome never

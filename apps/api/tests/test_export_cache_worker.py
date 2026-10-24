@@ -213,12 +213,13 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
 def isolate_cancel_owner(monkeypatch):
     # Durable cancellation is exercised against real DB rows in reference media tests.
     monkeypatch.setattr(export_worker, "check_cancelled", AsyncMock())
+    monkeypatch.setattr(export_worker, "_publish_export_notification", AsyncMock())
     # This file isolates worker wiring; persisted request proofs are covered by
     # authority and reference-media DB tests.
     monkeypatch.setattr(export_worker.output_authority, "validate", AsyncMock())
 
 
-@pytest.mark.parametrize("targets", [["davis", "mots"], ["kitti"], ["aap_json"]])
+@pytest.mark.parametrize("targets", [["davis", "mots"], ["nuscenes"], ["aap_json"]])
 @pytest.mark.asyncio
 async def test_export_worker_cache_hit_skips_packaging(
     monkeypatch: pytest.MonkeyPatch,
@@ -332,7 +333,7 @@ async def test_export_worker_cache_hit_skips_packaging(
 
     mark_running.assert_awaited_once()
     expected_options: object = opts
-    if "kitti" in targets:
+    if "nuscenes" in targets:
         expected_options = {
             "request": opts,
             "nuscenes_scope_digest": "lidar-scope-digest",

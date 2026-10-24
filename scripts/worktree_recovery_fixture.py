@@ -508,7 +508,11 @@ async def seed(db, external: Path):
 
         async def new_version(name):
             snapshot, report = await datasets.freeze_selection(
-                db, project, TrainingDatasetSelection(), actor_id=actor.id
+                db,
+                project,
+                TrainingDatasetSelection(),
+                actor_id=actor.id,
+                trusted_actor=True,
             )
             assert report["ready"], report["issues"]
             version = TrainingDatasetVersion(

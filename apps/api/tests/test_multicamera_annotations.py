@@ -124,6 +124,9 @@ async def _seed(db, owner_id: uuid.UUID):
             (camera.id, "camera_front", "CAM_FRONT"),
         ],
     )
+    from tests.test_export_lidar import _register_metadata_sources
+
+    await _register_metadata_sources(db, lidar, camera)
     source = Annotation(
         task_id=task.id,
         project_id=project.id,
@@ -338,7 +341,7 @@ async def test_multicamera_coco_preflight_rejects_unsafe_role_path(
     )
 
     assert report.ready is False
-    assert "multicamera_coco_camera_item_invalid" in {
+    assert "lidar_export_archive_path_conflict" in {
         issue.code for issue in report.issues
     }
 
