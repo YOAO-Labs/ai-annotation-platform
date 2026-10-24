@@ -16,6 +16,10 @@ from app.services import (
 from app.services.training_dataset_bridge import content_digest
 from tests.factory import create_membership
 from tests.sample_evaluation_fixtures import Objects, complete_rows, evaluation, seed
+from tests.sample_evaluation_original_fixtures import (
+    Objects as OriginalObjects,
+    registered,
+)
 
 
 async def test_shared_qualification_rejects_libre_before_any_profile_request(
@@ -286,7 +290,7 @@ async def test_retained_references_block_storage_deletion_and_project_isolation(
 
 
 async def test_source_uses_current_bytes_and_labels_and_never_falls_back_after_deletion(
-    db_session, super_admin, httpx_client, objects
+    db_session, super_admin, httpx_client, objects, monkeypatch
 ):
     owner, token = super_admin
     world = await seed(db_session, owner, objects)
@@ -315,28 +319,36 @@ async def test_source_uses_current_bytes_and_labels_and_never_falls_back_after_d
     )
     db_session.add(annotation)
     await db_session.flush()
-    objects.put_object(
-        Bucket=service.storage.bucket,
-        Key=task.file_path,
-        Body=world.raw_images[0],
-        ContentType="image/png",
+    current = OriginalObjects().install(monkeypatch)
+    _item, _asset, replica = await registered(
+        db_session, task, owner, world.raw_images[0]
+    )
+    current.put(replica.bucket, replica.object_key, world.raw_images[0])
+    current.put(
+        service.storage.datasets_bucket, replica.object_key, world.raw_images[1]
     )
     endpoint = f"/api/v1/projects/{run.project_id}/sample-evaluations/{run.id}/attempts/{attempt.id}/samples/0/source"
     headers = {"Authorization": "Bearer " + token}
     same = await httpx_client.get(endpoint, headers=headers)
     assert same.status_code == 200, same.text
     assert same.json()["media"] == same.json()["labels"] == "same"
+    assert all(
+        bucket == replica.bucket for op, bucket, _ in current.calls if op != "close"
+    )
     annotation.geometry = {**annotation.geometry, "w": 0.2}
     await db_session.flush()
     changed = await httpx_client.get(endpoint, headers=headers)
     assert changed.json()["media"] == "same" and changed.json()["labels"] == "changed"
     assert run.spec["samples"][0] == frozen
-    objects.put_object(
-        Bucket=service.storage.bucket,
-        Key=task.file_path,
-        Body=world.raw_images[1],
-        ContentType="image/png",
+    current.put(replica.bucket, replica.object_key, world.raw_images[1])
+    tampered = await httpx_client.get(endpoint, headers=headers)
+    assert tampered.status_code == 200, tampered.text
+    assert tampered.json()["media"] == "unavailable"
+    assert tampered.json()["current_sha256"] is None
+    _item, _asset, replica = await registered(
+        db_session, task, owner, world.raw_images[1], key="new-registered-source.png"
     )
+    current.put(replica.bucket, replica.object_key, world.raw_images[1])
     changed = await httpx_client.get(endpoint, headers=headers)
     assert changed.json()["media"] == changed.json()["labels"] == "changed"
     await db_session.delete(annotation)
@@ -393,28 +405,29 @@ async def test_source_rechecks_the_current_request_key_after_object_io(
     )
     db_session.add(task)
     await db_session.flush()
-    objects.put_object(
-        Bucket=service.storage.bucket,
-        Key=task.file_path,
-        Body=world.raw_images[0],
-        ContentType="image/png",
+    current = OriginalObjects().install(monkeypatch)
+    _item, _asset, replica = await registered(
+        db_session, task, owner, world.raw_images[0]
     )
-    original = sources.asyncio.to_thread
+    current.put(replica.bucket, replica.object_key, world.raw_images[0])
+    from app.services import sample_evaluation_originals as originals
+
+    original = originals.bounded_thread
 
     async def revoke_after_read(function, *args, **kwargs):
         result = await original(function, *args, **kwargs)
-        if function is sources.read_current_media:
+        if function is originals.inspect_image:
             key.revoked_at = service.now()
             await db_session.flush()
         return result
 
-    monkeypatch.setattr(sources.asyncio, "to_thread", revoke_after_read)
+    monkeypatch.setattr(originals, "bounded_thread", revoke_after_read)
     response = await httpx_client.get(
         f"/api/v1/projects/{run.project_id}/sample-evaluations/{run.id}/attempts/{attempt.id}/samples/0/source",
         headers={"Authorization": "Bearer " + token},
     )
     assert response.status_code == 403, response.text
-    assert response.json()["detail"]["code"] == "api_key_revoked"
+    assert response.json()["detail"]["code"] == "api_key_authority_revoked"
 
 
 async def test_comparison_requires_two_explicit_compatible_successful_reports(

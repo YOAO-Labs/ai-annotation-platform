@@ -218,6 +218,10 @@ POST /api/v1/projects/{project_id}/training-datasets/{version_id}/storage-pin
 
 源解析返回 `source=found|deleted|unavailable`，图片和标签分别标记相同、变化或不可用，另含当前复核／负样本状态。当前标签可能标记 `unsupported`；不将无法读取解释为相同。任务硬删除后历史报告仍可读。原数据版本、模型部署及项目受保留引用保护，删除入口在存储破坏前拒绝；删除评估的存储失败返回 `503 cleanup_pending` 并由维护任务继续清理。上述接口尚未列为 Python SDK 已覆盖能力。
 
+`source` 的当前图片读取先固定 TaskOriginal 或 DatasetAsset 的已核验内容及保存位置，经维护许可完整核对当前登记的 SHA 与大小，再与冻结样本摘要比较。合法登记的新原件可返回 `media=changed`；同键覆盖、缺失、解码失败、未知归属、非图片或超过 16 MiB／1,600 万像素时不返回成功的 `current_sha256`，也不按现行用途桶回退。保留单帧、既有 Pillow 格式及 EXIF 逻辑尺寸检查；不使用通用下载的较大预算。
+
+该端点仍只要求项目管理权限及 `datasets:read`、`annotations:read`，不新增 `tasks:read`。原 JWT／API Key、当前账号与项目权限、完整原件关系和维护修订在读取与分类后复核，真实文件关闭后再核对任务及标注。凭证失效返回 `403`，读取期间原件关系或门禁变化返回 `409`；业务状态或标注变化返回不可用结果，须重新核对。断连、取消与超时等待在途线程和句柄收尾，关闭无法确认时保留未收尾责任。本合同只覆盖当前来源核对，冻结图片、报告及主动学习输入仍沿各自合同。
+
 ## 训练总览 API
 
 基路径 `/api/v1/training`。只允许活跃的项目管理员与超级管理员，API Key 需要 `annotations:read`、`datasets:read`。项目列表、实验列表及计数仅包含当前可管理项目；项目成员身份或历史任务创建者身份不扩大管理范围。

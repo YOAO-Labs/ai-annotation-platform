@@ -466,14 +466,14 @@ async def test_copy_deadline_does_not_release_while_provider_read_is_active(
     assert service._slots._value == 2 and reader._slots._value == 4
 
 
-async def test_unknown_remote_close_preserves_error_but_releases_closed_local_file(
+async def test_unknown_remote_close_retains_explicit_download_admission(
     provider,
 ):
     provider.body_close_error = OSError("private provider close")
     with pytest.raises(ContentError, match="storage_operation_unsettled") as caught:
         await service.capture_download(spec())
     assert caught.value.storage_operation_unsettled
-    assert service._slots._value == 2 and reader._slots._value == 4
+    assert service._slots._value == 1 and reader._slots._value == 4
 
 
 async def test_failed_copy_with_unknown_temporary_close_retains_download_admission(

@@ -39,6 +39,12 @@ ManagedOriginalCreation显式区分dataset/task作用域。Task分配保存proje
 
 `managed_original_reader` 只接受端点、保存桶/键、完整SHA和大小，以及调用者显式预算。它建立独立客户端，从目标当前HEAD取得条件，验证错误If-Match确实失败，完整读取并核对摘要、EOF及最终HEAD，再真实关闭Body和客户端。历史写入VersionId不参与目标GET。返回的BinaryStage拥有临时文件和对应准入名额，取消和超时等待实际I/O退出；关闭无法确认时保留未收尾许可。图片适配器在同一文件上解码并移交给响应，不重新下载或复制。通用二进制消费者使用下文独立预算；原生视频及其余当前用途定位仍有各自门禁。
 
+### 样本评估的当前来源核对
+
+`sample_evaluation_originals` 为既有 source API 提供窄适配：沿 `original_sources.resolve_task` 固定当前 TaskOriginal 或 DatasetAsset，取得同一位置的耐久许可后调用 `managed_original_reader`，独立两槽、每图最多 16 MiB。先验证当前已登记 SHA，再比较冻结评估 SHA；未知归属零原件 I/O，不从当前用途桶、旧路径或冻结 SHA 猜测当前对象。Pillow 在同一临时文件上执行既有 1,600 万像素、单帧及 EXIF 检查，不扩大格式或尺寸预算。
+
+适配保持评估的项目管理权限与两个读取 scope，捕获并复核原 JWT／Key，不借用要求 `tasks:read` 的通用下载授权。复制、解码、标签分类、临时文件关闭都在同一责任范围；取消和超时等待真实线程退出，未知 Body、client 或本地文件关闭保留显式准入额度与维护许可。关闭后再比较当前任务及标注，阻止慢关闭期间的变化成为成功回执。共享同步 `read_current_media` 的主动学习调用尚未迁移，冻结图片、报告、训练及其他 Worker 消费者分别推进。
+
 ### 认证通用原件交付
 
 浏览器公共读取模块 `apps/web/src/api/originals.ts` 只构造Task/Item/精确camera link的认证请求，核对身份中的完整下载路径，不给任意URL附加Bearer。原件下载共用两路可取消排队，覆盖完整响应体，前景可提升预取；只有明确容量不足才有限重试。资源owner按账号/session划分，同session令牌刷新后在途旧凭据结果最多重试一次，不能覆盖新凭据；跨账号、session及不完整的跨标签凭据停止读取。该公共层不建立原件缓存，各显示消费者仍须管理自己的内容版本、地址与释放。

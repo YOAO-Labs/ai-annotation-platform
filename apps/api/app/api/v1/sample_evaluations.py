@@ -3,7 +3,7 @@
 import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -502,18 +502,28 @@ async def source(
     if not 0 <= ordinal < len(spec["samples"]):
         raise service.reject("sample_missing", "冻结样本不存在", 404)
     from app.services.sample_evaluation_sources import resolve_source
+    from app.services.content_snapshot import ContentError
+    from app.services.original_request import connected_snapshot
 
     try:
-        return await resolve_source(
-            db,
-            run,
-            attempt_id,
-            ordinal,
-            user,
-            getattr(request.state, "api_key_id", None),
+        result = await connected_snapshot(
+            request,
+            resolve_source(
+                db,
+                run,
+                attempt_id,
+                ordinal,
+                user,
+                getattr(request.state, "api_key_id", None),
+                request=request,
+            ),
+            close_result=False,
         )
+        return result if result is not None else Response(status_code=499)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
+    except ContentError as exc:
+        raise HTTPException(exc.status, {"code": exc.code}) from None
 
 
 @router.delete(

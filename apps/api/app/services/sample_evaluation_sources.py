@@ -1,6 +1,5 @@
 """Resolve current source identity without mutating frozen evaluation truth."""
 
-import asyncio
 import hashlib
 import io
 import uuid
@@ -14,7 +13,6 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
 from app.services import sample_evaluations as service
 from app.services.training_dataset_bridge import detection_labels
-from app.services.training_datasets import assert_training_authority
 
 
 async def current_snapshot(db, project_id, task_id, *, task="detect"):
@@ -149,7 +147,7 @@ def read_current_media(snapshot, *, include_raw=False):
     }
 
 
-def classify_labels(snapshot, classes, *, task="detect"):
+def classify_labels(snapshot, classes, *, task="detect", preserve_unsettled=False):
     if len(snapshot["annotations"]) > service.engine.MAX_TRUTH_PER_IMAGE:
         return None
     try:
@@ -199,11 +197,24 @@ def classify_labels(snapshot, classes, *, task="detect"):
         return hashlib.sha256(
             detection_labels(snapshot["annotations"], classes).encode()
         ).hexdigest()
-    except (KeyError, TypeError, ValueError, OverflowError, BotoCoreError, ClientError):
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        OverflowError,
+        BotoCoreError,
+        ClientError,
+    ) as exc:
+        if preserve_unsettled and getattr(exc, "storage_operation_unsettled", False):
+            raise
         return None
 
 
-async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
+async def resolve_source(
+    db, run, attempt_id, ordinal, user, api_key_id=None, *, request
+):
+    from app.services import sample_evaluation_originals as originals
+
     frozen = run.spec["samples"][ordinal]
     task_id = uuid.UUID(frozen["task_id"])
     result = {
@@ -226,27 +237,51 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
         "negative_confirmed": None,
         "reason": None,
     }
-    await assert_training_authority(
-        db, project_id=run.project_id, actor_id=user.id, api_key_id=api_key_id
-    )
+    authority = await originals.authorize(db, run.project_id, user, request, api_key_id)
     kwargs = {"task": "segment"} if run.spec.get("schema") == 2 else {}
     before = await current_snapshot(db, run.project_id, task_id, **kwargs)
     await db.commit()
+    await originals.recheck_authority(db, authority)
     if before is None:
         return {
             **result,
             "source": "deleted",
             "reason": "当前源任务已删除或移出此项目；冻结样本仍保留",
         }
-    media, media_error = None, False
-    try:
-        media = await asyncio.to_thread(read_current_media, before)
-    except Exception:
-        media_error = True
-    # Recheck authority and a new statement snapshot after object IO.
-    await assert_training_authority(
-        db, project_id=run.project_id, actor_id=user.id, api_key_id=api_key_id
-    )
+    async with originals.current_media(db, authority, before) as (source, media):
+        # The raw stage/permit remains owned through label work and its final
+        # checks. Its context closes every real handle before publishing JSON.
+        candidate = await _compare_current(
+            db, run, task_id, frozen, result, before, source, media, authority, kwargs
+        )
+    # A slow physical close can outlive the label comparison. Do not publish a
+    # receipt for annotations or task state that changed while it was closing.
+    final = await current_snapshot(db, run.project_id, task_id, **kwargs)
+    await db.commit()
+    await originals.recheck_authority(db, authority)
+    if final is None:
+        return {
+            **result,
+            "source": "deleted",
+            "reason": "核验期间源任务已删除或移出此项目",
+        }
+    if final != before:
+        return {
+            **result,
+            "reason": "核验期间源任务引用、状态或标注发生变化，请重新核验",
+        }
+    if source is not None:
+        await originals.recheck_source(db, authority, source)
+    return candidate
+
+
+async def _compare_current(
+    db, run, task_id, frozen, result, before, source, media, authority, kwargs
+):
+    from app.services import sample_evaluation_originals as originals
+
+    result = {**result}
+    await originals.recheck_authority(db, authority)
     after = await current_snapshot(db, run.project_id, task_id, **kwargs)
     await db.commit()
     if after is None:
@@ -260,6 +295,8 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
             **result,
             "reason": "核验期间源任务引用、状态或标注发生变化，请重新核验",
         }
+    if source is not None:
+        await originals.recheck_source(db, authority, source)
     label_snapshot = after
     if kwargs and media:
         label_snapshot = {
@@ -267,9 +304,16 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
             "expected_width": media["width"],
             "expected_height": media["height"],
         }
-    label_sha = await asyncio.to_thread(
-        classify_labels, label_snapshot, run.spec["classes"], **kwargs
+    label_sha = await originals.bounded_thread(
+        classify_labels,
+        label_snapshot,
+        run.spec["classes"],
+        preserve_unsettled=True,
+        **kwargs,
     )
+    await originals.recheck_authority(db, authority)
+    if source is not None:
+        await originals.recheck_source(db, authority, source)
     reviewed = after["status"] == "completed" and after["reviewed_at"] is not None
     negative = (
         not after["annotations"]
@@ -292,8 +336,8 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
         if label_sha == frozen["label_sha256"]
         else "changed",
         current_label_sha256=label_sha,
-        reason="当前图片未通过读取、尺寸或解码检查"
-        if media_error
+        reason="当前图片未通过原件归属、内容、尺寸或解码检查"
+        if media is None
         else "当前标注超出冻结类别或支持范围"
         if label_sha is None
         else None,

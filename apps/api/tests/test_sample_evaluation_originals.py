@@ -398,7 +398,9 @@ async def test_late_unsettled_work_remains_marked_after_interruption(
     assert caught.value.storage_operation_unsettled
 
 
-@pytest.mark.parametrize("finish", ["cancel", "unknown", "unknown_cancel"])
+@pytest.mark.parametrize(
+    "finish", ["cancel", "unknown", "unknown_cancel", "unsettled_then_cancel"]
+)
 async def test_real_temporary_close_owns_quota_and_permit_until_it_settles(
     world, monkeypatch, finish
 ):
@@ -427,11 +429,13 @@ async def test_real_temporary_close_owns_quota_and_permit_until_it_settles(
             original = world.stages[0].file
             captured.append(original)
             world.stages[0].file = ClosingFile(original)
+            if finish == "unsettled_then_cancel":
+                raise storage_access.mark_unsettled(OSError("prior unresolved work"))
 
     pending = asyncio.create_task(operation())
     try:
         assert await asyncio.to_thread(entered.wait, 2)
-        if finish in {"cancel", "unknown_cancel"}:
+        if finish in {"cancel", "unknown_cancel", "unsettled_then_cancel"}:
             pending.cancel()
             await asyncio.sleep(0)
             pending.cancel()
@@ -452,7 +456,36 @@ async def test_real_temporary_close_owns_quota_and_permit_until_it_settles(
         else:
             assert captured[0].closed and service._slots._value == 1
             assert world.permit.exits[0]["files_closed"]
+            if finish == "unsettled_then_cancel":
+                assert caught.value.storage_operation_unsettled
+                assert world.permit.exits[0]["error"].storage_operation_unsettled
     finally:
         # A deliberately unknown close cannot be declared settled by production code.
         # The test still owns the exact real descriptor and removes its own artifact.
         captured[0].close()
+
+
+def test_current_source_label_work_preserves_unknown_rle_close(monkeypatch):
+    from app.services import raster_mask_storage
+    from app.services.sample_evaluation_sources import classify_labels
+
+    failure = storage_access.mark_unsettled(ContentError("storage_operation_unsettled"))
+
+    def unresolved(_reference):
+        raise failure
+
+    monkeypatch.setattr(raster_mask_storage, "load_coco_rle_sync", unresolved)
+    current = {
+        **snapshot(),
+        "annotations": [
+            {
+                "tool_unit_id": "region",
+                "class_name": "car",
+                "geometry": {"type": "raster_mask", "mask": {}},
+            }
+        ],
+    }
+    with pytest.raises(ContentError) as caught:
+        classify_labels(current, ["car"], task="segment", preserve_unsettled=True)
+    assert caught.value is failure
+    assert classify_labels(current, ["car"], task="segment") is None
