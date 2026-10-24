@@ -223,7 +223,6 @@ async def _run():
     from aap_jobs.lifecycle_contract import JOBS_LIFECYCLE_PROTOCOL
     from aap_jobs.row_lock_contract import JOBS_ROW_LOCK_PROTOCOL
     from app.config import settings
-    from app.services import async_job
     from app.services.jobs_lifecycle_data import job_lock_statement
 
     job_id = uuid.UUID(sys.argv[1])
@@ -255,15 +254,18 @@ async def _run():
             if row is None or row.status != "completed":
                 raise RuntimeError("share_row")
             original_result = row.result
+            original_progress = row.progress_pct
+            identity = inspect(row).identity_key
 
             db.expire(row, ["updated_at"])
             read_calls_before = _count(statements, "aap_jobs_v1.read_job(")
-            refreshed = await async_job.get_job(db, job_id, populate_existing=True)
+            await db.refresh(row, attribute_names=["updated_at"])
             read_calls_after = _count(statements, "aap_jobs_v1.read_job(")
             partial_refresh = (
-                refreshed is row
-                and refreshed.result == original_result
-                and "updated_at" not in inspect(refreshed).expired_attributes
+                db.identity_map.get(identity) is row
+                and row.result == original_result
+                and row.progress_pct == original_progress
+                and "updated_at" not in inspect(row).expired_attributes
                 and read_calls_after == read_calls_before + 1
             )
             if not partial_refresh:
@@ -345,7 +347,7 @@ def _assert_api_row_access_probe(
             [
                 "exec",
                 container_id,
-                "python",
+                "/opt/venv/bin/python",
                 "-I",
                 "-c",
                 _JOBS_API_ROW_ACCESS_PROBE,

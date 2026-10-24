@@ -195,7 +195,13 @@ def test_api_row_access_probe_execs_only_verified_container_with_isolated_python
     )
 
     assert stack.calls == ["verify", "docker"]
-    assert stack.command[:5] == ["exec", "owned-api", "python", "-I", "-c"]
+    assert stack.command[:5] == [
+        "exec",
+        "owned-api",
+        "/opt/venv/bin/python",
+        "-I",
+        "-c",
+    ]
     assert stack.command[5] == _JOBS_API_ROW_ACCESS_PROBE
     assert stack.command[6:] == [str(job_id), "restored_test"]
     assert stack.operation == "Jobs row-access probe"
