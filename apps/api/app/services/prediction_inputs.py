@@ -1119,6 +1119,13 @@ def _listed(client, record, expected, deadline, *, versions=False):
 
 
 def _delete_known(storage, record, inventory):
+    # Some S3 servers ignore conditional DELETE headers. A saved immutable
+    # version is required independently from ETag and content equality.
+    if any(
+        entry["state"] == "verified" and entry["version_id"] in {None, "null"}
+        for entry in inventory.values()
+    ):
+        reject("immutable_version_required")
     deadline = time.monotonic() + IO_SECONDS
     visible = _listed(storage.client, record, inventory, deadline)
     versions = _listed(storage.client, record, inventory, deadline, versions=True)
@@ -1135,7 +1142,8 @@ def _delete_known(storage, record, inventory):
             lease_id=record.id,
         )
         if (
-            observed["etag"] != item["ETag"]
+            observed["version_id"] in {None, "null"}
+            or observed["etag"] != item["ETag"]
             or (observed["version_id"] or "null") != item["VersionId"]
         ):
             reject("unknown_object")
