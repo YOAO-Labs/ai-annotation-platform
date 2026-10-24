@@ -21,7 +21,7 @@ import os
 import re
 import secrets
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
@@ -466,6 +466,237 @@ def _cleanup_fixture_storage(owned, annotation_ids):
     _delete_comment_attachment_seed_objects(storage_service, annotation_ids)
 
 
+@dataclass
+class _FixtureVideoCleanup:
+    scope: Any
+    item_ids: tuple
+    receipts: tuple
+    revisions: dict = field(default_factory=dict)
+
+
+async def _fixture_video_outputs(db, scope, *, lock=False):
+    from sqlalchemy import select
+    from app.db.models.dataset import Dataset, DatasetItem
+    from app.db.models.video_derivative import VideoDerivativeOutput
+
+    if lock and scope.dataset_ids:
+        await db.execute(
+            select(Dataset.id)
+            .where(Dataset.id.in_(scope.dataset_ids))
+            .order_by(Dataset.id)
+            .with_for_update(nowait=True)
+        )
+    item_ids = tuple(
+        await db.scalars(
+            select(DatasetItem.id)
+            .where(
+                DatasetItem.dataset_id.in_(scope.dataset_ids),
+                DatasetItem.file_type == "video",
+            )
+            .order_by(DatasetItem.id)
+        )
+    )
+    if lock and item_ids:
+        await db.execute(
+            select(DatasetItem.id)
+            .where(DatasetItem.id.in_(item_ids))
+            .order_by(DatasetItem.id)
+            .with_for_update(nowait=True)
+        )
+    statement = (
+        select(VideoDerivativeOutput)
+        .where(VideoDerivativeOutput.dataset_item_id.in_(item_ids))
+        .order_by(VideoDerivativeOutput.id)
+    )
+    if lock:
+        statement = statement.with_for_update(nowait=True)
+    return item_ids, list(
+        await db.scalars(statement.execution_options(populate_existing=True))
+    )
+
+
+async def _fixture_video_foreign_refs(db, item_ids, output_ids):
+    from sqlalchemy import or_, select
+    from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameCache
+    from app.db.models.video_derivative import VideoDerivativeOutput
+
+    if not output_ids:
+        return
+    tests = (
+        select(DatasetItem.id).where(
+            DatasetItem.id.not_in(item_ids),
+            or_(
+                DatasetItem.video_output_id.in_(output_ids),
+                DatasetItem.video_building_output_id.in_(output_ids),
+            ),
+        ),
+        select(VideoChunk.id).where(
+            VideoChunk.dataset_item_id.not_in(item_ids),
+            VideoChunk.output_id.in_(output_ids),
+        ),
+        select(VideoFrameCache.id).where(
+            VideoFrameCache.dataset_item_id.not_in(item_ids),
+            VideoFrameCache.output_id.in_(output_ids),
+        ),
+        select(VideoDerivativeOutput.id).where(
+            VideoDerivativeOutput.dataset_item_id.not_in(item_ids),
+            VideoDerivativeOutput.metadata_output_id.in_(output_ids),
+        ),
+    )
+    if any([await db.scalar(statement.limit(1)) is not None for statement in tests]):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_foreign_reference"})
+
+
+async def _fixture_video_source_operations(db, receipts):
+    from sqlalchemy import select
+    from app.db.models.storage_maintenance import StorageOperation
+
+    locations = {UUID(receipt.original_ref["location_id"]) for receipt in receipts}
+    if (
+        locations
+        and await db.scalar(
+            select(StorageOperation.id)
+            .where(
+                StorageOperation.location_id.in_(locations),
+                StorageOperation.purpose == "video_derivative_original",
+            )
+            .limit(1)
+        )
+        is not None
+    ):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
+
+
+async def _prepare_fixture_video_cleanup(db, scope):
+    from app.services import video_derivative_objects as objects
+
+    item_ids, outputs = await _fixture_video_outputs(db, scope, lock=True)
+    await _fixture_video_source_operations(
+        db, [objects.snapshot(output) for output in outputs]
+    )
+    await _fixture_video_foreign_refs(db, item_ids, [output.id for output in outputs])
+    for output in outputs:
+        if await objects._in_use(db, output.id):
+            raise HTTPException(
+                409, detail={"code": "e2e_seed_video_operation_unsettled"}
+            )
+        output.state = "retiring"
+    await db.flush()
+    plan = _FixtureVideoCleanup(
+        scope, item_ids, tuple(objects.snapshot(output) for output in outputs)
+    )
+    await db.commit()
+    return plan
+
+
+async def _delete_fixture_video_objects(db, plan, resolve_scope):
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.db.models.storage_maintenance import StorageOperation
+    from app.db.models.video_derivative import VideoDerivativeOutput
+    from app.services import storage_access, video_derivative_originals as originals
+    from app.services import (
+        video_derivative_objects as objects,
+        video_derivative_storage as physical,
+    )
+
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    for receipt in plan.receipts:
+
+        async def guard(revision, receipt=receipt):
+            async with factory() as fresh:
+                if await resolve_scope(fresh) != plan.scope:
+                    raise HTTPException(
+                        409, detail={"code": "e2e_seed_video_scope_changed"}
+                    )
+                current = await fresh.scalar(
+                    select(VideoDerivativeOutput)
+                    .where(VideoDerivativeOutput.id == receipt.id)
+                    .with_for_update(nowait=True)
+                    .execution_options(populate_existing=True)
+                )
+                if (
+                    current is None
+                    or objects.snapshot(current) != receipt
+                    or current.state != "retiring"
+                ):
+                    raise HTTPException(
+                        409, detail={"code": "e2e_seed_video_owner_changed"}
+                    )
+                await _fixture_video_source_operations(fresh, [receipt])
+                operations = list(
+                    await fresh.scalars(
+                        select(StorageOperation).where(
+                            StorageOperation.purpose == objects.purpose(receipt.id)
+                        )
+                    )
+                )
+                if len(operations) != 1 or operations[0].revision != revision:
+                    raise HTTPException(
+                        409, detail={"code": "e2e_seed_video_operation_unsettled"}
+                    )
+                location = receipt.storage_ref["location_id"]
+                if location in plan.revisions and plan.revisions[location] != revision:
+                    raise HTTPException(
+                        409, detail={"code": "storage_maintenance_changed"}
+                    )
+                plan.revisions[location] = revision
+                await fresh.commit()
+
+        async with objects.access(db, receipt, guard) as storage:
+            await originals.physical(
+                physical.delete_output, storage, receipt, timeout=originals.JOB_SECONDS
+            )
+
+
+async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
+    from sqlalchemy import delete, update
+    from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameCache
+    from app.db.models.video_derivative import VideoDerivativeOutput
+    from app.services import storage_access, video_derivative_objects as objects
+
+    if await resolve_scope(db) != plan.scope:
+        raise HTTPException(409, detail={"code": "e2e_seed_video_scope_changed"})
+    item_ids, outputs = await _fixture_video_outputs(db, plan.scope, lock=True)
+    expected = {receipt.id: receipt for receipt in plan.receipts}
+    if item_ids != plan.item_ids or {output.id for output in outputs} != set(expected):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_owner_changed"})
+    await _fixture_video_foreign_refs(db, item_ids, list(expected))
+    await _fixture_video_source_operations(db, plan.receipts)
+    for output in outputs:
+        if objects.snapshot(output) != expected[output.id] or await objects._in_use(
+            db, output.id
+        ):
+            raise HTTPException(
+                409, detail={"code": "e2e_seed_video_operation_unsettled"}
+            )
+    for location, revision in sorted(plan.revisions.items()):
+        await storage_access.check(
+            db, UUID(location), expected_revision=revision, lock=True
+        )
+    await db.execute(
+        update(VideoChunk)
+        .where(VideoChunk.dataset_item_id.in_(item_ids))
+        .values(output_id=None)
+    )
+    await db.execute(
+        update(VideoFrameCache)
+        .where(VideoFrameCache.dataset_item_id.in_(item_ids))
+        .values(output_id=None)
+    )
+    await db.execute(
+        update(DatasetItem)
+        .where(DatasetItem.id.in_(item_ids))
+        .values(video_output_id=None, video_building_output_id=None)
+    )
+    await db.execute(
+        delete(VideoDerivativeOutput).where(
+            VideoDerivativeOutput.id.in_(list(expected))
+        )
+    )
+    await db.flush()
+
+
 async def _cleanup_e2e_fixtures(
     db: AsyncSession, owned: _OwnedFixtureScope | None = None, *, registry=None
 ) -> None:
@@ -484,6 +715,7 @@ async def _cleanup_e2e_fixtures(
         scope = await resolve(db)
         await guides.preflight(db, scope)
         plan = await attachments.prepare(db, scope)
+        video_plan = await _prepare_fixture_video_cleanup(db, scope)
         if registry is not None:
 
             def fixture_context(context):
@@ -502,6 +734,7 @@ async def _cleanup_e2e_fixtures(
 
             await registry.revoke_contexts(fixture_context)
         await attachments.delete_objects(db, plan, resolve)
+        await _delete_fixture_video_objects(db, video_plan, resolve)
         await db.commit()
         legacy_cleanup = asyncio.create_task(
             asyncio.to_thread(_cleanup_fixture_storage, owned, plan.annotation_ids)
@@ -519,6 +752,7 @@ async def _cleanup_e2e_fixtures(
 
         async def retire_guides():
             await guides.retire_references(db, scope)
+            await _finalize_fixture_video_cleanup(db, video_plan, resolve)
 
         await attachments.finalize(db, plan, resolve, before_gate=retire_guides)
         # The audit exemption belongs to this final transaction, not retirement.
@@ -2301,6 +2535,144 @@ async def seed_configure_raster_mask(
     )
 
 
+async def _require_fixture_video_item(db, item):
+    scope = await _resolve_fixture_scope(db, None)
+    if (
+        item is None
+        or item.file_type != "video"
+        or item.dataset_id not in scope.dataset_ids
+        or not item.file_path.startswith("e2e/video/")
+        or not isinstance((item.metadata_ or {}).get("_e2e_video_fixture"), str)
+    ):
+        raise HTTPException(422, detail="expected E2E-owned video fixture")
+
+
+async def _publish_fixture_video_outputs(db, output_ids):
+    """Complete only this fixture's existing claims through the production builder."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.db.models.dataset import DatasetItem
+    from app.db.models.video_derivative import VideoDerivativeOutput
+    from app.services import storage_access, video_derivative_originals as originals
+    from app.services import video_derivative_objects as objects, video_derivatives
+    from app.workers import media_derivatives as worker
+
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+    claims = []
+    for identifier in output_ids:
+        output = await db.get(VideoDerivativeOutput, identifier, populate_existing=True)
+        item = await db.get(DatasetItem, output.dataset_item_id) if output else None
+        await _require_fixture_video_item(db, item)
+        if output.state != "building" or output.lease_token is None:
+            raise HTTPException(409, detail="fixture output is not pending")
+        authority = await originals.delegated(db, output.auth_ref)
+        source = await originals.check(db, authority)
+        metadata = (
+            objects.snapshot(
+                await db.get(VideoDerivativeOutput, output.metadata_output_id)
+            )
+            if output.metadata_output_id
+            else None
+        )
+        claims.append(
+            worker.Claimed(
+                objects.snapshot(output),
+                authority,
+                source,
+                output.lease_token,
+                metadata,
+            )
+        )
+    await db.commit()
+    if not claims:
+        return
+    first = claims[0]
+    if any(
+        claim.output.original_ref != first.output.original_ref
+        or claim.output.auth_ref != first.output.auth_ref
+        for claim in claims
+    ):
+        raise HTTPException(409, detail="fixture output group changed")
+    completed = []
+    try:
+        async with originals.media(db, first.authority, first.source) as stage:
+            for claimed in claims:
+                revisions = []
+
+                async def guard(revision, claimed=claimed):
+                    async with factory() as fresh:
+                        await video_derivatives.check(
+                            fresh,
+                            claimed.output,
+                            claimed.authority,
+                            token=claimed.token,
+                            gate_revision=revision,
+                        )
+                    if revisions and revisions[0] != revision:
+                        video_derivatives.reject("storage_maintenance_changed")
+                    if not revisions:
+                        revisions.append(revision)
+
+                async with objects.access(db, claimed.output, guard) as storage:
+                    result, inventory = await originals.physical(
+                        worker.build,
+                        storage,
+                        claimed.output,
+                        stage,
+                        claimed.metadata,
+                        timeout=originals.JOB_SECONDS,
+                    )
+                completed.append((claimed, result, inventory, revisions[0]))
+        for claimed, result, inventory, revision in completed:
+            async with factory() as final:
+                await video_derivatives.publish(
+                    final,
+                    claimed.output,
+                    claimed.authority,
+                    claimed.token,
+                    result,
+                    inventory,
+                    revision,
+                )
+                await final.commit()
+    except BaseException as exc:
+        for claimed in claims:
+            await storage_access.finish(
+                asyncio.create_task(
+                    worker.fail(
+                        factory,
+                        claimed.output.id,
+                        claimed.token,
+                        worker.error_code(exc),
+                    )
+                )
+            )
+        raise
+
+
+async def _stage_fixture_video_outputs(db, item, kind, specs=None, *, pending=False):
+    from app.services import video_derivative_originals as originals
+    from app.services import video_derivative_objects as objects, video_derivatives
+
+    await _require_fixture_video_item(db, item)
+    source = await originals.pin(db, "dataset_item", item.id)
+    authority = await originals.delegated(
+        db, originals.system_authorization("dataset_item", item.id, source)
+    )
+    identifiers = []
+    for spec in specs or [None]:
+        output, _ = await video_derivatives.prepare(
+            db, item.id, authority, kind, spec=spec
+        )
+        token = await objects.claim(db, output, ttl_seconds=originals.JOB_SECONDS)
+        if token is None:
+            raise HTTPException(409, detail="fixture output already claimed")
+        identifiers.append(output.id)
+    await db.commit()
+    if not pending:
+        await _publish_fixture_video_outputs(db, identifiers)
+    return identifiers
+
+
 class SeedVideoTaskRequest(BaseModel):
     project_id: str
 
@@ -2357,6 +2729,12 @@ async def seed_video_task(
     image_item = await db.get(DatasetItem, image_task.dataset_item_id)
     if image_item is None:
         raise HTTPException(status_code=404, detail="dataset fixture not found")
+    scope = await _resolve_fixture_scope(db, None)
+    if (
+        project_id not in scope.project_ids
+        or image_item.dataset_id not in scope.dataset_ids
+    ):
+        raise HTTPException(422, detail="expected E2E-owned project and dataset")
 
     source_path = (
         Path(__file__).resolve().parents[5]
@@ -2376,18 +2754,7 @@ async def seed_video_task(
         file_path=video_key,
         file_type="video",
         file_size=len(video),
-        width=1440,
-        height=810,
-        metadata_={
-            "video": {
-                "duration_ms": 5000,
-                "fps": 12,
-                "frame_count": 60,
-                "width": 1440,
-                "height": 810,
-                "codec": "vp9",
-            }
-        },
+        metadata_={"_e2e_video_fixture": "native-mask"},
     )
     db.add(item)
     await db.flush()
@@ -2407,6 +2774,7 @@ async def seed_video_task(
     await db.flush()
     task_id = str(task.id)
     await db.commit()
+    await _stage_fixture_video_outputs(db, item, "metadata")
     return SeedVideoTaskResponse(task_id=task_id)
 
 
@@ -2436,12 +2804,11 @@ async def seed_video_webcodecs(
 ) -> SeedVideoWebCodecsResponse:
     """Seed a deterministic H.264 WebCodecs fixture for precise-frame E2E.
 
-    Generates a small machine-readable H.264 clip (numpy → ffmpeg), probes it with
-    the same ffprobe / avcC pipeline the worker uses, and writes dataset item +
-    task + source frame timetable + production-shaped VideoChunk diagnostics. Short correctness fixtures use
-    one chunk; Issue fixtures follow the manifest chunk size, while qualification
-    fixtures use ready 60-frame chunks. ``chunk_status``
-    lets specs exercise the pending → ready contract without a media Celery worker.
+    Known uploaded bytes establish the canonical original. Metadata and chunks
+    use real independent owners and the production builder. A pending fixture
+    retains its one claim until the explicit transition endpoint publishes it;
+    malformed-response scenarios describe browser injection without corrupting
+    a valid immutable result.
     """
     from tempfile import mkdtemp
     from uuid import UUID
@@ -2451,14 +2818,13 @@ async def seed_video_webcodecs(
 
     from app.api.v1._test_seed_webcodecs import (
         FIXTURE_SPECS,
-        QUALIFICATION_CHUNK_SIZE_FRAMES,
         QUALIFICATION_FIXTURE_SPECS,
-        apply_metadata_mutation,
         frame_expectations,
         generate_fixture,
         generate_qualification_fixture,
     )
-    from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameIndex
+    from app.db.models.dataset import DatasetItem
+    from app.services import video_derivative_originals as originals, video_derivatives
     from app.db.models.task import Task
     from app.db.models.task_batch import TaskBatch
     from app.services.storage import storage_service
@@ -2495,22 +2861,31 @@ async def seed_video_webcodecs(
     if ref_item is None:
         raise HTTPException(status_code=404, detail="dataset fixture not found")
 
+    scope = await _resolve_fixture_scope(db, None)
+    if (
+        project_id not in scope.project_ids
+        or ref_item.dataset_id not in scope.dataset_ids
+    ):
+        raise HTTPException(422, detail="expected E2E-owned project and dataset")
+
     fixture = payload.fixture
     tmp = mkdtemp(prefix="webcodecs-seed-")
     try:
         qualification = fixture in QUALIFICATION_FIXTURE_SPECS
         meta = (
-            await asyncio.to_thread(generate_qualification_fixture, fixture, tmp)
+            await asyncio.to_thread(
+                generate_qualification_fixture, fixture, tmp, include_chunks=False
+            )
             if qualification
             else generate_fixture(
-                fixture, tmp, chunk_size_frames=settings.video_chunk_size_frames
+                fixture,
+                tmp,
+                chunk_size_frames=settings.video_chunk_size_frames,
+                include_chunks=False,
             )
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    if not qualification:
-        meta = apply_metadata_mutation(fixture, meta)
-
     mp4_bytes = meta["mp4_bytes"]
     # 幂等 key:同一 fixture 反复 seed 覆盖同一对象,cleanup 按前缀一次清空。
     source_key = f"e2e/video/webcodecs/{fixture}/source.mp4"
@@ -2522,36 +2897,17 @@ async def seed_video_webcodecs(
         ContentType="video/mp4",
     )
 
-    duration_ms = int(meta["duration_ms"])
     item = DatasetItem(
         dataset_id=ref_item.dataset_id,
         file_name=f"{fixture}.mp4",
         file_path=source_key,
         file_type="video",
         file_size=len(mp4_bytes),
-        width=meta["width"],
-        height=meta["height"],
-        metadata_={
-            "video": {
-                "duration_ms": duration_ms,
-                "fps": meta["fps"],
-                "frame_count": meta["frame_count"],
-                "width": meta["width"],
-                "height": meta["height"],
-                "codec": "h264",
-            }
-        },
+        metadata_={"_e2e_video_fixture": fixture},
     )
     db.add(item)
     await db.flush()
     await _register_fixture_original(db, item, mp4_bytes)
-    # Keep native presentation evidence independent of intentionally damaged chunk metadata.
-    db.add_all(
-        [
-            VideoFrameIndex(dataset_item_id=item.id, **entry)
-            for entry in meta["frame_timetable"]
-        ]
-    )
     task = Task(
         project_id=project_id,
         batch_id=batch.id,
@@ -2564,78 +2920,28 @@ async def seed_video_webcodecs(
     )
     db.add(task)
     await db.flush()
-    if "chunks" in meta:
-        for chunk_meta in meta["chunks"]:
-            chunk_key = (
-                f"e2e/video/webcodecs/{fixture}/chunk-{chunk_meta['chunk_id']:04d}.mp4"
-            )
-            chunk_bytes = chunk_meta["bytes"]
-            await asyncio.to_thread(
-                storage_service.client.put_object,
-                Bucket=storage_service.datasets_bucket,
-                Key=chunk_key,
-                Body=chunk_bytes,
-                ContentType="video/mp4",
-            )
-            db.add(
-                VideoChunk(
-                    dataset_item_id=item.id,
-                    chunk_id=chunk_meta["chunk_id"],
-                    start_frame=chunk_meta["start_frame"],
-                    end_frame=chunk_meta["end_frame"],
-                    start_pts_ms=chunk_meta["start_pts_ms"],
-                    end_pts_ms=chunk_meta["end_pts_ms"],
-                    storage_key=chunk_key,
-                    byte_size=len(chunk_bytes),
-                    generation_mode=chunk_meta["generation_mode"],
-                    status="ready" if qualification else payload.chunk_status,
-                    diagnostics={
-                        "samples": chunk_meta["samples"],
-                        "codec_string": chunk_meta["codec_string"],
-                        "description": chunk_meta["description"],
-                        "width": meta["width"],
-                        "height": meta["height"],
-                        "source_codec": "h264",
-                        "output_codec": "h264",
-                    },
-                )
-            )
-    else:
-        db.add(
-            VideoChunk(
-                dataset_item_id=item.id,
-                chunk_id=0,
-                start_frame=0,
-                end_frame=meta["frame_count"] - 1,
-                start_pts_ms=0,
-                end_pts_ms=duration_ms,
-                storage_key=source_key,
-                byte_size=len(mp4_bytes),
-                generation_mode="transcode",
-                status=payload.chunk_status,
-                diagnostics={
-                    "samples": meta["samples"],
-                    "codec_string": meta["codec_string"],
-                    "description": meta["description"],
-                    "width": meta["width"],
-                    "height": meta["height"],
-                    "source_codec": "h264",
-                    "output_codec": "h264",
-                },
-            )
-        )
     batch.total_tasks = int(batch.total_tasks or 0) + 1
     await db.flush()
+    task_id, item_id = str(task.id), item.id
     await db.commit()
+    await _stage_fixture_video_outputs(db, item, "metadata")
+    item = await db.get(DatasetItem, item_id, populate_existing=True)
+    source = await originals.pin(db, "dataset_item", item_id)
+    generation = await video_derivatives.metadata(db, item, source)
+    count = video_derivatives.metadata_result(generation)[0].frame_count
+    chunk_size = max(1, settings.video_chunk_size_frames)
+    specs = [
+        video_derivatives.chunk_spec(generation, chunk_id)
+        for chunk_id in range((count + chunk_size - 1) // chunk_size)
+    ]
+    await _stage_fixture_video_outputs(
+        db, item, "chunk", specs, pending=payload.chunk_status == "pending"
+    )
     return SeedVideoWebCodecsResponse(
-        task_id=str(task.id),
-        dataset_item_id=str(item.id),
+        task_id=task_id,
+        dataset_item_id=str(item_id),
         chunk_id=0,
-        chunk_size_frames=(
-            QUALIFICATION_CHUNK_SIZE_FRAMES
-            if qualification
-            else meta.get("chunk_size_frames", meta["frame_count"])
-        ),
+        chunk_size_frames=chunk_size,
         frame_expectations=(
             {} if qualification else frame_expectations(fixture, meta["samples"])
         ),
@@ -2724,26 +3030,30 @@ async def seed_video_webcodecs_transition(
     payload: SeedVideoWebCodecsTransitionRequest,
     db: AsyncSession = Depends(get_db),
 ) -> SeedVideoWebCodecsTransitionResponse:
-    """Deterministically flip a seeded chunk pending → ready (no Celery worker needed)."""
-    from uuid import UUID
-
+    """Publish the same fixture claim after physical generation really closes."""
     from sqlalchemy import select
+    from app.db.models.dataset import DatasetItem, VideoChunk
+    from app.db.models.video_derivative import VideoDerivativeOutput
 
-    from app.db.models.dataset import VideoChunk
-
-    row = (
-        await db.execute(
-            select(VideoChunk).where(
-                VideoChunk.dataset_item_id == UUID(payload.dataset_item_id),
-                VideoChunk.chunk_id == payload.chunk_id,
-            )
+    item = await db.get(DatasetItem, UUID(payload.dataset_item_id))
+    await _require_fixture_video_item(db, item)
+    row = await db.scalar(
+        select(VideoChunk).where(
+            VideoChunk.dataset_item_id == item.id,
+            VideoChunk.chunk_id == payload.chunk_id,
         )
-    ).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="chunk_not_found")
-    row.status = "ready"
-    await db.commit()
-    return SeedVideoWebCodecsTransitionResponse(status=row.status)
+    )
+    if row is None or row.output_id is None:
+        raise HTTPException(404, detail="fixture chunk owner not found")
+    output = await db.get(VideoDerivativeOutput, row.output_id)
+    if output is None or output.dataset_item_id != item.id:
+        raise HTTPException(409, detail="fixture output changed")
+    if output.state != "ready":
+        await _publish_fixture_video_outputs(db, [output.id])
+    await db.refresh(row)
+    if row.status != "ready":
+        raise HTTPException(409, detail="fixture output was not published")
+    return SeedVideoWebCodecsTransitionResponse(status="ready")
 
 
 class SeedTrackerReviewRequest(BaseModel):
