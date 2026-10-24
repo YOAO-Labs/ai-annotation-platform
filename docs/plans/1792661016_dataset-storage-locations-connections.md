@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B/B13-A/B13-B1/B13-B2/B13-B3-A/B13-B3-B/B13-B3-C completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B/B13-A/B13-B1/B13-B2/B13-B3-A/B13-B3-B/B13-B3-C/B13-B3-D completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -1091,4 +1091,25 @@ HTTP固定准确原请求证明，snapshot.authorization私有保存原Key指纹
 
 原件以独立两槽及耐久访问许可覆盖物化到真实关闭，未知关闭保留责任；输出媒体／mask、ZIP构造、包上传／校验与失败清理线程均等待实际收尾，才能退出TemporaryDirectory和释放执行锁。包ready仍要求当前版本／attempt／Job／owner、创建者权限与原Key、所有本次回源事实有效，最终自然期限复核后统一提交状态及通知；取消或迟到变化不发布ready。保留媒体和包的实际写回／回读沿固定output owner，不授予完整用途切换或物理回收许可。
 
-验证使用本工作树新test／e2e模式、实际图片／RLE及独立HTTP／MinIO／Celery；保留3100／8100、两Worker／绑定Beat和11表／24对象／12文件指纹。不增加依赖、环境配置、迁移、镜像或版本；当前实现与验收未完成，完整E02／B13与整套epic继续执行。
+验证使用本工作树新test／e2e模式、实际图片／RLE及独立HTTP／MinIO／Celery；保留3100／8100、两Worker／绑定Beat和11表／24对象／12文件指纹。不增加依赖、环境配置、迁移、镜像或版本；实施与验收见下方Outcome，完整E02／B13与整套epic继续执行。
+
+## E02-B13-B3-D Outcome — 训练数据托管图片原件与物化
+
+主集成 `9b2f1a946`；调用方阶段拆分 `3f90f0c4c`，种子身份登记及首次分割初始化修复 `93702cf27`、`d0e52d1ce`，终态信号锁序 `9ee3e7393`，正式文档 `fac575b7e`。生命周期与Worker边界回归分别集成于 `6a5e052c4`、`0614d9d39`；其余夹具与补充回归随主提交保存。无迁移、依赖、环境配置、镜像构建或发布版本变化，数据库保持0231。
+
+- 托管图片预检沿canonical原件保存位置完整读取、核对SHA／大小并解码，安全身份收据进入新快照和摘要，不再把当前桶当输入证据。HTTP使用准确原请求并在断连时取消、排空；后台保存原Key不可逆指纹，继续核对原创建者、manager权限及原两个读取scope，不增加tasks:read／datasets:write。
+- prepare独立拥有读取事务，finalize在调用方短事务内重核选择、标签与原件，不隐式提交调用方。自动策略重取锁后比较完整上下文；种子成功写入后登记真实Asset／Replica，首次组合分割种子先明确提交完整来源阶段，再重取锁、刷新状态并延续原编辑保护，避免独立mask owner被未提交的新绑定阻塞。
+- Worker优先使用固定输出owner的保留媒体，新合同独立核对冻结原件SHA／大小，改写对象metadata不能替换输入。只有缺失副本才完整核验回源；旧无身份且副本缺失明确拒绝，已有合格历史副本保持。ready不重选当前标签，本次真正回源的完整来源及Gate才加入末端复核。
+- 图片、mask及ZIP写入后完整读回校验，所有原生工作、文件及临时目录实际收尾后再发布。原件使用独立两槽，未知关闭保留相应并发额度及耐久责任；重试／删除受执行锁及未结输出操作保护。Worker、取消和训练信号均按Version→Job锁序；信号另核对真实任务参数、attempt、Job及Celery ID，旧信号不能终结新尝试。引用关闭时的重复取消也保留先前未知输出责任。
+
+最终累计476个不同本地后端用例通过，无剩余失败或跳过；按最终同名用例去重，不累计重跑。包含97项真实图片／物理生命周期、45项信号回归，以及独立事务中解码和真实关闭两阶段的账号、owner、Task、尺寸、Asset删除、Replica与Gate变化，证明来源／权限锁不跨物理工作。覆盖创建末端标签变化、准确双读取scope、同ID Key轮换、HTTP断连排空、无调用方commit、输出完整读回与篡改、旧缺副本零raw I/O、真实数据库执行围栏、未知操作阻止重试／删除、策略并发与首次分割种子的跨连接可见性。
+
+独立18100／13100实际跑通HTTP→MinIO→本checkout Celery的检测、原生RLE两类构建，各三图，外部完整下载ZIP核对SHA与成员；随后删除当前源Task、标注和原图，两类重试均ready，冻结manifest、snapshot摘要及输出owner保持。未运行ML训练或GPU资格验证。浏览器确认就绪列表、洞察、冻结样本和删除源Task后的真实图片预览；已查看明暗与390px窄屏截图，无页面异常、失败请求或页面横向溢出。本片未修改UI样式。
+
+README、CHANGELOG Unreleased及用户／API／架构资料同步；OpenAPI快照无漂移，docs build、Ruff／format、正常提交hooks与diff检查通过。人工Worker确认idle后经原监督服务刷新，两个节点各72任务注册、职责队列及实际无业务owner的训练派发核验通过；绑定Beat随服务恢复并确认使用本checkout dev模式。3100／8100均200，11表完整行指纹、24对象完整SHA及12源文件与本片前一致。
+
+test／e2e操作账本均为零；两个一次性数据库、两个Redis和18桶销毁后独立查验不存在。自有浏览器关闭，六棵已集成且干净的隔离树及八个patch等价临时分支移除；本轮测试／文档构建缓存、截图、探针与私有报告按归属清理，保留人工环境、虚拟环境、共享依赖、生成类型和工作树身份。完整E02／B13与整套epic仍在执行，不归档活动计划，完整用途切换保持关闭。
+
+## 下一片范围 — 图像金字塔原件与派生产物归属
+
+只读盘点确认：image_pyramid的owner_for_task／owner_for_dataset_item仍按现行annotations／datasets用途桶组装ImagePyramidOwner，下载仅在本次读取后生成指纹；金字塔manifest／tile写入和清理沿现行media_cache_bucket。下一片先定稿canonical原件身份、固定派生输出owner、lease／取消与真实生成收尾、旧manifest兼容及最终发布事务，再实施。不能仅替换下载GET，也不能把现行缓存桶当旧产物归属或将派生指纹当已登记原件证据；现有目录／引用输入限制与渲染资格边界先保持。该消费者尚未迁移，其他LiDAR导出与视频派生链继续独立推进。
