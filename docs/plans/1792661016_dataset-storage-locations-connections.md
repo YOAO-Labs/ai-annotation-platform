@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B/B13-A/B13-B1 completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
+> 状态：E02-A completed locally；E02-B1/B2/B3/B4/B5/B6/B7/B8/B9/B10/B10-A/B11/B12-A/B12-B/B13-A/B13-B1/B13-B2/B13-B3-A completed locally；完整E02继续执行，完整用途切换关闭。用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -994,3 +994,25 @@ Workbench先核验身份再prepare，只把严格同源相对media_path交给原
 共享同步read_current_media仍被active_learning_pool使用；本片不修改其AL读取协议，不把新入口静默推广到Worker。冻结image/report、训练版本构建、AL pool/预标注、模型推理、金字塔、导出、视频派生物及完整用途切换均排除，另片处理。预计改动限来源服务、现有source路由与专用回归，必要时新增窄读取适配；复用现有owner、reader和权限helper，不新增原件owner或第二套S3读取器。
 
 验证保存桶陷阱、直接DatasetItem/独立TaskOriginal、未知历史零I/O、当前合法内容变化与冻结比较、关系/Gate/权限/JWT或Key在读取与标签分类期间改变、重复取消和未知关闭；测试对象必须按(bucket,key)区分，不能用现有仅key替身证明固定位置。复用test_sample_evaluations与test_sample_evaluation_masks回归，使用已验证的新一次性test/e2e环境做真实HTTP/MinIO及既有核对弹窗验收。人工3100/8100及原业务/原件保持；正式API/用户文档与CHANGELOG随实施更新，正常hooks提交并清理精确测试资源。本设计待实施，不宣称B3或完整B13完成。
+
+## E02-B13-B3-A Outcome — 样本评估当前来源原件读取
+
+主集成 `6b094074c`，显式准入责任修复 `fe9961828`，生命周期回归 `7ffaa7d52`。仅替换现有“核对当前标注任务”source API 的当前原件读取；完整B3、B13、E02和整套epic继续执行，完整用途切换关闭，不分配发布版本。
+
+新适配沿 `original_sources.resolve_task` 固定当前DatasetAsset或已发布TaskOriginal及保存位置，取得同一Gate修订的耐久许可后完整核验当前已登记SHA/大小，再与冻结评估SHA比较。保存桶不会被现行桶同名对象替代；合法重新登记的新原件报告changed，同键覆盖、未知归属、缺失或解码失败不产生成功SHA。保留16MiB、1600万像素、单帧、既有Pillow格式、EXIF逻辑尺寸和标签分类语义。共享同步read_current_media保持，未静默迁移主动学习。
+
+授权保持项目管理权限及datasets:read、annotations:read，不增加tasks:read；准确JWT/Key、账号、项目、完整源关系和维护Gate在读取、分类与真实关闭后复核。任务/标注的最终快照移至物理关闭后，防止慢关闭期间的变化生成成功回执。JSON操作复用断连监听但自行拥有清理，取消/超时及重复取消等真实线程退出。显式两槽在未知constructor、Body、client或本地close时保留责任；已存在的unsettled异常即使被关闭阶段取消覆盖，也继续传递到Permit，不能误清账本。正常已关闭临时文件的额度可释放，不因此抹去其他未知责任。
+
+最终350个不同后端API/服务/DB及纯测试、4个SDK OpenAPI合同和12个页面回归通过。覆盖精确(bucket,key)替身、保存桶陷阱、独立TaskOriginal、未知/非图片/超限零原件I/O、篡改、合法新登记、读取/分类/关闭三个边界的JWT/Key/账号/Gate/原件/标注变化、真实Pillow格式与EXIF、线程/FD收尾及未知责任。初轮新夹具试图修改verified内容事实被数据库不可变约束拒绝；改为合法插入新原件/重绑Task，没有放宽生产约束。只重跑受修复影响的用例及显式准入的现有视频调用者，统计按最终用例去重。
+
+真实HTTP/MinIO十项检查覆盖保存桶同键陷阱、原有两个scope、独立TaskOriginal、同键覆盖拒绝与恢复、合法新原件、标签变化、未知归属、任务删除及冻结报告保持。现有浏览器弹窗实测相同/无法核对/已变化/已删除，Escape归还焦点；实际打开annotate并返回保留attempt/sample，删除后不提供其他Task跳转，无未捕获页面异常。源对象和报告读取均使用真实字节；候选、训练和推理记录为隔离合成夹具，后台setup不可达的提示不属于模型资格证明，不宣称真实训练、推理或GPU性能验收。删除探针初次被Annotation外键正确阻止，先清除其自有标注再删除自有Task后完成；没有绕过外键或触及人工数据。本片无UI样式变化，不重复视觉矩阵。
+
+README、CHANGELOG Unreleased、评估用户指南、API合同和存储架构文档已同步；OpenAPI导出无合同漂移，本地codegen、Web类型检查、docs build、Ruff/format、正常提交hooks和diff检查通过。没有依赖、配置、迁移、镜像、Worker任务或版本变化；Worker旧调用的共享同步读取与分类默认行为未变，不需刷新消费者。
+
+人工3100/8100、两Worker和独立Beat保持健康，迁移头0231；11表完整行指纹、24对象完整SHA和12源文件SHA不变。test/e2e的操作账本在销毁前均为零，两个数据库、两个Redis和18桶已销毁并独立查验不存在。自有浏览器关闭，两棵干净且patch等价的隔离树/分支移除；任务报告、探针、截图与构建/测试缓存按归属清理，保留人工环境、本地虚拟环境、生成类型及工作树身份。
+
+## 下一片范围 — 主动学习原件输入
+
+只读盘点已确认共享同步read_current_media仍被active_learning_pool.read_input使用，实际物理调用包括pool.prepare的预览/创建、active_learning.prepare_image的后台PNG补建，以及decide的接纳前原图复核。只替换预览会遗漏后两条路径，不能宣称主动学习已迁移。
+
+下一片先统一这三条调用的冻结内容、保存位置、当前权限及原凭证边界，再定实施切片。保留32成员/128MiB总量及检测/分割独立解码预算、候选去重、历史排除、preview_digest/冻结spec与既有报告兼容性；旧spec不能按现行桶或文件名补造原件归属。后台补建和接纳须以冻结内容核对当前真实归属，已有合格PNG仍沿自身输出owner，不把派生SHA当原件证明。明确API断连与Worker取消的真实收尾责任，不能将await asyncio.to_thread直接视为物理取消。完成调用链和兼容策略定案后实施，不在本片修改AL协议；冻结评估媒体、训练版本构建、其他ML/Worker、金字塔、导出及视频派生链继续各自推进。
