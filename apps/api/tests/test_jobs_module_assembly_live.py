@@ -1617,10 +1617,7 @@ async def test_cold_jobs_queue_cancel_and_terminal_replay(
                             known_task_ids,
                             record_property,
                         )
-                    assert _broker_state(sender) == {
-                        "queue_size": 0,
-                        "unacknowledged": 0,
-                    }
+                    _assert_owned_broker_target(sender)
                     record_property("jobs_queue_execution_ids", sorted(known_task_ids))
                 except BaseException:
                     if stack is not None:
