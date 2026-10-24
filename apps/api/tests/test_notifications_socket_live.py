@@ -59,8 +59,10 @@ def _socket_fixture_user_cleanup_statement(user_ids):
 
 
 @pytest.fixture
-async def socket_world(test_engine):
+async def socket_world(test_engine, request):
     _verify_postgres(test_engine.url)
+    # Restore cases keep protected history until the verifier drops the owned DB.
+    retain_history = getattr(request, "param", None) == "retain_history"
     seed = async_sessionmaker(test_engine, expire_on_commit=False)
     user_ids = []
     project_id = None
@@ -86,12 +88,13 @@ async def socket_world(test_engine):
             )
         yield seed, actor, project, membership
     finally:
-        async with seed.begin() as db:
-            if project_id is not None:
-                await db.execute(delete(Project).where(Project.id == project_id))
-            if user_ids:
-                # Keep immutable Audit actors until disposable database teardown.
-                await db.execute(_socket_fixture_user_cleanup_statement(user_ids))
+        if not retain_history:
+            async with seed.begin() as db:
+                if project_id is not None:
+                    await db.execute(delete(Project).where(Project.id == project_id))
+                if user_ids:
+                    # Keep immutable Audit actors until disposable database teardown.
+                    await db.execute(_socket_fixture_user_cleanup_statement(user_ids))
 
 
 async def test_notification_socket_real_frames_revocation_and_cleanup(
