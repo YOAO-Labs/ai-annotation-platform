@@ -11,6 +11,7 @@ from app.services.content_snapshot import ContentError
 from app.services.exporting import lidar_inputs
 from app.services.exporting.lidar_frozen import FrozenLidar
 from app.services.exporting.lidar_media_paths import logical_sources
+from app.services.exporting.lidar_sources import canonical_identity, media_type
 from app.services.exporting.lidar_pcd import (
     MAX_PCD_BYTES,
     MAX_PCD_POINTS,
@@ -93,7 +94,7 @@ async def prepare(db, bundle_snapshot, *, guard) -> Delivery:
     objects = bundles.source_objects(bundle_snapshot, logical_sources(data))
     owner = physical.resolve(bundle_snapshot)
     delivery = Delivery(db, bundle_snapshot, data, guard)
-    bindings, sources, relatives = [], {}, {}
+    bindings, sources, relatives, references = [], {}, {}, {}
     seen_bindings = set()
     for binding in data["media"]:
         identifier = _task_id(binding["task_id"])
@@ -107,19 +108,19 @@ async def prepare(db, bundle_snapshot, *, guard) -> Delivery:
             or not isinstance(role, str)
             or (identifier, role) in seen_bindings
             or source_key not in objects
-            or source.get("media_type")
-            != ("point_cloud" if role == "primary_lidar" else "image")
-            or (role != "primary_lidar" and not role.startswith("camera_"))
+            or media_type(role) is None
+            or source.get("media_type") != media_type(role)
         ):
             _reject("lidar_export_delivery_scope_unknown", 422)
         seen_bindings.add((identifier, role))
         previous = sources.setdefault(source_key, source)
-        if {**previous, "relation": None} != {**source, "relation": None}:
+        if canonical_identity(previous) != canonical_identity(source):
             _reject()
         key = objects[source_key]
         owner.contains(key)
         relatives[source_key] = key[len(owner.prefix) :]
         bindings.append((identifier, role, source_key, binding))
+        references.setdefault(source_key, []).append(binding)
     if set(sources) != set(objects):
         _reject()
 
@@ -127,13 +128,21 @@ async def prepare(db, bundle_snapshot, *, guard) -> Delivery:
     for identifier, role, source_key, binding in bindings:
         source = sources[source_key]
         if source_key not in receipts:
+            object_guard = guard
+            if len(references[source_key]) > 1:
+
+                async def object_guard(owned, others=tuple(references[source_key][1:])):
+                    await guard(owned)
+                    for reference in others:
+                        await lidar_inputs.check_source(owned, reference)
+
             receipt = await transfer.copy_source(
                 db,
                 bundle_snapshot,
                 binding=binding,
                 relative=relatives[source_key],
                 resolve_source=lidar_inputs.check_source,
-                guard=guard,
+                guard=object_guard,
                 inspect=inspect_pcd if source["media_type"] == "point_cloud" else None,
             )
             if (

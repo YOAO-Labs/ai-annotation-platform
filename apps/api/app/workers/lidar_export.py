@@ -50,6 +50,8 @@ def _attempt(row, receipt, task_id):
         or row.status != "running"
         or row.celery_task_id != task_id
         or not isinstance(proof, dict)
+        or type(proof.get("schema")) is not int
+        or proof["schema"] != 2
         or proof.get("bundle_id") != str(receipt.id)
         or proof.get("input_digest") != receipt.input_digest
         or row.project_id != receipt.project_id
@@ -166,7 +168,7 @@ def _cache_key(receipt):
         len(data["annotations"]),
         axis_frame=options.get("axis_frame", "iso"),
         options_digest=lidar_inputs.digest(
-            {"lidar_media_contract": 1, "input_digest": receipt.input_digest}
+            {"lidar_media_contract": 2, "input_digest": receipt.input_digest}
         ),
     )
 
@@ -218,7 +220,9 @@ async def _lookup(db, receipt, key, *, guard):
         reject("lidar_export_cache_changed")
     data = previous.input_snapshot
     mapping = bundles.source_objects(previous, logical_sources(data))
-    bindings = {row["source_key"]: row for row in data["media"]}
+    bindings = {}
+    for row in data["media"]:
+        bindings.setdefault(row["source_key"], []).append(row)
     record = SimpleNamespace(
         id=previous.id,
         storage_ref=previous.storage_ref,
@@ -229,9 +233,9 @@ async def _lookup(db, receipt, key, *, guard):
     owner = media_storage.resolve(record)
     await db.commit()
 
-    async def source_guard(owned, binding=None):
+    async def source_guard(owned, references=()):
         await guard(owned)
-        if binding is not None:
+        for binding in references:
             await lidar_inputs.check_source(owned, binding)
 
     try:
@@ -247,10 +251,10 @@ async def _lookup(db, receipt, key, *, guard):
             return None
         for source_key, full_key in mapping.items():
             relative = full_key[len(owner.prefix) :]
-            binding = bindings[source_key]
+            references = bindings[source_key]
 
-            async def exact_guard(owned):
-                await source_guard(owned, binding)
+            async def exact_guard(owned, references=tuple(references)):
+                await source_guard(owned, references)
 
             def verify():
                 with media_storage.open_storage(record) as client:
@@ -438,7 +442,9 @@ async def run_owned(
             await db.rollback()
             return
         proof = (job.payload or {}).get("lidar_media")
-        if not isinstance(proof, dict):
+        if not isinstance(proof, dict) or (
+            type(proof.get("schema")) is int and proof["schema"] == 1
+        ):
             await _missing_contract(
                 db,
                 job,

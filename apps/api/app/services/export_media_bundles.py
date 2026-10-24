@@ -21,6 +21,7 @@ from app.config import settings
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
 from app.services import export_media_storage as physical
 from app.services.content_snapshot import ContentError
+from app.services.exporting.lidar_sources import canonical_identity
 
 TARGETS = frozenset({"kitti", "pointmask", "coco-multicamera"})
 MAX_JSON_BYTES = 256 * 1024**2
@@ -152,7 +153,7 @@ def _sources(data, project_id):
     if (
         not isinstance(data, dict)
         or type(data.get("schema")) is not int
-        or data["schema"] != 1
+        or data["schema"] not in {1, 2}
         or data.get("project_id") != str(project_id)
         or not isinstance(data.get("targets"), list)
         or not data["targets"]
@@ -163,10 +164,13 @@ def _sources(data, project_id):
         or not isinstance(data.get("media"), list)
     ):
         reject("invalid", 422)
-    targets = TARGETS.intersection(data["targets"])
+    modern = data["schema"] == 2
+    targets = (TARGETS | ({"nuscenes"} if modern else set())).intersection(
+        data["targets"]
+    )
     if not targets:
         reject("invalid", 422)
-    # Mixed nuScenes needs canonical PCD support, but owns no auxiliary sources here.
+    # Historical mixed bundles own only private PCD support; retain their facts.
     if "nuscenes" in data["targets"]:
         targets = targets | {"nuscenes"}
     tasks = set()
@@ -177,6 +181,8 @@ def _sources(data, project_id):
         if identifier in tasks:
             reject("invalid", 422)
         tasks.add(identifier)
+    if modern and "nuscenes" in targets and len(tasks) > MAX_PCDS:
+        reject("budget", 422)
     options = data.get("options")
     if not isinstance(options, dict) or not isinstance(options.get("lidar", {}), dict):
         reject("invalid", 422)
@@ -211,6 +217,15 @@ def _sources(data, project_id):
         elif role.startswith("camera_"):
             media_type = "image"
             _uuid(entry["link_id"])
+        elif modern and "nuscenes" in targets and role in {"raw_lidar", "map"}:
+            media_type = role
+            if (
+                entry["link_id"] is not None
+                or source.get("owner_kind") != "dataset_auxiliary"
+                or not isinstance(source.get("ownership_facts"), dict)
+                or source["ownership_facts"].get("kind") != role
+            ):
+                reject("invalid", 422)
         else:
             reject("invalid", 422)
         size = source.get("size_bytes")
@@ -222,7 +237,7 @@ def _sources(data, project_id):
         ):
             reject("invalid", 422)
         key = _sha(entry["source_key"])
-        identity = {**source, "relation": None}
+        identity = canonical_identity(source)
         if _json_info(identity)[0] != key or (
             key in sources and sources[key] != identity
         ):
@@ -239,6 +254,8 @@ def _sources(data, project_id):
         or count["point_cloud"] > MAX_PCDS
         or total["image"] > MAX_IMAGE_BYTES
         or total["point_cloud"] > MAX_PCD_BYTES
+        or sum(count.values()) > physical.MAX_OBJECTS
+        or sum(total.values()) > physical.MAX_TOTAL_BYTES
     ):
         reject("budget", 422)
     required = {target: set() for target in targets}
@@ -256,6 +273,14 @@ def _sources(data, project_id):
             required["pointmask"].update({primary, *cameras})
         if "nuscenes" in targets:
             required["nuscenes"].add(primary)
+            if modern:
+                raw, map_source = (
+                    bindings.get((task, "raw_lidar")),
+                    bindings.get((task, "map")),
+                )
+                if raw is None or map_source is None:
+                    reject("coverage", 422)
+                required["nuscenes"].update({raw, map_source, *cameras})
         if "coco-multicamera" in targets:
             if not cameras:
                 reject("coverage", 422)

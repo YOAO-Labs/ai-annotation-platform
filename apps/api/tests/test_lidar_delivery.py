@@ -151,8 +151,8 @@ def world(monkeypatch):
 
     async def copy_source(db, saved, **kwargs):
         assert db is state.db and saved is snapshot
-        assert kwargs["resolve_source"] is check_source
-        assert kwargs["guard"] is guard
+        assert kwargs["resolve_source"] is state.delivery.lidar_inputs.check_source
+        assert callable(kwargs["guard"])
         binding = kwargs["binding"]
         key = binding["source_key"]
         state.calls.append((deepcopy(binding), kwargs["relative"], kwargs["inspect"]))
@@ -302,7 +302,10 @@ async def test_dedup_preserves_first_binding_order_and_each_task_receipt(world):
     second = add_task(world, cameras=(("camera_front", "image-a"),))
     before = deepcopy(world.data)
     value = await prepare(world)
-    assert len(world.calls) == len(world.resolves) == 2
+    assert len(world.calls) == 2
+    assert {row["task_id"] for row in world.resolves} == {
+        row["task_id"] for row in world.data["media"]
+    }
     assert [(row[0]["task_id"], row[0]["role"]) for row in world.calls] == [
         (str(first), "primary_lidar"),
         (str(first), "camera_front"),
@@ -567,3 +570,129 @@ async def test_mixed_nuscenes_uses_private_logical_slot_and_same_saved_copy(worl
     assert len(world.calls) == 1
     assert await value.pcd_bytes(task) == pcd()
     assert world.reads == [world.calls[0][1]]
+
+
+def add_nuscenes_auxiliary(world, task_id, *, map_owner):
+    from app.services.exporting.lidar_sources import canonical_identity
+
+    world.data["schema"] = 2
+    world.data["targets"] = ["nuscenes"]
+    scene_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "owned-nuscenes-scene"))
+    world.data.setdefault(
+        "scenes",
+        [
+            {
+                "id": scene_id,
+                "source_metadata": {
+                    "nuscenes_export": {"map": {"filename": "maps/map.png"}}
+                },
+            }
+        ],
+    )
+    selected = [row for row in world.data["media"] if row["task_id"] == str(task_id)]
+    primary = next(row for row in selected if row["role"] == "primary_lidar")
+    for binding in selected:
+        item = next(
+            row
+            for row in world.data["items"]
+            if row["id"] == binding["source"]["item_id"]
+        )
+        item["scene_id"] = scene_id
+        item["metadata_"]["nuscenes_export"] = {
+            "sample_data": {
+                "filename": (
+                    f"samples/LIDAR_TOP/{task_id}.pcd.bin"
+                    if binding["role"] == "primary_lidar"
+                    else f"samples/{binding['role']}/{task_id}.jpg"
+                )
+            }
+        }
+    for role, owner in (("raw_lidar", uuid.uuid4()), ("map", map_owner)):
+        payload = b"r" * 80 if role == "raw_lidar" else b"shared-map"
+        source = {
+            "owner_kind": "dataset_auxiliary",
+            "content_id": str(owner),
+            "media_type": role,
+            "item_id": primary["source"]["item_id"],
+            "item_facts": {"id": primary["source"]["item_id"]},
+            "ownership_facts": {
+                "id": str(owner),
+                "kind": role,
+                "source_contract": "{}",
+            },
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "size_bytes": len(payload),
+            "object_key": f"__aap_auxiliary_originals__/dataset/{owner}/payload",
+            "relation": {"task_id": str(task_id)},
+        }
+        key = hashlib.sha256(
+            json.dumps(canonical_identity(source), sort_keys=True).encode()
+        ).hexdigest()
+        world.data["media"].append(
+            {
+                "task_id": str(task_id),
+                "role": role,
+                "link_id": None,
+                "source_key": key,
+                "source": source,
+            }
+        )
+        world.source_bytes[key] = payload
+
+
+async def test_nuscenes_shared_map_has_one_copy_and_every_binding_is_fresh(world):
+    first = add_task(
+        world, primary="pcd-first", cameras=(("camera_front", "image-first"),)
+    )
+    second = add_task(
+        world, primary="pcd-second", cameras=(("camera_front", "image-second"),)
+    )
+    owner = uuid.uuid4()
+    for task_id in (first, second):
+        add_nuscenes_auxiliary(world, task_id, map_owner=owner)
+    value = await prepare(world)
+    maps = [
+        (binding, relative)
+        for binding, relative, inspect in world.calls
+        if binding["role"] == "map"
+    ]
+    assert len(world.calls) == 7 and len(maps) == 1
+    assert value.entry(first, "map") == value.entry(second, "map")
+    assert {row["task_id"] for row in world.resolves if row["role"] == "map"} == {
+        str(first),
+        str(second),
+    }
+    assert {row["role"] for row in world.resolves} == {
+        "primary_lidar",
+        "camera_front",
+        "raw_lidar",
+        "map",
+    }
+    assert all(
+        inspect is None
+        for binding, _, inspect in world.calls
+        if binding["role"] in {"raw_lidar", "map"}
+    )
+    logical = world.object_calls[0]["nuscenes"]
+    assert len(logical) == 7 and "maps/map.png" in logical
+
+
+async def test_shared_map_second_task_revocation_prevents_copy(world, monkeypatch):
+    first, second = add_task(world, primary="first"), add_task(world, primary="second")
+    owner = uuid.uuid4()
+    for task_id in (first, second):
+        add_nuscenes_auxiliary(world, task_id, map_owner=owner)
+    original = world.delivery.lidar_inputs.check_source
+
+    async def check(db, binding, **options):
+        if binding["role"] == "map" and binding["task_id"] == str(second):
+            raise ContentError("map_binding_revoked")
+        return await original(db, binding, **options)
+
+    monkeypatch.setattr(world.delivery.lidar_inputs, "check_source", check)
+    with pytest.raises(ContentError, match="map_binding_revoked"):
+        await prepare(world)
+    map_calls = [
+        relative for binding, relative, _ in world.calls if binding["role"] == "map"
+    ]
+    assert not any(relative in world.copies for relative in map_calls)

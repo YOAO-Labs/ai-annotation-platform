@@ -315,110 +315,8 @@ if __name__ == "__main__":
 _FETCH_POINTCLOUDS_TEMPLATE = lidar_fetch.FETCH_POINTCLOUDS_TEMPLATE
 _FETCH_LIDAR_IMAGES_TEMPLATE = lidar_fetch.FETCH_LIDAR_IMAGES_TEMPLATE
 
-_FETCH_NUSCENES_MEDIA_TEMPLATE = '''#!/usr/bin/env python3
-"""Materialize the exact trusted media tree from media_manifest.json."""
-import hashlib
-import json
-import os
-import sys
-import tempfile
-import urllib.request
-from datetime import datetime, timezone
+_FETCH_NUSCENES_MEDIA_TEMPLATE = lidar_fetch.FETCH_TRUSTED_MEDIA_TEMPLATE
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def safe_destination(rel_path: str) -> str:
-    if (
-        not isinstance(rel_path, str)
-        or not rel_path
-        or "\\\\" in rel_path
-        or ":" in rel_path
-        or "\\0" in rel_path
-    ):
-        raise ValueError("unsafe media path")
-    parts = rel_path.split("/")
-    if any(part in ("", ".", "..") for part in parts):
-        raise ValueError("unsafe media path")
-    root = os.path.realpath(HERE)
-    destination = os.path.realpath(os.path.join(root, *parts))
-    if os.path.commonpath((root, destination)) != root or destination == root:
-        raise ValueError("unsafe media path")
-    return destination
-
-
-def file_matches(path: str, expected_size: int, expected_sha256: str) -> bool:
-    if not os.path.isfile(path) or os.path.getsize(path) != expected_size:
-        return False
-    digest = hashlib.sha256()
-    with open(path, "rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest() == expected_sha256
-
-
-def main() -> int:
-    with open(os.path.join(HERE, "media_manifest.json"), "r", encoding="utf-8") as f:
-        manifest = json.load(f)
-    expires_at = manifest.get("expires_at")
-    if expires_at and datetime.fromisoformat(expires_at) <= datetime.now(timezone.utc):
-        print("[!] 媒体链接已过期，请回平台重新导出。")
-        return 2
-    ok = 0
-    fail = 0
-    seen_destinations = set()
-    for item in manifest.get("media", []):
-        rel_path = item.get("rel_path")
-        url = item.get("presigned_url")
-        if not rel_path or not url:
-            print("[x] 下载失败 %s: missing media path or URL" % (rel_path,))
-            fail += 1
-            continue
-        temp_path = None
-        try:
-            expected_size = int(item["source_file_size"])
-            expected_sha256 = str(item["source_sha256"]).lower()
-            if (
-                expected_size < 0
-                or len(expected_sha256) != 64
-                or any(char not in "0123456789abcdef" for char in expected_sha256)
-            ):
-                raise ValueError("invalid media fingerprint")
-            dest = safe_destination(rel_path)
-            if dest in seen_destinations:
-                raise ValueError("duplicate media path")
-            seen_destinations.add(dest)
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            if file_matches(dest, expected_size, expected_sha256):
-                ok += 1
-                continue
-            with tempfile.NamedTemporaryFile(
-                prefix=".aap-download-",
-                dir=os.path.dirname(dest),
-                delete=False,
-            ) as temp_file:
-                temp_path = temp_file.name
-            urllib.request.urlretrieve(url, temp_path)
-            if not file_matches(temp_path, expected_size, expected_sha256):
-                raise ValueError("downloaded media fingerprint mismatch")
-            os.replace(temp_path, dest)
-            temp_path = None
-            ok += 1
-        except Exception as exc:  # noqa: BLE001
-            print("[x] 下载失败 %s: %s" % (rel_path, exc))
-            fail += 1
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
-    print("[done] 可信媒体回源 成功 %d，失败 %d" % (ok, fail))
-    return 0 if fail == 0 else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
-
-# NuScenes auxiliary media retains its existing transport and budget.
 _FETCH_TRUSTED_MEDIA_TEMPLATE = lidar_fetch.FETCH_TRUSTED_MEDIA_TEMPLATE
 
 
@@ -1222,22 +1120,25 @@ def _hash_dataset_object(key: str) -> tuple[int, str]:
 def _trusted_media_entry(
     *,
     rel_path: str,
-    storage_key: str,
+    saved: dict,
     kind: str,
     source_file_size: int,
     source_sha256: str,
     expires_iso: str,
 ) -> dict[str, Any]:
+    if (
+        saved.get("size_bytes") != source_file_size
+        or saved.get("sha256") != source_sha256.lower()
+        or saved.get("expires_at") != expires_iso
+        or not saved.get("presigned_url")
+    ):
+        raise UnsupportedExportError("nuscenes_delivery_receipt_changed")
     return {
         "rel_path": rel_path,
         "kind": kind,
         "source_file_size": source_file_size,
-        "source_sha256": source_sha256,
-        "presigned_url": storage_service.generate_download_url(
-            storage_key,
-            expires_in=PRESIGN_EXPIRES_SECONDS,
-            bucket=storage_service.datasets_bucket,
-        ),
+        "source_sha256": source_sha256.lower(),
+        "presigned_url": saved["presigned_url"],
         "expires_at": expires_iso,
     }
 
@@ -1257,6 +1158,8 @@ async def _build_lidar_export_zip(
     for target in targets:
         if target not in LIDAR_EXPORT_TARGETS:
             raise UnsupportedExportError(f"unsupported lidar export target: {target}")
+    if "nuscenes" in targets and lidar_media is None:
+        raise UnsupportedExportError("lidar_export_contract_missing")
     lidar_options = format_options.get("lidar") or {}
     selected_camera_role = lidar_options.get("kitti_camera_role")
     if "kitti" in targets and not selected_camera_role:
@@ -1693,14 +1596,17 @@ async def _build_lidar_export_zip(
                         rel_path = str(source["sample_data"]["filename"])
                         entry = _trusted_media_entry(
                             rel_path=rel_path,
-                            storage_key=str(source["source_storage_key"]),
+                            saved=lidar_media.entry(
+                                task.id,
+                                "raw_lidar" if role == "primary_lidar" else role,
+                            ),
                             kind=str(source["sensor"]["modality"]),
                             source_file_size=int(source["source_file_size"]),
                             source_sha256=str(source["source_sha256"]),
                             expires_iso=expires_iso,
                         )
                         previous = nuscenes_media.setdefault(rel_path, entry)
-                        if previous["source_sha256"] != entry["source_sha256"]:
+                        if previous != entry:
                             raise UnsupportedExportError(
                                 f"nuscenes_media_path_collision:{rel_path}"
                             )
@@ -1712,14 +1618,14 @@ async def _build_lidar_export_zip(
                     map_rel = str(scene_source["map"]["filename"])
                     map_entry = _trusted_media_entry(
                         rel_path=map_rel,
-                        storage_key=str(scene_source["map_storage_key"]),
+                        saved=lidar_media.entry(task.id, "map"),
                         kind="map",
                         source_file_size=int(scene_source["map_file_size"]),
                         source_sha256=str(scene_source["map_sha256"]),
                         expires_iso=expires_iso,
                     )
                     previous_map = nuscenes_media.setdefault(map_rel, map_entry)
-                    if previous_map["source_sha256"] != map_entry["source_sha256"]:
+                    if previous_map != map_entry:
                         raise UnsupportedExportError(
                             f"nuscenes_media_path_collision:{map_rel}"
                         )
@@ -1728,19 +1634,7 @@ async def _build_lidar_export_zip(
                         raise UnsupportedExportError(
                             f"axis_convention_untrusted:{task.id}"
                         )
-                    pcd_bytes = (
-                        await lidar_media.pcd_bytes(task.id)
-                        if lidar_media is not None
-                        else _read_dataset_object(primary_item.file_path)
-                    )
-                    if lidar_media is None and (
-                        len(pcd_bytes) != primary_item.file_size
-                        or hashlib.sha256(pcd_bytes).hexdigest()
-                        != primary_item.content_hash
-                    ):
-                        raise UnsupportedExportError(
-                            f"nuscenes_platform_pcd_drift:{task.id}"
-                        )
+                    pcd_bytes = await lidar_media.pcd_bytes(task.id)
                     points = parse_pcd_positions(pcd_bytes)
                     raw_lidar_points = int(source_primary["source_file_size"]) // 20
                     if len(points) != raw_lidar_points:

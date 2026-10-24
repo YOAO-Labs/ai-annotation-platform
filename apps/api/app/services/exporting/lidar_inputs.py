@@ -33,8 +33,8 @@ from app.services.content_snapshot import ContentError
 from app.services.task_scope import ids_clause
 from app.services.project import derive_classes_list
 
-CONTRACT = 1
-TARGETS = frozenset({"kitti", "pointmask", "coco-multicamera"})
+CONTRACT = 2
+TARGETS = frozenset({"kitti", "pointmask", "coco-multicamera", "nuscenes"})
 MAX_IMAGE_BYTES = MAX_PCD_BYTES = 256 * 1024 * 1024
 MAX_IMAGE_COUNT = 20_000
 MAX_PCD_COUNT = 1_000
@@ -168,8 +168,9 @@ def source_key(source):
             if name != "relation"
         }
     )
-    result["relation"] = None
-    return digest(result)
+    from app.services.exporting.lidar_sources import canonical_identity
+
+    return digest(canonical_identity(result))
 
 
 def uses_contract(project, targets):
@@ -634,8 +635,8 @@ async def _collect(db, project_id, batch_id, targets, options, *, lock):
     resolver = original_sources.CachedResolver(db, lock=lock, max_links=MAX_LINKS)
     relation_links_by_task = {}
     seen = {}
-    counts = {"image": 0, "point_cloud": 0}
-    sizes = {"image": 0, "point_cloud": 0}
+    counts = {kind: 0 for kind in ("image", "point_cloud", "raw_lidar", "map")}
+    sizes = dict.fromkeys(counts, 0)
     selected_role = ((options or {}).get("lidar") or {}).get("kitti_camera_role")
     if "kitti" in targets and not selected_role:
         reject("kitti_camera_required", 422)
@@ -646,7 +647,7 @@ async def _collect(db, project_id, batch_id, targets, options, *, lock):
         for link in by_task[task.id]:
             if not link.role.startswith("camera_"):
                 continue
-            if {"pointmask", "coco-multicamera"}.intersection(targets) or (
+            if {"pointmask", "coco-multicamera", "nuscenes"}.intersection(targets) or (
                 "kitti" in targets and link.role == selected_role
             ):
                 requested.append((link.role, link.id))
@@ -658,10 +659,24 @@ async def _collect(db, project_id, batch_id, targets, options, *, lock):
             link_id for _, link_id in requested
         ):
             reject("multicamera_coco_camera_missing", 422)
+        if "nuscenes" in targets:
+            requested.extend((("raw_lidar", None), ("map", None)))
         for role, link_id in requested:
-            source = await (
-                resolver.link(task.id, link_id) if link_id else resolver.task(task.id)
-            )
+            if role in {"raw_lidar", "map"}:
+                from app.services import auxiliary_originals
+
+                resolve = (
+                    auxiliary_originals.resolve_task_raw
+                    if role == "raw_lidar"
+                    else auxiliary_originals.resolve_scene_map
+                )
+                source = await resolve(db, task.id, lock=lock)
+            else:
+                source = await (
+                    resolver.link(task.id, link_id)
+                    if link_id
+                    else resolver.task(task.id)
+                )
             if task.id not in relation_links_by_task:
                 relation_links_by_task[task.id] = {
                     link.id: link for link in source.relation.links
@@ -672,7 +687,9 @@ async def _collect(db, project_id, batch_id, targets, options, *, lock):
                 for identifier in {source.relation.primary_link_id, link_id}
                 if identifier is not None and identifier in relation_index
             ]
-            expected_type = "image" if link_id else "point_cloud"
+            from app.services.exporting.lidar_sources import media_type
+
+            expected_type = media_type(role)
             if (
                 source.media_type != expected_type
                 or source.bucket is None
@@ -692,6 +709,8 @@ async def _collect(db, project_id, batch_id, targets, options, *, lock):
                     or counts["point_cloud"] > MAX_PCD_COUNT
                     or sizes["image"] > MAX_IMAGES_TOTAL
                     or sizes["point_cloud"] > MAX_PCD_TOTAL
+                    or sum(counts.values()) > 21_000
+                    or sum(sizes.values()) > MAX_IMAGES_TOTAL + MAX_PCD_TOTAL
                 ):
                     reject("lidar_export_input_budget_exceeded", 422)
             label = f"{task.id}:{role}"
@@ -712,6 +731,8 @@ async def _collect(db, project_id, batch_id, targets, options, *, lock):
         or counts["point_cloud"] > MAX_PCD_COUNT
         or sizes["image"] > MAX_IMAGES_TOTAL
         or sizes["point_cloud"] > MAX_PCD_TOTAL
+        or sum(counts.values()) > 21_000
+        or sum(sizes.values()) > MAX_IMAGES_TOTAL + MAX_PCD_TOTAL
     ):
         reject("lidar_export_input_budget_exceeded", 422)
     indices = 0
@@ -832,6 +853,18 @@ async def check(db, snapshot, *, lock=False):
 
 async def check_source(db, binding, *, lock=False):
     task_id = uuid.UUID(binding["task_id"])
+    if binding["role"] in {"raw_lidar", "map"}:
+        from app.services import auxiliary_originals
+
+        resolve = (
+            auxiliary_originals.resolve_task_raw
+            if binding["role"] == "raw_lidar"
+            else auxiliary_originals.resolve_scene_map
+        )
+        source = await resolve(db, task_id, lock=lock)
+        if source_value(source) != binding["source"]:
+            reject("lidar_export_original_changed")
+        return source
     link_id = uuid.UUID(binding["link_id"]) if binding["link_id"] else None
     source = await (
         original_sources.resolve_task_link(

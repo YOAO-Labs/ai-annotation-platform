@@ -51,7 +51,7 @@ def contract(monkeypatch):
     opts = {"include_attributes": True, "lidar": {"kitti_camera_role": "camera_front"}}
     targets = ["pointmask", "kitti", "aap_json", "nuscenes"]
     snapshot = {
-        "schema": 1,
+        "schema": 2,
         "project_id": str(project.id),
         "batch_id": str(batch_id),
         "targets": targets[:],
@@ -89,7 +89,7 @@ def contract(monkeypatch):
         },
     )
     job.payload["lidar_media"] = {
-        "schema": 1,
+        "schema": 2,
         "bundle_id": str(bundle.id),
         "input_digest": bundle.input_digest,
     }
@@ -147,7 +147,14 @@ def contract(monkeypatch):
             {
                 "uses_contract": lambda p, t: (
                     p.data_type == "lidar"
-                    and bool({"pointmask", "kitti", "coco-multicamera"}.intersection(t))
+                    and bool(
+                        {
+                            "pointmask",
+                            "kitti",
+                            "coco-multicamera",
+                            "nuscenes",
+                        }.intersection(t)
+                    )
                 ),
                 "collect": collect,
             },
@@ -203,7 +210,7 @@ async def test_capture_flushes_only_small_proof_in_the_new_job_transaction(contr
     }
     assert state.job.payload["batch_id"] == str(state.batch_id)
     assert state.job.payload["lidar_media"] == {
-        "schema": 1,
+        "schema": 2,
         "bundle_id": str(state.bundle.id),
         "input_digest": state.bundle.input_digest,
     }
@@ -221,7 +228,7 @@ async def test_capture_flushes_only_small_proof_in_the_new_job_transaction(contr
 
 @pytest.mark.parametrize(
     "data_type,targets",
-    [("image", ["kitti"]), ("lidar", ["nuscenes"]), ("video", ["kitti"])],
+    [("image", ["kitti"]), ("lidar", ["aap_json"]), ("video", ["kitti"])],
 )
 async def test_other_exports_are_unchanged_without_capture(
     contract, data_type, targets
@@ -589,3 +596,33 @@ async def test_http_handlers_capture_before_audit_commit_and_dispatch_identical_
     assert delivered[0]["batch_id"] == state.job.payload["batch_id"]
     assert state.job.payload["output_authority"] is output_proof
     assert state.job.payload["export_authority"] is reference_proof
+
+
+async def test_pure_nuscenes_gets_new_contract_in_http_transaction(contract):
+    state = contract
+    del state.job.payload["lidar_media"]
+    state.job.payload["targets"] = ["nuscenes"]
+    bundle = await lidar_jobs.capture_job(
+        state.db,
+        state.job,
+        state.project,
+        batch_id=state.batch_id,
+        targets=["nuscenes"],
+        opts=state.opts,
+    )
+    assert bundle is state.bundle
+    assert state.collected[0][1] == ["nuscenes"]
+    assert state.snapshot["schema"] == 2
+    assert state.job.payload["lidar_media"]["schema"] == 2
+    assert "commit" not in state.db.events
+
+
+@pytest.mark.parametrize("old", ["proof", "snapshot"])
+def test_old_partial_contract_cannot_start_a_new_export(contract, old):
+    state = contract
+    if old == "proof":
+        state.job.payload["lidar_media"]["schema"] = 1
+    else:
+        state.snapshot["schema"] = 1
+    with pytest.raises(ContentError):
+        validate(state)

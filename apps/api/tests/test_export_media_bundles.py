@@ -695,3 +695,109 @@ async def test_database_final_publication_rolls_back_and_commits_with_exact_zip_
     await db.commit()
     assert row.state == "ready" and row.published_at is not None
     assert output.state == "ready" and output.expires_at == row.expires_at
+
+
+def modern_nuscenes_inputs():
+    from app.services.exporting.lidar_sources import canonical_identity
+
+    project, frozen, logical = inputs(targets=("nuscenes",))
+    frozen["schema"] = 2
+    logical = {"nuscenes": {}}
+    for entry in list(frozen["media"]):
+        logical["nuscenes"][entry["task_id"] + "/" + entry["role"]] = entry[
+            "source_key"
+        ]
+    for index, task in enumerate(frozen["tasks"]):
+        for role in ("raw_lidar", "map"):
+            owner = str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    role + (str(index) if role == "raw_lidar" else ""),
+                )
+            )
+            source = {
+                "owner_kind": "dataset_auxiliary",
+                "content_id": owner,
+                "media_type": role,
+                "sha256": hashlib.sha256(role.encode()).hexdigest(),
+                "size_bytes": len(role),
+                "bucket": "saved-auxiliary",
+                "object_key": owner,
+                "item_id": str(uuid.uuid4()),
+                "item_facts": {"id": str(uuid.uuid4())},
+                "ownership_facts": {"id": owner, "kind": role},
+                "relation": {"task_id": task["id"]},
+            }
+            key = digest(canonical_identity(source))
+            frozen["media"].append(
+                {
+                    "task_id": task["id"],
+                    "role": role,
+                    "link_id": None,
+                    "source_key": key,
+                    "source": source,
+                }
+            )
+            logical["nuscenes"][task["id"] + "/" + role + ".bin"] = key
+    return project, frozen, logical
+
+
+async def test_modern_nuscenes_allocates_all_sources_and_deduplicates_shared_map():
+    project, frozen, logical = modern_nuscenes_inputs()
+    receipt = await bundles.allocate(
+        FakeDB(),
+        project_id=project,
+        job_id=uuid.uuid4(),
+        input_snapshot=frozen,
+        input_digest=digest(frozen),
+        logical_sources=logical,
+    )
+    # Shared image and main PCD, two independent raw originals and one map.
+    assert receipt.object_count == 5
+    keys = bundles.source_objects(receipt, logical)
+    maps = [row for row in frozen["media"] if row["role"] == "map"]
+    assert len({row["source_key"] for row in maps}) == 1
+    assert all(keys[row["source_key"]] in receipt.inventory["objects"] for row in maps)
+    assert receipt.input_snapshot["schema"] == 2
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["raw", "map", "camera", "main_pcd", "owner", "kind", "total_count", "total_bytes"],
+)
+async def test_modern_nuscenes_rejects_partial_or_unowned_sources_and_counts_aux_budget(
+    monkeypatch, damage
+):
+    project, frozen, logical = modern_nuscenes_inputs()
+    if damage in {"raw", "map", "camera", "main_pcd"}:
+        role = {
+            "raw": "raw_lidar",
+            "map": "map",
+            "camera": "camera_front",
+            "main_pcd": "primary_lidar",
+        }[damage]
+        key = next(row["source_key"] for row in frozen["media"] if row["role"] == role)
+        logical["nuscenes"] = {
+            path: value for path, value in logical["nuscenes"].items() if value != key
+        }
+    elif damage in {"owner", "kind"}:
+        source = next(row["source"] for row in frozen["media"] if row["role"] == "map")
+        if damage == "owner":
+            source["owner_kind"] = "dataset_asset"
+        else:
+            source["ownership_facts"]["kind"] = "raw_lidar"
+    elif damage == "total_count":
+        monkeypatch.setattr(physical, "MAX_OBJECTS", 4)
+    else:
+        monkeypatch.setattr(physical, "MAX_TOTAL_BYTES", 1)
+    db = FakeDB()
+    with pytest.raises(bundles.ExportMediaBundleError):
+        await bundles.allocate(
+            db,
+            project_id=project,
+            job_id=uuid.uuid4(),
+            input_snapshot=frozen,
+            input_digest=digest(frozen),
+            logical_sources=logical,
+        )
+    assert not db.rows

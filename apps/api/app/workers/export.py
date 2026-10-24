@@ -637,7 +637,7 @@ async def _run_export(
                     # A duplicate delivery for the same durable job must not
                     # build or publish a second artifact.
                     return
-                if {"kitti", "pointmask", "coco-multicamera"}.intersection(
+                if {"kitti", "pointmask", "coco-multicamera", "nuscenes"}.intersection(
                     targets
                 ) or "lidar_media" in (job_row.payload or {}):
                     project = await db.get(Project, proj_uuid)

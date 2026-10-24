@@ -25,6 +25,7 @@ def logical_sources(snapshot: dict) -> dict[str, dict[str, str]]:
     generated = {target: set() for target in targets}
     items = {item["id"]: SimpleNamespace(**item) for item in snapshot["items"]}
     links = {link["id"]: SimpleNamespace(**link) for link in snapshot["links"]}
+    scenes = {scene["id"]: scene for scene in snapshot.get("scenes", [])}
     cameras_by_task = {}
     for link in links.values():
         if link.role.startswith("camera_"):
@@ -38,10 +39,29 @@ def logical_sources(snapshot: dict) -> dict[str, dict[str, str]]:
         bindings[key] = binding
 
     def add(target, path, binding):
-        if not path or any(char in path for char in ("\\", "\0", ":")):
+        if (
+            not isinstance(path, str)
+            or not path
+            or len(path.encode("utf-8")) > 4096
+            or any(char in path for char in ("\\", ":"))
+            or any(ord(char) < 32 or ord(char) == 127 for char in path)
+        ):
             raise ValueError("lidar_media_path_invalid")
         if any(part in {"", ".", ".."} for part in path.split("/")):
             raise ValueError("lidar_media_path_invalid")
+        if (
+            target == "nuscenes"
+            and snapshot.get("schema") == 2
+            and binding["role"] != "primary_lidar"
+        ):
+            if path.split("/")[0] in {
+                "README.txt",
+                "media_manifest.json",
+                "fetch_nuscenes_media.py",
+                "v1.0-aap",
+                "support",
+            }:
+                raise ValueError("lidar_media_path_collision")
         source_key = binding["source_key"]
         previous = result[target].setdefault(path, source_key)
         if previous != source_key:
@@ -62,6 +82,45 @@ def logical_sources(snapshot: dict) -> dict[str, dict[str, str]]:
         task_id = task["id"]
         camera_links = cameras_by_task.get(task_id, [])
         for target in targets:
+            if target == "nuscenes" and snapshot.get("schema") == 2:
+                primary = binding_for(task_id, "primary_lidar")
+                primary_item = items.get(primary["source"].get("item_id"))
+                if primary_item is None:
+                    raise ValueError("lidar_media_item_missing")
+                add(
+                    target,
+                    f"support/pointclouds/{task_id}/{_lidar_media_path(primary_item)}",
+                    primary,
+                )
+                raw = binding_for(task_id, "raw_lidar")
+                add(
+                    target,
+                    primary_item.metadata_["nuscenes_export"]["sample_data"][
+                        "filename"
+                    ],
+                    raw,
+                )
+                scene = scenes.get(str(primary_item.scene_id))
+                if scene is None:
+                    raise ValueError("lidar_media_scene_missing")
+                add(
+                    target,
+                    scene["source_metadata"]["nuscenes_export"]["map"]["filename"],
+                    binding_for(task_id, "map"),
+                )
+                for link in camera_links:
+                    binding = binding_for(task_id, link.role)
+                    if binding["link_id"] != link.id:
+                        raise ValueError("lidar_media_binding_conflict")
+                    item = items.get(link.dataset_item_id)
+                    if item is None or binding["source"].get("item_id") != item.id:
+                        raise ValueError("lidar_media_item_missing")
+                    add(
+                        target,
+                        item.metadata_["nuscenes_export"]["sample_data"]["filename"],
+                        binding,
+                    )
+                continue
             if target in {"kitti", "pointmask"}:
                 primary = binding_for(task_id, "primary_lidar")
                 item = items.get(primary["source"].get("item_id"))

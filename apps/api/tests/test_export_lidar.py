@@ -31,6 +31,7 @@ from app.services.exporting.lidar import (
     build_pointmask_label_bytes,
 )
 from app.services.exporting.lidar_preflight import (
+    _preflight_lidar_export,
     calibration_is_valid,
     preflight_lidar_export,
 )
@@ -108,91 +109,12 @@ def _camera() -> LidarCameraExportCtx:
     )
 
 
-def test_nuscenes_fetch_script_rejects_unsafe_paths_and_verifies_downloads(
-    tmp_path,
-):
-    namespace = {
-        "__file__": str(tmp_path / "fetch_nuscenes_media.py"),
-        "__name__": "test",
-    }
-    exec(
-        compile(_FETCH_NUSCENES_MEDIA_TEMPLATE, "fetch_nuscenes_media.py", "exec"),
-        namespace,
-    )
-    namespace["HERE"] = str(tmp_path)
+def test_nuscenes_fetch_script_uses_shared_strict_public_receipt_contract():
+    from app.services.exporting.lidar_fetch import FETCH_TRUSTED_MEDIA_TEMPLATE
 
-    for unsafe_path in (
-        "../escape.bin",
-        r"..\escape.bin",
-        r"C:\escape.bin",
-        "//server/share.bin",
-        "samples//file.bin",
-        "samples/\0file.bin",
-    ):
-        with pytest.raises(ValueError, match="unsafe media path"):
-            namespace["safe_destination"](unsafe_path)
-
-    source = tmp_path / "source.bin"
-    source.write_bytes(b"trusted-source")
-    manifest_path = tmp_path / "media_manifest.json"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "media": [
-                    {
-                        "rel_path": "samples/LIDAR_TOP/source.bin",
-                        "presigned_url": source.as_uri(),
-                        "source_file_size": source.stat().st_size,
-                        "source_sha256": hashlib.sha256(
-                            source.read_bytes()
-                        ).hexdigest(),
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    assert namespace["main"]() == 0
-    destination = tmp_path / "samples" / "LIDAR_TOP" / "source.bin"
-    assert destination.read_bytes() == b"trusted-source"
-
-    destination.write_bytes(b"corrupt")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["media"][0]["source_sha256"] = "0" * 64
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    assert namespace["main"]() == 1
-    assert destination.read_bytes() == b"corrupt"
-    assert list(destination.parent.glob(".aap-download-*")) == []
-
-    fingerprint = hashlib.sha256(source.read_bytes()).hexdigest()
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "media": [
-                    {
-                        "rel_path": "samples/LIDAR_TOP/source.bin",
-                        "presigned_url": source.as_uri(),
-                        "source_file_size": source.stat().st_size,
-                        "source_sha256": fingerprint,
-                    },
-                    {
-                        "rel_path": "samples/LIDAR_TOP/source.bin",
-                        "presigned_url": source.as_uri(),
-                        "source_file_size": source.stat().st_size,
-                        "source_sha256": fingerprint,
-                    },
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    assert namespace["main"]() == 1
-
-    manifest_path.write_text(
-        json.dumps({"media": [{"rel_path": "samples/missing-url.bin"}]}),
-        encoding="utf-8",
-    )
-    assert namespace["main"]() == 1
+    # Actual HTTP, full-body verification and base-origin handling are exercised
+    # by test_lidar_fetch_receipts for this exact media template.
+    assert _FETCH_NUSCENES_MEDIA_TEMPLATE == FETCH_TRUSTED_MEDIA_TEMPLATE
 
 
 def test_multicamera_coco_is_deterministic_and_pycocotools_compatible():
@@ -854,7 +776,7 @@ async def test_lidar_export_zip_writes_standard_targets(
             "app.services.exporting.lidar_preflight.MAX_NUSCENES_EXPORT_FRAMES",
             0,
         )
-        oversized_frames = await preflight_lidar_export(
+        oversized_frames = await _preflight_lidar_export(
             db_session,
             project_id=project.id,
             batch_id=None,
@@ -871,7 +793,7 @@ async def test_lidar_export_zip_writes_standard_targets(
             "app.services.exporting.lidar_preflight.MAX_NUSCENES_EXPORT_BOXES",
             0,
         )
-        oversized_boxes = await preflight_lidar_export(
+        oversized_boxes = await _preflight_lidar_export(
             db_session,
             project_id=project.id,
             batch_id=None,
@@ -888,7 +810,7 @@ async def test_lidar_export_zip_writes_standard_targets(
             "app.services.exporting.lidar_preflight.MAX_NUSCENES_POINT_BOX_TESTS",
             0,
         )
-        oversized_point_work = await preflight_lidar_export(
+        oversized_point_work = await _preflight_lidar_export(
             db_session,
             project_id=project.id,
             batch_id=None,
@@ -904,7 +826,7 @@ async def test_lidar_export_zip_writes_standard_targets(
             "app.services.exporting.lidar_preflight.MAX_NUSCENES_PCD_BYTES_TOTAL",
             0,
         )
-        oversized_pcd_bytes = await preflight_lidar_export(
+        oversized_pcd_bytes = await _preflight_lidar_export(
             db_session,
             project_id=project.id,
             batch_id=None,
@@ -954,7 +876,7 @@ async def test_lidar_export_zip_writes_standard_targets(
     finally:
         os.unlink(zip_path)
 
-    with pytest.raises(ValueError, match="nuscenes_scene_frame_missing"):
+    with pytest.raises(ValueError, match="lidar_export_contract_missing"):
         await build_export_zip(
             db_session,
             project.id,

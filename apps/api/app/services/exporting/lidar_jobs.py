@@ -151,7 +151,7 @@ async def capture_job(db, job, project, *, batch_id, targets, opts):
         **payload,
         "batch_id": saved_batch_id,
         "lidar_media": {
-            "schema": 1,
+            "schema": 2,
             "bundle_id": str(bundle.id),
             "input_digest": bundle.input_digest,
         },
@@ -182,7 +182,7 @@ def validate_message(
         type(proof) is not dict
         or set(proof) != _PROOF_FIELDS
         or type(proof.get("schema")) is not int
-        or proof["schema"] != 1
+        or proof["schema"] != 2
         or type(proof.get("input_digest")) is not str
         or _SHA.fullmatch(proof["input_digest"]) is None
         or proof["bundle_id"] != _uuid(bundle_snapshot.id)
@@ -198,7 +198,7 @@ def validate_message(
     if (
         type(frozen) is not dict
         or type(frozen.get("schema")) is not int
-        or frozen["schema"] != 1
+        or frozen["schema"] != 2
         or frozen.get("project_id") != _uuid(project_id)
         or "batch_id" not in frozen
         or frozen.get("batch_id") != scope_batch

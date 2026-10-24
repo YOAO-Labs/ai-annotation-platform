@@ -3,6 +3,7 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
+import io
 import uuid
 
 import pytest
@@ -21,6 +22,11 @@ from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.exporting import lidar_inputs as inputs
 from tests.factory import build_tool_bindings
 from tests.test_original_sources import add_link, dataset_rows
+from tests import test_managed_original_creation as creation_tests
+
+from tests.test_auxiliary_originals import map_source, raw_source
+
+auxiliary_client = creation_tests.client
 
 
 @pytest.fixture
@@ -39,6 +45,9 @@ async def input_db(test_engine):
         "storage_locations",
         "storage_bindings",
         "storage_maintenance_gates",
+        "storage_operations",
+        "managed_original_creations",
+        "dataset_auxiliary_originals",
         "annotations",
         "sensor_calibration_revisions",
         "scenes",
@@ -144,6 +153,85 @@ async def setup(db, *, direct=True, primary=True):
     db.add(annotation)
     await db.commit()
     return project, dataset, item, asset, replica, task, cameras, annotation
+
+
+async def attach_nuscenes(db, dataset, item, cameras, *, scene=None, map_owner=None):
+    """Create actual independent auxiliary receipts before binding business rows."""
+    from app.services import auxiliary_originals as auxiliary
+    from app.services import managed_original_creation as creation
+
+    source = raw_source()
+    source["sample_data"]["filename"] = f"samples/LIDAR_TOP/{item.id}.pcd.bin"
+    if scene is None:
+        scene = Scene(
+            id=uuid.uuid4(),
+            display_id="SC-" + uuid.uuid4().hex[:12],
+            dataset_id=dataset.id,
+            name="owned-nuscenes",
+            source_format="nuscenes",
+            source_metadata={
+                "frame": "ego",
+                "nuscenes_export": {
+                    "scene": {"token": "scene", "log_token": "log"},
+                    "log": {"token": "log"},
+                    "map": map_source(),
+                },
+            },
+        )
+        db.add(scene)
+    item.scene_id, item.frame_index = scene.id, 0
+    # Independent allocation/PUT/publish never commits pending business edits.
+    await db.commit()
+
+    async def create(kind, contract, data):
+        allocation = await creation.allocate_auxiliary(
+            db,
+            dataset_id=dataset.id,
+            kind=kind,
+            source_contract=contract,
+            logical_path=f"aux/{kind}",
+            max_bytes=100,
+            authority={"policy": "owned-export-test"},
+        )
+        written = await creation.create_stream(
+            db, allocation, io.BytesIO(data), content_type=allocation["content_type"]
+        )
+        return await auxiliary.publish(
+            db, allocation, written, kind=kind, source_contract=contract
+        )
+
+    raw_owner = await create("raw_lidar", source, b"r" * 80)
+    map_owner = map_owner or await create("map", map_source(), b"shared-map")
+    item.metadata_ = {
+        **(item.metadata_ or {}),
+        "nuscenes_export": {
+            **source,
+            "source_storage_key": raw_owner.object_key,
+            "source_file_size": raw_owner.size_bytes,
+            "source_sha256": raw_owner.sha256,
+        },
+    }
+    scene.source_metadata = {
+        **scene.source_metadata,
+        "nuscenes_export": {
+            **scene.source_metadata["nuscenes_export"],
+            "map_storage_key": map_owner.object_key,
+            "map_file_size": map_owner.size_bytes,
+            "map_sha256": map_owner.sha256,
+        },
+    }
+    for camera, _, _, link in cameras:
+        camera.scene_id, camera.frame_index = scene.id, item.frame_index
+        camera.metadata_ = {
+            **(camera.metadata_ or {}),
+            "nuscenes_export": {
+                "sample_data": {"filename": f"samples/{link.role}/{camera.id}.jpg"}
+            },
+        }
+    await auxiliary.bind_raw(db, item, raw_owner)
+    await auxiliary.bind_map(db, scene, map_owner)
+    await db.commit()
+    return scene, raw_owner, map_owner
 
 
 async def capture(db, project, targets=("pointmask",), *, lock=False):
@@ -471,23 +559,19 @@ async def test_object_guard_checks_exact_binding_while_final_fence_covers_other_
         await inputs.check(db, frozen.snapshot)
 
 
-async def test_mixed_scene_freezes_project_members_outside_batch(input_db):
+async def test_mixed_scene_freezes_project_members_outside_batch(
+    input_db, auxiliary_client
+):
     db = input_db
-    project, dataset, item, _, _, task, _, _ = await setup(db)
-    from app.db.models.dataset import Scene
+    project, dataset, item, _, _, task, cameras, _ = await setup(db)
     from app.db.models.task_batch import TaskBatch
     from app.services.exporting.lidar_frozen import FrozenLidar
 
-    scene = Scene(
-        id=uuid.uuid4(),
-        display_id="SC-" + uuid.uuid4().hex[:12],
-        dataset_id=dataset.id,
-        name="complete-scene",
-    )
+    scene, _, _ = await attach_nuscenes(db, dataset, item, cameras)
     batch = TaskBatch(
         id=uuid.uuid4(), project_id=project.id, display_id="batch", name="partial scene"
     )
-    db.add_all([scene, batch])
+    db.add(batch)
     await db.flush()
     item.scene_id, item.frame_index = scene.id, 0
     task.batch_id = batch.id
@@ -552,3 +636,42 @@ async def test_duplicate_task_frame_labels_are_rejected_instead_of_overwritten(
     await db.commit()
     with pytest.raises(ContentError, match="lidar_export_archive_path_conflict"):
         await capture(db, project)
+
+
+@pytest.mark.parametrize("targets", [("nuscenes",), ("kitti", "nuscenes")])
+async def test_nuscenes_capture_owns_all_media_and_checks_exact_auxiliary_pointer(
+    input_db, auxiliary_client, monkeypatch, targets
+):
+    db = input_db
+    project, dataset, item, _, _, task, cameras, _ = await setup(db)
+    _, raw_owner, map_owner = await attach_nuscenes(db, dataset, item, cameras)
+    from app.services.storage import storage_service
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("synchronous NuScenes freeze must not read, HEAD or sign originals")
+
+    monkeypatch.setattr(storage_service.client, "get_object", forbidden)
+    monkeypatch.setattr(storage_service.client, "head_object", forbidden)
+    monkeypatch.setattr(storage_service, "generate_download_url", forbidden)
+    monkeypatch.setattr(storage_service, "datasets_bucket", "current-bucket-trap")
+    frozen = await capture(db, project, targets)
+    assert frozen.snapshot["schema"] == 2
+    assert {row["role"] for row in frozen.snapshot["media"]} == {
+        "primary_lidar",
+        "camera_front",
+        "camera_back",
+        "raw_lidar",
+        "map",
+    }
+    assert frozen.sources[f"{task.id}:raw_lidar"].content_id == raw_owner.id
+    assert frozen.sources[f"{task.id}:map"].content_id == map_owner.id
+    binding = next(
+        row for row in frozen.snapshot["media"] if row["role"] == "raw_lidar"
+    )
+    assert (await inputs.check_source(db, binding)).sha256 == raw_owner.sha256
+    item.nuscenes_raw_original_id = None
+    await db.commit()
+    with pytest.raises(ContentError, match="auxiliary_original_unpinned"):
+        await inputs.check_source(db, binding)
+    with pytest.raises(ContentError):
+        await inputs.check(db, frozen.snapshot, lock=True)

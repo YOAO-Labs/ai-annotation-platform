@@ -346,8 +346,12 @@ async def test_duplicate_same_celery_delivery_during_build_does_not_steal_claim(
     )
 
 
+@pytest.mark.parametrize(
+    "old_proof",
+    [None, {"schema": 1, "bundle_id": str(uuid.uuid4()), "input_digest": "a" * 64}],
+)
 async def test_matching_historical_job_without_contract_fails_with_actionable_code(
-    worker_db, monkeypatch
+    worker_db, monkeypatch, old_proof
 ):
     db = worker_db
     project, *_ = await setup(db)
@@ -359,6 +363,8 @@ async def test_matching_historical_job_without_contract_fails_with_actionable_co
         user_id=project.owner_id,
         payload={"targets": ["pointmask"]},
     )
+    if old_proof is not None:
+        job.payload = {**job.payload, "lidar_media": old_proof}
     db.add(job)
     await db.commit()
     job_id, project_id = job.id, project.id

@@ -67,7 +67,7 @@ def media_server():
         assert not thread.is_alive()
 
 
-@pytest.fixture(params=["pointclouds", "images"])
+@pytest.fixture(params=["pointclouds", "images", "media"])
 def fetcher(tmp_path, media_server, request):
     yield from _fetcher(tmp_path, media_server, request.param)
 
@@ -191,7 +191,9 @@ def test_existing_same_length_wrong_content_is_replaced_only_after_full_verifica
     world.destination.write_bytes(b"x" * len(world.server.body))
     foreign = world.destination.with_suffix(".part")
     foreign.write_bytes(b"unrelated partial download")
-    world.write(sha256=hashlib.sha256(world.server.body).hexdigest().upper())
+    world.write(
+        **{world.sha_field: hashlib.sha256(world.server.body).hexdigest().upper()}
+    )
     assert world.run().returncode == 0
     assert world.destination.read_bytes() == world.server.body
     assert foreign.read_bytes() == b"unrelated partial download"
@@ -208,14 +210,14 @@ def test_failed_transport_or_receipt_never_publishes_or_overwrites_target(
     world = fetcher
     item = world.write()
     if damage == "hash":
-        item["sha256"] = "0" * 64
+        item[world.sha_field] = "0" * 64
     elif damage == "header_length":
         world.server.length = len(world.server.body) + 1
     elif damage == "eof_short":
-        item["size_bytes"] += 1
+        item[world.size_field] += 1
         world.server.length = None
     elif damage == "overflow":
-        item["size_bytes"] -= 1
+        item[world.size_field] -= 1
         world.server.length = None
     elif damage == "disconnect":
         world.server.sent = world.server.body[:10]
@@ -250,9 +252,10 @@ def test_missing_or_invalid_receipts_are_rejected_before_http_or_target_creation
     fetcher, receipt, value
 ):
     world = fetcher
+    receipt = world.sha_field if receipt == "sha256" else world.size_field
     world.write(**{receipt: value})
     assert world.run().returncode == 1
-    assert not world.server.requests and not (world.root / world.directory).exists()
+    assert not world.server.requests and not world.destination.exists()
 
 
 @pytest.mark.parametrize("expires_at", [None, "invalid", "2999-01-01T00:00:00", True])
@@ -314,6 +317,9 @@ def test_symlinks_are_never_traversed_including_internal_and_dangling_links(
     outside_file = world.outside / "do-not-overwrite"
     outside_file.write_bytes(b"protected")
     output = world.root / world.directory
+    parts = world.relative.split("/")
+    if world.kind == "media":
+        output /= parts.pop(0)
     if link_kind == "root":
         output.symlink_to(world.outside, target_is_directory=True)
     elif link_kind in {"parent_outside", "parent_inside"}:
@@ -322,9 +328,7 @@ def test_symlinks_are_never_traversed_including_internal_and_dangling_links(
         if link_kind == "parent_inside":
             target = world.root / "other-owned-directory"
             target.mkdir()
-        (output / world.relative.split("/")[0]).symlink_to(
-            target, target_is_directory=True
-        )
+        (output / parts[0]).symlink_to(target, target_is_directory=True)
     else:
         world.destination.parent.mkdir(parents=True)
         target = outside_file if link_kind == "target" else world.outside / "missing"
@@ -360,7 +364,7 @@ def test_duplicate_destinations_fail_preflight_before_partial_materialization(fe
     item = world.write()
     world.write(items=[item, item])
     assert world.run().returncode == 1 and not world.server.requests
-    assert not (world.root / world.directory).exists()
+    assert not world.destination.exists()
 
 
 def _namespace(world):

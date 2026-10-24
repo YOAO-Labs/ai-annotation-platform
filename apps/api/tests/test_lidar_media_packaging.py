@@ -449,7 +449,7 @@ async def test_kitti_still_requires_canonical_trusted_axis_and_removes_failed_zi
     assert not (world.root / "export.zip").exists()
 
 
-async def test_mixed_nuscenes_uses_frozen_pcd_copy_and_freezes_scene_pose_while_g2_stays_explicit(
+async def test_mixed_nuscenes_uses_owned_raw_map_cameras_and_frozen_pcd(
     world, monkeypatch
 ):
     world.data["primary_lidar"] = world.data["primary_lidar"].replace(
@@ -459,6 +459,12 @@ async def test_mixed_nuscenes_uses_frozen_pcd_copy_and_freezes_scene_pose_while_
         sha256=hashlib.sha256(world.data["primary_lidar"]).hexdigest(),
         size_bytes=len(world.data["primary_lidar"]),
     )
+    for role, payload in (("raw_lidar", b"r" * 80), ("map", b"map")):
+        world.entries[role] = {
+            "size_bytes": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "presigned_url": "https://saved.invalid/copies/" + role,
+        }
     scene_id = uuid.uuid4()
     world.primary.scene_id, world.primary.frame_index = scene_id, 0
     world.primary.metadata_["nuscenes_export"] = {
@@ -473,7 +479,7 @@ async def test_mixed_nuscenes_uses_frozen_pcd_copy_and_freezes_scene_pose_while_
                 "map": {"filename": "maps/map.bin"},
                 "map_storage_key": "g2/map.bin",
                 "map_file_size": 3,
-                "map_sha256": "b" * 64,
+                "map_sha256": world.entries["map"]["sha256"],
             }
         },
     )
@@ -490,28 +496,31 @@ async def test_mixed_nuscenes_uses_frozen_pcd_copy_and_freezes_scene_pose_while_
             "sensor": {"modality": "lidar" if role == "primary_lidar" else "camera"},
             "ego_pose": {},
             "source_storage_key": f"g2/{role}.bin",
-            "source_file_size": 80 if role == "primary_lidar" else 5,
-            "source_sha256": "a" * 64,
+            "source_file_size": world.entries[
+                "raw_lidar" if role == "primary_lidar" else role
+            ]["size_bytes"],
+            "source_sha256": world.entries[
+                "raw_lidar" if role == "primary_lidar" else role
+            ]["sha256"],
         }
     # Existing nuScenes counting stays intact; the PCD bytes come from its saved copy.
-    signed, frames = [], []
-
-    def legacy_auxiliary_only(key, **kwargs):
-        assert key.startswith("g2/")
-        signed.append(key)
-        return "https://g2.invalid/" + key
+    frames = []
 
     def records(values):
         frames.extend(values)
         return {"sample": [{"token": "frozen-export"}]}
 
-    monkeypatch.setattr(
-        packaging.storage_service, "generate_download_url", legacy_auxiliary_only
-    )
     monkeypatch.setattr(packaging, "build_nuscenes_frame_records", records)
     async with archive(world, ["pointmask", "nuscenes"]) as result:
         assert "nuscenes/v1.0-aap/sample.json" in result.namelist()
         assert not any("support/pointclouds" in name for name in result.namelist())
+        manifest = json.loads(result.read("nuscenes/media_manifest.json"))
+        assert len(manifest["media"]) == 4
+        assert {entry["presigned_url"] for entry in manifest["media"]} == {
+            world.entries[role]["presigned_url"]
+            for role in ("raw_lidar", "map", "camera_front", "camera_back")
+        }
+        assert b"--base-url" in result.read("nuscenes/fetch_nuscenes_media.py")
         assert (
             len(
                 result.read(
@@ -521,12 +530,9 @@ async def test_mixed_nuscenes_uses_frozen_pcd_copy_and_freezes_scene_pose_while_
             == 16
         )
     assert world.pcd_calls == [world.task.id] and frames[0].scene_name == "frozen scene"
-    assert set(signed) == {
-        "g2/map.bin",
-        "g2/primary_lidar.bin",
-        "g2/camera_front.bin",
-        "g2/camera_back.bin",
-    }
+    assert {"raw_lidar", "map", "camera_front", "camera_back"}.issubset(
+        world.entry_calls
+    )
 
 
 def snapshot(world, targets):

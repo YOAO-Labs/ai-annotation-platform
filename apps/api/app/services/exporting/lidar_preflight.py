@@ -331,6 +331,11 @@ _REGISTERED_ISSUES = {
     "original_link_invalid": "任务的传感器原件关联无效",
     "camera_original_not_image": "相机通道关联的原件不是图像",
     "storage_original_busy": "原件登记正在变更，请稍后重新预检",
+    "auxiliary_original_unpinned": "nuScenes 原始点云或地图尚未完成可信登记，请重新导入来源",
+    "auxiliary_original_invalid_receipt": "nuScenes 原始点云或地图的登记凭据无效",
+    "auxiliary_original_invalid_location": "nuScenes 原始点云或地图的已登记存储位置无效",
+    "auxiliary_original_contract_invalid": "nuScenes 原始点云或地图的来源合同无效",
+    "auxiliary_original_contract_changed": "nuScenes 原始点云或地图的来源合同已变更",
 }
 
 
@@ -343,7 +348,7 @@ async def preflight_lidar_export(
     options: LidarExportOptions | None,
 ) -> LidarExportPreflightResponse:
     frozen = None
-    if {"kitti", "pointmask", "coco-multicamera"}.intersection(targets):
+    if {"kitti", "pointmask", "coco-multicamera", "nuscenes"}.intersection(targets):
         project = await db.get(Project, project_id)
         if project is not None and project.data_type == "lidar":
             try:
@@ -359,6 +364,7 @@ async def preflight_lidar_export(
                 if exc.code in {
                     "original_source_budget_exceeded",
                     "original_relation_budget_exceeded",
+                    "auxiliary_original_source_budget_exceeded",
                 }:
                     code = "lidar_export_input_budget_exceeded"
                 if exc.code == "lidar_export_empty":
@@ -1106,6 +1112,14 @@ async def _preflight_lidar_export(
             )
             return
         asset_contracts[key] = (expected_size, normalized_sha256, common, kind)
+        if frozen and not frozen.has_receipt(key, expected_size, normalized_sha256):
+            add_issue(
+                LidarExportIssue(
+                    code="nuscenes_source_asset_drift",
+                    message=f"{kind} 与已登记原件不一致",
+                    **common,
+                )
+            )
 
     point_box_tests = 0
     total_pcd_bytes = 0
@@ -1605,11 +1619,7 @@ async def _preflight_lidar_export(
             )
             return key, contract, head
 
-        asset_rows = [
-            (key, contract)
-            for key, contract in asset_contracts.items()
-            if not frozen or not frozen.has_receipt(key, contract[0], contract[1])
-        ]
+        asset_rows = [] if frozen else list(asset_contracts.items())
         for start in range(0, len(asset_rows), 32):
             verified = await asyncio.gather(
                 *[
@@ -1664,11 +1674,7 @@ async def assert_lidar_export_ready(
 
 
 async def assert_frozen_lidar_ready(snapshot):
-    """Recheck G1 business rules on the exact captured inputs without I/O.
-
-    Mixed NuScenes auxiliary objects retain their G2 transport boundary; this
-    check only repeats rules for the independently delivered G1 targets.
-    """
+    """Recheck all owned LiDAR business rules on captured inputs without I/O."""
     from app.services.exporting.lidar_frozen import FrozenLidar
 
     class NoLiveReads:
@@ -1682,7 +1688,7 @@ async def assert_frozen_lidar_ready(snapshot):
         targets=[
             target
             for target in snapshot["targets"]
-            if target in {"kitti", "pointmask", "coco-multicamera"}
+            if target in {"kitti", "pointmask", "coco-multicamera", "nuscenes"}
         ],
         options=LidarExportOptions.model_validate(
             snapshot["options"].get("lidar") or {}

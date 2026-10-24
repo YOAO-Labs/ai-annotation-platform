@@ -269,6 +269,8 @@ async def test_kitti_preserves_explicit_camera_and_calibration_checks(world):
         "location_unavailable",
         "lidar_export_input_budget_exceeded",
         "lidar_export_pointmask_invalid",
+        "auxiliary_original_unpinned",
+        "auxiliary_original_contract_changed",
         "kitti_camera_required",
         "multicamera_coco_camera_missing",
     ],
@@ -606,26 +608,30 @@ def nuscenes(world):
     world.view.scenes_by_id[scene_id] = scene
     world.view.poses_by_frame[(scene_id, 0)] = pose
     world.view.all_scene_tasks[scene_id] = [(world.task, world.primary)]
+    for role, key in (("raw_lidar", "g2/raw/0.pcd.bin"), ("map", "g2/maps/map.png")):
+        size, sha256 = contracts[key]
+        world.snapshot["media"].append(
+            {
+                "task_id": str(world.task.id),
+                "role": role,
+                "source": {
+                    "item_id": str(world.primary.id),
+                    "object_key": key,
+                    "size_bytes": size,
+                    "sha256": sha256,
+                },
+            }
+        )
     return contracts
 
 
 @pytest.mark.parametrize(
     "g1", [("pointmask",), ("coco-multicamera",), ("kitti", "pointmask")]
 )
-async def test_mixed_nuscenes_only_heads_g2_raw_and_map(world, monkeypatch, g1):
-    contracts = nuscenes(world)
-    calls = []
-
-    def head(key, bucket):
-        assert key.startswith("g2/")
-        calls.append(key)
-        size, digest = contracts[key]
-        return {"ContentLength": size, "Metadata": {"sha256": digest}}
-
-    monkeypatch.setattr(preflight.storage_service, "verify_upload", head)
+async def test_mixed_nuscenes_preflight_uses_only_owned_metadata(world, g1):
+    nuscenes(world)
     result = await report(world, (*g1, "nuscenes"))
     assert result.ready, result.model_dump()
-    assert set(calls) == {"g2/raw/0.pcd.bin", "g2/maps/map.png"}
 
 
 @pytest.mark.parametrize(
@@ -634,13 +640,7 @@ async def test_mixed_nuscenes_only_heads_g2_raw_and_map(world, monkeypatch, g1):
 async def test_mixed_nuscenes_preserves_complete_scene_and_metadata_rules(
     world, monkeypatch, fault
 ):
-    contracts = nuscenes(world)
-
-    def head(key, bucket):
-        size, digest = contracts[key]
-        return {"ContentLength": size, "Metadata": {"sha256": digest}}
-
-    monkeypatch.setattr(preflight.storage_service, "verify_upload", head)
+    nuscenes(world)
     scene_id = world.primary.scene_id
     if fault in {"outside", "duplicate"}:
         extra = Task(id=uuid.uuid4(), project_id=world.project.id)
@@ -663,20 +663,11 @@ async def test_mixed_nuscenes_preserves_complete_scene_and_metadata_rules(
     assert expected in codes(await report(world, ("pointmask", "nuscenes")))
 
 
-async def test_pure_nuscenes_does_not_enter_registered_collector(world, monkeypatch):
-    sentinel = object()
-    seen = []
-
-    async def legacy(db, **kwargs):
-        seen.append(kwargs)
-        assert kwargs["frozen"] is None
-        return sentinel
-
-    monkeypatch.setattr(preflight, "_preflight_lidar_export", legacy)
-    monkeypatch.setattr(preflight, "_collect_registered", forbidden)
-    world.db.get = forbidden
-    assert await report(world, ("nuscenes",)) is sentinel
-    assert seen[0]["targets"] == ["nuscenes"]
+async def test_pure_nuscenes_uses_registered_collector_without_storage_io(world):
+    nuscenes(world)
+    result = await report(world, ("nuscenes",))
+    assert result.ready, result.model_dump()
+    assert world.calls[-1][1] == ["nuscenes"]
 
 
 @pytest.fixture
@@ -758,3 +749,20 @@ async def test_canonical_budget_failure_is_actionable_in_preflight(
     monkeypatch.setattr(preflight, "_collect_registered", too_large)
     result = await report(world, ("pointmask",))
     assert not result.ready and codes(result) == {"lidar_export_input_budget_exceeded"}
+
+
+@pytest.mark.parametrize("role", ["raw_lidar", "map"])
+@pytest.mark.parametrize("damage", ["missing", "sha", "size", "key"])
+async def test_nuscenes_never_heads_or_accepts_metadata_without_matching_receipt(
+    world, role, damage
+):
+    nuscenes(world)
+    binding = next(row for row in world.snapshot["media"] if row["role"] == role)
+    if damage == "missing":
+        world.snapshot["media"].remove(binding)
+    else:
+        field = {"sha": "sha256", "size": "size_bytes", "key": "object_key"}[damage]
+        binding["source"][field] = 999 if damage == "size" else "changed"
+    result = await report(world, ("nuscenes",))
+    assert not result.ready
+    assert "nuscenes_source_asset_drift" in codes(result)
