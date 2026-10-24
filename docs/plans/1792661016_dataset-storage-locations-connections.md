@@ -8,6 +8,26 @@
 > 依赖：EPIC-01 的标识与适配契约；EPIC-11 的最小权限规则必须随 M1 一起交付。
 > 下游：EPIC-03 原地注册、EPIC-05 读取、EPIC-07 迁移、EPIC-09 存储控制台。
 
+## 本轮实施定案：E02-B8 报告附件固定归属与认证字节传输
+
+基于干净HEAD `547fe6f05` 延续整套实施和提交授权。只读核对确认截图直传当前bug桶、无独立回执且URL可重放；报告只按前缀接受key，旧screenshot_url还允许任意字符串；两个Web下载入口用普通链接，未携带HTTPBearer。审计归档另有PUT后直接DROP分区、缺源快照围栏和固定归属的完整缺口，记录为下一独立消费者阶段，本片不借改选桶声称它已完成。
+
+0225增加独立BugAttachmentUpload：随机UUID、上传者UUID快照（无账号FK）、严格bug-reports存储引用、实际SHA/大小/MIME/安全文件名、固定created/expires（180天）、pending/ready/retired及退休/清理时间、可空且只可首次写入的bound_report_id快照（无报告FK）。精确键 `bug-report-attachments/{owner}/{id}.{png|jpg|webp}`；身份/回执/期限不可变，状态向前，绑定只在ready首次发生。复用现有表owner及恢复事务标记，仅允许嵌套bucket/identity映射；有事实时拒绝破坏性降级。
+
+新增认证 `POST /bug_reports/screenshot/upload?file_name=...`：raw PNG/JPEG/WebP，最多10MiB，服务端核对真实格式/40M像素预算，保留原图字节；返回现有BugAttachment四字段别名对象。先捕获请求原账号/Key hash/scopes/期限并释放锁，再有界读请求和校验；创建独立pending与固定回执并提交，才在durable permit内PUT并条件完整SHA回读。真实收尾后复核原账号、原Key、Output快照及Gate修订才ready；失败/取消/commit应答未知不补偿删除，pending不按年龄reap。旧upload-init标deprecated并对合法请求返回409及新路由提示，不再发可重放最终对象PUT；旧客户端须更新，不新增服务、凭据、依赖或环境变量。客户端单次上传仍是同一截图/粘贴/附件产品操作。
+
+报告创建最多5个附件，同事务锁定并绑定本人ready、未过期、未被其他报告消费的owner，元数据使用实际服务端回执。拒绝未知key、他人owner、重复消费/重复key、声明MIME/大小不符；screenshot_url仅兼容同一首附件的别名，screenshot-only合法已知owner可展开成一个附件，旧未知引用明确409，不猜当前桶。report_id在报告创建后同事务首次固定。报告删除同事务退休其已知owner，再删除报告/评论，提交后执行耐久清理；旧未知引用不物理删除。已有报告元数据/历史保留，NULL旧附件需重新上传，原文件保留待核对。
+
+原附件download URI改为带Bearer的受控字节响应（200 image attachment，替代302签名跳转）：按报告可见性、已登记准确key及绑定owner准入，在含owner UUID的read purpose下完整条件读取保存桶并关闭句柄，最终重新锁账号/原Key、当前报告可见性/登记关系、同一ready回执、期限及Gate，再返回已核验有界字节。缺失/损坏/未知位置/过期明确区分；不返回或续签MinIO URL。前端统一认证fetch blob、临时object URL下载并及时revoke，不向存储传token；错误和进行中状态在当前附件旁可见。
+
+Web共享下载hook绑定账号/会话/当前报告生命周期，Drawer提交在上传前捕获账号/token/会话并在每个await后与create前核对，换账号、关闭/重新打开或当前详情切换后旧流程不能提交、下载或修改新界面。保持五图、粘贴、编辑、上传失败重试/跳过、管理详情、评论、居中详情和原返回/分页；只改必要按钮语义和状态，使用现有字号、样式tokens与组件。
+
+cleanup周期任务分批处理已过期ready及retired，锁owner并排除同owner未收尾read permit后提交retired；退休后拒绝新读取。按保存桶精确删除，最终重核快照/状态和当前关联后才删行，失败保留。报告仍存在且未过期的关联阻止删除；到期后的元数据可保留但不再提供文件。移除应用为bug桶设置的整桶180天lifecycle，避免绕过读permit；按owner固定期限治理，其他用途规则不动。部署先暂停附件写入，盘点旧直传窗口并等待实际收尾，迁移/刷新所属API、cleanup Worker与Beat，确认bug桶原整桶规则已移除后恢复。旧无owner文件不批量清除。
+
+本片超过8文件：当前HEAD隔离树一负责领域/0225/严格存储及专项测试，隔离树二负责上传/绑定/认证读取/删除与Worker/路由及回归，隔离树三负责Web上传/共享下载/提交会话围栏、相应交互测试与用户指南；主树负责集成、恢复白名单/夹具、部署文档、API artifacts和实际验收。最小替代是只在报告JSON加bucket，但不能承接上传前/失败责任、报告删除后的清理，也无法阻止URL覆盖与跨账号消费。最脆弱前提是旧直传请求是否结束，设计通过不再签发旧键、独立新键和保留未知历史承受其失败。
+
+验证包括三种实际图片、严格schema/迁移/restore、原Key和账号两窗口变化、零I/O拒绝/同键异桶/同大小损坏、报告一次性绑定/别名/删除、上传及读取取消真实收尾、未知close/commit与清理竞争、固定期限和旧无owner。DB仅用验证owner的一次性test；真实HTTP上传/创建/下载、Celery清理和源销毁后离线恢复三态/关联/字节/期限。Web测试覆盖上传失败、换账号/close和下载/URL释放；实际浏览器明暗、桌面/窄屏及控件/错误/溢出，截图供检查后清理。Ruff、OpenAPI/codegen/Web类型、Web lint/CSS tokens、SDK合同、文档build、diff及正常hooks通过后提交Outcome。保留人工3100/8100、两类Worker/Beat、24对象/12原件字节，全部本轮资源按owner清理。回退应用保留独立owner/绑定/期限，暂停新附件即可，不能恢复按当前桶猜读。
+
 ## 本轮实施定案：E02-B7 异步导出候选、缓存与到期清理
 
 基于干净HEAD `767625498` 继续已有整套实施/提交授权。当前ExportArtifact只保存缓存索引，Worker以当前export桶上传、HEAD探活和签名，失败后直接删除候选；相同Job重投递复用键，缓存命中还会新签七天但文件仍按原保存期过期。本片完整固定异步导出候选的物理责任，并保留既有ZIP内容、缓存指纹及公开Job/通知格式，不开放用途切换。
