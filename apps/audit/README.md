@@ -1,4 +1,4 @@
-# Audit append, query, and read capabilities
+# Audit capabilities
 
 This package defines the `aap-audit-append/v1` event/receipt contract,
 `aap-audit-query/v1` global list/export contract, and
@@ -79,18 +79,19 @@ the materialized view's unique index, and PostgreSQL `date`, `smallint`, and
 this relation and continues to merge the current UTC raw tail from
 `audit_events`.
 
-The maintenance task refreshes the materialized view through the fixed,
-no-argument `aap_audit_v1.refresh_audit_bi_mv()` owner capability. The caller
-still commits its transaction; the function does not change refresh mode or
-swallow errors. Its restricted `NOLOGIN` owner needs database `TEMPORARY`
-because PostgreSQL's concurrent refresh creates a temporary relation. The
-caller receives only function `EXECUTE`; the read-only Audit client may select
-`audit_daily_facts` but cannot refresh the view or select the private
-materialization.
+The maintenance capability includes daily materialized-view refresh. The
+caller still commits its transaction; the owner function does not change
+refresh mode or swallow errors. Its restricted `NOLOGIN` owner needs database
+`TEMPORARY` because PostgreSQL's concurrent refresh creates a temporary
+relation. The independent maintenance LOGIN receives only `EXECUTE` on the
+fixed command function; it has no direct table, sequence, or DDL privileges.
+The read-only Audit client may select `audit_daily_facts` but cannot refresh the
+view or select the private materialization.
 
 Migration `0315` adds append and `0317` adds global query after Notifications
 read-state `0316`; `0320` adds the event read relation after Notifications
-deletion `0319`; `0322` adds the daily projection after `0321`.
+deletion `0319`; `0322` adds the daily projection after `0321`; `0333` adds the
+fixed maintenance command after the preceding owner migrations.
 `infra/docker/module-data-grants.sql` keeps direct append writes with
 the non-login Audit owner and transfers the read view to that owner. The
 focused `audit-append-grants.sql` profile grants the existing
@@ -106,11 +107,59 @@ the separate `audit-read-grants.sql` profile gives another LOGIN `SELECT` on
 `audit_events` and `audit_daily_facts`. Neither read profile grants direct
 base-table or materialized-view reads, sequences, or write functions. The API
 LOGIN gains SELECT on both views while retaining current base-table access for
-Learning, retention, and test/seed consumers. Only the dedicated maintenance
-caller receives `EXECUTE` on the fixed refresh capability; it and the
-read/query clients do not share database `TEMPORARY`.
+Learning, retention, and test/seed consumers. The dedicated maintenance owner
+performs refresh through the fixed command capability; read and query clients
+have no refresh or database `TEMPORARY` privilege.
 Focused checks cover the row contract,
 native INET parity, identity-map/autoflush behavior, API scope, and the Node
-read-only peer. This relation slice does not close full Audit assembly,
-analytics ownership, partition/archive recovery, or universal private-table
-revocation.
+read-only peer. The independent maintenance runtime is implemented, while
+dedicated LOGIN activation and consolidated runtime acceptance remain pending.
+
+## Independent maintenance runtime
+
+The `aap-audit-maintenance` one-shot CLI provides `ensure-partitions`,
+`archive-partitions`, and `refresh-daily`. It uses the same fixed
+`aap_audit_v1.maintenance_command(jsonb)` capability as the retained API/Celery
+adapter and verifies at startup that its database LOGIN can execute only that
+function. It has no HTTP listener, scheduler, queue, or application imports.
+The existing API/Celery binding remains available during migration.
+
+Set `AUDIT_MAINTENANCE_DATABASE_URL` or its `_FILE` counterpart for every
+command. Either the direct value or the file can provide a secret, never both.
+The database URL is redacted from configuration representations and command
+errors. Connections time out after five seconds; statements are bounded to 60
+seconds and run in one transaction per invocation. Database grants must expose
+only the fixed maintenance function to the independent runtime LOGIN.
+
+`ensure-partitions` creates the current and next three months' partitions.
+`refresh-daily` invokes the existing Audit daily materialization refresh.
+Neither command needs object-storage configuration. `archive-partitions` also
+needs `AUDIT_MAINTENANCE_ARCHIVE_S3_ENDPOINT_URL`,
+`AUDIT_MAINTENANCE_ARCHIVE_S3_ACCESS_KEY_ID`, and
+`AUDIT_MAINTENANCE_ARCHIVE_S3_SECRET_ACCESS_KEY`; each credential accepts a
+matching `_FILE` variable. Region defaults to `us-east-1`, and the bucket
+defaults to the existing `audit-archive`. The storage adapter can access only
+that configured bucket, checks that it already exists, and never creates it.
+Provision its S3 policy separately with `s3:ListBucket` for the existence check
+and `s3:PutObject` on archive objects. It does not create buckets or read
+general Assets or application storage credentials.
+
+Each archive operation holds one database transaction through snapshot,
+object upload, partition removal, and the archive event. The transaction commits
+only after the full operation succeeds; failures roll back database changes and
+leave the partition available for retry. The same month uses the existing
+deterministic archive key. S3 calls have five-second connect and 60-second read
+timeouts.
+
+The container runs non-root and exposes no port. Its default command is help;
+the Compose service is behind the `maintenance` profile and defaults to the
+non-destructive partition check. To run it locally:
+
+```sh
+docker compose -f infra/docker/docker-compose.audit.yml --profile maintenance run --rm audit-maintenance ensure-partitions
+docker compose -f infra/docker/docker-compose.audit.yml --profile maintenance run --rm audit-maintenance refresh-daily
+docker compose -f infra/docker/docker-compose.audit.yml --profile maintenance run --rm audit-maintenance archive-partitions
+```
+
+Compose passes direct environment values. Deployments using `_FILE` variables
+must mount those secret files into the container at the configured paths.
