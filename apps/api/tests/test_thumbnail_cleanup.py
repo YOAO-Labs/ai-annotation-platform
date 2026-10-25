@@ -1,8 +1,10 @@
 """Saved-target cleanup keeps active, referenced and uncertain owners protected."""
 
 from datetime import timedelta
+from types import SimpleNamespace
 import uuid
 
+from botocore.config import Config
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -44,6 +46,8 @@ async def retire(db, output, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def deletion(client):
+    client.meta = SimpleNamespace(config=Config(retries={"max_attempts": 3}))
+
     def delete(**params):
         client.record("delete", params)
         if params.get("VersionId"):

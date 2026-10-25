@@ -577,3 +577,58 @@ it("does not infer export creation or other cleanup from a removal-only declarat
   expect(screen.queryByText(/已接入独立导出媒体版本删除观测/)).not.toBeInTheDocument();
   expect(screen.getByText(/ZIP 和导出清理尚未计入/)).toBeVisible();
 });
+
+it("explains three declared object removals without treating retirement as proof", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{
+        ...accounting,
+        producers: [
+          "thumbnail_outputs",
+          "avatar_uploads",
+          "bug_attachment_uploads",
+          "thumbnail_removals",
+          "avatar_removals",
+          "bug_attachment_removals",
+        ],
+      }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入目录及普通缩略图、头像、报告附件版本删除观测/)).toHaveTextContent(
+    "证据完整才计当前内容净变化，无固定版本、重试或收尾不明保持未知。",
+  );
+  expect(screen.getByText(/已接入报告附件受控新增/)).toHaveTextContent(
+    "退休记录本身不代表已确认移除",
+  );
+  expect(screen.getByText(/已接入头像受控新增/)).toHaveTextContent(
+    "退休和清理记录本身不代表已确认移除",
+  );
+  expect(screen.queryByText(/附件退休和清理尚未计入/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/已接入独立导出媒体版本删除/)).not.toBeInTheDocument();
+  expect(screen.getByText("部分覆盖")).toBeVisible();
+});
+
+it("limits removal text to declared families and preserves older response exclusions", () => {
+  const view = render(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["avatar_removals", "future_removal"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入头像版本删除观测/)).toBeVisible();
+  expect(screen.queryByText(/已接入头像受控新增/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/目录及普通缩略图|报告附件版本删除/)).not.toBeInTheDocument();
+  view.rerender(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["avatar_uploads", "bug_attachment_uploads"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  expect(screen.queryByText(/已接入头像版本删除观测/)).not.toBeInTheDocument();
+  expect(screen.getByText(/已接入头像受控新增/)).toHaveTextContent("退休和清理尚未计入");
+  expect(screen.getByText(/附件退休和清理尚未计入/)).toBeVisible();
+  expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
+});

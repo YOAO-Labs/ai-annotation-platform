@@ -40,6 +40,11 @@ const TRAINING_PRODUCERS = [
   ["sample_evaluation_reports", "样本评估报告"],
   ["training_redacted_logs", "脱敏日志"],
 ] as const;
+const OBJECT_REMOVAL_PRODUCERS = [
+  ["thumbnail_removals", "目录及普通缩略图"],
+  ["avatar_removals", "头像"],
+  ["bug_attachment_removals", "报告附件"],
+] as const;
 const field =
   "w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground";
 
@@ -85,6 +90,10 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
     accounting?.producers.includes(producer),
   ).map(([, label]) => label);
   const exportMediaRemovals = accounting?.producers.includes("export_media_removals");
+  const objectRemovals = OBJECT_REMOVAL_PRODUCERS.filter(([producer]) =>
+    accounting?.producers.includes(producer),
+  ).map(([, label]) => label);
+  const avatarRemovals = accounting?.producers.includes("avatar_removals");
 
   useEffect(() => {
     setSaved(schedule);
@@ -202,10 +211,17 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
               </li>
             )}
             {accounting?.producers.includes("bug_attachment_uploads") && (
-              <li>已接入报告附件受控新增；重试或回执不明保持未知，附件退休和清理尚未计入。</li>
+              <li>
+                {accounting.producers.includes("bug_attachment_removals")
+                  ? "已接入报告附件受控新增；重试或回执不明保持未知，退休记录本身不代表已确认移除。"
+                  : "已接入报告附件受控新增；重试或回执不明保持未知，附件退休和清理尚未计入。"}
+              </li>
             )}
             {conditionalProducers.length > 0 && (
-              <li>{`已接入${conditionalProducers.join("、")}受控新增；重试或回执不明保持未知，退休和清理尚未计入。`}</li>
+              <li>{`已接入${conditionalProducers.join("、")}受控新增；重试或回执不明保持未知，${avatarRemovals && accounting?.producers.includes("avatar_uploads") ? "退休和清理记录本身不代表已确认移除。" : "退休和清理尚未计入。"}`}</li>
+            )}
+            {objectRemovals.length > 0 && (
+              <li>{`已接入${objectRemovals.join("、")}版本删除观测；证据完整才计当前内容净变化，无固定版本、重试或收尾不明保持未知。`}</li>
             )}
             {trainingProducers.length > 0 && (
               <li>{`已接入${trainingProducers.join("、")}写入观测；证据完整才计覆盖净变化，重试或版本证据不明保持未知。执行器直传和清理尚未计入。`}</li>

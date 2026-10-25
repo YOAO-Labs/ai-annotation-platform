@@ -373,10 +373,10 @@ async def test_one_cleanup_failure_does_not_stop_other_retired_objects(
     first_token, second_token = first.token, second.token
     original = avatar.delete_avatar_object
 
-    def delete_one(record):
+    def delete_one(record, **kwargs):
         if record.token == first_token:
             raise RuntimeError("private storage failure")
-        return original(record)
+        return original(record, **kwargs)
 
     monkeypatch.setattr(avatar, "delete_avatar_object", delete_one)
     assert await avatar_uploads.cleanup(db_session) == {

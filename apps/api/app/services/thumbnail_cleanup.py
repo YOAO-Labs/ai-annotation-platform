@@ -13,6 +13,7 @@ from app.db.models.dataset_source import DatasetSourcePreview
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.task import Task
 from app.db.models.thumbnail_output import ThumbnailOutput as Output
+from app.services import object_removal_accounting as removal
 from app.services import original_sources, storage_access, thumbnail_outputs as outputs
 from app.services.content_snapshot import ContentError
 
@@ -56,13 +57,15 @@ def absent(exc):
     }
 
 
-def remove(target, output):
+def remove(target, output, *, accounting=None):
     """Read back the receipt, then delete and prove absence of that exact version."""
     saved = outputs.owner(output)
     params = {"Bucket": saved.bucket, "Key": saved.key(outputs.RELATIVE_KEY)}
     if output.version_id not in (None, "null"):
         params["VersionId"] = output.version_id
-    with target.client(read_timeout=30) as client:
+    with target.client(
+        read_timeout=30, **({"owned": True} if accounting is not None else {})
+    ) as client:
         try:
             head = client.head_object(**params, IfMatch=output.etag)
         except ClientError as exc:
@@ -88,9 +91,22 @@ def remove(target, output):
         outputs._verified_bytes(SimpleNamespace(client=borrowed), output)
         if observed_version is not None:
             params["VersionId"] = observed_version
+        observation = (
+            removal.Observation(
+                accounting, client, params["Key"], params.get("VersionId")
+            )
+            if accounting is not None
+            else None
+        )
+
+        def call():
+            return client.delete_object(**params, IfMatch=output.etag)
+
         try:
             try:
-                client.delete_object(**params, IfMatch=output.etag)
+                deleted = (
+                    observation.submit(call) if observation is not None else call()
+                )
             except ClientError as exc:
                 if exc.response.get("Error", {}).get("Code") in {
                     "AccessDenied",
@@ -110,6 +126,8 @@ def remove(target, output):
             else:
                 storage_access.close_registered(response["Body"])
                 raise ContentError("thumbnail_cleanup_unproven")
+            if observation is not None:
+                observation.complete(deleted)
         except ContentError as exc:
             if exc.code == "thumbnail_cleanup_refused":
                 raise
@@ -206,9 +224,17 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                 )
                 revision = await storage_access.check(current, saved.location_id)
                 await current.commit()
+                recorder = removal.recorder(
+                    current,
+                    output,
+                    producer="thumbnail_removals",
+                    purpose="media_cache",
+                )
+                owned_permit = None
 
                 async def admitted(permit):
-                    nonlocal output, target
+                    nonlocal output, target, owned_permit
+                    owned_permit = permit
                     async with original_sources._reads(current, True):
                         output = await current.get(
                             Output,
@@ -243,15 +269,27 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                     await current.commit()
 
                 target = None
-                count = await storage_access.run(
-                    current,
-                    saved.location_id,
-                    outputs.purpose(identifier),
-                    lambda: remove(target, output),
-                    expected_revision=revision,
-                    on_acquired=admitted,
-                    timeout=outputs.WRITE_SECONDS,
+                failure, count = None, None
+                try:
+                    count = await storage_access.run(
+                        current,
+                        saved.location_id,
+                        outputs.purpose(identifier),
+                        lambda: remove(target, output, accounting=recorder),
+                        expected_revision=revision,
+                        on_acquired=admitted,
+                        timeout=outputs.WRITE_SECONDS,
+                    )
+                except BaseException as exc:
+                    failure = exc
+                failure = await removal.finish(
+                    recorder,
+                    failure,
+                    settled=owned_permit is not None
+                    and getattr(owned_permit, "_settled", False) is True,
                 )
+                if failure is not None:
+                    raise failure
                 async with original_sources._reads(current, True):
                     output = await current.get(
                         Output,

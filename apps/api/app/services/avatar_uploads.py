@@ -16,6 +16,7 @@ from app.db.models.avatar_upload import AvatarUpload
 from app.db.models.user import User
 from app.services import avatar, avatar_storage, storage_access
 from app.services import conditional_write_accounting as accounting
+from app.services import object_removal_accounting as removal
 from app.services.audit import AuditAction, AuditService
 from app.services.content_snapshot import ContentError
 
@@ -367,14 +368,40 @@ async def _cleanup_one(db, token):
     # Release business locks before an independently registered physical delete.
     await db.commit()
     target = await avatar_storage.io_target(db, receipt)
-    await storage_access.run(
+    recorder = removal.recorder(
         db,
-        uuid.UUID(receipt.storage_ref["location_id"]),
-        "avatar_retirement",
-        avatar.delete_avatar_object,
         receipt,
-        **({"target": target} if target is not None else {}),
+        producer="avatar_removals",
+        purpose="other_platform",
+        owner_id=uuid.UUID(hex=receipt.token),
     )
+    owned_permit, failure = None, None
+
+    async def acquired(permit):
+        nonlocal owned_permit
+        owned_permit = permit
+
+    try:
+        await storage_access.run(
+            db,
+            uuid.UUID(receipt.storage_ref["location_id"]),
+            "avatar_retirement",
+            avatar.delete_avatar_object,
+            receipt,
+            on_acquired=acquired,
+            accounting=recorder,
+            **({"target": target} if target is not None else {}),
+        )
+    except BaseException as exc:
+        failure = exc
+    failure = await removal.finish(
+        recorder,
+        failure,
+        settled=owned_permit is not None
+        and getattr(owned_permit, "_settled", False) is True,
+    )
+    if failure is not None:
+        raise failure
     current = await db.scalar(
         select(AvatarUpload)
         .where(AvatarUpload.token == token)

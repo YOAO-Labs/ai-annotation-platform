@@ -640,7 +640,7 @@ def write(record, data, *, target=None, accounting=None) -> str | None:
         raise _unavailable(exc) from None
 
 
-def delete(record, *, target=None) -> None:
+def delete(record, *, target=None, accounting=None) -> None:
     """Delete only this committed retirement's saved physical object/version."""
     from app.services.bug_attachment_storage_target import object_params
 
@@ -652,18 +652,38 @@ def delete(record, *, target=None) -> None:
             and version is None
             and owner.ref["location_id"] == str(LEGACY_LOCATION_ID)
         ):
-            storage_service.delete_object(owner.object_key, bucket=owner.bucket)
+            if accounting is None:
+                storage_service.delete_object(owner.object_key, bucket=owner.bucket)
+            else:
+                from app.services.object_removal_accounting import Observation
+
+                with _client_context(record, target, owned=True) as client:
+                    observation = Observation(
+                        accounting, client, owner.object_key, version
+                    )
+                    response = observation.submit(
+                        lambda: client.delete_object(
+                            Bucket=owner.bucket, Key=owner.object_key
+                        )
+                    )
+                    observation.complete(response)
             return
-        with _client_context(record, target) as client:
+        with _client_context(record, target, owned=accounting is not None) as client:
             # A null version is a mutable slot, so verify its saved bytes first.
             if (
                 version in (None, "null")
                 and _read(client, record, missing_ok=True) is None
             ):
                 return
-            client.delete_object(
-                **object_params(owner.bucket, owner.object_key, version)
-            )
+            params = object_params(owner.bucket, owner.object_key, version)
+            if accounting is None:
+                client.delete_object(**params)
+            else:
+                from app.services.object_removal_accounting import Observation
+
+                observation = Observation(accounting, client, owner.object_key, version)
+                response = observation.submit(lambda: client.delete_object(**params))
+                observation.complete(response)
     except BugAttachmentStorageError:
         raise
     except Exception as exc:

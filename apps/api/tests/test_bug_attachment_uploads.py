@@ -114,6 +114,11 @@ def patch_objects(monkeypatch):
                 put_object=lambda **params: objects.client.put_object(**params),
                 head_object=lambda **params: objects.client.head_object(**params),
                 get_object=lambda **params: objects.client.get_object(**params),
+                delete_object=lambda **params: (
+                    objects.client.delete_object(**params)
+                    if hasattr(objects.client, "delete_object")
+                    else objects.delete_object(params["Key"], bucket=params["Bucket"])
+                ),
                 close=lambda: None,
             )
         )

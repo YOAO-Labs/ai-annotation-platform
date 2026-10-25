@@ -218,11 +218,11 @@ def _read(client, owner, record):
     return b"".join(chunks), f'"{record.sha256}"'
 
 
-def delete_avatar_object(record, *, target=None) -> None:
+def delete_avatar_object(record, *, target=None, accounting=None) -> None:
     """The caller owns the committed retirement; never infer its current bucket."""
     owner = avatar_storage.resolve(record)
     version = getattr(record, "object_version_id", None)
-    with _client_context(owner, target) as client:
+    with _client_context(owner, target, owned=accounting is not None) as client:
         params = object_params(owner.bucket, owner.object_key, version)
         if (
             target is not None
@@ -230,5 +230,13 @@ def delete_avatar_object(record, *, target=None) -> None:
             and _read(client, owner, record) is None
         ):
             return
-        client.delete_object(**params)
+        if accounting is None:
+            response = client.delete_object(**params)
+        else:
+            from app.services.object_removal_accounting import Observation
+
+            observation = Observation(accounting, client, owner.object_key, version)
+            response = observation.submit(lambda: client.delete_object(**params))
         _prove_absent(client, params)
+        if accounting is not None:
+            observation.complete(response)

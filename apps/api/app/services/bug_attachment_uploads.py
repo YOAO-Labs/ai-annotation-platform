@@ -24,6 +24,7 @@ from app.db.models.user import User
 from app.schemas.bug_report import BugAttachment
 from app.services import bug_attachment_accounting as accounting
 from app.services import bug_attachment_storage as storage, storage_access
+from app.services import object_removal_accounting as removal
 from app.services.content_snapshot import ContentError
 
 log = logging.getLogger(__name__)
@@ -562,8 +563,14 @@ async def _cleanup_one(db, identifier):
         return False
     await db.commit()
     target = await storage.io_target(db, receipt)
+    recorder = removal.recorder(
+        db, receipt, producer="bug_attachment_removals", purpose="other_platform"
+    )
+    owned_permit, failure = None, None
 
     async def acquired(permit):
+        nonlocal owned_permit
+        owned_permit = permit
         current = await _locked(db, identifier)
         if (
             current is None
@@ -575,15 +582,27 @@ async def _cleanup_one(db, identifier):
             reject()
         await db.commit()
 
-    await storage_access.run(
-        db,
-        uuid.UUID(receipt.storage_ref["location_id"]),
-        "bug_attachment_delete_" + receipt.id.hex,
-        storage.delete,
-        receipt,
-        on_acquired=acquired,
-        **({"target": target} if target is not None else {}),
+    try:
+        await storage_access.run(
+            db,
+            uuid.UUID(receipt.storage_ref["location_id"]),
+            "bug_attachment_delete_" + receipt.id.hex,
+            storage.delete,
+            receipt,
+            on_acquired=acquired,
+            accounting=recorder,
+            **({"target": target} if target is not None else {}),
+        )
+    except BaseException as exc:
+        failure = exc
+    failure = await removal.finish(
+        recorder,
+        failure,
+        settled=owned_permit is not None
+        and getattr(owned_permit, "_settled", False) is True,
     )
+    if failure is not None:
+        raise failure
     current = await _locked(db, identifier)
     if (
         current is not None
