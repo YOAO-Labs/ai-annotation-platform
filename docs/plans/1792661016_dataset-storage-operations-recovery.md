@@ -15,6 +15,52 @@
 
 下文隔离实施时“待合入”“根环境未变”及C6冻结条件均为历史记录；当前以上述集成状态和停止辅助测量的范围为准。合入不要求万条训练准备测量，不新增性能门槛或消费者改造。
 
+## 本轮定稿：E12-A4 来源故障去重与恢复观测
+
+2026-10-25，基于干净`637c2a280`复核原始E12-S04／AC04与§6“告警有去重、恢复事件与负责人”。A3已有四类本地来源故障审计，但每次失败均追加、没有持续状态或成功恢复。本片沿原整套实施／提交授权approved，补齐这四类观测的持久状态、重复计数、恢复转换和可见处置方；不将其当成其他用途切换的前置，也不据此勾完完整E12-S07。
+
+最小方案是按现有AuditLog查询最后一条失败，但它不能证明恢复，也会受日志归档影响。因此增加一张稀疏`StorageFaultState`表与一条数据库观测序列，继续复用现有审计历史和来源诊断；健康文件不逐个建行。迁移0249接0248，不补造历史故障状态，旧审计保持；回退应用保留表和事实，显式降级只允许空新增表。此观测不授权读取、写入、自动暂停或删除。
+
+### 去重、证据与晚到结果
+
+统一接入现有`scan_snapshot`、直接源`reference_snapshot`、fenced扫描Worker及`directory_previews.generate → register_entry`四条链，不改扫描、原件、缓存或预览业务算法。稳定故障键保存安全摘要及UUID关联，不存路径、对象键、凭据、签名URL或异常原文；run／job／request只作证据，不按请求生成新故障。
+
+| 类别           | 去重及恢复范围                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------ |
+| 根不可用       | 同Location／Source、节点、冻结根anchor和实际配置；不能因换根、停用或注销变为恢复。                           |
+| 认证／访问拒绝 | 同来源、操作及准确目标摘要；目录列举与文件读取分开，邻文件成功不能清除对象级拒绝。                           |
+| 原件变化       | 同来源、path_digest与期望内容身份；已核验时用固定SHA，未核验时用固定观测摘要。新内容被采纳不冒充旧内容恢复。 |
+| 预览失败       | 同来源、path_digest、Asset、原件SHA、SPEC及实际绑定／策略依赖；同一预览ready并最终提交后才恢复。             |
+
+公共身份包含实际依赖的位置／来源配置、节点和维护代次；依赖连接、缓存绑定或策略时纳入相应已捕获事实。它们变化后保留旧观测为历史范围，不能直接标健康。恢复只来自相同范围的实际成功：读取需完整内容核验、最终权限／配置复核；扫描需原task／fence核验与对应目录结果提交；预览需原业务发布成功。原图缓存命中、16字节探针、邻资源、取消、旧投递或撤权不提供恢复证据。
+
+每次实际I/O前从当前调用者Engine的独立有界连接取得单调序号，故障行原子接受较新观测，同序号重放不重复计数。成功只更新已经存在的匹配故障行；已恢复行保留水位，晚到旧结果不能抹去较新故障或重新打开已恢复状态。首次失败尚未持久化时并发成功可能没有故障行可更新，随后晚到的首次失败保守保持待复核，下一次同范围成功再恢复；“暂无故障记录”不代表实时健康。若观测库或旁路写入失败，保持原业务结果和A3的安全日志边界，不提交调用者事务、不重试物理I/O，也不锁调用者已持有的Location／Source父对象。
+
+首次发生、恢复以及恢复后再次发生各写一次转换审计；持续失败仅更新接收观测次数、最近时间和安全关联。状态、转换审计同事务。旧A3日志保留，不从最后失败时间臆测当前健康；不新增外部通知渠道或阈值。
+
+### 可见范围与界面
+
+新增只读`GET /storage-locations/{location_id}/faults`，沿现有datasets:read、当前manager、位置可见性及source_scope_clause裁剪。项目管理员只见其可管理来源，孤立／已删除来源仅超级管理员可见；状态与全量计数使用同一可见范围。接受`state=active|recovered|all`、`limit=20`（1–100）、`offset`分页，返回匹配状态、首次／最近失败与恢复时间、接收次数及安全关联，不返回内部scope摘要。显示当前观测范围，旧配置与旧内容明确为历史，不能混同未恢复与当前实时健康。GET只读持久行，不触源、不发任务。
+
+来源诊断复用紧凑字号、语义状态色和已有分页模式，增加故障观测区：未恢复／已恢复／全部、时间与重复次数、处理方、来源与现有任务链接；超级管理员可跳转转换审计。默认处理方为根／访问故障的“平台管理员”和内容／预览故障的“数据集管理员”，没有指定个人则明确显示，触发读取的人不自动变成负责人，也不把备份声明当故障认领。无新的认领、通知、重试或强制消警工作流。会话／角色／位置变化重建查询owner，撤权隐藏旧数据，保持现有居中详情及返回导航；无需新增独立运维页面。
+
+```text
+authorized source context -> bounded observation sequence -> existing physical I/O
+                                              | failure / final validated success
+                                              v
+                     sparse fault state + transition AuditLog (one transaction)
+                                              |
+visible Location + source scope -> saved paged query -> existing source diagnostics
+```
+
+### 准确文件范围、验证与集成
+
+本片跨模型、四条既有接点、API与管理面，超过八文件：新`apps/api/app/db/models/storage_fault.py`和`alembic/versions/0249_storage_fault_states.py`；现有模型注册、`services/storage_fault_events.py`，新`services/storage_fault_state.py`承接原子状态及查询；`dataset_content.py`、`dataset_references.py`、`directory_previews.py`、`dataset_scans.py`及`workers/dataset_scan.py`；`schemas/storage_location.py`和`api/v1/storage_locations.py`；新`tests/test_storage_fault_states.py`、`test_migration_0249_storage_fault_states.py`及现有A3、内容、引用、扫描／预览受影响断言；Web新`StorageFaultsPanel.tsx`及测试，现有`StorageLocationSourceSummary.tsx`、`api/storage.ts`和审计动作标签／测试；OpenAPI、生成路由、SDK web-only排除、本树生成类型；README、CHANGELOG、用户存储指南、API存储位置指南、开发存储说明、本计划及执行队列。没有依赖、镜像、服务、环境变量或Celery公开任务参数变化。若需要额外文件，仅限实际接点或生成契约，不延伸消费者业务。
+
+使用隔离工作树、本地API虚拟环境及核实owner的可丢弃test／e2e；验证稳定去重、重放／逆序、已恢复后再发生、邻目标／缓存不消警、配置或内容变化不假恢复、真实事务／回滚、扫描fence与预览发布失败、观测失败保留业务，以及角色／Key／位置／来源裁剪、分页与GET零源I/O。仅跑新增和受影响回归，不重复历史消费者资格、规模或训练测量。生成OpenAPI／类型、4项SDK合同、Web类型／lint／CSS tokens、Ruff／格式、文档检查／构建及正常提交钩子、diff检查；锁／upsert使用[PostgreSQL既有事务锁](https://www.postgresql.org/docs/16/explicit-locking.html)和[SQLAlchemy PostgreSQL条件更新](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#insert-on-conflict-upsert)，不引入新协调系统。
+
+真实一次性目录重现重复根不可用，恢复同一根后完整读取及持久恢复；浏览器查看未恢复／已恢复与重复计数、刷新／分页、任务／审计链接，检查明暗×1440／390宽度、焦点、溢出、控制台及失败请求。检查通过后正常提交、合入；按原监督服务应用人工0249并刷新受影响API／Worker，保持3100／8100、Beat、原业务与文件内容，核对迁移前后摘要。按owner销毁测试资源及私有中间产物，清理已合入任务树，仅留有界结果。全类别健康、容量／配额告警、任务无进展、远端Agent和通知渠道仍按原始条件单独推进。
+
 ## 下一片定稿：E12-B4 托管原件集中写入增量
 
 2026-10-25，基线 `5c95be25d`，继续原始 E12-S03／§5／工程任务第2项。B3已在隔离树交付通用账目表、分页对账和周期计划，feature为 `6ccae7415`＋`ab45ab907`；本片在该实现上接通现有托管原件集中写入链，一次覆盖Dataset direct／ZIP／connector／directory_copy、Task及辅助原件，不按导入消费者拆开新资格工程。C6尚在原进程测量，根应用继续冻结；本片不是E07、B8或C6的前置。
