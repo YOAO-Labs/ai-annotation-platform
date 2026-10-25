@@ -49,6 +49,7 @@ celery_app = Celery(
         "app.workers.storage_probe",
         "app.workers.storage_usage",
         "app.workers.managed_original_verification",
+        "app.workers.managed_original_reclaim",
         "app.workers.storage_migration_inventory",
         "app.workers.storage_migration_copy",
         "app.workers.dataset_scan",
@@ -303,6 +304,10 @@ celery_app.conf.update(
             "schedule": crontab(hour=2, minute=30),
         },
         # v0.10.16 · async_jobs 终态 retention purge：30 天后清 completed/failed/cancelled
+        "reconcile-managed-original-references": {
+            "task": "app.workers.managed_original_reclaim.schedule_reference_reconciliation",
+            "schedule": crontab(hour=3, minute=45),
+        },
         "recover-storage-usage": {
             "task": "app.workers.storage_usage.recover_usage_inventories",
             "schedule": 30.0,

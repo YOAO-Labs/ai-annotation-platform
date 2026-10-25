@@ -110,6 +110,12 @@ CREATE TABLE managed_original_reference_reconciliation (
     op.execute("""
     CREATE FUNCTION guard_managed_original_reclaim() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
+      IF TG_OP='DELETE' THEN
+        RAISE EXCEPTION 'Reclaim history cannot be deleted' USING ERRCODE='23514';
+      END IF;
+      IF NEW.async_job_id IS DISTINCT FROM OLD.async_job_id AND NEW.async_job_id IS NOT NULL THEN
+        RAISE EXCEPTION 'Reclaim job identity is immutable' USING ERRCODE='23514';
+      END IF;
       IF ROW(NEW.id,NEW.retirement_id,NEW.creation_id,NEW.retry_of_id,NEW.requested_by,NEW.task_id,
              NEW.authority,NEW.target,NEW.input_fingerprint,NEW.version_id,NEW.expected_sha256,
              NEW.expected_size_bytes,NEW.maintenance_revision,NEW.reason,NEW.requested_at)
@@ -130,6 +136,10 @@ CREATE TABLE managed_original_reference_reconciliation (
          (to_jsonb(NEW)-'async_job_id') IS DISTINCT FROM (to_jsonb(OLD)-'async_job_id') THEN
         RAISE EXCEPTION 'Reclaim terminal facts are immutable' USING ERRCODE='23514';
       END IF;
+      IF array_position(ARRAY['claimed','reading','delete_intent','delete_ack','absence_verified','settled'],NEW.phase)
+         < array_position(ARRAY['claimed','reading','delete_intent','delete_ack','absence_verified','settled'],OLD.phase) THEN
+        RAISE EXCEPTION 'Reclaim phase cannot regress' USING ERRCODE='23514';
+      END IF;
       IF OLD.status='running' AND NEW.status='pending' THEN
         RAISE EXCEPTION 'Reclaim attempt cannot restart' USING ERRCODE='23514';
       END IF;
@@ -137,23 +147,30 @@ CREATE TABLE managed_original_reference_reconciliation (
     END $$;
     """)
     op.execute("""
-    CREATE TRIGGER managed_original_reclaim_immutable BEFORE UPDATE ON managed_original_reclaim_attempts
+    CREATE TRIGGER managed_original_reclaim_immutable BEFORE UPDATE OR DELETE ON managed_original_reclaim_attempts
       FOR EACH ROW EXECUTE FUNCTION guard_managed_original_reclaim();
     """)
     op.execute("""
     CREATE FUNCTION guard_managed_original_reclaim_claim() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
+      IF TG_OP='DELETE' THEN
+        RAISE EXCEPTION 'Reclaim fence cannot be deleted' USING ERRCODE='23514';
+      END IF;
+      IF NEW.revision < OLD.revision OR
+         (ROW(NEW.state,NEW.current_attempt_id) IS DISTINCT FROM ROW(OLD.state,OLD.current_attempt_id) AND NEW.revision<>OLD.revision+1) THEN
+        RAISE EXCEPTION 'Reclaim fence revision is monotonic' USING ERRCODE='23514';
+      END IF;
       IF ROW(NEW.id,NEW.bucket,NEW.object_key,NEW.storage_identity,NEW.creation_id,NEW.version_id,NEW.created_at)
          IS DISTINCT FROM ROW(OLD.id,OLD.bucket,OLD.object_key,OLD.storage_identity,OLD.creation_id,OLD.version_id,OLD.created_at)
          OR (OLD.state='deleted' AND NEW.state<>'deleted')
-         OR (OLD.state='tombstone' AND NEW.state='released') THEN
+         OR (OLD.state='tombstone' AND NEW.state NOT IN ('tombstone','deleted')) THEN
         RAISE EXCEPTION 'Permanent reclaim identity cannot be released' USING ERRCODE='23514';
       END IF;
       RETURN NEW;
     END $$;
     """)
     op.execute("""
-    CREATE TRIGGER managed_original_reclaim_claim_immutable BEFORE UPDATE ON managed_original_reclaim_claims
+    CREATE TRIGGER managed_original_reclaim_claim_immutable BEFORE UPDATE OR DELETE ON managed_original_reclaim_claims
       FOR EACH ROW EXECUTE FUNCTION guard_managed_original_reclaim_claim();
     """)
 

@@ -25297,6 +25297,459 @@
         "title": "ManagedLifecycleCapabilities",
         "type": "object"
       },
+      "ManagedOriginalReclaimApply": {
+        "additionalProperties": false,
+        "properties": {
+          "impact_token": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Impact Token",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 8,
+            "title": "Reason",
+            "type": "string"
+          },
+          "retry_of_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Of Id"
+          }
+        },
+        "required": [
+          "reason",
+          "impact_token"
+        ],
+        "title": "ManagedOriginalReclaimApply",
+        "type": "object"
+      },
+      "ManagedOriginalReclaimHistory": {
+        "properties": {
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "can_preview": {
+            "title": "Can Preview",
+            "type": "boolean"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedOriginalReclaimItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "max_bytes": {
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "retirement_id": {
+            "format": "uuid",
+            "title": "Retirement Id",
+            "type": "string"
+          },
+          "timeout_seconds": {
+            "title": "Timeout Seconds",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "retirement_id",
+          "measured_at",
+          "can_preview",
+          "blockers",
+          "max_bytes",
+          "timeout_seconds",
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "ManagedOriginalReclaimHistory",
+        "type": "object"
+      },
+      "ManagedOriginalReclaimItem": {
+        "properties": {
+          "absence_proven": {
+            "title": "Absence Proven",
+            "type": "boolean"
+          },
+          "async_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Async Job Id"
+          },
+          "cancel_requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Requested At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "creation_id": {
+            "format": "uuid",
+            "title": "Creation Id",
+            "type": "string"
+          },
+          "delete_started": {
+            "title": "Delete Started",
+            "type": "boolean"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "expected_size_bytes": {
+            "title": "Expected Size Bytes",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "deleted",
+                  "already_absent",
+                  "missing",
+                  "changed",
+                  "failed",
+                  "unknown",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "phase": {
+            "enum": [
+              "claimed",
+              "reading",
+              "delete_intent",
+              "delete_ack",
+              "absence_verified",
+              "settled"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "retry_of_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Of Id"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unsettled_operation": {
+            "title": "Unsettled Operation",
+            "type": "boolean"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "async_job_id",
+          "retry_of_id",
+          "status",
+          "phase",
+          "outcome",
+          "error_code",
+          "requested_at",
+          "started_at",
+          "completed_at",
+          "cancel_requested_at",
+          "expected_size_bytes",
+          "version_id",
+          "creation_id",
+          "location_id",
+          "delete_started",
+          "absence_proven",
+          "unsettled_operation"
+        ],
+        "title": "ManagedOriginalReclaimItem",
+        "type": "object"
+      },
+      "ManagedOriginalReclaimPreview": {
+        "properties": {
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "creation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creation Id"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "expected_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Size Bytes"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "impact_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact Token"
+          },
+          "irreversible": {
+            "const": true,
+            "default": true,
+            "title": "Irreversible",
+            "type": "boolean"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "retirement_id": {
+            "format": "uuid",
+            "title": "Retirement Id",
+            "type": "string"
+          },
+          "version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Id"
+          }
+        },
+        "required": [
+          "retirement_id",
+          "measured_at",
+          "expires_at",
+          "eligible",
+          "blockers",
+          "impact_token",
+          "expected_size_bytes",
+          "version_id",
+          "creation_id",
+          "location_id"
+        ],
+        "title": "ManagedOriginalReclaimPreview",
+        "type": "object"
+      },
+      "ManagedOriginalReclaimReview": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 8,
+            "title": "Reason",
+            "type": "string"
+          },
+          "retry_of_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Of Id"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ManagedOriginalReclaimReview",
+        "type": "object"
+      },
+      "ManagedOriginalReclaimStart": {
+        "properties": {
+          "async_job_id": {
+            "format": "uuid",
+            "title": "Async Job Id",
+            "type": "string"
+          },
+          "existing": {
+            "title": "Existing",
+            "type": "boolean"
+          },
+          "reclaim_id": {
+            "format": "uuid",
+            "title": "Reclaim Id",
+            "type": "string"
+          },
+          "retirement_id": {
+            "format": "uuid",
+            "title": "Retirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "retirement_id",
+          "reclaim_id",
+          "async_job_id",
+          "existing"
+        ],
+        "title": "ManagedOriginalReclaimStart",
+        "type": "object"
+      },
       "ManagedOriginalReclamationCounts": {
         "properties": {
           "blocked_assertions": {
@@ -41235,6 +41688,102 @@
           "reviewed_at"
         ],
         "title": "RecentReviewItem",
+        "type": "object"
+      },
+      "ReferenceReconciliationOut": {
+        "properties": {
+          "async_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Async Job Id"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "deltas": {
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Deltas",
+            "type": "array"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "measured_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured At"
+          },
+          "status": {
+            "default": "idle",
+            "enum": [
+              "idle",
+              "pending",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unknown": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Unknown",
+            "type": "object"
+          }
+        },
+        "title": "ReferenceReconciliationOut",
         "type": "object"
       },
       "RegisterRequest": {
@@ -101234,6 +101783,54 @@
         ]
       }
     },
+    "/api/v1/storage/managed-original-reclaims/{attempt_id}/redispatch": {
+      "post": {
+        "operationId": "managed_original_reclaim_redispatch_api_v1_storage_managed_original_reclaims__attempt_id__redispatch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attempt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attempt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedOriginalReclaimStart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Reclaim Redispatch",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
     "/api/v1/storage/managed-original-reclamation": {
       "get": {
         "operationId": "managed_original_reclamation_api_v1_storage_managed_original_reclamation_get",
@@ -101291,6 +101888,242 @@
           }
         ],
         "summary": "Managed Original Reclamation",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/managed-original-reference-reconciliation": {
+      "get": {
+        "operationId": "managed_original_reference_reconciliation_api_v1_storage_managed_original_reference_reconciliation_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceReconciliationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Reference Reconciliation",
+        "tags": [
+          "storage"
+        ]
+      },
+      "post": {
+        "operationId": "managed_original_reference_reconciliation_start_api_v1_storage_managed_original_reference_reconciliation_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceReconciliationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Reference Reconciliation Start",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/managed-original-retirements/{retirement_id}/reclaim-preview": {
+      "post": {
+        "operationId": "managed_original_reclaim_preview_api_v1_storage_managed_original_retirements__retirement_id__reclaim_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "retirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Retirement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedOriginalReclaimReview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedOriginalReclaimPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Reclaim Preview",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/managed-original-retirements/{retirement_id}/reclaims": {
+      "get": {
+        "operationId": "managed_original_reclaim_history_api_v1_storage_managed_original_retirements__retirement_id__reclaims_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "retirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Retirement Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedOriginalReclaimHistory"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Reclaim History",
+        "tags": [
+          "storage"
+        ]
+      },
+      "post": {
+        "operationId": "managed_original_reclaim_start_api_v1_storage_managed_original_retirements__retirement_id__reclaims_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "retirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Retirement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedOriginalReclaimApply"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedOriginalReclaimStart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Reclaim Start",
         "tags": [
           "storage"
         ]

@@ -106,6 +106,19 @@ async def _apply_terminal(
                 await notify_job_terminal(db, job_id=aj.id)
                 await db.commit()
                 return
+            if aj.kind in {
+                "managed_original_reclaim",
+                "managed_reference_reconciliation",
+            }:
+                from app.services.managed_original_reclaim import signal_interrupted
+
+                changed = await signal_interrupted(
+                    db, aj.id, celery_task_id, cancelled=cancelled
+                )
+                if changed:
+                    await notify_job_terminal(db, job_id=aj.id)
+                await db.commit()
+                return
             if aj.kind == "managed_original_verification":
                 from app.services.managed_original_verification import (
                     signal_interrupted,

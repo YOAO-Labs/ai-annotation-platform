@@ -39,6 +39,8 @@ class AsyncJobKind(str, enum.Enum):
     STORAGE_USAGE = "storage_usage"
     VIDEO_ASSET_RETRY = "video_asset_retry"
     MANAGED_ORIGINAL_VERIFICATION = "managed_original_verification"
+    MANAGED_ORIGINAL_RECLAIM = "managed_original_reclaim"
+    MANAGED_REFERENCE_RECONCILIATION = "managed_reference_reconciliation"
     DATASET_QUALITY = "dataset_quality"
     DATASET_QUALITY_REVIEW = "dataset_quality_review"
     DATASET_SCAN = "dataset_scan"

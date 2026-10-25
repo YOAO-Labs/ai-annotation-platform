@@ -4,13 +4,21 @@ from datetime import datetime
 from typing import Literal
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ManagedOriginalReclaimReview(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: str = Field(min_length=8, max_length=1000)
     retry_of_id: uuid.UUID | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def explicit_reason(cls, value):
+        value = value.strip()
+        if len(value) < 8 or any(ord(char) < 32 for char in value):
+            raise ValueError("A concrete review reason is required")
+        return value
 
 
 class ManagedOriginalReclaimApply(ManagedOriginalReclaimReview):

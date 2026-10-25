@@ -773,6 +773,12 @@
 | POST | `/managed-original-retirements/{retirement_id}/retention` |
 | GET | `/managed-original-retirements/{retirement_id}/verifications` |
 | POST | `/managed-original-retirements/{retirement_id}/verifications` |
+| GET | `/managed-original-retirements/{retirement_id}/reclaims` |
+| POST | `/managed-original-retirements/{retirement_id}/reclaim-preview` |
+| POST | `/managed-original-retirements/{retirement_id}/reclaims` |
+| POST | `/managed-original-reclaims/{attempt_id}/redispatch` |
+| GET | `/managed-original-reference-reconciliation` |
+| POST | `/managed-original-reference-reconciliation` |
 
 ## `storage.py`
 
@@ -1127,4 +1133,4 @@
 
 ---
 
-_共 101 模块 / 660 路由_
+_共 101 模块 / 666 路由_

@@ -49,6 +49,7 @@ CANCELLABLE_KINDS = {
     "dataset_registration",
     "storage_usage",
     "managed_original_verification",
+    "managed_original_reclaim",
     "storage_migration_inventory",
     "storage_migration_copy",
     "dataset_quality",
@@ -104,6 +105,8 @@ def _build_async_job_query(
                         [
                             "storage_usage",
                             "managed_original_verification",
+                            "managed_original_reclaim",
+                            "managed_reference_reconciliation",
                             "storage_migration_inventory",
                             "storage_migration_copy",
                             "dataset_scan",
@@ -160,6 +163,8 @@ async def _can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> boo
     if job.kind in {
         "storage_usage",
         "managed_original_verification",
+        "managed_original_reclaim",
+        "managed_reference_reconciliation",
         "storage_migration_inventory",
         "storage_migration_copy",
     }:
@@ -307,6 +312,8 @@ async def list_async_jobs(
                 {
                     "storage_usage",
                     "managed_original_verification",
+                    "managed_original_reclaim",
+                    "managed_reference_reconciliation",
                     "storage_migration_inventory",
                     "storage_migration_copy",
                 }
@@ -351,6 +358,8 @@ async def get_async_job(
     if job.kind in {
         "storage_usage",
         "managed_original_verification",
+        "managed_original_reclaim",
+        "managed_reference_reconciliation",
         "storage_migration_inventory",
         "storage_migration_copy",
     }:
@@ -445,6 +454,25 @@ async def cancel_async_job(
             else storage_migration_inventories
         )
         status = await domain.cancel(db, job.id)
+        _, current_proof = await storage_maintenance.authority(
+            db, current_user, key_id, "*"
+        )
+        if current_proof != proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        if status == "cancelled":
+            await notify_job_terminal(db, job_id=job.id)
+        await db.commit()
+        return {"status": status, "id": str(job.id)}
+
+    if job.kind == "managed_original_reclaim":
+        assert_request_scopes(request, "*")
+        from app.services import managed_original_reclaim, storage_maintenance
+
+        key_id = getattr(request.state, "api_key_id", None)
+        _, proof = await storage_maintenance.authority(
+            db, current_user, key_id, "*", lock=True
+        )
+        status = await managed_original_reclaim.cancel(db, job.id)
         _, current_proof = await storage_maintenance.authority(
             db, current_user, key_id, "*"
         )
