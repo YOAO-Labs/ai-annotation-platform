@@ -1,6 +1,6 @@
 # EPIC-12：运维观测、容量口径与备份恢复
 
-> 状态：approved；E12-A1/A2/A3、E12-A4 四类本地来源故障去重与恢复观测及 E12-A5 存储任务真实推进观测、E09-B1/B2、E12-B1 离线隔离恢复试点、E12-B2 外部原件保护责任、E12-C1 本地目录扫描基线、E12-C2／E09-B4 已采纳源索引规模、E12-C3 平台对象分项、E12-C4 原图读取与 E12-C5 增量同步本地基线、E12-B3 首个生产者的当前对象增量账目与周期对账、E12-B4 托管原件集中新增、E12-B5 四类媒体缓存受控新增、E12-B6 独立导出媒体受控新增、E12-B7 导出 ZIP 写入净变化、E12-B8 报告附件受控新增、E12-B9 五类条件创建对象增量、E12-B10 四类服务端训练归属对象覆盖写入、E12-B11 独立导出媒体准确版本删除增量、E12-B12 缩略图／头像／报告附件删除观测及 E12-B13 当前缓存／ZIP 按键删除净变化已完成；A3／A4 限本地来源故障观测，B2 为声明及本地恢复保留，完整E12仍为部分交付，其余切片待独立复核，不分配发布版本。
+> 状态：completed；原始七故事、十AC及六工程已按当前授权本地范围收口并归档，矩阵见文末。生产在线备份／PITR、真实站点／迁移目标及生产SLO／RPO／RTO沿ops与E06／E07继续，未宣称已验证，不分配发布版本。
 > 晋升基线：`5b764eaa5`；工作树干净，保留 `1822b025369a33f4` 的 dev 人工验收环境，不重建后端镜像。
 
 原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增，B6接入独立导出媒体新增，B7接入导出ZIP写入净变化，B8接入报告附件受控新增，B9接入头像／评论附件／指南图片／持久RLE／审计归档受控新增，B10接入冻结文件／主动学习保留图片／评估报告／脱敏日志的覆盖写入净变化，B11接入独立导出媒体的准确版本删除，B12接入缩略图／头像／报告附件实际删除观测，B13接入完整缓存／金字塔／视频派生物／ZIP按键删除的当前内容净变化；其他生产者及附件／训练等移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；B3及后续切片已交付原§5／工程任务第2项的增量流水与周期对账框架。未覆盖入口如实保留，不以继续追加producer名称、消除所有unknown或提供推算总量作为A5、其他切片或E12整项收口的新增前置；其余原始故事／验收仍分别核对。
@@ -35,6 +35,8 @@ authorized strict source reads / actual new preview preparation
 验证限本片及相关既有回归：纯计数的首次健康、零分母、UTC换日、并发／晚结果／重复结算、旁路失败不污染调用者、源授权／GET只读及列表筛选分页独立；两种真实源读取的成败／双复读、缓存命中／回调、未知／取消／收尾排除；预览新生成／失败发布／复用／回滚。只用核实归属的一次性test数据库，按case身份保存实际退出和JUnit后清中间产物。所属dev用小型真实目录完成HTTP完整读取成功／缺失与独立Worker登记生成，预览失败在真实DB领域流程中用明确受控编码失败验证，不新增外部提供方故障资格。真实页面检查两个分项、无分母、刷新／筛选及明暗宽窄；不为分页制造全平台故障。主树迁移及API／两Worker刷新前核对空闲与指纹，保留原端口与数据，结束清理所属资源／浏览器／私密产物并正常提交。通过后按原始矩阵核对E12收口，不增加全producer、全消费者、训练测量、未知生产目标或新SLO。
 
 ## E12-A6 Outcome：原图与预览分项失败率
+
+主树落地提交：`021d16f59`。
 
 2026-10-26，真实来源提交`ce8a0116e`／`31139cbae`（聚合与API）、`ac48432a9`（读取／预览接线及缓存窄修）、`2f137269829`（Web）整合，19条变更路径与最终来源逐字节一致。0261新增按完成日UTC／位置／来源／metric的成功失败桶；独立有界UPSERT、内存一次结算、不重试，旁路失败不改变业务。faults GET只读当前授权范围，rates独立于明细过滤分页；无分母、不可用和旧响应保持未知。实际严格回源包含登记安全复读，缓存命中不计；预览仅新生成且最终发布后结算，复用／回滚／取消／上下文错误／不确定收尾不补猜。修正缓存回调初始化顺序，未扩展缓存或消费者功能。
 
@@ -764,7 +766,7 @@ Super administrator -> inventory POST -> AsyncJob + singleton checkpoint
 - `docs-site/dev/reference/storage-buckets.md`
 - `docs-site/user-guide/datasets/storage-connections.md`
 - `docs/plans/archive/1792661016_dataset-storage-console-boundaries.md`
-- `docs/plans/1792661016_dataset-storage-operations-recovery.md`
+- `docs/plans/archive/1792661016_dataset-storage-operations-recovery.md`
 - `docs/plans/backlog/1792661016_dataset-storage-baseline.md`
 - `docs/plans/backlog/1792661016_dataset-storage-roadmap.md`
 - `docs/plans/backlog/README.md`
@@ -795,18 +797,18 @@ pnpm --dir docs-site check:navigation
 
 | 当前 owner / 代码锚点                                             | 已有能力、缺口与复用约束                                                                                 |
 | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| [storage.py](../../apps/api/app/services/storage.py)              | summarize_bucket 全量物化列表，失败 error+零值，无持久成功快照；线程池避免阻塞不等于消除每请求全桶遍历。 |
-| [storage.py](../../apps/api/app/api/v1/storage.py)                | health 只查 annotations，buckets 逐桶扫描；需分开节点/根/能力探测、容量采样和业务可用性。                |
-| [docker-compose.md](../../docs-site/ops/deploy/docker-compose.md) | 已有 pg_dump/restore 和对象镜像说明，缺一致代次、对象清单及隔离恢复对账证据。                            |
-| [lan-production.md](../../docs-site/ops/deploy/lan-production.md) | 已有九桶、配置、密钥/CA 备份要求；外部原件由明确责任方保护，索引不冒充备份。                             |
+| [storage.py](../../../apps/api/app/services/storage.py)              | summarize_bucket 全量物化列表，失败 error+零值，无持久成功快照；线程池避免阻塞不等于消除每请求全桶遍历。 |
+| [storage.py](../../../apps/api/app/api/v1/storage.py)                | health 只查 annotations，buckets 逐桶扫描；需分开节点/根/能力探测、容量采样和业务可用性。                |
+| [docker-compose.md](../../../docs-site/ops/deploy/docker-compose.md) | 已有 pg_dump/restore 和对象镜像说明，缺一致代次、对象清单及隔离恢复对账证据。                            |
+| [lan-production.md](../../../docs-site/ops/deploy/lan-production.md) | 已有九桶、配置、密钥/CA 备份要求；外部原件由明确责任方保护，索引不冒充备份。                             |
 
-候选修改入口：[storage.py](../../apps/api/app/services/storage.py)、[storage.py](../../apps/api/app/api/v1/storage.py)、[storage.py](../../apps/api/app/schemas/storage.py)、[async_job.py](../../apps/api/app/services/async_job.py)、[StoragePage.tsx](../../apps/web/src/pages/Storage/StoragePage.tsx)。本轮准确文件范围与迁移已固定于上方实施合同；其余切片需独立复核。
+候选修改入口：[storage.py](../../../apps/api/app/services/storage.py)、[storage.py](../../../apps/api/app/api/v1/storage.py)、[storage.py](../../../apps/api/app/schemas/storage.py)、[async_job.py](../../../apps/api/app/services/async_job.py)、[StoragePage.tsx](../../../apps/web/src/pages/Storage/StoragePage.tsx)。本轮准确文件范围与迁移已固定于上方实施合同；其余切片需独立复核。
 
 ## 1. 当前问题与依据
 
-当前 `summarize_bucket` 通过列举整个桶计算对象数和字节数，页面刷新可能触发昂贵的全量统计；当前存储页“总容量”使用的是对象已用字节，并不等于磁盘物理容量。[存储服务](../../apps/api/app/services/storage.py)、[存储页面](../../apps/web/src/pages/Storage/StoragePage.tsx)
+当前 `summarize_bucket` 通过列举整个桶计算对象数和字节数，页面刷新可能触发昂贵的全量统计；当前存储页“总容量”使用的是对象已用字节，并不等于磁盘物理容量。[存储服务](../../../apps/api/app/services/storage.py)、[存储页面](../../../apps/web/src/pages/Storage/StoragePage.tsx)
 
-系统已有 AsyncJob 全局历史和详情、媒体失败项重试，应该扩展其证据和诊断能力，而非新建另一套运维任务中心。[任务入口](../../apps/web/src/components/shell/JobsBell.tsx)、[任务详情](../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)
+系统已有 AsyncJob 全局历史和详情、媒体失败项重试，应该扩展其证据和诊断能力，而非新建另一套运维任务中心。[任务入口](../../../apps/web/src/components/shell/JobsBell.tsx)、[任务详情](../../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)
 
 外部目录原地引用后，平台需要同时表达“索引了多少外部数据”“平台实际存了多少副本”和“底层磁盘还剩多少”，不能把三者相加成一个使用量。
 
@@ -936,11 +938,11 @@ pnpm --dir docs-site check:navigation
 
 ## 12. 工程任务与完成定义
 
-- [ ] 定义指标字典、采集范围和去重域，替换“总容量”混用字段。
+- [x] 定义指标字典、采集范围和去重域，替换“总容量”混用字段。
 - [x] 实现持久化容量快照、异步分页盘点、增量账目与差异核对；覆盖范围和未知项分别返回，不要求所有生产者齐备或推算总量非空。
-- [ ] 接入统一日志关联、位置健康、错误分类与告警恢复事件。
-- [ ] 建立代表性性能数据集和测量报告，确认有界资源与具体发布预算。
-- [ ] 设计一致备份清单、删除保护和任务恢复规则；保存密钥恢复材料。
+- [x] 接入本地统一日志关联、位置健康、错误分类及去重／恢复事件；外部通知和真实远端站点未冒称已接入。
+- [x] 建立代表性性能数据集和测量报告，核实有界资源与现有执行预算；未批准生产发布SLO，不新增训练规模前置。
+- [x] 设计离线一致备份清单、删除保护和任务恢复规则；保存独立演练密钥材料，生产恢复材料由部署方保管。
 - [x] 完成一次离线合成隔离恢复演练，覆盖冻结中断、缺失外部原件和旧任务状态；生产恢复上线仍须另行验收。
 
 完成定义：用户能看懂实际占用与数据可用性，运维能定位故障并按演练过的步骤恢复业务，而不是只恢复一个运行中的容器。
@@ -957,17 +959,17 @@ pnpm --dir docs-site check:navigation
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_storage_event_loop.py](../../apps/api/tests/test_storage_event_loop.py)、[test_storage_public_url.py](../../apps/api/tests/test_storage_public_url.py)、[test_training_storage_deletion.py](../../apps/api/tests/test_training_storage_deletion.py)、[StoragePage.test.tsx](../../apps/web/src/pages/Storage/StoragePage.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_storage_event_loop.py](../../../apps/api/tests/test_storage_event_loop.py)、[test_storage_public_url.py](../../../apps/api/tests/test_storage_public_url.py)、[test_training_storage_deletion.py](../../../apps/api/tests/test_training_storage_deletion.py)、[StoragePage.test.tsx](../../../apps/web/src/pages/Storage/StoragePage.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[storage-buckets.md](../../docs-site/dev/reference/storage-buckets.md)、[docker-compose.md](../../docs-site/ops/deploy/docker-compose.md)、[lan-production.md](../../docs-site/ops/deploy/lan-production.md)、[network-security.md](../../docs-site/ops/deploy/network-security.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[storage-buckets.md](../../../docs-site/dev/reference/storage-buckets.md)、[docker-compose.md](../../../docs-site/ops/deploy/docker-compose.md)、[lan-production.md](../../../docs-site/ops/deploy/lan-production.md)、[network-security.md](../../../docs-site/ops/deploy/network-security.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## Outcome
 
 ### E11-C2-C 完整核验历史恢复回归
 
-2026-10-24 扩展既有合成演练，在源准备 matched、同大小不同内容的 changed 及从未派发的 pending 三条观察。销毁源后实际恢复150表91行、九桶20对象；核验历史所有列继续受完整/保护行指纹约束，未加入物理重定位白名单。目标原件定位改变后旧 context=false，pending不自动运行；另一个独立断言在目标显式完整读取匹配。既有冻结/中断、密钥、外部原件缺失及同名替换拒绝验证通过，队列仍待审核。11个恢复纯测试与实际源/目标清理通过；这仍是本地合成恢复资格，不能当作生产恢复点或删除许可。完整交付、342个不同本地用例与人工环境保留证据见[E11 Outcome](archive/1792661016_dataset-permissions-lifecycle.md#e11-c2-c-已登记原件完整内容核验)。
+2026-10-24 扩展既有合成演练，在源准备 matched、同大小不同内容的 changed 及从未派发的 pending 三条观察。销毁源后实际恢复150表91行、九桶20对象；核验历史所有列继续受完整/保护行指纹约束，未加入物理重定位白名单。目标原件定位改变后旧 context=false，pending不自动运行；另一个独立断言在目标显式完整读取匹配。既有冻结/中断、密钥、外部原件缺失及同名替换拒绝验证通过，队列仍待审核。11个恢复纯测试与实际源/目标清理通过；这仍是本地合成恢复资格，不能当作生产恢复点或删除许可。完整交付、342个不同本地用例与人工环境保留证据见[E11 Outcome](1792661016_dataset-permissions-lifecycle.md#e11-c2-c-已登记原件完整内容核验)。
 
 ### E12-A1 / E09-B1 平台对象盘点交付
 
@@ -1016,7 +1018,7 @@ E02-B13-B3-H1新增实际inline组件的schema3图片恢复夹具，精确选择
 
 ### B1追加验收 — 视频独立交付责任
 
-E02-B13-B3-H2 增加真实生成的视频、Dataset／TaskOriginal 条件创建及 schema4 ready／中断 building 的 inline 组件夹具。源销毁后恢复 166 表 216 行、九桶 92 对象（68278 字节），逐字节核对四份视频副本、两个 ZIP 与四份探测证明；完整原始创建／来源事实、冻结输入、首次截止和历史 URL 保持，恰好一个 schema4 缓存索引失效，不重新探测、回源、签名或自动恢复执行。七文件 105 项恢复纯测试及最终随机资源清理通过。实际 HTTP／独立 Celery／MinIO 验收另见 [E02 H2 Outcome](archive/1792661016_dataset-storage-locations-connections.md#e02-b13-b3-h2-outcome--视频冻结导出与独立媒体交付)，不以此合成恢复代替生产保护、实际站点或 RPO／RTO 资格。
+E02-B13-B3-H2 增加真实生成的视频、Dataset／TaskOriginal 条件创建及 schema4 ready／中断 building 的 inline 组件夹具。源销毁后恢复 166 表 216 行、九桶 92 对象（68278 字节），逐字节核对四份视频副本、两个 ZIP 与四份探测证明；完整原始创建／来源事实、冻结输入、首次截止和历史 URL 保持，恰好一个 schema4 缓存索引失效，不重新探测、回源、签名或自动恢复执行。七文件 105 项恢复纯测试及最终随机资源清理通过。实际 HTTP／独立 Celery／MinIO 验收另见 [E02 H2 Outcome](1792661016_dataset-storage-locations-connections.md#e02-b13-b3-h2-outcome--视频冻结导出与独立媒体交付)，不以此合成恢复代替生产保护、实际站点或 RPO／RTO 资格。
 
 ### E12-C1：真实目录扫描资源与取消恢复基线
 
@@ -1048,7 +1050,7 @@ E02-B13-B3-H2 增加真实生成的视频、Dataset／TaskOriginal 条件创建�
 
 ## E12-C4：目录原图读取资源基线
 
-2026-10-25 完成原始 E12-S05 的目录原图测量分项。新增可重跑的隔离基准、观测 bootstrap 和正式[实测说明](../../docs-site/dev/reference/dataset-read-benchmark.md)，复用现有扫描／严格登记、JWT 和真实 HTTP 原图接口；不修改生产读取、预算、授权、Worker、依赖或镜像。先实际复现综合健康检查因无 Celery Worker 返回503，而数据库／Redis／MinIO均200，再将工具就绪检查改为这三项实际依赖，不为测量额外启动Worker。八项辅助用例通过，覆盖该就绪边界、真实编码／摘要、计数与FD分类、线程上下文和失败收尾。
+2026-10-25 完成原始 E12-S05 的目录原图测量分项。新增可重跑的隔离基准、观测 bootstrap 和正式[实测说明](../../../docs-site/dev/reference/dataset-read-benchmark.md)，复用现有扫描／严格登记、JWT 和真实 HTTP 原图接口；不修改生产读取、预算、授权、Worker、依赖或镜像。先实际复现综合健康检查因无 Celery Worker 返回503，而数据库／Redis／MinIO均200，再将工具就绪检查改为这三项实际依赖，不为测量额外启动Worker。八项辅助用例通过，覆盖该就绪边界、真实编码／摘要、计数与FD分类、线程上下文和失败收尾。
 
 最终一轮125次真实读取中124次完整响应逐次核对SHA／长度，一次在大PNG完整核验后只接收64 KiB即断开。三张图片为2,360,909／1,862,268／25,175,958 B；各20次负载的单路完整响应p95为89.67／102.89／318.95 ms，四路为317.90／214.49／724.85 ms。每次SQL cursor执行65次；内容读取会话、实际read调用／字节、SQL／解码分位、CPU及资源采样均保存并解释。四路最大档匿名临时文件峰值100,703,832 B，API RSS采样峰值522.72 MiB，各负载结束源常规／目录FD及匿名临时FD／字节均为零。断开后实际收尾5.57 ms与之后16.52 ms的观察延迟分列；后续完整读取成功，源文件前后SHA一致。
 
@@ -1100,7 +1102,7 @@ Web提供紧凑摘要及居中弹窗，位置来源诊断复用同一只读摘�
 
 ## E12-C6 进行记录 — 工具与真实链路校准
 
-2026-10-25，独立观测bootstrap集成`0fd687027`，协调器、九项helper和正式[训练准备参考](../../docs-site/dev/reference/dataset-training-benchmark.md)随本记录交付。共33个不同辅助检查通过，包含上下文／原生Body委派与真实close、SQL／S3成败、普通账号归属拒绝、精确ZIP字节／标签、阶段超时收尾及不完整观测不能伪报完成。独立只读审查修正默认相对`/minio`地址依赖Vite的问题，仅在测量子环境使用直接S3签名，不改共享.env。
+2026-10-25，独立观测bootstrap集成`0fd687027`，协调器、九项helper和正式[训练准备参考](../../../docs-site/dev/reference/dataset-training-benchmark.md)随本记录交付。共33个不同辅助检查通过，包含上下文／原生Body委派与真实close、SQL／S3成败、普通账号归属拒绝、精确ZIP字节／标签、阶段超时收尾及不完整观测不能伪报完成。独立只读审查修正默认相对`/minio`地址依赖Vite的问题，仅在测量子环境使用直接S3签名，不改共享.env。
 
 8样本真实JWT HTTP／PostgreSQL／Redis／Celery／MinIO校准通过：预检1.043秒／782 SQL、创建1.271秒／1,100 SQL、Worker5.371秒／883 SQL，读回5,802字节完整包两次并核对19个ZIP成员；所有观测上下文收尾。原Dataset／Item／Task／Annotation／关联完整行与原件字节保持，所属API／Worker已停止。随后增加的观测完整性断言沿校准实际指标核对为真，阶段等待预算及取消守卫另经辅助检查；未重复已通过校准。
 
@@ -1116,7 +1118,7 @@ Ruff检查／格式、206文件frontmatter、208页严格导航、207文件可�
 
 全部旧Item／Asset／采纳修订身份及源树字节／元信息保持，新增成员恰为10／100。万文件两轮各重读15,681,860 B旧原件；新增100文件实际155,360 B，经过301次内容读取累计466,175 B，全轮16,148,035 B。四轮结束源常规／目录与匿名临时FD、临时字节全为零。三种合成PNG、暖ext4、本机共享PostgreSQL／MinIO、受控阶段唤醒和单次测量限制保留；大档新增与C6及子树有限检查重叠，不作独占主机或生产定时SLO资格，不自动扩展优化工程。
 
-11项不同辅助检查和工具交付的文档／钩子证据复用，本次独立复核四轮准确结果及全部工具hash。完整表及复现写入[正式增量同步参考](../../docs-site/dev/reference/dataset-sync-benchmark.md)。仅原始E12-S05／§7本地增量同步分项完成，训练C6、生产调度及完整E12继续活动；没有Tracker、会话或审核前置。
+11项不同辅助检查和工具交付的文档／钩子证据复用，本次独立复核四轮准确结果及全部工具hash。完整表及复现写入[正式增量同步参考](../../../docs-site/dev/reference/dataset-sync-benchmark.md)。仅原始E12-S05／§7本地增量同步分项完成，训练C6、生产调度及完整E12继续活动；没有Tracker、会话或审核前置。
 
 C5所属e2e已精确停止／销毁，独立doctor确认数据库、Redis和九桶均不存在，原Worker及自建临时源树收尾；原报告／进度日志／清理输出已删除，只留私有有界核验摘要。人工3100／8100数据库健康均200，C6独立test仍运行，未重启人工服务或清理其他命名空间。最终结果文档仅作表格及范围更新，检查／钩子与diff结果纳入本次提交。
 
@@ -1143,3 +1145,34 @@ C5所属e2e已精确停止／销毁，独立doctor确认数据库、Redis和九�
 所属Beat、监督API／Web／两个Worker及浏览器会话已停止；dev和test均按精确confirmation销毁。随后独立连接检查两库、两Redis及各九桶全部不存在，两个资源manifest移除；只清理本树命名空间，人工3100与8100数据库健康均200，未重启人工服务或触碰仍在运行的主树C6。任务私有凭据、日志、截图、JUnit与构建／测试缓存清理，仅保留本节有界结果。UI子树实际提交经六文件payload等价与本树检查后清理，功能提交保留。
 
 原始工程第2项仍是部分覆盖：其他平台物理写删入口尚未接入；历史版本、删除标记、multipart和提供方磁盘开销不计为当前对象字节。旧应用回退必须保留schema，先关闭周期计划；迁移降级仅在五表受同事务锁保护且新增流水／代次为空时允许，禁止丢账。完整E12保持活动，不新增B8、E07、训练、Tracker、会话或审核前置。
+
+## 完整 E12 本地验收与归档
+
+2026-10-26，对照桌面原始EPIC-12的七项故事、十项AC及六项工程任务复核。A6补齐原§6“原图不可读率与预览失败率分别统计”的最后已确认本地实现缺口；其余交付复用已完成的A1–A5、B1–B13、C1–C5和已记录千样本事实，不重做既有验收。用户已停止的C6万条训练测量不重新列入，继续追加producer、消除全部unknown、真实生产目标或批准生产SLO不构成本地收口前置。
+
+| 原始故事 | 本地交付与保留边界 |
+| --- | --- |
+| E12-S01 | A2来源诊断、A3分类关联、A4去重／恢复／默认处置角色、A6分项率，原件、预览与扫描分别显示。 |
+| E12-S02 | A1持久快照、用量与配额／新鲜度，刷新只读数据库，未知物理容量不猜零。 |
+| E12-S03 | C2源索引、C3六类平台对象、B3–B13增量与周期纠偏，按去重域统计，partial／未归类／未知分别保留。 |
+| E12-S04 | A3／A4以request、job、location和asset关联安全事件；真实远端站点事件由E06继续承接，不冒称跨站点部署已验。 |
+| E12-S05 | C1扫描、C4读取、C5同步及已完成千样本记录，报告实际资源和有界预算；没有重新开启万条训练或作出生产吞吐承诺。 |
+| E12-S06 | B1销毁源后的隔离恢复、密钥、标注／修订／完整冻结内容核验及未完成任务保留。 |
+| E12-S07 | 缓存用量／额度／清理状态、已有作业历史、A5实际推进、B2外部责任与E11保留／回收，均有明确观察和处置边界。 |
+
+| 原始AC | 本地完成依据 |
+| --- | --- |
+| E12-AC01 | C2／C3分类与范围去重，B3–B13增量核对；不将部分账目、逻辑引用或对象字节称为物理总量。 |
+| E12-AC02 | 无可靠能力的物理容量保持未知，配额与磁盘总量分开。 |
+| E12-AC03 | A1持久成功快照与实际刷新，失败保留旧值／时间，GET不全量LIST。 |
+| E12-AC04 | A3／A4根、认证、内容与预览分类及安全关联；A6独立补当日已记录成功分母。 |
+| E12-AC05 | C1实际1千／1万／4万扫描、取消／恢复及C4／C5资源报告与既有预算；未测范围不宣称资格。 |
+| E12-AC06 | B1实际隔离恢复后验证标注—样本—修订、冻结内容和密钥。 |
+| E12-AC07 | 离线一致窗口保留ready及明确未完成冻结，不伪造缺图ready；没有宣称在线并发／PITR备份已实现。 |
+| E12-AC08 | B2责任随恢复保留，外部缺失和同名异内容严格拒绝，索引不删除。 |
+| E12-AC09 | E05缓存租约／独立冻结保护及E11组保留、backup／migration holds和并发最终复核；恢复代次自有完整副本不依赖继续保留源。 |
+| E12-AC10 | B1记录已知停写期间0写入及备份3.197秒、DB恢复13.605秒、对象恢复2.825秒等实测阶段用时；这些是合成试点决策事实，未替部署方批准生产RPO／RTO。 |
+
+六项工程分别对应：指标字典与去重域（A1、C2／C3）；持久快照／分页／增量／周期核对（A1、B3–B13）；日志／健康／分类／去重恢复与分项率（A3–A6）；测量报告与预算（C1／C4／C5及既有千样本报告）；一致清单／保护／任务规则／密钥（B1、B2及E11）；源销毁后的隔离演练（B1及追加恢复Outcome）。本文件原工程清单同步勾选，不把曾经未勾选的已交付能力重新建设。
+
+本地实施及上述验收已收口并归档；没有分配发布版本。生产在线备份／PITR、所有执行端实际停写与恢复上线、真实外部目标、站点及发布SLO／RPO／RTO仍由[恢复运维说明](../../../docs-site/ops/deploy/storage-recovery.md)、E06及[E07迁移计划](../1792661016_dataset-s3-selection-migration.md)承接，未作为本轮新门槛，也未宣称已验证。0260／0261新表由全库dump／restore及目录指纹保留，回收历史、Creation、tombstone和汇总不进入物理重定位白名单；恢复不重放旧队列或旧删除许可。未执行新schema非空专属灾备演练，不据此重开恢复专项。整套Epic仍有E06／E07／E10，不能将本项归档称为整套完成。
