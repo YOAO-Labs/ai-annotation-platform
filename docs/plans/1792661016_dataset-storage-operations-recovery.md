@@ -5,6 +5,41 @@
 
 原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4进一步接入集中托管原件新增，其他物理生产者仍待接入。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
 
+## 本轮定稿：E12-B5 媒体缓存受控新增增量
+
+2026-10-25，基于`eb778b2cf`继续原始E12-S03／AC01、§5及工程任务第2项。C3已交付六分类LIST快照，B3／B4已接入临时输入及集中托管原件；本片统一补齐media-cache四类既有生产者的实际新增，不重新建设分类盘点。沿用户整套实施／提交授权执行，E02-AC10待答的历史定位范围不阻塞本片。
+
+| 已有owner             | 生产者标识                 | 接入范围                                        |
+| --------------------- | -------------------------- | ----------------------------------------------- |
+| ThumbnailOutput       | `thumbnail_outputs`        | 目录预览、Dataset与Task普通缩略图的共享写入入口 |
+| OriginalCacheEntry    | `original_cache`           | 完整原图缓存的条件PUT及现有完整校验             |
+| ImagePyramidOutput    | `image_pyramid_outputs`    | 全部瓦片、overview与manifest                    |
+| VideoDerivativeOutput | `video_derivative_outputs` | poster、playback、frame、chunk及metadata结果    |
+
+最小方案是四处分别追加字节累计；这会遗漏真实写入后业务回滚、多对象中途失败和应答未知。因此复用B4的`begin_in_transaction`／`publish`和B3的窗口对账，用一个私有媒体记账helper承接四处实际写入。每次实际条件提交前，在同一调用者Engine的独立短事务持久化精确endpoint／bucket／完整key、producer、owner与实际尝试意图；不从今日Binding猜测旧地址。重试实际PUT产生独立attempt，完整逻辑身份继续幂等，412只表达本次零增量，不能解释早先未知尝试。
+
+仅在条件PUT成功、返回不可变非null版本、完整内容读回与该返回版本一致、当前HEAD仍是同一版本和大小且原生资源真实收尾后确认正增量。优先复用现有完整读回结果，新增当前HEAD仅用于账目，不改变原有读写结果或扩大签名范围。无版本／null、返回旧版本、后来替换、丢应答、完整性或关闭失败保留已观察物理事实与unknown；未知不是零。后续业务发布失败、取消或回滚不抹去已发生写入；部分生成失败时，已经提交的对象仍有独立意图及可证明事实，不按整个owner成功才一次累计。意图持久化失败时不开始对应PUT，发布失败不改变已经发生的业务结果，沿现有恢复／盘点核对未决意图，不加新重试或清理许可。
+
+同步物理helper通过显式传入的局部记账对象把短事务提交回所属事件循环，不共享AsyncSession到线程、不创建跨循环Engine、不包办读取或替换全局S3 client。复用现有线程排空、BaseException／取消和client／Body收尾；同步桥接采用[Python线程安全协程提交](https://docs.python.org/3/library/asyncio-task.html#asyncio.run_coroutine_threadsafe)的既有仓库模式。条件写只针对当前版本，沿[S3条件写合同](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html)，不把历史版本或提供方磁盘字节纳入当前对象增量。
+
+```text
+saved media owner -> per-object durable intent -> existing conditional PUT / full readback
+                             |                               |
+                             |                  returned version + current HEAD
+                             v                               v
+                    existing mutation table <- true native close/drain
+                             |
+                     existing LIST reconciliation -> partial summary
+```
+
+GET摘要的producers列表增加上表四项，覆盖文案只显示响应实际声明的生产者；`coverage=partial`和`projected_total_bytes=null`保留。现有缓存、金字塔与视频清理按key删除，并不证明不可变版本已移除；本片不改删除算法、不补造负量、不扩展版本GC或为已有清理增加前置。历史、其他生产者、提供方lifecycle及外部写入继续由既有盘点表达未解释变化。无需新表、迁移、API端点、命令、配置、依赖或镜像。
+
+准确候选范围超过8文件：新`apps/api/app/services/media_cache_accounting.py`及其专项测试，现有`storage_usage_accounting.py`仅按共享接口需要调整；四个物理接点`thumbnail_outputs.py`、`original_cache.py`、`image_pyramid_storage.py`、`video_derivative_storage.py`，两个所属Worker `image_pyramid.py`／`media_derivatives.py`，`schemas/storage.py`及相关已有media-cache／accounting检查；Web `pages/Storage/StorageUsageAccounting.tsx`及其测试；OpenAPI snapshot与本树生成类型；README、CHANGELOG、用户storage-connections、API storage-locations、开发reference/storage-buckets、本计划及执行队列。原件／解码／渲染算法、消费者业务、清理控制和SDK能力分类不变；新增文件必须服务同一记账接点，不顺带整理其他模块。
+
+使用核实owner的一次性test／e2e验证：四个生产者的准确地址与真实字节、schema1／2及旧位置、条件失败与重复实际尝试、无版本／旧版本／替换、应答与读回失败、多对象部分成功、业务回滚、取消和真实关闭顺序、记账发布失败及盘点对账；有意义的回归覆盖实际生产调用者，不只验证私有helper。真实PostgreSQL／MinIO以小图片、少量瓦片和小视频产物验证存储接线，原生生成器不可用时明确限定证据，不增设训练规模、GPU或渲染性能资格。同步快照／类型、SDK合同、Ruff固定版本、Web类型／lint／CSS tokens、正式文档与构建、正常提交钩子及diff检查。浏览器检查真实摘要文案、明暗和桌面／窄屏，不重跑原周期计划与历史消费者验收。
+
+主树集成后核对人工环境所属服务及空闲任务，再刷新实际消费改动的Worker，保持原3100／8100、Beat与schema0254。记录数据／对象保持与新生产者接线证据，按owner销毁全部本片一次性资源和私密中间产物，清理已合入隔离树。回退应用保留0246账目事实，不删除对象或历史流水。此片只交付该生产者组受控新增，不宣称完整E12或整套Epic完成，不推送或发布。
+
 ## 当前推进边界：停止万条辅助测量
 
 2026-10-25，按用户对本轮数据集／存储主线的纠偏，停止C6万条训练准备测量，保留已完成的千条辅助记录。万条尚在夹具准备阶段，没有完成数据，不标为通过；所属进程结束，test资源已销毁。它不再列为本轮必需交付，也不作为B8、B3、B4或其他存储修改合入／人工环境刷新的前置。下列合同中实施期间的C6源码冻结叙述仅保留历史上下文，现已解除；后续规模专项需有明确独立目标才启动，不从本轮主线自动展开。
