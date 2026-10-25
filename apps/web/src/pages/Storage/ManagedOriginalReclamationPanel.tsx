@@ -244,7 +244,7 @@ function ReclamationOwner() {
       <Modal
         open={!!selected}
         onClose={() => setSelectedId(null)}
-        title="托管原件保留详情"
+        title={<span className="text-md">托管原件保留详情</span>}
         width={640}
         returnFocusRef={trigger}
         footer={

@@ -608,7 +608,11 @@ function ReclaimOwner({ retirementId, onDenied }: Props) {
         onClose={() => {
           if (!applying) setReview(null);
         }}
-        title={review?.receipt.eligible ? "确认准确版本回收" : "准确版本回收受阻"}
+        title={
+          <span className="text-md">
+            {review?.receipt.eligible ? "确认准确版本回收" : "准确版本回收受阻"}
+          </span>
+        }
         width={600}
         stopEscapePropagation
         returnFocusRef={previewTrigger}
