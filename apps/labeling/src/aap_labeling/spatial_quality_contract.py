@@ -12,6 +12,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictBool,
     StrictInt,
     StrictStr,
     TypeAdapter,
@@ -184,6 +185,7 @@ class QualityCommand(_Request):
     promoted_at: str | None = None
     promoted_config_revision: StrictInt | None = Field(default=None, ge=1)
     review_status: StrictStr | None = None
+    refresh_candidates: StrictBool = False
     resolution_reason: StrictStr | None = None
     review_verdict: StrictStr | None = None
     review_note: StrictStr | None = None
@@ -388,6 +390,7 @@ _ACTION_FIELDS: dict[str, tuple[set[str], set[str]]] = {
         {
             "project_id",
             "review_status",
+            "refresh_candidates",
             "limit",
             "offset",
             "severity_filter",
@@ -399,7 +402,7 @@ _ACTION_FIELDS: dict[str, tuple[set[str], set[str]]] = {
             "frame_filter",
             "allowed_task_ids",
         },
-        {"project_id", "limit", "offset"},
+        {"project_id", "limit", "offset", "refresh_candidates"},
     ),
     "mark_point_issues_stale": ({"stale_issue_ids"}, {"stale_issue_ids"}),
     "decide_point_issue": (

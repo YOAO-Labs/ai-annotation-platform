@@ -731,3 +731,87 @@ async def test_cancel_probe_reads_database_instead_of_stale_identity_map(
     )
     assert job.status == "running"
     assert await _cancel_requested(db_session, run) is True
+
+
+async def test_issue_status_pages_use_refreshed_candidates_and_exact_filters(
+    db_session, super_admin
+):
+    user, _token = super_admin
+    project, scene, tasks, _track, annotations = await _seed_quality_scene(
+        db_session, owner_id=user.id
+    )
+    source = annotations[0]
+    common = {
+        "project_id": project.id,
+        "scene_id": scene.id,
+        "task_id": tasks[0].id,
+        "annotation_id": source.id,
+        "annotation_version": source.version,
+        "related_annotation_ids": [source.id],
+        "code": "low_point_count",
+        "frame_start": 0,
+        "frame_end": 0,
+        "metric": {"point_count": 0},
+        "threshold": {"minimum_points": 5},
+        "evidence": {},
+        "locator": {"task_id": str(tasks[0].id)},
+    }
+
+    def make_issue(
+        key: int, severity: str, severity_rank: int, *, stale_source: bool = False
+    ) -> PointCloudQualityIssue:
+        source_version = source.version + 1 if stale_source else source.version
+        return PointCloudQualityIssue(
+            **common,
+            source_versions={str(source.id): source_version},
+            severity=severity,
+            severity_rank=severity_rank,
+            dedupe_key=f"{key:064x}",
+        )
+
+    stale_blocker = make_issue(1, "blocker", 0, stale_source=True)
+    stale_warning = make_issue(2, "warning", 1, stale_source=True)
+    fresh_blocker = make_issue(3, "blocker", 0)
+    fresh_warning = make_issue(4, "warning", 1)
+    fresh_info = make_issue(5, "info", 2)
+    already_stale = make_issue(6, "info", 2)
+    already_stale.status = "stale"
+    db_session.add_all(
+        [
+            stale_blocker,
+            stale_warning,
+            fresh_blocker,
+            fresh_warning,
+            fresh_info,
+            already_stale,
+        ]
+    )
+    await db_session.flush()
+
+    stale_rows, stale_total = await list_issues(
+        db_session,
+        project_id=project.id,
+        status="stale",
+        limit=1,
+        offset=1,
+    )
+    assert [row.id for row in stale_rows] == [stale_warning.id]
+    assert stale_total == 3
+    assert stale_blocker.status == "stale"
+    assert stale_warning.status == "stale"
+    assert already_stale.status == "stale"
+
+    open_rows, open_total = await list_issues(
+        db_session,
+        project_id=project.id,
+        status="open",
+        limit=1,
+        offset=1,
+    )
+    assert [row.id for row in open_rows] == [fresh_warning.id]
+    assert open_total == 3
+    assert [fresh_blocker.status, fresh_warning.status, fresh_info.status] == [
+        "open",
+        "open",
+        "open",
+    ]

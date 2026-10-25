@@ -29,6 +29,7 @@ DECLARE
     v_rows jsonb;
     v_total bigint;
     v_filter_status text;
+    v_refresh_candidates boolean;
     v_limit integer;
     v_offset integer;
 BEGIN
@@ -89,8 +90,8 @@ BEGIN
             v_allowed_keys := ARRAY['schema','action','issue_id'];
             v_required_keys := v_allowed_keys;
         WHEN 'list_point_issues' THEN
-            v_allowed_keys := ARRAY['schema','action','project_id','review_status','limit','offset','severity_filter','code_filter','scene_filter','task_filter','annotation_filter','track_filter','frame_filter','allowed_task_ids'];
-            v_required_keys := ARRAY['schema','action','project_id','limit','offset'];
+            v_allowed_keys := ARRAY['schema','action','project_id','review_status','refresh_candidates','limit','offset','severity_filter','code_filter','scene_filter','task_filter','annotation_filter','track_filter','frame_filter','allowed_task_ids'];
+            v_required_keys := ARRAY['schema','action','project_id','refresh_candidates','limit','offset'];
         WHEN 'mark_point_issues_stale' THEN
             v_allowed_keys := ARRAY['schema','action','stale_issue_ids'];
             v_required_keys := v_allowed_keys;
@@ -238,6 +239,7 @@ BEGIN
                         'sensor_role', camera_row.sensor_role,
                         'is_active', camera_row.is_active,
                         'was_cancelled', camera_row.was_cancelled,
+                        'version', camera_row.version,
                         'scene_track_id', camera_row.scene_track_id,
                         'class_name', camera_row.class_name,
                         'track_id', camera_row.track_id,
@@ -778,6 +780,7 @@ BEGIN
             v_data := pg_catalog.jsonb_build_object('row', CASE WHEN v_issue.id IS NULL THEN NULL ELSE pg_catalog.to_jsonb(v_issue) END);
         WHEN 'list_point_issues' THEN
             IF pg_catalog.jsonb_typeof(p_request -> 'project_id') <> 'string'
+               OR pg_catalog.jsonb_typeof(p_request -> 'refresh_candidates') <> 'boolean'
                OR pg_catalog.jsonb_typeof(p_request -> 'limit') <> 'number'
                OR pg_catalog.jsonb_typeof(p_request -> 'offset') <> 'number'
                OR (p_request ->> 'limit')::numeric <> pg_catalog.trunc((p_request ->> 'limit')::numeric)
@@ -801,6 +804,7 @@ BEGIN
                 RAISE EXCEPTION 'invalid Labeling spatial quality request' USING ERRCODE = '22023';
             END IF;
             v_filter_status := NULLIF(p_request ->> 'review_status','');
+            v_refresh_candidates := (p_request ->> 'refresh_candidates')::boolean;
             v_limit := (p_request ->> 'limit')::integer;
             v_offset := (p_request ->> 'offset')::integer;
             IF v_limit NOT BETWEEN 1 AND 5000 OR v_offset NOT BETWEEN 0 AND 100000 THEN
@@ -821,16 +825,18 @@ BEGIN
                   AND (NULLIF(p_request ->> 'annotation_filter','') IS NULL OR issue_row.annotation_id = (p_request ->> 'annotation_filter')::uuid OR issue_row.related_annotation_ids @> ARRAY[(p_request ->> 'annotation_filter')::uuid])
                   AND (NULLIF(p_request ->> 'track_filter','') IS NULL OR issue_row.scene_track_id = (p_request ->> 'track_filter')::uuid)
                   AND (NULLIF(p_request ->> 'frame_filter','') IS NULL OR (issue_row.frame_start <= (p_request ->> 'frame_filter')::integer AND issue_row.frame_end >= (p_request ->> 'frame_filter')::integer))
-                  AND (v_filter_status IS NULL
-                       OR (v_filter_status = 'stale' AND issue_row.status <> 'stale')
-                       OR (v_filter_status <> 'stale' AND issue_row.status = v_filter_status))
+                  AND CASE
+                       WHEN v_filter_status IS NULL THEN true
+                       WHEN v_refresh_candidates AND v_filter_status = 'stale' THEN issue_row.status <> 'stale'
+                       ELSE issue_row.status = v_filter_status
+                      END
             ),
             page AS (
                 SELECT filtered.*
                 FROM filtered
                 ORDER BY filtered.severity_rank, filtered.created_at DESC, filtered.id
-                OFFSET CASE WHEN v_filter_status IS NULL THEN v_offset ELSE 0 END
-                LIMIT CASE WHEN v_filter_status IS NULL THEN v_limit ELSE NULL::integer END
+                OFFSET CASE WHEN v_refresh_candidates AND v_filter_status IS NOT NULL THEN 0 ELSE v_offset END
+                LIMIT CASE WHEN v_refresh_candidates AND v_filter_status IS NOT NULL THEN NULL::integer ELSE v_limit END
             )
             SELECT COALESCE((SELECT pg_catalog.jsonb_agg(pg_catalog.to_jsonb(page) ORDER BY page.severity_rank, page.created_at DESC, page.id) FROM page), '[]'::jsonb),
                    (SELECT pg_catalog.count(*) FROM filtered)

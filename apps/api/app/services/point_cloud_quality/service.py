@@ -790,6 +790,7 @@ async def list_issues(
         "limit": limit,
         "offset": offset,
         "review_status": status,
+        "refresh_candidates": True,
         "severity_filter": severity,
         "code_filter": code,
         "scene_filter": scene_id,
@@ -802,15 +803,9 @@ async def list_issues(
         values["allowed_task_ids"] = sorted(allowed_task_ids, key=str)
     data = await spatial_quality_data(db, "list_point_issues", **values)
     rows = quality_rows(PointCloudQualityIssue, data.get("rows"))
-    if status:
-        await refresh_issue_staleness_bulk(db, rows)
-        await db.flush()
-        data = await spatial_quality_data(db, "list_point_issues", **values)
-        return quality_rows(PointCloudQualityIssue, data.get("rows")), int(
-            data.get("total", 0)
-        )
     await refresh_issue_staleness_bulk(db, rows)
     await db.flush()
+    values["refresh_candidates"] = False
     data = await spatial_quality_data(db, "list_point_issues", **values)
     return quality_rows(PointCloudQualityIssue, data.get("rows")), int(
         data.get("total", 0)

@@ -844,6 +844,11 @@
           "default": null,
           "title": "Review Status"
         },
+        "refresh_candidates": {
+          "default": false,
+          "title": "Refresh Candidates",
+          "type": "boolean"
+        },
         "resolution_reason": {
           "anyOf": [
             {
@@ -1901,6 +1906,9 @@
         "project_id": {
           "$ref": "#/$defs/QualityCommand/properties/project_id"
         },
+        "refresh_candidates": {
+          "$ref": "#/$defs/QualityCommand/properties/refresh_candidates"
+        },
         "review_status": {
           "$ref": "#/$defs/QualityCommand/properties/review_status"
         },
@@ -1920,7 +1928,7 @@
           "$ref": "#/$defs/QualityCommand/properties/track_filter"
         }
       },
-      "required": ["schema", "action", "limit", "offset", "project_id"],
+      "required": ["schema", "action", "limit", "offset", "project_id", "refresh_candidates"],
       "additionalProperties": false
     },
     "QualityCommand_mark_point_issues_stale": {
