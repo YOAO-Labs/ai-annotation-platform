@@ -340,6 +340,7 @@ limits为`max_pages`（默认1000，上限100000）、`max_entries`（默认1000
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /migration-copy-targets?inventory_job_id=...&limit=20&offset=0` | 分页返回`{items:[{location_id,name,config_revision}],total,limit,offset}`。候选只表示已登记，实际能力在执行时核验。                                                                                      |
 | `POST /migration-copies`                                             | 接受`{inventory_job_id,target_location_id,handling,limits?}`，202返回`{item,reused}`；先准备并封存计划，不向目标PUT。同一冻结输入、目标、处理选择和预算复用原计划。                                      |
+| `POST /migration-copies/{parent_id}/generations`                     | 仅接受`{inventory_job_id}`，202返回`{item,reused}`；从新封存清单准备唯一后续批次，继承原目标、九用途声明与预算。父批次转只读；同父批次及同报告重复提交复用后继。                                         |
 | `GET /migration-copies?limit=20&offset=0`                            | 独立复制计划的分页历史，返回`{items,total,limit,offset}`。                                                                                                                                               |
 | `GET /migration-copies/{copy_id}`                                    | 返回安全计划详情及当前／最后attempt结果。                                                                                                                                                                |
 | `GET /migration-copies/{copy_id}/failed-objects?limit=20&offset=0`   | 返回`{items:[{object_id,size_bytes,error_code}],total,limit,offset}`；仅当前failed对象，ID为64位小写十六进制身份摘要，不含原始键。                                                                       |
@@ -350,6 +351,10 @@ limits为`max_pages`（默认1000，上限100000）、`max_entries`（默认1000
 item含`copy_id,created_at,updated_at,source_inventory_job_id,source_report_sha256,source_complete,target_location_id,target_name,handling,limits,prepared,job_id,operation,status,cancel_requested,counts,decisions,source_summary,catalog_summary,copy_subset_complete,migration_ready,error_code,io,checkpoint_available`。counts为`verified,pending,writing,uncertain,failed,skipped`六类累计数，准备前为null；准备成功只表示计划可审阅。`job_id`及原清单引用可在对应Job过期后为null，复制计划及事实继续保留。公开DTO、共享Job和通知不包含实际对象键、端点、凭据或完整元数据。
 
 handling必须明确九用途的`migrate|rebuild|retain`；同桶处理歧义、未核验源与超限对象按既有核心列为跳过。已封存的部分清单仍可准备合格子集，源／目录覆盖与全计划状态分别报告，`migration_ready`始终为false。
+
+item另含`parent_copy_id,generation,successor_copy_id,parent_evidence_sha256,read_only,generation_summary`。根批次`generation=1`，父引用／父证据／差异为null；建立后继后父批次`read_only=true`。差异包含`reused_objects,new_objects,mutable_recopies,source_identity_conflicts,previous_only_objects,delete_markers,history_records`，均为非负整数；`previous_only_objects`比较直接父批次，`history_records`包含去重旧对象与桶／multipart／问题事实。差异不等于已核验数，复用行仍从pending开始，准确目标版本完整读回后才计verified。
+
+后续批次仅要求父批次已准备、没有活动attempt及未收尾的读取／上传；不要求父批次复制全部成功或清单完整。新报告必须属于同一源范围且摘要不同。已有后继对应其他报告时409 `copy_successor_exists`；重复原报告为`copy_generation_unchanged`，未准备为`copy_not_prepared`，活动任务为`copy_active_conflict`，原生许可未结清为`copy_execution_unsettled`，来源变化为`copy_source_changed`。冻结父批次的执行、核验、恢复及重投均409 `copy_read_only`；GET详情和检查点仍可用。旧Job清理不移除父子关系和复制证据。
 
 limits为每次执行预算：`max_object_bytes`默认256MiB、最大1GiB；`max_source_bytes,max_upload_bytes,max_verify_bytes`各默认2GiB、最大16GiB；`max_objects`默认10000、最大100000；`max_seconds`默认1800、最大3600；`connect_timeout_seconds`默认10、最大60；`read_timeout_seconds`默认60、最大60。各项均为严格正整数；固定计划后不重算目标映射。应用封存目录上限64MiB，SQLite检查点在生成时受256MiB硬上限及100000行约束。
 

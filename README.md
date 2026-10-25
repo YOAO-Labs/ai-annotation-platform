@@ -76,6 +76,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 在封存清单上可[准备并执行初次复制](./docs-site/user-guide/datasets/storage-connections.md#准备并执行初次复制)：选择已登记的全局 S3 目标，明确九用途处理方式，由后台生成配对定位目录和持久计划，审阅后再开始复制。支持沿原映射续跑、重试选定失败对象及下载私密检查点；计划不会随单次任务过期而丢失，也不会自动修改绑定或删除源数据。
 
+来源继续变化时，可在原计划详情[准备后续增量批次](./docs-site/user-guide/datasets/storage-connections.md#准备后续增量批次)：选择同一来源的新封存清单，沿用目标和处理方式，审阅差异后显式执行。准确版本已有回执的对象只读回核验；新增和可变对象重新复制，历史责任继续保留。
+
 对象存储可用[候选本地验证](./docs-site/ops/deploy/storage-candidate-poc.md)独立比较锁定构建的 S3、实际应用签名、浏览器代理及单节点恢复；失败和未执行类别完整保留，本地报告不等同供应商选型或生产资格。
 
 对象存储迁移前，可先生成[源端只读清单](./docs-site/ops/deploy/storage-migration-inventory.md)，覆盖当前配置的九用途桶、全部版本、删除标记、未完成上传及完整SHA；保存绑定与潜在写入方单独观测，未知覆盖不冒充迁移就绪。

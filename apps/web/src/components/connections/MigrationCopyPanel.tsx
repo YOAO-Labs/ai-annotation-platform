@@ -45,7 +45,7 @@ const GENERATION_COUNTS = [
   ["source_identity_conflicts", "源身份冲突"],
   ["previous_only_objects", "本次未观察到"],
   ["delete_markers", "删除标记"],
-  ["history_records", "历史创建记录"],
+  ["history_records", "保留历史记录"],
 ] as const;
 const ACTIVE = new Set(["pending", "running"]);
 function readOnly(item: MigrationCopyItem) {

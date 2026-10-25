@@ -38,6 +38,13 @@ it("初次复制区分准备、整体结果和选定子集，不将零对象或�
   expect(
     jobResultSummary({
       kind,
+      result: { prepared: true, operation: "prepare", generation: 2 },
+    }),
+  ).toBe("计划已封存，可审阅后开始增量复制");
+  expect(jobNotificationVerb("job.completed", kind, { generation: 2 })).toBe("增量复制任务已结束");
+  expect(
+    jobResultSummary({
+      kind,
       result: { prepared: true, decisions: { copy: 0 }, copy_subset_complete: true },
     }),
   ).toBe("无可复制对象");

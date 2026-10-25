@@ -20,7 +20,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   dataset_scan: "目录观测扫描",
   storage_usage: "存储对象盘点",
   storage_migration_inventory: "配置源迁移清单",
-  storage_migration_copy: "存储初次复制",
+  storage_migration_copy: "存储迁移复制",
   managed_original_verification: "托管原件核验",
   dataset_quality_review: "质量批量复核",
   dataset_quality: "数据集图片质检",
@@ -59,7 +59,9 @@ export function jobNotificationVerb(
         ? "复制计划准备"
         : payload.operation === "verify"
           ? "复制核验任务"
-          : "初次复制任务";
+          : (jobNumber(payload, "generation") ?? 1) > 1
+            ? "增量复制任务"
+            : "初次复制任务";
     if (type === "job.completed")
       return payload.operation === "prepare" && payload.prepared === true
         ? "复制计划准备完成"
@@ -107,7 +109,10 @@ export function jobResultSummary(job: Pick<AsyncJob, "kind" | "result">): string
       return `选定子集已核验 ${jobNumber(result, "selected_verified_count") ?? 0} / ${selected} · 整体计划${result.copy_subset_complete === true ? "子集已核验" : "仍有未完成范围"}`;
     if (result.decisions && (decisions.copy ?? 0) === 0)
       return result.operation === "prepare" ? "计划已封存，无可复制对象" : "无可复制对象";
-    if (result.operation === "prepare") return "计划已封存，可审阅后开始初次复制";
+    if (result.operation === "prepare")
+      return (jobNumber(result, "generation") ?? 1) > 1
+        ? "计划已封存，可审阅后开始增量复制"
+        : "计划已封存，可审阅后开始初次复制";
     const verified = jobNumber(counts, "verified");
     const failed = jobNumber(counts, "failed");
     return [
