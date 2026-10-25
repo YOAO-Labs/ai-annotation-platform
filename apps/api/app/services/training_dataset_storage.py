@@ -359,6 +359,7 @@ async def _adoption_candidate(db, record, *, purpose) -> dict:
         or location.kind != "s3"
         or location.config_revision != 1
         or not location.enabled
+        or getattr(location, "connection_id", None) is not None
         or location.config
         != {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
     ):

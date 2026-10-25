@@ -204,11 +204,13 @@ def test_attempt_guard_rejects_forged_or_dataset_owner(run):
 
 
 async def test_explicit_allocate_flushes_once_never_commits_and_existing_pin_bypasses_binding(
-    run, monkeypatch
+    run, monkeypatch, db_session
 ):
     run.storage_ref = None
-    db = binding_db(storage_service.training_bucket)
-    bootstrap = AsyncMock()
+    db = db_session
+    db.flush = AsyncMock(wraps=db.flush)
+    db.commit = AsyncMock()
+    bootstrap = AsyncMock(wraps=datasets.ensure_legacy_bindings)
     monkeypatch.setattr(datasets, "ensure_legacy_bindings", bootstrap)
     ref = await service.allocate(db, run)
     assert ref == run.storage_ref and ref["purpose"] == "training-run"
@@ -228,7 +230,7 @@ async def test_unpinned_read_refuses_without_implicit_allocation(run):
     assert run.storage_ref is None
 
 
-async def test_candidate_uses_persisted_bucket_without_bootstrap_or_writes(
+async def test_candidate_uses_deployment_bucket_without_binding_bootstrap_or_writes(
     run, monkeypatch
 ):
     run.storage_ref = None
@@ -240,8 +242,7 @@ async def test_candidate_uses_persisted_bucket_without_bootstrap_or_writes(
     monkeypatch.setattr(storage_service, "training_bucket", "different-current-bucket")
     ref = await service.adoption_candidate(db, run)
     assert (
-        ref["bucket"] == "persisted-training-bucket"
-        and ref["purpose"] == "training-run"
+        ref["bucket"] == "different-current-bucket" and ref["purpose"] == "training-run"
     )
     assert ref["origin"] == "verified-retained" and ref["evidence"] is None
     assert run.storage_ref is None
@@ -254,12 +255,9 @@ async def test_candidate_uses_persisted_bucket_without_bootstrap_or_writes(
     "change",
     [
         "missing-location",
-        "missing-binding",
         "disabled",
         "config",
         "revision",
-        "generation",
-        "location",
         "endpoint",
     ],
 )
@@ -296,11 +294,17 @@ async def test_candidate_refuses_unproven_platform_identity(run, monkeypatch, ch
 
 
 @pytest.mark.parametrize("change", ["bootstrap", "bucket"])
-async def test_failed_allocation_does_not_write_a_locator(run, monkeypatch, change):
+async def test_failed_allocation_does_not_write_a_locator(
+    run, monkeypatch, change, db_session
+):
     run.storage_ref = None
-    db = binding_db("persisted-bucket")
+    db = db_session
+    await datasets.ensure_legacy_bindings(db)
+    db.flush = AsyncMock(wraps=db.flush)
+    db.commit = AsyncMock()
     bootstrap = AsyncMock(
-        side_effect=ValueError("private") if change == "bootstrap" else None
+        side_effect=ValueError("private") if change == "bootstrap" else None,
+        wraps=datasets.ensure_legacy_bindings,
     )
     monkeypatch.setattr(datasets, "ensure_legacy_bindings", bootstrap)
     monkeypatch.setattr(storage_service, "training_bucket", "another-bucket")

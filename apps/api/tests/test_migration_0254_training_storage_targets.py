@@ -52,14 +52,15 @@ async def create(db, family):
 
 
 @pytest.mark.parametrize("family", list(storage._NAMESPACES) + ["deletion"])
+@pytest.mark.parametrize("legacy,generation", [(False, 2), (True, 3)])
 async def test_schema_two_retains_responsibility_and_blocks_restore_and_downgrade(
-    address_db, family
+    address_db, family, legacy, generation
 ):
     db = address_db
     purpose = "training-dataset" if family == "deletion" else family
     row = await create(db, purpose)
     logical = storage._prefix_for(row.project_id, row.id, purpose=purpose)
-    ref = storage.make_ref(target(), 2, logical, purpose=purpose)
+    ref = storage.make_ref(target(legacy=legacy), generation, logical, purpose=purpose)
     if family == "deletion":
         row = TrainingStorageDeletion(
             bucket=ref["bucket"], prefix=ref["prefix"], storage_ref=ref
