@@ -14,9 +14,11 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.thumbnail_output import media_cache_ref_check
 
 
 class OriginalCacheEntry(Base):
@@ -25,6 +27,15 @@ class OriginalCacheEntry(Base):
         CheckConstraint(
             "state IN ('uploading','ready','deleting')", name="ck_original_cache_state"
         ),
+        CheckConstraint(
+            "storage_ref IS NULL OR ("
+            + media_cache_ref_check(
+                "'original-cache/v1/' || asset_id::text || '/' || sha256 || '/' || id::text || '/'"
+            )
+            + " AND storage_ref->>'location_id'=location_id::text AND storage_ref->>'bucket'=bucket AND storage_ref->>'storage_identity'=storage_identity AND storage_ref->>'binding_generation'=binding_generation::text)",
+            name="ck_original_cache_storage_ref",
+        ),
+        Index("ix_original_cache_saved_location", "location_id"),
         CheckConstraint("size_bytes > 0", name="ck_original_cache_size"),
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_original_cache_sha"),
         Index("ix_original_cache_due", "next_check_at", "id"),
@@ -38,6 +49,8 @@ class OriginalCacheEntry(Base):
             postgresql_where=text("state IN ('uploading','ready')"),
         ),
     )
+
+    storage_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     # No business FKs: a cascade must never erase object deletion/accounting.

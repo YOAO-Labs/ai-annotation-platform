@@ -111,6 +111,11 @@ class Scene(Base):
 
 class DatasetItem(Base):
     __tablename__ = "dataset_items"
+    thumbnail_output_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("thumbnail_outputs.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
