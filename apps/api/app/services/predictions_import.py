@@ -31,7 +31,6 @@ from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import DatasetItem
 from app.services.project_access import get_workspace_project
 from app.schemas.aap_json import (
     AAPImportErrorEntry,
@@ -65,6 +64,7 @@ from app.services.raster_mask_storage import (
     validate_mask_geometry_for_task,
 )
 from app.services.labeling_core_read_relations import prediction_row
+from app.services.labeling_scene import read_spatial_item_facts
 from app.utils.raster_mask_rle import coco_rle_area
 
 logger = logging.getLogger(__name__)
@@ -1291,7 +1291,8 @@ async def _task_image_size(
 ) -> tuple[int, int] | None:
     if not getattr(task, "dataset_item_id", None):
         return None
-    item = await db.get(DatasetItem, task.dataset_item_id)
+    items, _ = await read_spatial_item_facts(db, [task.dataset_item_id])
+    item = items.get(task.dataset_item_id)
     if not item or not item.width or not item.height:
         return None
     if item.width <= 0 or item.height <= 0:
