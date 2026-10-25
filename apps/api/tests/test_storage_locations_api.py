@@ -311,11 +311,10 @@ async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
         "consumer_owned_compatibility"
     }
     assert {row["write_policy"] for row in response.json()} == {
-        "deployment_mapping",
         "current_binding",
     }
     assert {row["change_policy"] for row in response.json()} == {
-        "legacy_mapping_locked",
+        "reviewed_training_switch",
         "reviewed_avatar_switch",
         "reviewed_bug_attachment_switch",
         "reviewed_audit_archive_switch",
@@ -344,12 +343,10 @@ async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
         "datasets": "reviewed_dataset_switch",
         "media-cache": "reviewed_media_cache_switch",
         "annotations": "reviewed_annotations_switch",
-        "training": "legacy_mapping_locked",
+        "training": "reviewed_training_switch",
     }.items():
         assert rows[purpose]["change_policy"] == policy
-        assert rows[purpose]["write_policy"] == (
-            "deployment_mapping" if purpose == "training" else "current_binding"
-        )
+        assert rows[purpose]["write_policy"] == "current_binding"
     await db_session.refresh(training)
     await db_session.refresh(location)
     assert training.generation == 2 and location.config_revision == 7
