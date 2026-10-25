@@ -374,8 +374,10 @@ async def test_prediction_partition_command_owns_monthly_ddl_and_rolls_back(
         await connection.close()
 
 
+@pytest.mark.parametrize("evidence", ["known", "sql_null", "json_null"])
 async def test_screenshot_restore_uses_lan_runtime_and_caller_transaction(
     test_engine,
+    evidence,
 ):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_ids: list[uuid.UUID] = []
@@ -428,6 +430,18 @@ async def test_screenshot_restore_uses_lan_runtime_and_caller_transaction(
             task_id = task.id
             task_ids.append(task.id)
 
+        if evidence != "known":
+            async with maker.begin() as db:
+                await db.execute(
+                    text(
+                        "UPDATE public.tasks SET review_contributor_ids=CAST(:value AS jsonb) WHERE id=:id"
+                    ),
+                    {
+                        "id": task_id,
+                        "value": None if evidence == "sql_null" else "null",
+                    },
+                )
+
         runtime = await _lan_runtime(test_engine)
         connection = await runtime.connect()
         transaction = await connection.begin()
@@ -471,7 +485,9 @@ async def test_screenshot_restore_uses_lan_runtime_and_caller_transaction(
                 reviewer_id=reviewer_id,
                 expected_status="review",
                 review_round_id=review_round_id,
-                review_contributor_ids=(str(annotator_id),),
+                review_contributor_ids=(str(annotator_id),)
+                if evidence == "known"
+                else None,
                 review_submitter_id=annotator_id,
                 reason_texts=(
                     "车辆边界存在偏移，请重新贴合目标外沿。",
@@ -481,6 +497,24 @@ async def test_screenshot_restore_uses_lan_runtime_and_caller_transaction(
         )
         assert result.operation == "restore_review_reject"
         assert result.counts == {"feedbacks": 0, "tasks": 1}
+        persisted = (
+            await connection.execute(
+                text(
+                    "SELECT review_contributor_ids IS NULL, "
+                    "jsonb_typeof(review_contributor_ids) "
+                    "FROM aap_labeling_v1.task_rows WHERE id=:id"
+                ),
+                {"id": task_id},
+            )
+        ).one()
+        assert (
+            tuple(persisted)
+            == {
+                "known": (False, "array"),
+                "sql_null": (True, None),
+                "json_null": (False, "null"),
+            }[evidence]
+        )
         await transaction.rollback()
 
         async with maker() as db:

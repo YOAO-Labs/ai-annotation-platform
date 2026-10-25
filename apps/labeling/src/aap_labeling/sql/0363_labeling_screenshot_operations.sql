@@ -93,11 +93,11 @@ BEGIN
                          OR pg_catalog.jsonb_typeof(entry -> 'sequence_order') IS DISTINCT FROM 'number'
                          OR (entry ->> 'sequence_order') !~ '^(0|[1-9][0-9]*)$'
                          OR (entry ->> 'sequence_order')::integer >= v_expected_count
-                         OR pg_catalog.substring(entry ->> 'display_id' FROM '([0-9]{3})$')::integer
+                         OR pg_catalog.substring(entry ->> 'display_id', '([0-9]{3})$')::integer
                             <> (entry ->> 'sequence_order')::integer+1
                          OR pg_catalog.jsonb_typeof(entry -> 'status') IS DISTINCT FROM 'string'
                          OR (entry ->> 'status') NOT IN ('pending','in_progress','review','completed')
-                         OR (entry ->> 'display_id') !~ ('^T-SS-' || pg_catalog.substring(v_project_display_id FROM 3) || '-[0-9]{3}$')
+                         OR (entry ->> 'display_id') !~ ('^T-SS-' || pg_catalog.substring(v_project_display_id, 3) || '-[0-9]{3}$')
                          OR NOT CASE v_project_display_id
                              WHEN 'P-COCO8' THEN (entry ->> 'file_path') IN (
                                  'coco8-dev/train/screenshot_01.jpg','coco8-dev/train/screenshot_02.jpg',
@@ -106,7 +106,7 @@ BEGIN
                                  'coco8-dev/val/screenshot_07.jpg','coco8-dev/val/screenshot_08.jpg')
                              WHEN 'P-VIDEO-DEV' THEN (entry ->> 'file_path')='tracking-car-dev/tracking_scene.mp4'
                              WHEN 'P-PC-DEV' THEN (entry ->> 'file_path') ~ '^(nuscenes-mini|__aap_trusted_nuscenes__-[0-9a-f]{32})/scene-0061/lidar/scene-0061_[0-9]{6}[.]pcd$'
-                                 AND pg_catalog.substring(entry ->> 'file_path' FROM '([0-9]{6})[.]pcd$')::integer < 39
+                                 AND pg_catalog.substring(entry ->> 'file_path', '([0-9]{6})[.]pcd$')::integer < 39
                              WHEN 'P-PC-MULTI' THEN (entry ->> 'file_path')='pc-multicam-dev/lidar/000000.pcd'
                              WHEN 'P-OCR' THEN (entry ->> 'file_path')='ocr-dev/ch_en_num.jpg'
                              ELSE false
@@ -309,17 +309,17 @@ BEGIN
                OR ((v_entry ->> 'reviewer_id') IS NOT NULL) IS DISTINCT FROM
                    ((v_entry ->> 'sequence_order')::integer IN (4,5))
                OR (v_entry ->> 'assigned_at')::timestamptz IS DISTINCT FROM
-                   CASE WHEN (v_entry ->> 'sequence_order')::integer BETWEEN 2 AND 5
-                        THEN v_fixed_time + INTERVAL '1 hour' ELSE NULL END
+                   (CASE WHEN (v_entry ->> 'sequence_order')::integer BETWEEN 2 AND 5
+                        THEN v_fixed_time + INTERVAL '1 hour' ELSE NULL END)
                OR (v_entry ->> 'submitted_at')::timestamptz IS DISTINCT FROM
-                   CASE WHEN (v_entry ->> 'status') IN ('review','completed')
-                        THEN v_fixed_time + INTERVAL '4 hours' ELSE NULL END
+                   (CASE WHEN (v_entry ->> 'status') IN ('review','completed')
+                        THEN v_fixed_time + INTERVAL '4 hours' ELSE NULL END)
                OR (v_entry ->> 'reviewer_claimed_at')::timestamptz IS DISTINCT FROM
-                   CASE WHEN (v_entry ->> 'sequence_order')::integer IN (4,5)
-                        THEN v_fixed_time + INTERVAL '4 hours 20 minutes' ELSE NULL END
+                   (CASE WHEN (v_entry ->> 'sequence_order')::integer IN (4,5)
+                        THEN v_fixed_time + INTERVAL '4 hours 20 minutes' ELSE NULL END)
                OR (v_entry ->> 'reviewed_at')::timestamptz IS DISTINCT FROM
-                   CASE WHEN (v_entry ->> 'status')='completed'
-                        THEN v_fixed_time + INTERVAL '6 hours' ELSE NULL END THEN
+                   (CASE WHEN (v_entry ->> 'status')='completed'
+                        THEN v_fixed_time + INTERVAL '6 hours' ELSE NULL END) THEN
                 RAISE EXCEPTION 'Invalid screenshot image task timestamps or assignment' USING ERRCODE = '22023';
             END IF;
             UPDATE public.tasks AS task SET
@@ -372,7 +372,7 @@ BEGIN
                WHERE task.id=ANY(v_task_ids) AND task.project_id=v_project_id
                  AND task.display_id IN ('T-SS-COCO8-001','T-SS-COCO8-002','T-SS-COCO8-003',
                      'T-SS-COCO8-004','T-SS-COCO8-005','T-SS-COCO8-006','T-SS-COCO8-007','T-SS-COCO8-008')
-                 AND task.sequence_order=pg_catalog.substring(task.display_id FROM '([0-9]{3})$')::integer-1) <> 8
+                 AND task.sequence_order=pg_catalog.substring(task.display_id, '([0-9]{3})$')::integer-1) <> 8
            OR NOT EXISTS (SELECT FROM public.predictions AS prediction
                           WHERE prediction.id=v_prediction_id AND prediction.project_id=v_project_id
                             AND prediction.task_id=v_task_id
@@ -460,7 +460,7 @@ BEGIN
                WHERE task.id=ANY(v_task_ids) AND task.project_id=v_project_id
                  AND task.display_id IN ('T-SS-COCO8-001','T-SS-COCO8-002','T-SS-COCO8-003',
                      'T-SS-COCO8-004','T-SS-COCO8-005','T-SS-COCO8-006','T-SS-COCO8-007','T-SS-COCO8-008')
-                 AND task.sequence_order=pg_catalog.substring(task.display_id FROM '([0-9]{3})$')::integer-1) <> 8 THEN
+                 AND task.sequence_order=pg_catalog.substring(task.display_id, '([0-9]{3})$')::integer-1) <> 8 THEN
             RAISE EXCEPTION 'Invalid screenshot annotation task scope' USING ERRCODE = '22023';
         END IF;
         IF EXISTS (SELECT FROM pg_catalog.jsonb_array_elements(p_request -> 'annotations') AS entry
@@ -555,7 +555,13 @@ BEGIN
                 ),
                 review_round_id=NULLIF(v_entry ->> 'review_round_id','null')::uuid,
                 annotation_contributor_ids=v_entry -> 'annotation_contributor_ids',
-                review_contributor_ids=NULLIF(v_entry -> 'review_contributor_ids','null'::jsonb),
+                review_contributor_ids=CASE
+                    WHEN v_entry -> 'review_contributor_ids'='null'::jsonb
+                     AND (task.review_contributor_ids IS NULL
+                          OR task.review_contributor_ids='null'::jsonb)
+                    THEN task.review_contributor_ids
+                    ELSE v_entry -> 'review_contributor_ids'
+                END,
                 review_submitter_id=NULLIF(v_entry ->> 'review_submitter_id','null')::uuid
             WHERE task.id=v_id AND task.project_id=v_project_id
               AND task.status=v_entry ->> 'status';
@@ -591,7 +597,7 @@ BEGIN
                WHERE task.id=ANY(v_task_ids) AND task.project_id=v_project_id
                  AND task.display_id IN ('T-SS-COCO8-001','T-SS-COCO8-002','T-SS-COCO8-003',
                      'T-SS-COCO8-004','T-SS-COCO8-005','T-SS-COCO8-006','T-SS-COCO8-007','T-SS-COCO8-008')
-                 AND task.sequence_order=pg_catalog.substring(task.display_id FROM '([0-9]{3})$')::integer-1) <> 8 THEN
+                 AND task.sequence_order=pg_catalog.substring(task.display_id, '([0-9]{3})$')::integer-1) <> 8 THEN
             RAISE EXCEPTION 'Invalid screenshot batch counter task scope' USING ERRCODE = '22023';
         END IF;
         FOR v_entry IN SELECT value FROM pg_catalog.jsonb_array_elements(p_request -> 'batches') AS rows(value)
@@ -660,11 +666,11 @@ BEGIN
             FROM public.tasks AS task
             WHERE task.id=(v_entry ->> 'task_id')::uuid
               AND task.project_id=(v_entry ->> 'project_id')::uuid
-              AND task.display_id LIKE ('T-SS-' || pg_catalog.substring(v_entry ->> 'project_display_id' FROM 3) || '-%');
+              AND task.display_id LIKE ('T-SS-' || pg_catalog.substring(v_entry ->> 'project_display_id', 3) || '-%');
             IF NOT FOUND THEN
                 RAISE EXCEPTION 'Screenshot task timestamp scope changed' USING ERRCODE = '23514';
             END IF;
-            v_task_sequence := pg_catalog.substring(v_task_display_id FROM '([0-9]{3})$')::integer-1;
+            v_task_sequence := pg_catalog.substring(v_task_display_id, '([0-9]{3})$')::integer-1;
             v_expected_task_created_at := TIMESTAMPTZ '2026-07-01 09:00:00+00'
                 + v_task_sequence * INTERVAL '1 minute';
             v_expected_task_updated_at := COALESCE(
@@ -680,7 +686,7 @@ BEGIN
                 updated_at=(v_entry ->> 'updated_at')::timestamptz
             WHERE task.id=(v_entry ->> 'task_id')::uuid
               AND task.project_id=(v_entry ->> 'project_id')::uuid
-              AND task.display_id LIKE ('T-SS-' || pg_catalog.substring(v_entry ->> 'project_display_id' FROM 3) || '-%');
+              AND task.display_id LIKE ('T-SS-' || pg_catalog.substring(v_entry ->> 'project_display_id', 3) || '-%');
             GET DIAGNOSTICS v_rows = ROW_COUNT;
             IF v_rows <> 1 THEN
                 RAISE EXCEPTION 'Screenshot task timestamp scope changed' USING ERRCODE = '23514';
@@ -705,7 +711,7 @@ BEGIN
         IF v_project_display_id IS NULL OR v_project_json IS NULL
            OR v_project_json ->> 'display_id' IS DISTINCT FROM v_project_display_id
            OR NOT EXISTS (SELECT FROM public.tasks AS task WHERE task.id=v_task_id AND task.project_id=v_project_id
-                          AND task.display_id LIKE ('T-SS-' || pg_catalog.substring(v_project_display_id FROM 3) || '-%')) THEN
+                          AND task.display_id LIKE ('T-SS-' || pg_catalog.substring(v_project_display_id, 3) || '-%')) THEN
             RAISE EXCEPTION 'Screenshot cleanup task scope changed' USING ERRCODE = '23514';
         END IF;
         DELETE FROM public.video_tracker_jobs AS job
@@ -733,7 +739,7 @@ BEGIN
         IF v_project_display_id IS NULL OR v_project_json IS NULL
            OR v_project_json ->> 'display_id' IS DISTINCT FROM v_project_display_id
            OR NOT EXISTS (SELECT FROM public.tasks AS task WHERE task.id=v_task_id AND task.project_id=v_project_id
-                          AND task.display_id LIKE ('T-SS-' || pg_catalog.substring(v_project_display_id FROM 3) || '-%')) THEN
+                          AND task.display_id LIKE ('T-SS-' || pg_catalog.substring(v_project_display_id, 3) || '-%')) THEN
             RAISE EXCEPTION 'Screenshot prediction cleanup scope changed' USING ERRCODE = '23514';
         END IF;
         SELECT pg_catalog.count(*) INTO v_rows FROM public.predictions AS prediction
@@ -781,7 +787,7 @@ BEGIN
         IF v_project_display_id IS NULL OR v_project_json IS NULL
            OR v_project_json ->> 'display_id' IS DISTINCT FROM v_project_display_id
            OR NOT EXISTS (SELECT FROM public.tasks AS task WHERE task.id=v_task_id AND task.project_id=v_project_id
-                          AND task.display_id LIKE ('T-SS-' || pg_catalog.substring(v_project_display_id FROM 3) || '-%')) THEN
+                          AND task.display_id LIKE ('T-SS-' || pg_catalog.substring(v_project_display_id, 3) || '-%')) THEN
             RAISE EXCEPTION 'Screenshot cleanup completion scope changed' USING ERRCODE = '23514';
         END IF;
         SELECT pg_catalog.count(*) INTO v_annotations FROM public.annotations AS annotation
@@ -868,7 +874,13 @@ BEGIN
             status='review',reviewed_at=NULL,reject_reason_type=NULL,reject_reason=NULL,
             reviewer_claimed_at=NULL,
             review_round_id=COALESCE(task.review_round_id,(p_request ->> 'review_round_id')::uuid),
-            review_contributor_ids=NULLIF(p_request -> 'review_contributor_ids','null'::jsonb),
+            review_contributor_ids=CASE
+                    WHEN p_request -> 'review_contributor_ids'='null'::jsonb
+                     AND (task.review_contributor_ids IS NULL
+                          OR task.review_contributor_ids='null'::jsonb)
+                    THEN task.review_contributor_ids
+                    ELSE p_request -> 'review_contributor_ids'
+                END,
             review_submitter_id=NULLIF(p_request ->> 'review_submitter_id','null')::uuid,
             updated_at=pg_catalog.transaction_timestamp()
         WHERE task.id=v_task_id AND task.project_id=v_project_id
@@ -876,7 +888,13 @@ BEGIN
                task.reviewer_claimed_at,task.review_round_id,task.review_contributor_ids,task.review_submitter_id)
               IS DISTINCT FROM ('review',NULL,NULL,NULL,NULL,
                   COALESCE(task.review_round_id,(p_request ->> 'review_round_id')::uuid),
-                  NULLIF(p_request -> 'review_contributor_ids','null'::jsonb),
+                  CASE
+                    WHEN p_request -> 'review_contributor_ids'='null'::jsonb
+                     AND (task.review_contributor_ids IS NULL
+                          OR task.review_contributor_ids='null'::jsonb)
+                    THEN task.review_contributor_ids
+                    ELSE p_request -> 'review_contributor_ids'
+                END,
                   NULLIF(p_request ->> 'review_submitter_id','null')::uuid);
         GET DIAGNOSTICS v_rows = ROW_COUNT;
         v_changed := v_feedbacks + v_rows > 0;

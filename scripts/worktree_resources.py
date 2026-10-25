@@ -1118,6 +1118,8 @@ class LocalResources:
                 f"FROM {role}, PUBLIC",
                 "REVOKE ALL ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[]) "
                 f"FROM {role}, PUBLIC",
+                "REVOKE ALL ON FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb) "
+                f"FROM {role}, PUBLIC",
                 "REVOKE ALL ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) "
                 f"FROM {role}, PUBLIC",
             )
@@ -1137,6 +1139,8 @@ class LocalResources:
                     "GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) "
                     f"TO {role}",
                     "GRANT EXECUTE ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[]) "
+                    f"TO {role}",
+                    "GRANT EXECUTE ON FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb) "
                     f"TO {role}",
                     f"GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO {role}",
                     f"GRANT SELECT ON aap_identity_fixture_v1.account_profiles TO {role}",
@@ -1227,6 +1231,11 @@ class LocalResources:
                     f"aap_labeling_v1.annotation_draft_rows TO {role}",
                     "GRANT EXECUTE ON FUNCTION "
                     "aap_labeling_v1.next_batch_display_id(), "
+                    "aap_labeling_v1.screenshot_operations_command(jsonb), "
+                    "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[]), "
+                    "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid), "
+                    "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid), "
+                    "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer), "
                     "aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]), "
                     "aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[]) "
                     f"TO {role}",

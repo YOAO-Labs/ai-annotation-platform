@@ -186,7 +186,7 @@ BEGIN
         'pending',
         items.rn,
         pg_catalog.now() - pg_catalog.make_interval(
-            secs => items.rn::pg_catalog.double precision
+            secs => items.rn
         ),
         false
     FROM items;

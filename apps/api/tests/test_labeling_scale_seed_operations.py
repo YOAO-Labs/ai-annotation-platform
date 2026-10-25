@@ -86,7 +86,7 @@ def test_scale_seed_contract_and_migration_resources_are_frozen():
         root / "apps/api/alembic/versions/0364_labeling_scale_seed_operations.py"
     ).read_text(encoding="utf-8")
     assert 'revision = "0364"' in migration
-    assert 'down_revision = "0361"' in migration
+    assert 'down_revision = "0363"' in migration
     sql = api_sql.read_text(encoding="utf-8")
     assert "ORDER BY item.file_name" in sql
     assert "aap_assets_v1.scale_seed_dataset_item_facts AS item" in sql
