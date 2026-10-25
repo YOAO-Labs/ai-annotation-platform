@@ -192,6 +192,18 @@ class InferenceHealthData:
         self._discard_stage(registry_id=registry_id)
         return row
 
+    async def get_pool_reference(self, pool_id):
+        statement = (
+            select(MLBackendServicePool)
+            .from_statement(
+                text(
+                    "SELECT * FROM aap_inference_v1.ai_mask_pool_reference_row(:pool_id)"
+                )
+            )
+            .execution_options(populate_existing=False)
+        )
+        return await self.db.scalar(statement, {"pool_id": pool_id})
+
     async def load_pool(self, pool_id, *, registry_id):
         statement = (
             select(MLBackendServicePool)

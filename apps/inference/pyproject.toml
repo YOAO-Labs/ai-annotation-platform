@@ -39,7 +39,7 @@ cache-keys = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-aap_inference = ["*.json"]
+aap_inference = ["*.json", "sql/*.sql", "sql/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

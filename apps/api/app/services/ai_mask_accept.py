@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 import hashlib
 import json
 import uuid
@@ -26,6 +27,7 @@ from app.services.labeling_mask_edit import (
     ai_mask_accept_command,
     mask_task_fence,
 )
+from app.services.inference_health_data import InferenceHealthData
 from app.services.project_access import get_workspace_project
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
@@ -264,12 +266,42 @@ def _validate_prompt_source_digest(
         )
 
 
+async def _read_lineage_row(
+    db: AsyncSession,
+    model: type[MLBackendRegistry] | type[MLBackendServicePool],
+    row_id: uuid.UUID,
+    owner_read: Callable[[uuid.UUID], Awaitable[Any]],
+) -> Any:
+    key = identity_key(model, ident=row_id)
+    cached = db.sync_session.identity_map.get(key)
+    cached_state = inspect(cached) if cached is not None else None
+    if cached_state is not None and not cached_state.expired:
+        return cached
+
+    row = await owner_read(row_id)
+    if row is None and cached_state is not None and cached_state.expired:
+        # Session.get removes an expired identity after its refresh finds no row.
+        db.sync_session._remove_newly_deleted([cached_state])
+    return row
+
+
 async def _resolve_routing_lineage(
     db: AsyncSession, data: AiMaskAcceptRequest
 ) -> tuple[uuid.UUID | None, uuid.UUID | None]:
-    actual = await db.get(MLBackendRegistry, data.routing.backend_instance_id)
+    inference_data = InferenceHealthData(db)
+    actual = await _read_lineage_row(
+        db,
+        MLBackendRegistry,
+        data.routing.backend_instance_id,
+        inference_data.get_backend,
+    )
     pool = (
-        await db.get(MLBackendServicePool, data.routing.backend_pool_id)
+        await _read_lineage_row(
+            db,
+            MLBackendServicePool,
+            data.routing.backend_pool_id,
+            inference_data.get_pool_reference,
+        )
         if data.routing.backend_pool_id is not None
         else None
     )

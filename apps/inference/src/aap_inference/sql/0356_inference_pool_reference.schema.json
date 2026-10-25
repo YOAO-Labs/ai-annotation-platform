@@ -1,0 +1,88 @@
+{
+  "$id": "aap-inference-pool-reference-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inference Pool reference read capability",
+  "$comment": "A fixed nonlocking Pool-by-primary-key read for historical Mask prediction lineage. It does not read Registry or membership state.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "tables": [],
+  "functions": [
+    {
+      "signature": "aap_inference_v1.ai_mask_pool_reference_row(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [
+        {
+          "name": "p_pool_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid",
+            "nullable": false
+          },
+          {
+            "name": "name",
+            "type": "text",
+            "nullable": false
+          },
+          {
+            "name": "enabled",
+            "type": "boolean",
+            "nullable": false
+          },
+          {
+            "name": "routing_policy",
+            "type": "text",
+            "nullable": false
+          },
+          {
+            "name": "legacy_instance_id",
+            "type": "uuid",
+            "nullable": true
+          },
+          {
+            "name": "routing_generation",
+            "type": "bigint",
+            "nullable": false
+          },
+          {
+            "name": "capability_fingerprint",
+            "type": "text",
+            "nullable": true
+          },
+          {
+            "name": "capability_snapshot",
+            "type": "jsonb",
+            "nullable": true
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz",
+            "nullable": false
+          },
+          {
+            "name": "updated_at",
+            "type": "timestamptz",
+            "nullable": false
+          }
+        ]
+      },
+      "semantics": "Unlocked Pool primary-key lookup independent of Registry and membership. Missing Pool returns zero rows."
+    }
+  ],
+  "x-postgresql-functions": ["aap_inference_v1.ai_mask_pool_reference_row(uuid)"]
+}
