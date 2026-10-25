@@ -53,7 +53,48 @@ storage_ref IS NULL OR COALESCE((
         OR jsonb_typeof(storage_ref->'evidence') = 'object')
     AND (storage_ref->>'origin' != 'new' OR storage_ref->'evidence' = 'null'::jsonb)
 ), false)
-"""
+ OR COALESCE((
+    jsonb_typeof(storage_ref)='object'
+    AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','prefix','storage_identity',
+        'origin','evidence','key_prefix']
+    AND storage_ref - ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','prefix','storage_identity',
+        'origin','evidence','key_prefix']::text[]='{}'::jsonb
+    AND storage_ref->'schema'='2'::jsonb
+    AND storage_ref->>'purpose'='training-dataset'
+    AND jsonb_typeof(storage_ref->'location_id')='string'
+    AND storage_ref->>'location_id' ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+    AND jsonb_typeof(storage_ref->'config_revision')='number'
+    AND storage_ref->>'config_revision' ~ '^[1-9][0-9]*$'
+    AND jsonb_typeof(storage_ref->'binding_generation')='number'
+    AND storage_ref->>'binding_generation' ~ '^[1-9][0-9]*$'
+    AND jsonb_typeof(storage_ref->'endpoint_url')='string'
+    AND storage_ref->>'endpoint_url' ~ '^https?://[^[:space:]/?#@]+$'
+    AND position(chr(92) in (storage_ref->>'endpoint_url'))=0
+    AND jsonb_typeof(storage_ref->'bucket')='string'
+    AND length(storage_ref->>'bucket') BETWEEN 1 AND 255
+    AND storage_ref->>'bucket' !~ '[[:space:][:cntrl:]/?#@%:]'
+    AND position(chr(92) in (storage_ref->>'bucket'))=0
+    AND jsonb_typeof(storage_ref->'key_prefix')='string'
+    AND length(storage_ref->>'key_prefix')<=266
+    AND octet_length(storage_ref->>'key_prefix')<=707
+    AND jsonb_typeof(storage_ref->'prefix')='string'
+    AND octet_length(storage_ref->>'prefix')<=1024
+    AND left(storage_ref->>'prefix',length(storage_ref->>'key_prefix'))=storage_ref->>'key_prefix'
+    AND substring(storage_ref->>'prefix' FROM length(storage_ref->>'key_prefix')+1)
+        ~ '^projects/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}/datasets/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}/$'
+    AND jsonb_typeof(storage_ref->'storage_identity')='string'
+    AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
+    AND storage_ref->>'origin'='new' AND storage_ref->'evidence'='null'::jsonb
+    AND ((storage_ref->>'location_id'='4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
+          AND storage_ref->'config_revision'='1'::jsonb AND storage_ref->>'key_prefix'='')
+      OR (storage_ref->>'location_id'<>'4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
+          AND (storage_ref->>'binding_generation')::numeric>=2
+          AND storage_ref->>'key_prefix' ~ '^([^/]+/)*_aap_managed/training/$'
+          AND storage_ref->>'key_prefix' !~ '[[:cntrl:]]|(^|/)[.][.]?(/|$)|//'
+          AND position(chr(92) in (storage_ref->>'key_prefix'))=0))
+),false)"""
 
 
 class TrainingDatasetVersion(Base):
@@ -71,7 +112,7 @@ class TrainingDatasetVersion(Base):
             TRAINING_STORAGE_REF_CHECK, name="ck_training_dataset_storage_ref"
         ),
         CheckConstraint(
-            "storage_ref IS NULL OR storage_ref->>'prefix' = "
+            "storage_ref IS NULL OR storage_ref->>'prefix' = COALESCE(storage_ref->>'key_prefix','') || "
             "'projects/' || project_id::text || '/datasets/' || id::text || '/'",
             name="ck_training_dataset_storage_prefix",
         ),

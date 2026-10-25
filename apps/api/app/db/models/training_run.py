@@ -61,7 +61,7 @@ class TrainingRun(Base):
             TRAINING_RUN_STORAGE_REF_CHECK, name="ck_training_run_storage_ref"
         ),
         CheckConstraint(
-            "storage_ref IS NULL OR storage_ref->>'prefix' = "
+            "storage_ref IS NULL OR storage_ref->>'prefix' = COALESCE(storage_ref->>'key_prefix','') || "
             "'projects/' || project_id::text || '/runs/' || id::text || '/'",
             name="ck_training_run_storage_prefix",
         ),
