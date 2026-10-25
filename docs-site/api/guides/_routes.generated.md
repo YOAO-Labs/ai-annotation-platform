@@ -474,6 +474,12 @@
 | DELETE | `/deactivation-request` |
 | POST | `/task-events:batch` |
 
+## `media_cache.py`
+
+| Method | Path |
+|---|---|
+| GET | `/{kind}/{output_id}/{relative:path}` |
+
 ## `ml_backends.py`
 
 | Method | Path |
@@ -1087,4 +1093,4 @@
 
 ---
 
-_共 97 模块 / 640 路由_
+_共 98 模块 / 641 路由_

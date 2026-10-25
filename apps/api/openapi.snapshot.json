@@ -78206,6 +78206,104 @@
         ]
       }
     },
+    "/api/v1/media-cache/{kind}/{output_id}/{relative}": {
+      "get": {
+        "description": "The token replaces presigning, not the issuer's business authorization.",
+        "operationId": "read_media_cache_api_v1_media_cache__kind___output_id___relative__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "output_id",
+            "required": true,
+            "schema": {
+              "title": "Output Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "relative",
+            "required": true,
+            "schema": {
+              "title": "Relative",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "能力 URL 对应的媒体字节；同时支持 HEAD。"
+          },
+          "206": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "单段字节范围。"
+          },
+          "400": {
+            "description": "字节范围语法无效。"
+          },
+          "404": {
+            "description": "能力已过期、无效或对象不可读。"
+          },
+          "416": {
+            "description": "字节范围超出对象长度。"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "目标存储暂不可读。"
+          },
+          "504": {
+            "description": "媒体传输超时。"
+          }
+        },
+        "summary": "Read Media Cache",
+        "tags": [
+          "media-cache"
+        ]
+      }
+    },
     "/api/v1/media/original-playback/{lease_id}": {
       "get": {
         "operationId": "read_original_video_api_v1_media_original_playback__lease_id__get",

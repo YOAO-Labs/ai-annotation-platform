@@ -10,6 +10,7 @@ from app.api.v1 import (
     async_jobs,
     auth,
     avatars,
+    media_cache,
     internal,
     audit_logs,
     annotation_comments,
@@ -76,6 +77,9 @@ from app.api.v1 import (
 )
 
 api_router = APIRouter()
+api_router.include_router(
+    media_cache.router, prefix="/media-cache", tags=["media-cache"]
+)
 api_router.include_router(originals.router, tags=["originals"])
 api_router.include_router(original_playback.router, tags=["originals"])
 api_router.include_router(model_catalog.router, tags=["model-catalog"])
