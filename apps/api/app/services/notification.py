@@ -136,6 +136,18 @@ def _is_restricted_expr():
     )
 
 
+def _is_migration_inventory_expr():
+    """Actual job kind wins; retain the private kind after job retention."""
+    return func.coalesce(
+        and_(
+            Notification.target_type == "async_job",
+            func.coalesce(_job_kind_expr(), Notification.payload["kind"].astext)
+            == "storage_migration_inventory",
+        ),
+        False,
+    )
+
+
 def _requires_export_capability_expr():
     """True for full-export notifications, including export-kind async jobs."""
 
@@ -308,7 +320,10 @@ class NotificationService:
             row.user_id
             for row in rows
             if row.target_type == "async_job"
-            and jobs.get(row.target_id, (None, None))[1]
+            and (
+                jobs.get(row.target_id, (None, None))[1]
+                or (row.payload.get("kind") if isinstance(row.payload, dict) else None)
+            )
             == "storage_migration_inventory"
         }
         inventory_admins = (
@@ -333,7 +348,14 @@ class NotificationService:
             if target_type in _ACTUAL_TARGET_TYPES:
                 job = jobs.get(row.target_id)
                 if job is None:
-                    job_project, job_kind = None, None
+                    job_project, job_kind = (
+                        None,
+                        (
+                            "storage_migration_inventory"
+                            if payload.get("kind") == "storage_migration_inventory"
+                            else None
+                        ),
+                    )
                 else:
                     job_project, job_kind = job
                 if target_type == "export":
@@ -450,7 +472,14 @@ class NotificationService:
                 kind = await self.db.scalar(
                     select(AsyncJob.kind).where(AsyncJob.id == row.target_id)
                 )
-                if kind == "storage_migration_inventory":
+                if (
+                    kind
+                    or (
+                        row.payload.get("kind")
+                        if isinstance(row.payload, dict)
+                        else None
+                    )
+                ) == "storage_migration_inventory":
                     return False
             scopes = await self._resolve_delivery_scopes([row])
             allowed = await self._allowed_delivery_indices([row], scopes)
@@ -568,15 +597,7 @@ class NotificationService:
             or not user.is_active
             or user.role != PlatformRole.SUPER_ADMIN.value
         ):
-            inventory_filter = [
-                ~func.coalesce(
-                    and_(
-                        Notification.target_type == "async_job",
-                        _job_kind_expr() == "storage_migration_inventory",
-                    ),
-                    False,
-                )
-            ]
+            inventory_filter = [~_is_migration_inventory_expr()]
         if user.role == PlatformRole.SUPER_ADMIN.value:
             return inventory_filter
         project_text = _effective_project_text_expr()
@@ -650,15 +671,7 @@ class NotificationService:
             and user.role == PlatformRole.SUPER_ADMIN.value
         ):
             return []
-        return [
-            ~func.coalesce(
-                and_(
-                    Notification.target_type == "async_job",
-                    _job_kind_expr() == "storage_migration_inventory",
-                ),
-                False,
-            )
-        ]
+        return [~_is_migration_inventory_expr()]
 
     async def mark_read(
         self,

@@ -6,10 +6,11 @@ import json
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core import security
 from app.db.models.api_key import ApiKey
+from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.services import async_job as jobs
 from app.services.notification import NotificationService
@@ -47,11 +48,17 @@ async def notices(db, actor):
 
 
 @pytest.mark.parametrize("principal", ["full", "narrow", "downgraded"])
+@pytest.mark.parametrize("job_retained", [True, False])
 async def test_rest_notification_reads_counts_and_mutations_use_current_authority(
-    db_session, httpx_client, super_admin, principal
+    db_session, httpx_client, super_admin, principal, job_retained
 ):
     actor, token = super_admin
     protected, read, unrelated = await notices(db_session, actor)
+    if not job_retained:
+        await db_session.execute(
+            delete(AsyncJob).where(AsyncJob.id == protected.target_id)
+        )
+
     if principal == "narrow":
         token = "ak_" + uuid.uuid4().hex
         db_session.add(
@@ -145,6 +152,28 @@ async def test_creation_and_late_websocket_delivery_recheck_current_role_and_key
     current_scopes[:] = ["datasets:read"]
     assert not await ws._notification_message_allowed("ak_fixture", message)
     assert await ws._notification_message_allowed(token, message)
+    await db_session.execute(delete(AsyncJob).where(AsyncJob.id == protected.target_id))
+    assert await ws._notification_message_allowed(token, message)
+    assert not await ws._notification_message_allowed("ak_fixture", message)
     actor.role = "project_admin"
     await db_session.flush()
     assert not await ws._notification_message_allowed(token, message)
+
+
+async def test_actual_job_kind_wins_over_stale_notification_payload(
+    db_session, super_admin
+):
+    actor, _ = super_admin
+    protected, _, _ = await notices(db_session, actor)
+    job = await db_session.get(AsyncJob, protected.target_id)
+    job.kind = "unrelated_global"
+    actor.role = "project_admin"
+    await db_session.flush()
+    svc = NotificationService(db_session)
+    items, total, unread = await svc.list_for_user(
+        actor.id, include_migration_inventory=False
+    )
+    assert total == 3 and unread == 2 and protected in items
+    assert await svc.notification_deliverable(
+        protected.id, actor.id, include_migration_inventory=False
+    )
