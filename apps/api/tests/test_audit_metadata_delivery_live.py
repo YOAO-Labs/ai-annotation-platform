@@ -153,7 +153,7 @@ async def _rows(engine, request_id):
 
 
 async def test_metadata_best_effort_failure_restart_and_database_restore(
-    test_engine, tmp_path, monkeypatch, record_property
+    test_engine, tmp_path, monkeypatch, caplog, record_property
 ):
     from app.middleware import audit as middleware
     from app.workers.audit import persist_audit_entry
@@ -170,6 +170,8 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
     deliveries = []
     monkeypatch.setattr(middleware, "async_session", maker)
     monkeypatch.setattr(middleware.settings, "audit_async", True)
+    # Alembic disables preexisting loggers; retain the best-effort failure cause.
+    monkeypatch.setattr(middleware.logger, "disabled", False)
     async with async_sessionmaker(test_engine, expire_on_commit=False).begin() as db:
         actor = await create_user(
             db,
@@ -244,7 +246,10 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
                         )
                         refused_id = str(uuid.uuid4())
                         await request(client, refused_id)
-                        assert len(await _rows(test_engine, refused_id)) == 1
+                        assert len(await _rows(test_engine, refused_id)) == 1, (
+                            caplog.text
+                        )
+                        assert "audit task enqueue failed" in caplog.text
                 finally:
                     denied.close()
 
