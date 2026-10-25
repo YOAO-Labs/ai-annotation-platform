@@ -206,6 +206,8 @@ async def target_for(db, location, *, purpose, require_enabled=True):
 def version_id(response, *, purpose="avatars"):
 
     result = response.get("VersionId")
+    if purpose == "import" and result in (None, "", "null"):
+        raise error(purpose, "versioning_required")
     if result is not None and (
         not isinstance(result, str)
         or not 0 < len(result) <= 1024

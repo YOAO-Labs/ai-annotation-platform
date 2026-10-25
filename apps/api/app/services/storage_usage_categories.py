@@ -17,6 +17,8 @@ from app.db.models.dataset_source import DatasetSourcePreview
 from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.managed_original_retirement import ManagedOriginalRetirement
 from app.db.models.original_cache import OriginalCacheEntry
+from app.db.models.mask_format_upload import MaskFormatUpload
+from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.task_original import TaskOriginal
 from app.db.models.training_storage_deletion import TrainingStorageDeletion
 from app.services.content_snapshot import ContentError
@@ -54,7 +56,7 @@ FAMILIES = (
         "prediction_input.PredictionInputLease",
         "prediction_inputs",
         "temporary",
-        rf"^prediction-inputs/{_UUID}/",
+        rf"^(?:(?:[^/]+/)*_aap_managed/import/)?prediction-inputs/{_UUID}/",
         1,
         "input_prefix",
         ("id",),
@@ -320,7 +322,11 @@ async def classify(db, bucket, objects):
             "temporary",
             ManagedOriginalCreation.staging_key,
             (
-                ManagedOriginalCreation.configuration["endpoint"].astext == endpoint(),
+                func.coalesce(
+                    ManagedOriginalCreation.staging_ref["endpoint_url"].astext,
+                    ManagedOriginalCreation.configuration["endpoint"].astext,
+                )
+                == endpoint(),
                 ManagedOriginalCreation.staging_bucket == bucket,
                 ManagedOriginalCreation.staging_key.in_(keys),
             ),
@@ -355,6 +361,27 @@ async def classify(db, bucket, objects):
             ),
         ),
     ]
+    for model, field, tag in (
+        (MaskFormatUpload, "logical_object_key", "mask_upload"),
+        (MaskFormatImport, "staged_object_key", "mask_batch"),
+    ):
+        logical_key = getattr(model, field)
+        ref = model.storage_ref if tag == "mask_upload" else model.staging_ref
+        physical_key = ref["key_prefix"].astext + func.substring(
+            logical_key, func.length(func.regexp_replace(logical_key, "[^/]+$", "")) + 1
+        )
+        queries.append(
+            select(
+                literal(tag).label("kind"),
+                func.jsonb_build_object(
+                    "logical_key", logical_key, "storage_ref", ref
+                ).label("data"),
+            ).where(
+                ref["endpoint_url"].astext == endpoint(),
+                ref["bucket"].astext == bucket,
+                physical_key.in_(keys),
+            )
+        )
     for model, namespace in (
         (TaskOriginal, "__aap_task_originals__"),
         (DatasetAuxiliaryOriginal, "__aap_auxiliary_originals__"),
@@ -443,6 +470,21 @@ async def classify(db, bucket, objects):
             claims[data["key"]].add(kind)
             continue
         try:
+            if kind in {"mask_upload", "mask_batch"}:
+                from app.services import import_storage
+
+                logical, suffix = data["logical_key"].rsplit("/", 1)
+                owner = import_storage.resolve_ref(
+                    data["storage_ref"], expected_prefix=logical + "/"
+                )
+                key = owner.key(suffix)
+                if (
+                    owner.ref["endpoint_url"] == endpoint()
+                    and owner.bucket == bucket
+                    and key in claims
+                ):
+                    claims[key].add("temporary")
+                continue
             if kind == "cache":
                 from app.services.original_cache import object_key
 

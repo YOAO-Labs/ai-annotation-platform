@@ -72,7 +72,7 @@ def prediction_input_changes(row, *, source_bucket, target_bucket, endpoint_url)
         prediction_inputs._inventory(row, row.inventory)
     except (ValueError, TypeError, AttributeError):
         raise WorktreeError("预测输入含未知归属或对象收据") from None
-    if ref["endpoint_url"] != endpoint_url.rstrip("/"):
+    if ref["schema"] != 1 or ref["endpoint_url"] != endpoint_url.rstrip("/"):
         raise WorktreeError("预测输入端点与备份不一致")
     values["storage_ref"] = {
         **ref,
@@ -133,6 +133,25 @@ async def remap_storage(
         sample_evaluation_storage,
         active_learning_storage,
     )
+
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+    from app.db.models.mask_format_upload import MaskFormatUpload
+    from app.db.models.mask_format_import import MaskFormatImport
+
+    if (
+        await db.scalar(
+            select(ManagedOriginalCreation.id)
+            .where(ManagedOriginalCreation.staging_ref.is_not(None))
+            .limit(1)
+        )
+        or await db.scalar(select(MaskFormatUpload.id).limit(1))
+        or await db.scalar(
+            select(MaskFormatImport.id)
+            .where(MaskFormatImport.staging_ref.is_not(None))
+            .limit(1)
+        )
+    ):
+        raise WorktreeError("导入暂存含新归属，当前九桶恢复未覆盖其映射")
 
     mapping = bucket_mapping(source, target)
     planned = []

@@ -46,13 +46,13 @@ COALESCE((jsonb_typeof(storage_ref)='object'
 
 
 PREDICTION_INPUT_REF_CHECK = (
-    "("
+    "(("
     + _LEGACY_PREDICTION_INPUT_REF_CHECK
     + ") OR (storage_ref->'schema'='2'::jsonb AND "
     + mask_staging_ref_check(
         "storage_ref", "'prediction-inputs/' || id::text || '/'", "''"
     )
-    + " AND storage_ref->>'bucket'=bucket AND storage_ref->>'storage_identity'=storage_identity)"
+    + " AND storage_ref->>'bucket'=bucket AND storage_ref->>'storage_identity'=storage_identity))"
 )
 
 

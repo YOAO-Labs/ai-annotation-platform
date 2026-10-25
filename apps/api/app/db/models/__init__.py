@@ -1,3 +1,4 @@
+from app.db.models.mask_format_upload import MaskFormatUpload
 from app.db.models.storage_fault import StorageFaultState
 from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
 from app.db.models.guide_asset_upload import GuideAssetUpload
@@ -358,3 +359,5 @@ __all__ += ["CommentAttachmentUpload"]
 __all__ += ["GuideAssetUpload", "ProjectGuideAsset"]
 
 __all__ += ["StorageFaultState"]
+
+__all__ += ["MaskFormatUpload"]

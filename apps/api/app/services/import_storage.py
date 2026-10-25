@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta, timezone
 import re
 import uuid
 
@@ -256,11 +257,40 @@ async def allocate(db, logical_prefix):
 
 async def io_target(db, owner, *, lock=False):
     from app.services.import_storage_target import target_for
+    from app.services.managed_s3_target import Target
 
+    initial = await db.get(StorageLocation, owner.location_id, populate_existing=True)
+    if (
+        initial is None
+        and owner.location_id == LEGACY_LOCATION_ID
+        and owner.ref["schema"] == 1
+    ):
+        return Target(
+            LEGACY_LOCATION_ID,
+            1,
+            None,
+            _runtime_endpoint(),
+            owner.bucket,
+            "",
+            purpose="import",
+            _legacy_client=storage_service.client,
+        )
+    if initial is None:
+        _reject("import_storage_binding_unproven")
+    connection_id = initial.connection_id
+    if lock and connection_id is not None:
+        await db.scalar(
+            select(StorageConnection)
+            .where(StorageConnection.id == connection_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
     query = select(StorageLocation).where(StorageLocation.id == owner.location_id)
     if lock:
         query = query.with_for_update(read=True)
     location = await db.scalar(query.execution_options(populate_existing=True))
+    if location is None or location.connection_id != connection_id:
+        _reject()
     target = await target_for(db, location, require_enabled=False)
     if owner.location_id == LEGACY_LOCATION_ID:
         target = replace(target, bucket=owner.bucket)
@@ -286,35 +316,74 @@ async def check_location(db, owner, *, expected_revision=None, lock=False):
     )
 
 
+class PreparedUploadURL(str):
+    """Private publication proof; serialized responses still contain only the URL."""
+
+    def __new__(cls, value, owner, relative, content_type, facts, revision, deadline):
+        result = super().__new__(cls, value)
+        result.relative, result.content_type = relative, content_type
+        result.owner, result.facts, result.revision, result.deadline = (
+            owner,
+            facts,
+            revision,
+            deadline,
+        )
+        return result
+
+
+async def validate_upload_url(
+    db, prepared, *, owner=None, relative=None, content_type=None, lock=False
+):
+    if not isinstance(prepared, PreparedUploadURL):
+        _reject("import_storage_invalid_receipt")
+    if (
+        (owner is not None and owner.ref != prepared.owner.ref)
+        or (relative is not None and relative != prepared.relative)
+        or (content_type is not None and content_type != prepared.content_type)
+    ):
+        _reject("import_storage_invalid_receipt")
+    target = await io_target(db, prepared.owner, lock=lock)
+    if target.facts != prepared.facts:
+        _reject("import_storage_configuration_changed")
+    await storage_access.check(
+        db, prepared.owner.location_id, expected_revision=prepared.revision, lock=lock
+    )
+    if datetime.now(timezone.utc) >= prepared.deadline:
+        _reject("import_storage_expired")
+
+
 async def prepare_upload_url(db, owner, relative, content_type, *, expires_in=900):
+    deadline = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
     target = await io_target(db, owner)
     revision = await storage_access.check(db, owner.location_id)
+    async with await storage_access.acquire(
+        db, owner.location_id, "import_upload_sign", expected_revision=revision
+    ):
 
-    async def operation():
-        async with await storage_access.acquire(
-            db, owner.location_id, "import_upload_sign", expected_revision=revision
-        ):
+        def sign():
+            with target.client() as client:
+                seconds = int((deadline - datetime.now(timezone.utc)).total_seconds())
+                if seconds <= 0:
+                    _reject("import_storage_expired")
+                return storage_presigning.generate_url(
+                    client,
+                    "put_object",
+                    params={
+                        "Bucket": owner.bucket,
+                        "Key": owner.key(relative),
+                        "ContentType": content_type,
+                    },
+                    expires_in=seconds,
+                    audience="browser"
+                    if owner.location_id == LEGACY_LOCATION_ID
+                    else "internal",
+                )
 
-            def sign():
-                with target.client() as client:
-                    return storage_presigning.generate_url(
-                        client,
-                        "put_object",
-                        params={
-                            "Bucket": owner.bucket,
-                            "Key": owner.key(relative),
-                            "ContentType": content_type,
-                        },
-                        expires_in=expires_in,
-                        audience="browser"
-                        if owner.location_id == LEGACY_LOCATION_ID
-                        else "internal",
-                    )
+        from app.services.prediction_inputs import settled_io
 
-            from app.services.prediction_inputs import settled_io
-
-            return await settled_io(sign)
-
-    result = await operation()
-    await check_location(db, owner, expected_revision=revision)
-    return result
+        result = await settled_io(sign)
+    prepared = PreparedUploadURL(
+        result, owner, relative, content_type, target.facts, revision, deadline
+    )
+    await validate_upload_url(db, prepared)
+    return prepared

@@ -560,11 +560,12 @@ async def secondary_inference(
             db, task, current_user, request, annotation, input_session_factory
         )
     else:
-        # This slice does not qualify legacy non-image inputs.
+        # The temporary lease owns delivery without claiming original provenance.
         operation = nullcontext(None)
     async with operation as original_operation:
         updated, children = await run_secondary_inference(
             db,
+            input_session_factory=input_session_factory,
             annotation=annotation,
             task=task,
             backend=backend,

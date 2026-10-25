@@ -181,7 +181,7 @@ def prepare_secondary_request(
     return ls_box, context
 
 
-async def run_secondary_inference(
+async def _run_secondary_inference(
     db,
     *,
     annotation: Annotation,
@@ -203,13 +203,15 @@ async def run_secondary_inference(
     visual_task: str | None = None,
     prompt_type: str | None = None,
     original_operation=None,
+    inputs=None,
+    prepared_request=None,
 ) -> tuple[Annotation, list[Annotation]]:
     """Write attributes or child geometries from one selected annotation's ROI."""
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.prediction import to_internal_shape
     from app.services.reference_keys import is_reference
 
-    ls_box, context = prepare_secondary_request(
+    ls_box, context = prepared_request or prepare_secondary_request(
         annotation,
         backend,
         model_id=model_id,
@@ -231,25 +233,24 @@ async def run_secondary_inference(
     else:
         if original_operation is not None:
             raise ContentError("prediction_original_receipt_invalid")
-        # Non-image callers retain their existing, unqualified legacy contract.
         from app.workers.tasks import _load_task_image
-        from app.services.storage import StorageService
 
         image = _load_task_image(task)
-        storage = StorageService()
-
-        def upload_fn(box_idx: int, jpeg_bytes: bytes) -> str:
-            key = f"roi-crops/secondary/{annotation.id}/{box_idx}.jpg"
-            return storage.upload_crop_bytes(jpeg_bytes, key)
-
-        batch = crop_inputs_from_boxes(
-            image,
-            [ls_box],
-            pad=pad,
-            delivery="presigned",
-            upload_fn=upload_fn,
-            min_crop_side_px=32,
-        )
+        try:
+            batch = crop_inputs_from_boxes(
+                image,
+                [ls_box],
+                pad=pad,
+                delivery="deferred",
+                min_crop_side_px=32,
+            )
+        finally:
+            image.close()
+        for item in batch.inputs:
+            index = str(item["id"])
+            item["file_path"] = await inputs.upload_crop(
+                task, int(index), batch.contents.pop(index)
+            )
     if not batch.inputs:
         # v0.20.21 · 几何已判可裁 (上面门2 通过), 此处 inputs 空只可能是 crop 退化:
         #   框太小 (短边 < min_crop_side_px=32) 或贴边裁出零面积。明确报错, 不再静默返回空。
@@ -374,3 +375,36 @@ async def run_secondary_inference(
     if children:
         await db.flush()
     return annotation, children
+
+
+async def run_secondary_inference(db, *, input_session_factory=None, **kwargs):
+    """Keep the existing inference operation inside its temporary-input owner."""
+    prepared = prepare_secondary_request(
+        kwargs["annotation"],
+        kwargs["backend"],
+        model_id=kwargs.get("model_id"),
+        model_variants=kwargs.get("model_variants"),
+        params=kwargs.get("params"),
+        task_type=kwargs.get("task_type"),
+        prompt=kwargs.get("prompt"),
+        class_filter=kwargs.get("class_filter"),
+        visual_task=kwargs.get("visual_task"),
+        prompt_type=kwargs.get("prompt_type"),
+    )
+    if kwargs["task"] is None or kwargs["task"].file_type == "image":
+        return await _run_secondary_inference(db, prepared_request=prepared, **kwargs)
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.services import prediction_inputs, storage_access
+
+    factory = input_session_factory or async_sessionmaker(
+        storage_access.engine(db), expire_on_commit=False
+    )
+    async with prediction_inputs.prediction_inputs(
+        factory,
+        owner_id=uuid.uuid4(),
+        owner_kind="secondary_inference",
+        task_id=kwargs["task"].id,
+    ) as inputs:
+        return await _run_secondary_inference(
+            db, inputs=inputs, prepared_request=prepared, **kwargs
+        )

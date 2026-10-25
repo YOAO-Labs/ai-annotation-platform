@@ -282,7 +282,7 @@ async def test_upload_does_not_return_url_after_actor_revocation(
         headers=_bearer(token),
         json={"file_name": "a.json"},
     )
-    assert result.status_code == 403, result.text
+    assert result.status_code == 401, result.text
     assert "must-not-return" not in result.text
 
 

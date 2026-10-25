@@ -86272,7 +86272,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/{backend_id}/predict-frame": {
       "post": {
-        "description": "v0.21.4 · 对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。\n\n视频 task 的 ``file_path`` 是整段 mp4, 图像 backend 从 task URL 取不到帧 (见\n``_resolve_task_url``)。故前端把当前帧解成 JPEG 随 multipart 传入; 服务端上传 import 桶换\npresigned URL 投递 (``upload_crop_bytes``, **通用**——gsam2/sam3 全支持 http URL, 不走\n``data:`` 捷径); 结果逐框改写成 ``video_bbox(frame_index)`` 落一条 Prediction, 采纳复用既有\n``/predictions/{id}/accept`` 机制 → ``VideoBboxGeometry``。\n\n与批量预标 (整段视频投 signed URL 走 worker) 是两条路: 本路同步、单帧、client 供图。",
+        "description": "v0.21.4 · 对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。\n\n视频 task 的 ``file_path`` 是整段 mp4, 图像 backend 从 task URL 取不到帧 (见\n``_resolve_task_url``)。故前端把当前帧解成 JPEG 随 multipart 传入; 服务端上传 import 桶换\npresigned URL 投递 (独立临时输入归属, **通用**——gsam2/sam3 全支持 http URL, 不走\n``data:`` 捷径); 结果逐框改写成 ``video_bbox(frame_index)`` 落一条 Prediction, 采纳复用既有\n``/predictions/{id}/accept`` 机制 → ``VideoBboxGeometry``。\n\n与批量预标 (整段视频投 signed URL 走 worker) 是两条路: 本路同步、单帧、client 供图。",
         "operationId": "predict_frame_api_v1_projects__project_id__ml_backends__backend_id__predict_frame_post",
         "parameters": [
           {
