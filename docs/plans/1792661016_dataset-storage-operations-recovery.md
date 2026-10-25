@@ -5,6 +5,22 @@
 
 原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增，B6接入独立导出媒体新增，B7接入导出ZIP写入净变化，B8接入报告附件受控新增，B9接入头像／评论附件／指南图片／持久RLE／审计归档受控新增，B10接入冻结文件／主动学习保留图片／评估报告／脱敏日志的覆盖写入净变化；其他生产者及媒体缓存／导出移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
 
+## 本轮定稿：E12-B11 独立导出媒体准确版本删除增量
+
+2026-10-26，基于`55a08c556`继续原始E12-S03／AC01、§5及工程任务第2项的删除侧。图片、视频、LiDAR独立媒体共用`export_media_retirement._physical_delete`→`export_media_storage.delete_inventory`，已有保存Bundle、准确键／VersionId逐项删除、最终空前缀核验及真实permit／原生client收尾。本片接入此共享链全部实际版本删除，不改格式、引用、保留、退休资格或原删除算法；ZIP的按key删除、缓存／训练清理及外部签名写入仍是独立原始缺口，不为本片追加其他消费者或部署前置。
+
+新增私有`export_media_removal_accounting.py`，producer为`export_media_removals`，owner为ExportMediaBundle.id，purpose为`temporary`，准确endpoint／bucket来自已保存ref。显式工厂为`recorder(db, receipt)`，物理接口为`Observation(accounting, client, key, version)`，`submit(call)`保持实际SDK返回／异常，`complete(response)`仅补观测，`finish`直接复用已有条件写的取消安全发布。仅该清理分支使用`open_storage(..., owned=True)`，保留原SDK Config、重试及所有删除参数；普通读、写及ZIP清理保持。
+
+共享`storage_usage_accounting.begin_in_transaction`仅扩展显式`kind=delete,new_request=True`的逐实际调用窗口：在DELETE之前独立短事务保存意图，允许null／证据未知的请求落库但不确认其变化；每次实际重试调用拥有独立身份，早期未知不能由后续成功／不存在解释。默认`new_request=False`继续要求不可变版本并按准确物理地址／版本全局去重，原prediction输入协议及既有创建窗口保持不变，无表或迁移。新Recorder沿原线程安全桥回所属Engine提交，不共享异步Session或另造跨循环Engine；意图失败不开始本次DELETE，先前已发生事实保留。
+
+每次逐版本调用旁路核对公开SDK参数Bucket／Key／VersionId及真实before-send次数，回调返回None。复用B7有界完整准确key的HEAD→ListObjectVersions→HEAD快照，不复制集合算法、不读取全对象正文或额外全桶扫描。仅单次真实发送、明确匹配删除版本的成功ACK、不可变非null请求版本，且前后集合只移除该版本／其余证据一致、当前HEAD与完整集合吻合时，确认新旧当前可见内容大小之差；删除非当前版本为零，删除当前版本可能显露旧版本，净值按实际当前内容而非被删版本大小计算，删除marker也可能显露内容。清理无效／已不存在的准确版本，仅在同等单次ACK与前后集合完整一致时确认本窗口零，不解释此前未知。null、缺hook、重复发送、无ACK、缺LIST权限、截断／并发变化或不完整观测均保持unknown，原业务结果和SDK重试不变。
+
+`physical_outcome=deleted`只记录有完整前后证据的实际版本移除；未证明实际移除的零窗口单列证据，不补造删除事实。当前净变化口径与既有盘点一致，不等于历史版本存储、物理磁盘回收量；负值也不授予任何清理许可。逐项完成的物理事实即使后续对象失败、后置guard拒绝或业务事务回滚仍独立保留。账目在原生线程、client及实际permit结清之后finish，关闭不明不确认；普通发布失败留下pending／unknown并保留原业务结果，新到达取消排空后传播。
+
+隔离core树负责共享窄扩展、私有Recorder／Observation、物理`delete_inventory`可选accounting、schema生产者声明及相关专项／共享账目回归；隔离owner树只负责`export_media_retirement._physical_delete`媒体分支的工厂、owned client和真实permit之后finish，以及该异步owner相关测试，先接同一共享helper真实提交。主树负责现有容量摘要与测试、README／CHANGELOG／用户／API／开发说明、必要合同生成、整合及人工环境保留。无新增公开端点／字段、依赖、配置、镜像、版本或删除能力。
+
+仅在有owner证明的一次性test资源验证实际单次删除的负／零／回退显露正量、marker、准确保存目标、逐对象部分失败、旧预测默认去重及null未知；受控SDK事件覆盖重试／丢ACK／缺权限／并发替换／意图及发布失败，真实PG／MinIO覆盖生产delete_inventory和实际退休owner、客户端／permit及取消收尾。复用相关原回归，不重跑已完成的所有格式或消费者资格。正常代码／文档检查通过后，在原0257任务空闲时刷新准确所属人工服务，验证19生产者的真实摘要及明暗宽窄页面，保存原业务／对象／文件；按owner销毁测试资源、清理临时树及私密产物并提交。coverage仍partial、projected_total_bytes仍null，完整E12与整套Epic保持活动。
+
 ## 本轮定稿：E12-B10 服务端训练归属对象覆盖写入
 
 2026-10-26，基于`f69aeb743`继续原始E12-S03／AC01、§5及工程任务第2项。本片统一覆盖四类服务端写入：TrainingDatasetVersion的冻结media／RLE masks／dataset.zip、ActiveLearningRound的保留PNG、SampleEvaluationRun的报告、TrainingRun的脱敏派生日志。producer分别为`training_dataset_outputs`、`active_learning_media`、`sample_evaluation_reports`、`training_redacted_logs`，owner使用对应业务保存责任UUID；前者分类`training_version`，后三者`other_platform`。地址来自当前操作已核验的owner.ref，尤其历史attempt使用自身保存地址，不能改取今日Run绑定。
