@@ -20,6 +20,7 @@ from app.db.models.dataset import Dataset, DatasetItem, VideoFrameIndex
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.storage_maintenance import StorageOperation
+from app.db.models.storage_usage import StorageUsageMutation as Mutation
 from app.db.models.user import User
 from app.db.models.video_derivative import VideoDerivativeOutput as Output
 from app.services import storage_access
@@ -395,6 +396,20 @@ async def test_real_registered_original_native_generation_and_complete_readback(
     for output in outputs:
         assert output.state == "ready", output.error_code
         core.validate_result(output, output.result, output.inventory)
+        async with context.factory() as db:
+            facts = list(
+                await db.scalars(
+                    select(Mutation).where(
+                        Mutation.owner_id == output.id,
+                        Mutation.producer == "video_derivative_outputs",
+                    )
+                )
+            )
+        assert {fact.object_key for fact in facts} == set(output.inventory["objects"])
+        assert all(fact.physical_outcome == "written" for fact in facts)
+        assert sum(fact.physical_size_bytes for fact in facts) == sum(
+            value["size_bytes"] for value in output.inventory["objects"].values()
+        )
         with physical.open_storage() as storage:
             physical.verify_inventory(storage, output, output.inventory)
             if output.kind == "frame":
@@ -421,7 +436,10 @@ async def test_real_frame_preannotation_uses_explicit_task_original_and_verified
         ctx = await build_context_from_task(db, task)
         urls = await frame_preannotate._extract_frames_for_video(db, ctx, [1, 3])
         assert set(urls) == {1, 3}
-        assert all("video-derivatives/objects/" in url for url in urls.values())
+        assert all(
+            urlsplit(url).path.startswith("/api/v1/media-cache/video-derivative/")
+            for url in urls.values()
+        )
         again = await frame_preannotate._read_frame_urls(db, ctx, [1, 3, 5])
         assert {index: urlsplit(url).path for index, url in again.items()} == {
             index: urlsplit(url).path for index, url in urls.items()

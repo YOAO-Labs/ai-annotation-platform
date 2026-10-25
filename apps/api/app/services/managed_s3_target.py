@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import hashlib
 import uuid
 
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from app.config import settings
@@ -170,8 +171,26 @@ class Target:
         }
 
     @contextmanager
-    def client(self, *, read_timeout=None):
-        if self._access is None:
+    def client(self, *, read_timeout=None, single_attempt=False):
+        if self._access is None and single_attempt:
+            from app.services.storage import StorageService
+
+            # Accounting owns this transport: one durable intent represents one
+            # submission, including when the provider loses its response.
+            config = Config(
+                connect_timeout=3,
+                read_timeout=read_timeout or 30,
+                retries={"total_max_attempts": 1, "mode": "standard"},
+            )
+            try:
+                client = StorageService(client_config=config).client
+            except BaseException as exc:
+                raise storage_access.mark_unsettled(exc)
+            try:
+                yield client
+            finally:
+                storage_access.close_registered(client)
+        elif self._access is None:
             # The process owns the shared legacy client; do not close it here.
             yield self._legacy_client
         else:

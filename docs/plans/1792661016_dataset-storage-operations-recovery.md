@@ -1,9 +1,9 @@
 # EPIC-12：运维观测、容量口径与备份恢复
 
-> 状态：approved；E12-A1/A2/A3、E12-A4 四类本地来源故障去重与恢复观测、E09-B1/B2、E12-B1 离线隔离恢复试点、E12-B2 外部原件保护责任、E12-C1 本地目录扫描基线、E12-C2／E09-B4 已采纳源索引规模、E12-C3 平台对象分项、E12-C4 原图读取与 E12-C5 增量同步本地基线、E12-B3 首个生产者的当前对象增量账目与周期对账、E12-B4 托管原件集中新增已完成；A3／A4 限本地来源故障观测，B2 为声明及本地恢复保留，完整E12仍为部分交付，其余切片待独立复核，不分配发布版本。
+> 状态：approved；E12-A1/A2/A3、E12-A4 四类本地来源故障去重与恢复观测、E09-B1/B2、E12-B1 离线隔离恢复试点、E12-B2 外部原件保护责任、E12-C1 本地目录扫描基线、E12-C2／E09-B4 已采纳源索引规模、E12-C3 平台对象分项、E12-C4 原图读取与 E12-C5 增量同步本地基线、E12-B3 首个生产者的当前对象增量账目与周期对账、E12-B4 托管原件集中新增、E12-B5 四类媒体缓存受控新增已完成；A3／A4 限本地来源故障观测，B2 为声明及本地恢复保留，完整E12仍为部分交付，其余切片待独立复核，不分配发布版本。
 > 晋升基线：`5b764eaa5`；工作树干净，保留 `1822b025369a33f4` 的 dev 人工验收环境，不重建后端镜像。
 
-原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4进一步接入集中托管原件新增，其他物理生产者仍待接入。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
+原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增；其他生产者与媒体缓存移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
 
 ## 本轮定稿：E12-B5 媒体缓存受控新增增量
 
@@ -22,6 +22,8 @@
 
 同步物理helper通过显式传入的局部记账对象把短事务提交回所属事件循环，不共享AsyncSession到线程、不创建跨循环Engine、不包办读取或替换全局S3 client。复用现有线程排空、BaseException／取消和client／Body收尾；同步桥接采用[Python线程安全协程提交](https://docs.python.org/3/library/asyncio-task.html#asyncio.run_coroutine_threadsafe)的既有仓库模式。条件写只针对当前版本，沿[S3条件写合同](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html)，不把历史版本或提供方磁盘字节纳入当前对象增量。
 
+旧默认目标的共享SDK client会自动重试，首次提交丢应答后重试412不能记作唯一一次零增量。因此仅在这些记账写入中显式选择独占单次提交client，schema1和schema2默认A都覆盖；普通读取及其他用途仍沿原工厂。该client在既有owner范围内真实关闭，不替换共享实例。记账意图失败发生在PUT之前，必须保留已知未开始语义，不能误标未知物理I/O并让缩略图永久滞留；发布阶段取消要先排空记账和已有owner检查点，再继续抛出取消。
+
 ```text
 saved media owner -> per-object durable intent -> existing conditional PUT / full readback
                              |                               |
@@ -34,11 +36,23 @@ saved media owner -> per-object durable intent -> existing conditional PUT / ful
 
 GET摘要的producers列表增加上表四项，覆盖文案只显示响应实际声明的生产者；`coverage=partial`和`projected_total_bytes=null`保留。现有缓存、金字塔与视频清理按key删除，并不证明不可变版本已移除；本片不改删除算法、不补造负量、不扩展版本GC或为已有清理增加前置。历史、其他生产者、提供方lifecycle及外部写入继续由既有盘点表达未解释变化。无需新表、迁移、API端点、命令、配置、依赖或镜像。
 
-准确候选范围超过8文件：新`apps/api/app/services/media_cache_accounting.py`及其专项测试，现有`storage_usage_accounting.py`仅按共享接口需要调整；四个物理接点`thumbnail_outputs.py`、`original_cache.py`、`image_pyramid_storage.py`、`video_derivative_storage.py`，两个所属Worker `image_pyramid.py`／`media_derivatives.py`，`schemas/storage.py`及相关已有media-cache／accounting检查；Web `pages/Storage/StorageUsageAccounting.tsx`及其测试；OpenAPI snapshot与本树生成类型；README、CHANGELOG、用户storage-connections、API storage-locations、开发reference/storage-buckets、本计划及执行队列。原件／解码／渲染算法、消费者业务、清理控制和SDK能力分类不变；新增文件必须服务同一记账接点，不顺带整理其他模块。
+准确候选范围超过8文件：新`apps/api/app/services/media_cache_accounting.py`及其专项测试，现有`storage_usage_accounting.py`仅按共享接口需要调整；四个物理接点`thumbnail_outputs.py`、`original_cache.py`、`image_pyramid_storage.py`、`video_derivative_storage.py`，`managed_s3_target.py`的独占单次client选项及`video_derivative_objects.py`的窄参数传递，两个所属Worker `image_pyramid.py`／`media_derivatives.py`，`schemas/storage.py`及相关已有media-cache／accounting检查；Web `pages/Storage/StorageUsageAccounting.tsx`及其测试；OpenAPI snapshot与本树生成类型；README、CHANGELOG、用户storage-connections、API storage-locations、开发reference/storage-buckets、本计划及执行队列。原件／解码／渲染算法、消费者业务、清理控制和SDK能力分类不变；新增文件必须服务同一记账接点，不顺带整理其他模块。
 
 使用核实owner的一次性test／e2e验证：四个生产者的准确地址与真实字节、schema1／2及旧位置、条件失败与重复实际尝试、无版本／旧版本／替换、应答与读回失败、多对象部分成功、业务回滚、取消和真实关闭顺序、记账发布失败及盘点对账；有意义的回归覆盖实际生产调用者，不只验证私有helper。真实PostgreSQL／MinIO以小图片、少量瓦片和小视频产物验证存储接线，原生生成器不可用时明确限定证据，不增设训练规模、GPU或渲染性能资格。同步快照／类型、SDK合同、Ruff固定版本、Web类型／lint／CSS tokens、正式文档与构建、正常提交钩子及diff检查。浏览器检查真实摘要文案、明暗和桌面／窄屏，不重跑原周期计划与历史消费者验收。
 
 主树集成后核对人工环境所属服务及空闲任务，再刷新实际消费改动的Worker，保持原3100／8100、Beat与schema0254。记录数据／对象保持与新生产者接线证据，按owner销毁全部本片一次性资源和私密中间产物，清理已合入隔离树。回退应用保留0246账目事实，不删除对象或历史流水。此片只交付该生产者组受控新增，不宣称完整E12或整套Epic完成，不推送或发布。
+
+## E12-B5 Outcome：四类媒体缓存受控新增增量
+
+后端`cc3eae1da`与本树UI、正式文档及本Outcome同次集成交付。共享Recorder／Attempt将四类生产者的每次实际条件PUT与独立持久意图、返回版本、完整读回和当前HEAD关联，原生线程／Body／文件／client收尾后才发布确认增量。部分生成失败、业务回滚或取消仍保留已发生事实；未知不会由后来的412或owner终态改写。schema1／2默认A的记账写入使用独占单次client，普通读取、共享client、清理算法与权限保持；意图拒绝不冒充未知物理I/O，发布期间取消会排空记账及缩略图回执检查点后继续传递。无迁移、依赖、公开任务参数或配置变化。
+
+最终按JUnit testcase的classname＋name去重，367项后端检查和2项OpenAPI检查均通过，含26项新回归；重跑及fixture统计不重复累计。开发期间修正新测试错误的对账字段、与既有能力链接不符的URL断言及覆盖掉原静态图片方法的客户端替身；未为通过测试放松产品合同，也未将未单独复现的旧断言失败标为已复现基线。固定Ruff、正常提交钩子及diff检查通过，OpenAPI重导无跟踪差异。主树35项Web、4项SDK合同、codegen、API快照核对、类型检查、完整Web lint／CSS tokens、207项frontmatter／209页导航／208篇可读性和标准文档构建通过；保留4项已有ESLint及2项已有样式层级提醒，远端CI未运行。
+
+真实PostgreSQL／MinIO四组均为默认A的schema2保存地址：缩略图1、生产OriginalCache.store 1、金字塔3、视频派生2个对象，分别核对当前字节、不可变版本与增量。金字塔经过真实\_build_generation至上传／读回，只有本地编码使用预生成文件；现有原生Video Worker的metadata／frame／chunk生成也已核对完整inventory与Mutation。未验证真实外部B或libvips编码，不据此声称规模、GPU、迁移或全平台增量完成。
+
+人工0254保留原3100／8100；刷新前后两个所属Worker均无活动／预留／定时任务，各注册73项任务。按原监督服务刷新实际消费者，Beat保留原进程；启动首次观测为starting，等待同一所属服务就绪后Web／API及doctor全部健康，未重复重启。真实API返回六个生产者，覆盖仍partial、推算总量null。浏览器检查1440×1000／390×844明暗四组合，完整生产者文案、11px弱化提示、折叠及原周期关闭状态正确，无横向溢出、页面异常或HTTP错误；4条无状态请求不计成功，仅无关在线心跳本地应答。未修改周期、账号偏好或其他业务。174表9,235行、24条对象版本／删除标记与16个本地媒体文件的完整指纹保持。
+
+所属`b56b7de6b25601d3:test`数据库、Redis和九桶已销毁，并由主树独立只读确认不存在；资源及运行清单缺席。子树36个缓存目录、19份日志／XML，以及主树私密登录状态、截图、探针、原始检查输出和新生成文档缓存均按归属清理；仅保留有界摘要，已集成干净子树随本次提交收尾清理。正式说明同步README、CHANGELOG、用户storage-connections、API storage-locations及开发reference/storage-buckets。本片只补媒体受控新增，原按key清理不补造负量，不新增版本GC、训练测量或其他消费者验收；完整E12与整套Epic继续活动，未推送或发布。
 
 ## 当前推进边界：停止万条辅助测量
 

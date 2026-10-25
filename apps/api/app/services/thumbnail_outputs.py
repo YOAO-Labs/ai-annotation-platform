@@ -15,6 +15,7 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import media_cache_storage, media_cache_urls, original_sources
+from app.services import media_cache_accounting
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
 from app.services.filesystem_storage import FilesystemStorageError
@@ -51,21 +52,33 @@ def source_facts(source):
     return json.loads(json.dumps(asdict(source), default=str))
 
 
-def _write(target, reference, data):
+def _write(target, reference, data, *, accounting=None):
     saved = media_cache_storage.resolve_ref(reference)
     key = saved.key(RELATIVE_KEY)
     expected = hashlib.sha256(data).hexdigest()
     attempted = False
     try:
-        with target.client(read_timeout=30) as client:
-            attempted = True
+        with target.client(
+            read_timeout=30,
+            **({"single_attempt": True} if accounting is not None else {}),
+        ) as client:
+
+            def submitting():
+                nonlocal attempted
+                attempted = True
+
             try:
-                uploaded = client.put_object(
+                uploaded, attempt = media_cache_accounting.put(
+                    accounting,
+                    client,
+                    key,
+                    {"sha256": expected, "size_bytes": len(data)},
                     Bucket=saved.bucket,
                     Key=key,
                     Body=data,
                     ContentType="image/webp",
                     IfNoneMatch="*",
+                    submitting=submitting,
                 )
             except ClientError as exc:
                 code = exc.response.get("Error", {}).get("Code")
@@ -86,7 +99,9 @@ def _write(target, reference, data):
                     raise error from None
                 raise storage_access.mark_unsettled(exc)
             except BaseException as exc:
-                raise storage_access.mark_unsettled(exc)
+                if attempted:
+                    storage_access.mark_unsettled(exc)
+                raise
             etag, version = uploaded.get("ETag"), uploaded.get("VersionId")
             if (
                 uploaded.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
@@ -120,6 +135,8 @@ def _write(target, reference, data):
                 or observed != data
             ):
                 raise ContentError("thumbnail_write_unproven", 503)
+            if attempt is not None:
+                attempt.verified(client, observed_version)
             receipt = {
                 "sha256": expected,
                 "size_bytes": len(data),
@@ -198,6 +215,13 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
         )
         current.add(output)
         await current.commit()
+    recorder = media_cache_accounting.Recorder(
+        factory,
+        "thumbnail_outputs",
+        identifier,
+        reference["endpoint_url"],
+        reference["bucket"],
+    )
     observed, entered, failure = [], [], None
     try:
         async with factory() as current:
@@ -208,7 +232,7 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
 
             def write():
                 entered.append(True)
-                result = _write(target, reference, body)
+                result = _write(target, reference, body, accounting=recorder)
                 observed.append(result)
                 return result
 
@@ -224,6 +248,14 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
         if not entered and not getattr(exc, "storage_operation_unsettled", False):
             exc.thumbnail_write_refused = True
         failure = exc
+    try:
+        await recorder.finish(
+            settled=not getattr(failure, "storage_operation_unsettled", False)
+        )
+    except BaseException as exc:
+        # The verified owner receipt is mandatory even if accounting drains a
+        # caller cancellation. Persist it before propagating that cancellation.
+        failure = failure or exc
     checkpoint = asyncio.create_task(
         _persist_result(
             factory, identifier, reference, observed[0] if observed else None, failure

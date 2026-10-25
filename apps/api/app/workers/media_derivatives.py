@@ -16,6 +16,7 @@ from sqlalchemy.exc import DBAPIError
 from app.config import settings
 from app.db.models.dataset import DatasetItem
 from app.db.models.video_derivative import VideoDerivativeOutput as Output
+from app.services import media_cache_accounting
 from app.services import video_derivative_objects as objects
 from app.services import video_derivative_originals as originals
 from app.services import storage_access
@@ -194,7 +195,7 @@ def _chunk(output, metadata, input_path, fds, directory):
     }, [(path, "chunk.mp4", "video/mp4")]
 
 
-def build(storage, output, stage, metadata=None):
+def build(storage, output, stage, metadata=None, *, accounting=None):
     """No ORM or remote-original I/O; the caller retains both durable permits."""
     from app.workers.media_process import decoder_input
     from app.workers.media_frames import extract_video_frame_image
@@ -234,10 +235,18 @@ def build(storage, output, stage, metadata=None):
         inventory = {"schema": 1, "objects": {}}
         for path, relative, content_type in paths:
             inventory["objects"][owner.key(relative)] = physical.upload_file(
-                storage, output, path, relative, content_type
+                storage,
+                output,
+                path,
+                relative,
+                content_type,
+                **({"accounting": accounting} if accounting is not None else {}),
             )
         inventory["objects"][owner.key("metadata.json")] = physical.write_result(
-            storage, output, result
+            storage,
+            output,
+            result,
+            **({"accounting": accounting} if accounting is not None else {}),
         )
         physical.verify_inventory(storage, output, inventory)
         contract.validate_result(output, result, inventory)
@@ -432,17 +441,37 @@ async def run_outputs(identifiers):
                                 elif revisions[0] != revision:
                                     contract.reject("storage_maintenance_changed")
 
-                            async with objects.access(
-                                admission, claimed.output, guard
-                            ) as storage:
-                                result, inventory = await originals.physical(
-                                    build,
-                                    storage,
+                            recorder = media_cache_accounting.Recorder(
+                                factory,
+                                "video_derivative_outputs",
+                                claimed.output.id,
+                                claimed.output.storage_ref["endpoint_url"],
+                                claimed.output.storage_ref["bucket"],
+                            )
+                            settled = True
+                            try:
+                                async with objects.access(
+                                    admission,
                                     claimed.output,
-                                    stage,
-                                    claimed.metadata,
-                                    timeout=originals.JOB_SECONDS,
+                                    guard,
+                                    single_attempt=True,
+                                ) as storage:
+                                    result, inventory = await originals.physical(
+                                        build,
+                                        storage,
+                                        claimed.output,
+                                        stage,
+                                        claimed.metadata,
+                                        accounting=recorder,
+                                        timeout=originals.JOB_SECONDS,
+                                    )
+                            except BaseException as exc:
+                                settled = not getattr(
+                                    exc, "storage_operation_unsettled", False
                                 )
+                                raise
+                            finally:
+                                await recorder.finish(settled=settled)
                             completed.append((claimed, result, inventory, revisions[0]))
                 # Every decoder, output file/client and the shared source stage
                 # has really closed before any member of this batch is ready.

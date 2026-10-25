@@ -21,6 +21,12 @@ const PAUSE_REASONS: Record<string, string> = {
   access_revoked: "执行权限已失效，请确认权限后重新授权。",
   configuration_changed: "存储配置已变化，请核对当前配置后重新授权。",
 };
+const MEDIA_CACHE_PRODUCERS = [
+  ["thumbnail_outputs", "目录及普通缩略图"],
+  ["original_cache", "完整原图缓存"],
+  ["image_pyramid_outputs", "图像金字塔"],
+  ["video_derivative_outputs", "视频派生物"],
+] as const;
 const field =
   "w-full min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground";
 
@@ -56,6 +62,9 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const busy = saving || mutation.isPending;
+  const mediaCacheProducers = MEDIA_CACHE_PRODUCERS.filter(([producer]) =>
+    accounting?.producers.includes(producer),
+  ).map(([, label]) => label);
 
   useEffect(() => {
     setSaved(schedule);
@@ -141,6 +150,8 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
             {accounting?.producers.includes("prediction_inputs") && "已接入临时输入写入／清理。"}
             {accounting?.producers.includes("managed_original_creation") &&
               "已接入托管原件受控新增；原件退役不代表物理移除。"}
+            {mediaCacheProducers.length > 0 &&
+              `已接入媒体缓存受控新增：${mediaCacheProducers.join("、")}。缓存退休和清理记录不代表已确认移除。`}
             其他用途和外部变动尚未覆盖，不能据此推算平台总占用。
             只计当前可见对象内容字节，不含历史版本、删除标记与磁盘开销。
           </p>

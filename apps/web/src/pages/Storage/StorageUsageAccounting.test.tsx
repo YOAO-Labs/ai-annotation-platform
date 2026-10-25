@@ -315,6 +315,7 @@ it("explains only the producers returned by the summary and never treats retirem
   open();
   expect(screen.getByText(/已接入临时输入写入／清理/)).toBeVisible();
   expect(screen.queryByText(/已接入托管原件受控新增/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/已接入媒体缓存受控新增/)).not.toBeInTheDocument();
   view.rerender(
     <StorageUsageAccounting
       accounting={{ ...accounting, producers: ["managed_original_creation"] }}
@@ -324,4 +325,47 @@ it("explains only the producers returned by the summary and never treats retirem
   expect(screen.queryByText(/已接入临时输入写入／清理/)).not.toBeInTheDocument();
   expect(screen.getByText(/已接入托管原件受控新增；原件退役不代表物理移除/)).toBeVisible();
   expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
+});
+
+it("explains all covered media producers while retaining partial accounting and deletion limits", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{
+        ...accounting,
+        producers: [
+          "prediction_inputs",
+          "managed_original_creation",
+          "thumbnail_outputs",
+          "original_cache",
+          "image_pyramid_outputs",
+          "video_derivative_outputs",
+        ],
+      }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(
+    screen.getByText(
+      /已接入媒体缓存受控新增：目录及普通缩略图、完整原图缓存、图像金字塔、视频派生物。缓存退休和清理记录不代表已确认移除/,
+    ),
+  ).toBeVisible();
+  expect(screen.getByText("部分覆盖")).toBeVisible();
+  expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
+  expect(screen.getByText("+2 KiB")).toBeVisible();
+});
+
+it("limits media coverage to producers explicitly present in the response", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["original_cache", "unknown_future_producer"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入媒体缓存受控新增：完整原图缓存。/)).toBeVisible();
+  expect(screen.queryByText(/目录及普通缩略图/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/图像金字塔/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/视频派生物/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/已接入临时输入写入/)).not.toBeInTheDocument();
 });

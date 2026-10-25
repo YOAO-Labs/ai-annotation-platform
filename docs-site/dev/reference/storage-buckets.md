@@ -132,9 +132,15 @@ Celery default worker 执行盘点，Beat 每 30 秒回收超过 120 秒租约�
 
 `managed_original_creation` 生产者复用 Creation 现有 prepared→writing 独立事务和同一引擎，在最终条件 PUT／CompleteMultipart 前原子登记意图；通用入口接受调用方的 AsyncSession／AsyncConnection 事务，不提交其业务事务。地址只取冻结 configuration.endpoint、bucket 和完整 key，保留 Creation ID、owner_kind、origin 与独立尝试窗口，集中覆盖 Dataset direct／zip／connector／directory_copy、Task 和辅助原件。真实写回执、完整 SHA／大小读回、当前 HEAD 匹配返回的不可变非 null 版本，并完成原生 close／drain 后才尽力发布正增量；回执或读回持久化及后续业务发布失败不抹去已经取得的物理证据。关闭失败、无版本、null、应答不明或当前版本替换保持 unknown；已核验 Creation 重读不新增。准备分片／abort、浏览器暂存与旧预签名重放不计增量，Retirement／Reclamation 不执行最终物理 DELETE，不能扣减。生产者摘要仍为 partial，projected_total_bytes 保持 null。
 
+媒体缓存新增使用`thumbnail_outputs`、`original_cache`、`image_pyramid_outputs`、`video_derivative_outputs`四个生产者，共用私有媒体记账helper和原有 mutation 表。共享缩略图入口涵盖目录、Dataset和Task；金字塔及视频按每个物理对象记录，包含manifest／metadata。固定地址来自已保存owner，逐实际条件PUT提交前持久化独立意图；同步物理线程只通过显式局部记账对象回到所属事件循环提交短事务，不传递AsyncSession或替换全局client。
+
+这些受控写入使用独占单次提交client，避免SDK把丢应答后的自动重试412压成一次零变化；旧schema1与schema2默认位置均显式传递该选项，普通读取及其他用途保留原行为。意图事务失败仍是PUT前已知拒绝，不能当成未知物理I/O；发布期间取消须排空记账及原owner检查点，再向调用者继续传递。
+
+保留PUT返回版本及完整读回证据，再核对当前HEAD；只有不可变非null版本、大小和内容一致且原生client／Body真正收尾才确认正增量。部分生成失败或业务发布回滚不抹去已发生事实；应答未知、无版本、后来替换或关闭失败保持unknown，账目发布失败保留pending。该接线只增加观测，不改变原件、生成器或清理算法；旧按key清理不据此产生负量，不新增版本GC或清理门禁。生产者列表是接线覆盖声明，未把历史对象重新记作新增，完整覆盖与推算总量仍未知。
+
 盘点页每次最多1,000对象，保存准确key、实际大小和观测窗口；不解码key，不以ETag代替摘要。稳定代次为AsyncJob UUID，执行块的fence代次仅用于拒绝迟到发布。整桶成功才替换基准和对账，保留两个成功代次及当前暂存；重复key、失败和取消不发布不完整基准。数据库按对象比较两次观测，只有完全位于观测之间的已确认事件参与增量核对；跨窗口／pending／unknown及首次无基准单列未知。没有接入的写入方和外部变化只称未解释变化，不宣称精确账目漂移或物理磁盘容量。GET仅返回持久固定摘要。
 
-周期计划存于 `storage_usage_schedules`，默认关闭，管理员通过显式PUT授权开启，间隔1至168小时。已有30秒recover任务复核保存的授权及范围并调度，避免重叠，撤权／配置变化暂停，不能自动换操作者。应用迁移0246后刷新执行盘点、临时输入与托管原件写入的Worker；无镜像或依赖变化。回退先关闭计划，再回退保留schema的旧应用；显式降级仅允许新增表为空，禁止丢弃流水及基准。
+周期计划存于 `storage_usage_schedules`，默认关闭，管理员通过显式PUT授权开启，间隔1至168小时。已有30秒recover任务复核保存的授权及范围并调度，避免重叠，撤权／配置变化暂停，不能自动换操作者。应用迁移0246后刷新执行盘点、临时输入与托管原件写入的Worker；媒体记账接线改变时也要刷新实际执行缓存／派生物写入的Worker，无镜像或依赖变化。回退先关闭计划，再回退保留schema的旧应用；显式降级仅允许新增表为空，禁止丢弃流水及基准。
 
 导出 ZIP 与独立媒体可经用途映射共同切换新分配位置。新外部目标使用连接基前缀下 `_aap_managed/export/`，保存完整物理 key／prefix；在途媒体包及其配套 ZIP、已有缓存保持原位置和首次七天期限。外部目标的浏览器和脚本下载直接按自身 endpoint 签名，默认目标继续使用平台代理。所有状态归属参与位置保护；盘点按 endpoint、bucket、完整键分类，不把外部未覆盖字节计入当前部署总量，增量账目仍为 partial。
 

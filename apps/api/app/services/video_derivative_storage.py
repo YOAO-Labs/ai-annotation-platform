@@ -17,9 +17,11 @@ from urllib.parse import urlsplit
 import uuid
 from types import SimpleNamespace
 
+from botocore.config import Config
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services import media_cache_accounting
 from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
@@ -283,15 +285,17 @@ def _translate(exc):
 
 
 @contextmanager
-def open_storage(factory=None, *, target=None):
+def open_storage(factory=None, *, target=None, single_attempt=False):
     """Keep constructor/close uncertainty inside the caller's output permit."""
     if target is not None:
         try:
-            context = target.client(read_timeout=30)
+            context = target.client(
+                read_timeout=30, **({"single_attempt": True} if single_attempt else {})
+            )
             client = context.__enter__()
         except BaseException as exc:
             if isinstance(exc, Exception):
-                raise _translate(exc) from None
+                raise _translate(storage_access.mark_unsettled(exc)) from None
             raise
         try:
             yield SimpleNamespace(client=client, media_cache_bucket=target.bucket)
@@ -299,15 +303,29 @@ def open_storage(factory=None, *, target=None):
             try:
                 context.__exit__(*sys.exc_info())
             except Exception as exc:
-                raise _translate(exc) from None
+                raise _translate(storage_access.mark_unsettled(exc)) from None
         return
     try:
-        storage = (factory or StorageService)()
+        storage = (
+            factory()
+            if factory is not None
+            else StorageService(
+                **(
+                    {
+                        "client_config": Config(
+                            retries={"total_max_attempts": 1, "mode": "standard"}
+                        )
+                    }
+                    if single_attempt
+                    else {}
+                )
+            )
+        )
         client = storage.client
     except BaseException as exc:
         storage_access.mark_unsettled(exc)
         if isinstance(exc, Exception):
-            raise _translate(exc) from None
+            raise _translate(storage_access.mark_unsettled(exc)) from None
         raise
     try:
         yield storage
@@ -315,7 +333,7 @@ def open_storage(factory=None, *, target=None):
         try:
             storage_access.close_registered(client)
         except Exception as exc:
-            raise _translate(exc) from None
+            raise _translate(storage_access.mark_unsettled(exc)) from None
 
 
 def _receipt(value, *, maximum=MAX_OUTPUT_BYTES):
@@ -387,7 +405,7 @@ def _http_ok(response):
         _reject("integrity_mismatch")
 
 
-def _read(client, owner, key, receipt, *, collect=False):
+def _read(client, owner, key, receipt, *, collect=False, accounting_attempt=None):
     owner.contains(key)
     _receipt(receipt)
     params = {"Bucket": owner.bucket, "Key": key}
@@ -437,6 +455,8 @@ def _read(client, owner, key, receipt, *, collect=False):
         or after["ContentLength"] != receipt["size_bytes"]
     ):
         _reject("integrity_mismatch")
+    if accounting_attempt is not None:
+        accounting_attempt.verified(client, version)
     return b"".join(chunks) if collect else deepcopy(receipt)
 
 
@@ -510,13 +530,17 @@ def file_receipt(path):
         raise _translate(exc) from None
 
 
-def _upload(client, owner, key, body, receipt, content_type):
+def _upload(client, owner, key, body, receipt, content_type, *, accounting=None):
     existing = _objects(client, owner)
     if key in existing:
         _reject("integrity_mismatch")
     if sum(existing.values()) + receipt["size_bytes"] > MAX_OUTPUT_BYTES:
         _reject("budget")
-    result = client.put_object(
+    result, attempt = media_cache_accounting.put(
+        accounting,
+        client,
+        key,
+        receipt,
         Bucket=owner.bucket,
         Key=key,
         Body=body,
@@ -526,11 +550,11 @@ def _upload(client, owner, key, body, receipt, content_type):
         IfNoneMatch="*",
     )
     _http_ok(result)
-    _read(client, owner, key, receipt)
+    _read(client, owner, key, receipt, accounting_attempt=attempt)
     return deepcopy(receipt)
 
 
-def upload_file(storage, output, path, relative, content_type):
+def upload_file(storage, output, path, relative, content_type, *, accounting=None):
     """Create an exclusive object and fully verify it while the local FD stays owned."""
     owner = resolve(output)
     client = _client(storage, owner)
@@ -549,7 +573,9 @@ def upload_file(storage, output, path, relative, content_type):
         with storage_access.closing_registered(path.open("rb")) as stream:
             receipt = _file_receipt(stream)
             stream.seek(0)
-            return _upload(client, owner, key, stream, receipt, content_type)
+            return _upload(
+                client, owner, key, stream, receipt, content_type, accounting=accounting
+            )
     except Exception as exc:
         raise _translate(exc) from None
 
@@ -574,7 +600,7 @@ def _json_result(result):
     return data
 
 
-def write_result(storage, output, result):
+def write_result(storage, output, result, *, accounting=None):
     """Write canonical result metadata; publication compares its exact content."""
     owner = resolve(output)
     client = _client(storage, owner)
@@ -582,7 +608,13 @@ def write_result(storage, output, result):
     receipt = {"sha256": hashlib.sha256(data).hexdigest(), "size_bytes": len(data)}
     try:
         return _upload(
-            client, owner, owner.key("metadata.json"), data, receipt, "application/json"
+            client,
+            owner,
+            owner.key("metadata.json"),
+            data,
+            receipt,
+            "application/json",
+            accounting=accounting,
         )
     except Exception as exc:
         raise _translate(exc) from None
