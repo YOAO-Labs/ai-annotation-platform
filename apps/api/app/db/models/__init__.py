@@ -19,6 +19,11 @@ from app.db.models.storage_usage import (
 from app.db.models.original_cache import OriginalCacheEntry, OriginalCacheReadLease
 from app.db.models.managed_original_verification import ManagedOriginalVerification
 from app.db.models.storage_migration_inventory import StorageMigrationInventory
+from app.db.models.storage_migration_copy import (
+    StorageMigrationCopy,
+    StorageMigrationCopyAttempt,
+    StorageMigrationCopyDelta,
+)
 from app.db.models.managed_original_retirement import ManagedOriginalRetirement
 from app.db.models.managed_original_retention_hold import ManagedOriginalRetentionHold
 from app.db.models.dataset_quality_review import (
@@ -366,3 +371,10 @@ __all__ += ["MaskFormatUpload"]
 
 
 __all__ += ["ThumbnailOutput"]
+
+
+__all__ += [
+    "StorageMigrationCopy",
+    "StorageMigrationCopyAttempt",
+    "StorageMigrationCopyDelta",
+]

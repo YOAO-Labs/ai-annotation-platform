@@ -735,6 +735,19 @@
 | POST | `/{location_id}/maintenance-preview` |
 | POST | `/{location_id}/maintenance` |
 
+## `storage_migration_copies.py`
+
+| Method | Path |
+|---|---|
+| GET | `/migration-copy-targets` |
+| POST | `/migration-copies` |
+| GET | `/migration-copies` |
+| GET | `/migration-copies/{copy_id}` |
+| POST | `/migration-copies/{copy_id}/attempts` |
+| POST | `/migration-copies/{copy_id}/dispatch` |
+| GET | `/migration-copies/{copy_id}/failed-objects` |
+| GET | `/migration-copies/{copy_id}/checkpoint` |
+
 ## `storage_migration_inventories.py`
 
 | Method | Path |
@@ -1106,4 +1119,4 @@
 
 ---
 
-_共 99 模块 / 649 路由_
+_共 100 模块 / 657 路由_

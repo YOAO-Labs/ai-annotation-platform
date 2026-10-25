@@ -90,6 +90,13 @@ async def _apply_terminal(
                 )
                 await db.commit()
                 return
+            if aj.kind == "storage_migration_copy":
+                from app.services.storage_migration_copies import signal_interrupted
+
+                await signal_interrupted(db, aj.id, celery_task_id, cancelled=cancelled)
+                await notify_job_terminal(db, job_id=aj.id)
+                await db.commit()
+                return
             if aj.kind == "storage_migration_inventory":
                 from app.services.storage_migration_inventories import (
                     signal_interrupted,

@@ -50,6 +50,7 @@ CANCELLABLE_KINDS = {
     "storage_usage",
     "managed_original_verification",
     "storage_migration_inventory",
+    "storage_migration_copy",
     "dataset_quality",
     "dataset_quality_review",
     "mask_qc",
@@ -104,6 +105,7 @@ def _build_async_job_query(
                             "storage_usage",
                             "managed_original_verification",
                             "storage_migration_inventory",
+                            "storage_migration_copy",
                             "dataset_scan",
                             "dataset_registration",
                             "dataset_quality",
@@ -159,6 +161,7 @@ async def _can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> boo
         "storage_usage",
         "managed_original_verification",
         "storage_migration_inventory",
+        "storage_migration_copy",
     }:
         return user.is_active and user.role == PlatformRole.SUPER_ADMIN.value
     if job.kind in {"dataset_quality", "dataset_quality_review"}:
@@ -305,6 +308,7 @@ async def list_async_jobs(
                     "storage_usage",
                     "managed_original_verification",
                     "storage_migration_inventory",
+                    "storage_migration_copy",
                 }
             )
         )
@@ -348,6 +352,7 @@ async def get_async_job(
         "storage_usage",
         "managed_original_verification",
         "storage_migration_inventory",
+        "storage_migration_copy",
     }:
         assert_request_scopes(request, "*")
     return await _to_async_job_out(db, job)
@@ -422,15 +427,24 @@ async def cancel_async_job(
         await db.commit()
         return {"status": "cancelled", "id": str(job.id)}
 
-    if job.kind == "storage_migration_inventory":
+    if job.kind in {"storage_migration_inventory", "storage_migration_copy"}:
         assert_request_scopes(request, "*")
-        from app.services import storage_migration_inventories, storage_maintenance
+        from app.services import (
+            storage_migration_copies,
+            storage_migration_inventories,
+            storage_maintenance,
+        )
 
         key_id = getattr(request.state, "api_key_id", None)
         _, proof = await storage_maintenance.authority(
             db, current_user, key_id, "*", lock=True
         )
-        status = await storage_migration_inventories.cancel(db, job.id)
+        domain = (
+            storage_migration_copies
+            if job.kind == "storage_migration_copy"
+            else storage_migration_inventories
+        )
+        status = await domain.cancel(db, job.id)
         _, current_proof = await storage_maintenance.authority(
             db, current_user, key_id, "*"
         )

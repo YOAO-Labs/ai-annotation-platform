@@ -74,6 +74,15 @@ async def register_connection(db, connection):
 
 
 async def location_is_referenced(db, location_id):
+    from app.db.models.storage_migration_copy import StorageMigrationCopy
+
+    if await db.scalar(
+        select(StorageMigrationCopy.id)
+        .where(StorageMigrationCopy.target_location_id == location_id)
+        .limit(1)
+    ):
+        return True
+
     from app.db.models.audit_archive_output import AuditArchiveOutput
     from app.db.models.prediction_input import PredictionInputLease
     from app.db.models.managed_original_creation import ManagedOriginalCreation

@@ -35,6 +35,7 @@ class AsyncJobKind(str, enum.Enum):
     SAMPLE_EVALUATION = "sample_evaluation"
     ACTIVE_LEARNING_ROUND = "active_learning_round"
     STORAGE_MIGRATION_INVENTORY = "storage_migration_inventory"
+    STORAGE_MIGRATION_COPY = "storage_migration_copy"
     STORAGE_USAGE = "storage_usage"
     VIDEO_ASSET_RETRY = "video_asset_retry"
     MANAGED_ORIGINAL_VERIFICATION = "managed_original_verification"

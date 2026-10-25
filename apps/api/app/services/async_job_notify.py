@@ -36,6 +36,7 @@ TERMINAL_NOTIFY_KINDS = {
     "video_asset_retry",
     "managed_original_verification",
     "storage_migration_inventory",
+    "storage_migration_copy",
     "dataset_quality",
     "dataset_quality_review",
     "mask_qc",
@@ -141,6 +142,32 @@ def _terminal_payload(job: AsyncJob) -> dict[str, Any]:
         "kind": job.kind,
         "status": job.status,
     }
+    if job.kind == "storage_migration_copy":
+        from app.schemas.storage_migration_copy import StorageMigrationCopyCounts
+
+        payload["migration_ready"] = False
+        for key in ("prepared", "copy_subset_complete", "attempt_subset_complete"):
+            if type(result_in.get(key)) is bool:
+                payload[key] = result_in[key]
+        for key in ("selected_count", "selected_verified_count"):
+            if type(result_in.get(key)) is int and result_in[key] >= 0:
+                payload[key] = result_in[key]
+        if result_in.get("operation") in {"prepare", "run", "verify"}:
+            payload["operation"] = result_in["operation"]
+        try:
+            payload["copy_id"] = str(uuid.UUID(result_in["copy_id"]))
+        except (ValueError, TypeError, KeyError):
+            pass
+        try:
+            payload["counts"] = StorageMigrationCopyCounts.model_validate(
+                result_in.get("counts")
+            ).model_dump()
+        except ValueError:
+            pass
+        code = result_in.get("error_code")
+        if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code):
+            payload["error_code"] = code
+        return payload
     if job.kind == "storage_migration_inventory":
         # This global private-report task has a deliberately closed summary.
         from app.schemas.storage_migration_inventory import (
