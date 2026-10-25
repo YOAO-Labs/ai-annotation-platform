@@ -22,7 +22,7 @@ export const COPY_HANDLING_LABELS: Record<MigrationHandling, string> = {
   rebuild: "后续重建",
   retain: "保留源端",
 };
-const FIELDS = [
+export const COPY_LIMIT_FIELDS = [
   ["max_object_bytes", "单对象上限（bytes）", 1073741824, 268435456],
   ["max_source_bytes", "源读取上限（bytes）", 17179869184, 2147483648],
   ["max_upload_bytes", "目标上传上限（bytes）", 17179869184, 2147483648],
@@ -64,10 +64,9 @@ export function MigrationCopyPrepareModal({
   );
   const [values, setValues] = useState(
     () =>
-      Object.fromEntries(FIELDS.map(([key, , , value]) => [key, String(value)])) as Record<
-        keyof MigrationCopyLimits,
-        string
-      >,
+      Object.fromEntries(
+        COPY_LIMIT_FIELDS.map(([key, , , value]) => [key, String(value)]),
+      ) as Record<keyof MigrationCopyLimits, string>,
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -88,10 +87,10 @@ export function MigrationCopyPrepareModal({
       ? [selected, ...options]
       : options;
   const limits = Object.fromEntries(
-    FIELDS.map(([key]) => [key, Number(values[key])]),
+    COPY_LIMIT_FIELDS.map(([key]) => [key, Number(values[key])]),
   ) as unknown as MigrationCopyLimits;
   const valid =
-    FIELDS.every(
+    COPY_LIMIT_FIELDS.every(
       ([key, , max]) =>
         values[key].trim() !== "" &&
         Number.isFinite(limits[key]) &&
@@ -265,7 +264,7 @@ export function MigrationCopyPrepareModal({
             预算固定在计划，每次续跑重新计量本次 I/O；达到上限后保留实际状态，不清除已有复制事实。
           </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {FIELDS.map(([key, label, max]) => (
+            {COPY_LIMIT_FIELDS.map(([key, label, max]) => (
               <div key={key}>
                 <label htmlFor={`copy-limit-${key}`} className="mb-1 block text-sm">
                   {label}

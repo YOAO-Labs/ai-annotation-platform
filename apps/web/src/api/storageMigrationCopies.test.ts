@@ -3,6 +3,13 @@ import { storageMigrationCopiesApi } from "./storageMigrationCopies";
 const client = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), silentGetBlob: vi.fn() }));
 vi.mock("./client", () => ({ apiClient: client }));
 beforeEach(() => vi.clearAllMocks());
+it("prepares a follow-up generation with only the sealed inventory reference", async () => {
+  await storageMigrationCopiesApi.generation("parent/id", "new-inventory");
+  expect(client.post).toHaveBeenCalledOnce();
+  expect(client.post).toHaveBeenCalledWith("/storage/migration-copies/parent%2Fid/generations", {
+    inventory_job_id: "new-inventory",
+  });
+});
 it("uses registered target and persistent copy endpoints with bounded pagination and abort signals", async () => {
   const signal = new AbortController().signal;
   await storageMigrationCopiesApi.targets("source/id", 20, 20, signal);

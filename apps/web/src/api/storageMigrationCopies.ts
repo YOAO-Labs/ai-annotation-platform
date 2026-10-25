@@ -46,8 +46,23 @@ export interface MigrationCopySourceSummary {
   unpinned_objects: number;
   exact_catalog_matches: number;
 }
+export interface MigrationCopyGenerationSummary {
+  reused_objects: number;
+  new_objects: number;
+  mutable_recopies: number;
+  source_identity_conflicts: number;
+  previous_only_objects: number;
+  delete_markers: number;
+  history_records: number;
+}
 export interface MigrationCopyItem {
   copy_id: string;
+  parent_copy_id?: string | null;
+  generation?: number;
+  successor_copy_id?: string | null;
+  parent_evidence_sha256?: string | null;
+  read_only?: boolean;
+  generation_summary?: MigrationCopyGenerationSummary | null;
   created_at: string;
   updated_at: string;
   source_inventory_job_id: string | null;
@@ -114,6 +129,10 @@ export const storageMigrationCopiesApi = {
       { signal },
     ),
   create: (body: MigrationCopyCreate) => apiClient.post<MigrationCopyStart>(PATH, body),
+  generation: (parentId: string, inventoryJobId: string) =>
+    apiClient.post<MigrationCopyStart>(`${PATH}/${encodeURIComponent(parentId)}/generations`, {
+      inventory_job_id: inventoryJobId,
+    }),
   list: (offset: number, limit: number, signal?: AbortSignal) =>
     apiClient.get<MigrationCopyPage<MigrationCopyItem>>(`${PATH}?limit=${limit}&offset=${offset}`, {
       signal,

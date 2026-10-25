@@ -25,6 +25,7 @@ import {
   COPY_HANDLING_LABELS,
   copyAccessDenied,
 } from "./MigrationCopyPrepareModal";
+import { MigrationCopyGenerationModal } from "./MigrationCopyGenerationModal";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECISIONS: Record<string, string> = {
@@ -35,8 +36,21 @@ const DECISIONS: Record<string, string> = {
   handling_ambiguous: "处理歧义",
   source_unverified: "源未核验",
   object_byte_budget: "超过单对象预算",
+  source_identity_conflict: "源身份冲突",
 };
+const GENERATION_COUNTS = [
+  ["reused_objects", "复用映射"],
+  ["new_objects", "新增对象"],
+  ["mutable_recopies", "可变对象重复制"],
+  ["source_identity_conflicts", "源身份冲突"],
+  ["previous_only_objects", "本次未观察到"],
+  ["delete_markers", "删除标记"],
+  ["history_records", "历史创建记录"],
+] as const;
 const ACTIVE = new Set(["pending", "running"]);
+function readOnly(item: MigrationCopyItem) {
+  return item.read_only === true || !!item.successor_copy_id;
+}
 function subset(item: MigrationCopyItem) {
   if (!item.prepared) return "尚无封存计划";
   if (item.decisions && (item.decisions.copy ?? 0) === 0) return "无可复制对象";
@@ -101,13 +115,18 @@ function CopyOwner({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [forbidden, setForbidden] = useState(false);
+  const [generationParent, setGenerationParent] = useState("");
+  const [focusGeneration, setFocusGeneration] = useState(false);
   const trigger = useRef<HTMLElement | null>(null);
+  const generationTrigger = useRef<HTMLButtonElement | null>(null);
   const downloads = useRef(new Set<AbortController>());
   const selection = useRef(copyId);
   selection.current = copyId;
   useEffect(() => {
     setError("");
     setBusy(false);
+    setGenerationParent("");
+    setFocusGeneration(false);
     downloads.current.forEach((controller) => controller.abort());
   }, [copyId]);
   const patch = (change: Record<string, string | null>, replace = false) =>
@@ -169,6 +188,12 @@ function CopyOwner({
       Number(detail.error.status) === 404)
       ? undefined
       : detail.data;
+  const preparingGeneration =
+    !!item &&
+    generationParent === copyId &&
+    item.prepared &&
+    !ACTIVE.has(item.status ?? "") &&
+    !readOnly(item);
   useEffect(() => {
     if (!data || history.isFetching) return;
     const last = Math.max(0, Math.ceil(data.total / pageSize) - 1);
@@ -270,12 +295,12 @@ function CopyOwner({
   return (
     <>
       <Card>
-        <section aria-label="初次复制计划">
+        <section aria-label="复制批次">
           <div className="flex flex-wrap items-center justify-between gap-2 p-4">
             <div>
-              <h2 className="text-md font-semibold">初次复制计划</h2>
+              <h2 className="text-md font-semibold">复制批次</h2>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                从下方封存源清单准备计划，审阅后再开始复制。计划独立保留；仅复制合格子集，不执行切换或退役。
+                从封存清单准备初次计划，或沿原批次准备后续清单；审阅后再开始复制。仅复制合格子集，不执行切换或退役。
               </p>
             </div>
             <Button
@@ -317,13 +342,19 @@ function CopyOwner({
                           {entry.target_name ?? "已登记目标"} · {stamp(entry.created_at)}
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {subset(entry)}
+                          第 {entry.generation ?? 1} 批 · {subset(entry)}
                           {entry.status
                             ? ` · 最近任务：${JOB_STATUS_LABEL[entry.status]}`
                             : " · 当前无关联任务"}
                         </p>
                       </div>
-                      <Badge variant="outline">{entry.prepared ? "计划已封存" : "准备计划"}</Badge>
+                      <Badge variant="outline">
+                        {readOnly(entry)
+                          ? "原批次只读"
+                          : entry.prepared
+                            ? "计划已封存"
+                            : "准备计划"}
+                      </Badge>
                     </div>
                     {entry.counts && <CopyCounts item={entry} />}
                     <Button
@@ -367,13 +398,33 @@ function CopyOwner({
           }}
         />
       )}
-      {copyId && !jobOpen && !source && !denied && (
+      {copyId && !jobOpen && !source && !denied && preparingGeneration && item && (
+        <MigrationCopyGenerationModal
+          key={item.copy_id}
+          parent={item}
+          returnFocusRef={trigger}
+          onClose={() => {
+            setGenerationParent("");
+            setFocusGeneration(true);
+          }}
+          onDenied={deny}
+          onPrepared={(prepared) => {
+            if (selection.current !== item.copy_id) return;
+            setGenerationParent("");
+            setFocusGeneration(false);
+            openJob(prepared);
+            void refresh();
+          }}
+        />
+      )}
+      {copyId && !jobOpen && !source && !denied && !preparingGeneration && (
         <Modal
           open
-          title="审阅初次复制计划"
+          title={(item?.generation ?? 1) > 1 ? "审阅后续复制批次" : "审阅初次复制计划"}
           width={700}
           onClose={() => patch({ migration_copy: null })}
           returnFocusRef={trigger}
+          initialFocusRef={focusGeneration ? generationTrigger : undefined}
         >
           {detail.isFetching && (
             <p role="status" className="mb-3 text-xs text-muted-foreground">
@@ -403,6 +454,12 @@ function CopyOwner({
               onJob={() => openJob(item)}
               onDownload={() => void download(item)}
               onDenied={deny}
+              generationTrigger={generationTrigger}
+              onGeneration={() => {
+                setFocusGeneration(false);
+                setGenerationParent(item.copy_id);
+              }}
+              onNavigate={(id) => patch({ migration_copy: id, migration_job: null })}
             />
           )}
         </Modal>
@@ -415,8 +472,8 @@ function CopyCounts({ item }: { item: MigrationCopyItem }) {
   const c = item.counts;
   return c ? (
     <p className="text-xs leading-relaxed text-muted-foreground tabular-nums">
-      计划累计：已核验 {c.verified} · 待处理 {c.pending} · 写入中 {c.writing} · 结果不明{" "}
-      {c.uncertain} · 失败 {c.failed} · 跳过 {c.skipped}
+      {(item.generation ?? 1) > 1 ? "本批次累计" : "计划累计"}：已核验 {c.verified} · 待处理{" "}
+      {c.pending} · 写入中 {c.writing} · 结果不明 {c.uncertain} · 失败 {c.failed} · 跳过 {c.skipped}
     </p>
   ) : null;
 }
@@ -431,6 +488,9 @@ function CopyReview({
   onJob,
   onDownload,
   onDenied,
+  generationTrigger,
+  onGeneration,
+  onNavigate,
 }: {
   item: MigrationCopyItem;
   revision: number;
@@ -441,8 +501,13 @@ function CopyReview({
   onJob: () => void;
   onDownload: () => void;
   onDenied: () => void;
+  generationTrigger: MutableRefObject<HTMLButtonElement | null>;
+  onGeneration: () => void;
+  onNavigate: (id: string) => void;
 }) {
   const active = ACTIVE.has(item.status ?? "");
+  const frozen = readOnly(item);
+  const generation = item.generation ?? 1;
   const c = item.counts;
   const [failuresOpen, setFailuresOpen] = useState(false);
   const [page, setPage] = useState(0);
@@ -452,7 +517,7 @@ function CopyReview({
     queryKey: ["storage-migration-copy-failures", revision, item.copy_id, page, pageSize],
     queryFn: ({ signal }) =>
       storageMigrationCopiesApi.failedObjects(item.copy_id, page * pageSize, pageSize, signal),
-    enabled: failuresOpen,
+    enabled: failuresOpen && !frozen,
     retry: false,
   });
   useEffect(() => {
@@ -464,6 +529,9 @@ function CopyReview({
     <div className="space-y-4 text-sm">
       <section className="rounded-md border border-border p-3">
         <h3 className="text-md font-semibold">{item.target_name ?? "已登记目标"}</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          第 {generation} 批{frozen ? " · 原批次只读" : ""}
+        </p>
         <p className="mt-2">{subset(item)}</p>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
           准备成功只代表计划可审阅。源清单{item.source_complete ? "完整" : "不完整"}
@@ -481,6 +549,48 @@ function CopyReview({
           </p>
         )}
       </section>
+      {(item.parent_copy_id || item.successor_copy_id || frozen) && (
+        <section aria-label="批次关系" className="space-y-2">
+          {frozen && (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              已预留后续批次，原批次保持只读；可查看原任务和下载检查点。
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {item.parent_copy_id && (
+              <Button size="sm" onClick={() => onNavigate(item.parent_copy_id!)}>
+                查看原批次
+              </Button>
+            )}
+            {item.successor_copy_id && (
+              <Button size="sm" onClick={() => onNavigate(item.successor_copy_id!)}>
+                查看后续批次
+              </Button>
+            )}
+          </div>
+          {item.parent_evidence_sha256 && (
+            <p className="break-all text-xs text-muted-foreground">
+              原批次证据 SHA-256：{item.parent_evidence_sha256}
+            </p>
+          )}
+        </section>
+      )}
+      {item.generation_summary && (
+        <section aria-label="后续清单差异">
+          <h3 className="text-sm font-semibold">后续清单差异</h3>
+          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+            {GENERATION_COUNTS.map(([key, label]) => (
+              <div key={key} className="flex flex-wrap justify-between gap-2">
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="m-0 tabular-nums">{item.generation_summary![key]}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            复用映射保留原目标创建身份，仍须在本批次读回准确版本后才计为已核验。本次未观察到、删除标记和历史记录均不表示源端已删除，也不代表可以切换。
+          </p>
+        </section>
+      )}
       {item.counts && <CopyCounts item={item} />}
       {item.selected_count !== null && (
         <p className="text-xs text-muted-foreground">
@@ -553,7 +663,7 @@ function CopyReview({
           </p>
         </details>
       )}
-      {item.prepared && (c?.failed ?? 0) > 0 && (
+      {!frozen && item.prepared && (c?.failed ?? 0) > 0 && (
         <details
           className="rounded-md border border-border p-3"
           open={failuresOpen}
@@ -644,32 +754,36 @@ function CopyReview({
         </details>
       )}
       <div className="flex flex-wrap gap-2">
-        {!active && !item.prepared && (
+        {!frozen && !active && !item.prepared && (
           <Button variant="primary" disabled={busy} onClick={() => onAttempt("prepare")}>
             重试准备
           </Button>
         )}
-        {!active && item.prepared && unfinished && (
+        {!frozen && !active && item.prepared && unfinished && (
           <Button variant="primary" disabled={busy} onClick={() => onAttempt("run")}>
-            {item.operation === "prepare" ? "开始初次复制" : "继续未完成项"}
+            {item.operation === "prepare"
+              ? generation > 1
+                ? "开始增量复制"
+                : "开始初次复制"
+              : "继续未完成项"}
           </Button>
         )}
-        {!active && item.prepared && (c?.failed ?? 0) > 0 && (
+        {!frozen && !active && item.prepared && (c?.failed ?? 0) > 0 && (
           <Button disabled={busy} onClick={() => onAttempt("run", true)}>
             续跑并重试全部失败项
           </Button>
         )}
-        {!active && item.prepared && !!c && c.verified + c.failed + c.uncertain > 0 && (
+        {!frozen && !active && item.prepared && !!c && c.verified + c.failed + c.uncertain > 0 && (
           <Button disabled={busy} onClick={() => onAttempt("verify")}>
             重新核验
           </Button>
         )}
-        {item.status === "pending" && !item.cancel_requested && (
+        {!frozen && item.status === "pending" && !item.cancel_requested && (
           <Button disabled={busy} onClick={onDispatch}>
             重投等待任务
           </Button>
         )}
-        {active && item.job_id && (
+        {!frozen && active && item.job_id && (
           <Button disabled={busy || item.cancel_requested} onClick={onCancel}>
             取消当前任务
           </Button>
@@ -684,8 +798,13 @@ function CopyReview({
             下载私密检查点
           </Button>
         )}
+        {!frozen && !active && item.prepared && (
+          <Button ref={generationTrigger} disabled={busy} onClick={onGeneration}>
+            准备后续批次
+          </Button>
+        )}
       </div>
-      {item.status === "running" && (
+      {!frozen && item.status === "running" && (
         <details className="rounded-md border border-border p-3">
           <summary className="cursor-pointer text-sm font-medium">高级：检查中断执行</summary>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -702,7 +821,9 @@ function CopyReview({
             ? "准备计划"
             : item.operation === "verify"
               ? "只读重新核验"
-              : "初次复制执行"}{" "}
+              : generation > 1
+                ? "增量复制执行"
+                : "初次复制执行"}{" "}
           · {JOB_STATUS_LABEL[item.status]}
           {!item.job_id ? " · 原任务记录已清理，仍可按保存计划操作" : ""}
         </p>

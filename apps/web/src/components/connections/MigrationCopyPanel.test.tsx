@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   get: vi.fn(),
   targets: vi.fn(),
   create: vi.fn(),
+  generation: vi.fn(),
   attempt: vi.fn(),
   dispatch: vi.fn(),
   checkpoint: vi.fn(),
@@ -46,6 +47,7 @@ const SOURCE = "22222222-2222-2222-2222-222222222222";
 const JOB = "33333333-3333-3333-3333-333333333333";
 const TARGET = "44444444-4444-4444-4444-444444444444";
 const OTHER = "55555555-5555-5555-5555-555555555555";
+const NEXT_SOURCE = "66666666-6666-6666-6666-666666666666";
 const A = "a".repeat(64);
 const B = "b".repeat(64);
 const handling = Object.fromEntries(
@@ -114,6 +116,25 @@ const source = {
   complete: false,
   counts: null,
 } as StorageMigrationInventoryItem;
+const nextSource = { ...source, job_id: NEXT_SOURCE, status: "cancelled", report_sha256: A };
+const child: MigrationCopyItem = {
+  ...plan,
+  copy_id: OTHER,
+  generation: 2,
+  parent_copy_id: COPY,
+  parent_evidence_sha256: B,
+  source_inventory_job_id: NEXT_SOURCE,
+  source_report_sha256: A,
+  generation_summary: {
+    reused_objects: 2,
+    new_objects: 1,
+    mutable_recopies: 0,
+    source_identity_conflicts: 1,
+    previous_only_objects: 4,
+    delete_markers: 1,
+    history_records: 2,
+  },
+};
 const clients: ReturnType<typeof createTestQueryClient>[] = [];
 const unmounts: (() => void)[] = [];
 function login(id = "owner", role = "super_admin") {
@@ -166,6 +187,7 @@ beforeEach(() => {
     item: { ...plan, prepared: false, status: "pending" },
     reused: false,
   });
+  api.generation.mockResolvedValue({ item: { ...child, status: "pending" }, reused: false });
   api.attempt.mockImplementation((_id, operation) =>
     Promise.resolve({ item: { ...plan, operation, status: "pending" }, reused: false }),
   );
@@ -507,4 +529,219 @@ it("Escape dismisses a prepared-source modal and restores its row trigger", asyn
   await screen.findByRole("dialog", { name: "准备初次复制" });
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(trigger).toHaveFocus());
+});
+
+async function generationForm() {
+  const original = await review();
+  fireEvent.click(await within(original).findByRole("button", { name: "准备后续批次" }));
+  return screen.findByRole("dialog", { name: "准备后续批次" });
+}
+
+it("prepares a partial follow-up report with inherited settings, then separately starts the reviewed generation", async () => {
+  api.inventories.mockResolvedValue({ items: [source, nextSource], total: 61 });
+  api.get.mockImplementation((id) => Promise.resolve(id === OTHER ? child : plan));
+  mount(
+    `/storage?tab=migration&migration_copy=${COPY}&migration_page=3&page=4&returnTo=%2Fdatasets`,
+  );
+  const dialog = await generationForm();
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  await waitFor(() =>
+    expect(
+      within(within(dialog).getByLabelText("后续封存清单")).getAllByRole("option"),
+    ).toHaveLength(1),
+  );
+  expect(within(dialog).getAllByRole("combobox")).toHaveLength(2);
+  expect(within(dialog).queryByRole("spinbutton")).not.toBeInTheDocument();
+  expect(within(dialog).getByText("目标：登记目标")).toBeInTheDocument();
+  expect(within(dialog).getByText("继承的九用途处理声明（只读）")).toBeInTheDocument();
+  expect(within(dialog).getByText("继承的复制预算（只读）")).toBeInTheDocument();
+  const select = within(dialog).getByLabelText("后续封存清单");
+  expect(select).toHaveAccessibleDescription(/不完整清单也可准备合格子集/);
+  fireEvent.change(select, { target: { value: NEXT_SOURCE } });
+  expect(within(dialog).getByText("清单不完整，仅处理合格子集")).toBeInTheDocument();
+  expect(within(dialog).getByText(`SHA-256：${A}`).parentElement).toHaveClass(
+    "text-muted-foreground",
+  );
+  fireEvent.click(within(dialog).getByRole("button", { name: "准备后续批次" }));
+  expect(await screen.findByRole("dialog", { name: "后台任务详情" })).toHaveTextContent(JOB);
+  expect(api.generation).toHaveBeenCalledOnce();
+  expect(api.generation).toHaveBeenCalledWith(COPY, NEXT_SOURCE);
+  expect(api.create).not.toHaveBeenCalled();
+  expect(api.targets).not.toHaveBeenCalled();
+  expect(api.attempt).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "关闭本次任务" }));
+  const followup = await screen.findByRole("dialog", { name: "审阅后续复制批次" });
+  const differences = await within(followup).findByRole("region", { name: "后续清单差异" });
+  expect(within(differences).getByText("复用映射").nextElementSibling).toHaveTextContent("2");
+  expect(within(differences).getByText("本次未观察到").nextElementSibling).toHaveTextContent("4");
+  expect(within(differences).getByText(/仍须在本批次读回准确版本后才计为已核验/)).toHaveTextContent(
+    "均不表示源端已删除，也不代表可以切换",
+  );
+  expect(within(followup).getByText(/本批次累计：已核验 0 · 待处理 3/)).toBeInTheDocument();
+  expect(within(followup).getByText("可复制子集尚未全部核验")).toBeInTheDocument();
+  fireEvent.click(within(followup).getByRole("button", { name: "开始增量复制" }));
+  await waitFor(() => expect(api.attempt).toHaveBeenCalledWith(OTHER, "run", false, undefined));
+  expect(screen.getByTestId("url")).toHaveTextContent("migration_page=3");
+  expect(screen.getByTestId("url")).toHaveTextContent("page=4");
+  expect(screen.getByTestId("url")).toHaveTextContent("returnTo=");
+});
+
+it("filters unsealed and same reports while retaining a selected partial report across inventory pages", async () => {
+  const unavailable = {
+    ...nextSource,
+    job_id: "77777777-7777-7777-7777-777777777777",
+    report_available: false,
+  };
+  const active = {
+    ...nextSource,
+    job_id: "88888888-8888-8888-8888-888888888888",
+    status: "running",
+  };
+  const same = { ...source, job_id: "99999999-9999-9999-9999-999999999999" };
+  api.inventories.mockImplementation((offset) =>
+    Promise.resolve({
+      items: offset ? [] : [source, nextSource, unavailable, active, same],
+      total: 21,
+      offset,
+      limit: 20,
+    }),
+  );
+  mount();
+  const dialog = await generationForm();
+  await waitFor(() =>
+    expect(
+      within(within(dialog).getByLabelText("后续封存清单")).getAllByRole("option"),
+    ).toHaveLength(1),
+  );
+  fireEvent.change(within(dialog).getByLabelText("后续封存清单"), {
+    target: { value: NEXT_SOURCE },
+  });
+  fireEvent.click(
+    within(within(dialog).getByRole("navigation", { name: "后续清单分页" })).getByRole("button", {
+      name: "下一页",
+    }),
+  );
+  await waitFor(() =>
+    expect(api.inventories).toHaveBeenCalledWith(20, 20, expect.any(AbortSignal)),
+  );
+  expect(within(dialog).getByLabelText("后续封存清单")).toHaveValue(NEXT_SOURCE);
+  expect(within(dialog).getByRole("button", { name: "准备后续批次" })).toBeEnabled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "准备后续批次" }));
+  await waitFor(() => expect(api.generation).toHaveBeenCalledWith(COPY, NEXT_SOURCE));
+});
+
+it.each(["completed", "pending", "running"] as const)(
+  "frozen %s parents retain read navigation and hide every mutation control",
+  async (status) => {
+    const frozen = {
+      ...plan,
+      status,
+      read_only: true,
+      successor_copy_id: OTHER,
+      counts: { ...plan.counts!, failed: 1, verified: 1 },
+    };
+    api.get.mockImplementation((id) => Promise.resolve(id === OTHER ? child : frozen));
+    mount(
+      `/storage?tab=migration&migration_copy=${COPY}&migration_copy_page=1&returnTo=%2Fdatasets`,
+    );
+    const dialog = await review();
+    await within(dialog).findByText(/已预留后续批次，原批次保持只读/);
+    const buttons = within(dialog)
+      .getAllByRole("button")
+      .map((button) => button.textContent);
+    expect(buttons).toEqual(
+      expect.arrayContaining(["查看后续批次", "查看本次任务", "下载私密检查点"]),
+    );
+    for (const label of [
+      "准备后续批次",
+      "开始初次复制",
+      "继续未完成项",
+      "重新核验",
+      "重试准备",
+      "重投等待任务",
+      "取消当前任务",
+      "续跑并重试全部失败项",
+      "检查并恢复中断执行",
+    ])
+      expect(within(dialog).queryByRole("button", { name: label })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("选择失败对象重试")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "查看后续批次" }));
+    const followup = await screen.findByRole("dialog", { name: "审阅后续复制批次" });
+    fireEvent.click(await within(followup).findByRole("button", { name: "查看原批次" }));
+    await review();
+    expect(screen.getByTestId("url")).toHaveTextContent(`migration_copy=${COPY}`);
+    expect(screen.getByTestId("url")).toHaveTextContent("migration_copy_page=1");
+    expect(screen.getByTestId("url")).toHaveTextContent("returnTo=");
+    expect(api.generation).not.toHaveBeenCalled();
+    expect(api.attempt).not.toHaveBeenCalled();
+    expect(api.cancel).not.toHaveBeenCalled();
+  },
+);
+
+it("Escape returns from generation preparation to the original review trigger without nested dialogs", async () => {
+  mount();
+  const original = await review();
+  await userEvent.click(await within(original).findByRole("button", { name: "准备后续批次" }));
+  await screen.findByRole("dialog", { name: "准备后续批次" });
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  await userEvent.keyboard("{Escape}");
+  const restored = await review();
+  await waitFor(() =>
+    expect(within(restored).getByRole("button", { name: "准备后续批次" })).toHaveFocus(),
+  );
+});
+
+it("a successor conflict stays in the generation form and never starts a copy attempt", async () => {
+  api.inventories.mockResolvedValue({ items: [nextSource], total: 1 });
+  api.generation.mockRejectedValue(
+    new ApiError(409, "conflict", { code: "copy_successor_exists" }),
+  );
+  mount();
+  const dialog = await generationForm();
+  await waitFor(() =>
+    expect(
+      within(within(dialog).getByLabelText("后续封存清单")).getAllByRole("option"),
+    ).toHaveLength(1),
+  );
+  fireEvent.change(within(dialog).getByLabelText("后续封存清单"), {
+    target: { value: NEXT_SOURCE },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "准备后续批次" }));
+  expect(await within(dialog).findByText(/原批次已有另一份清单的后续批次/)).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "准备后续批次" })).toBeEnabled();
+  expect(api.attempt).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog", { name: "后台任务详情" })).not.toBeInTheDocument();
+});
+
+it("late generation preparation cannot open a private child task after account replacement", async () => {
+  const response = deferred<{ item: MigrationCopyItem; reused: boolean }>();
+  api.inventories.mockResolvedValue({ items: [nextSource], total: 1 });
+  api.generation.mockReturnValueOnce(response.promise);
+  mount();
+  const dialog = await generationForm();
+  await waitFor(() =>
+    expect(
+      within(within(dialog).getByLabelText("后续封存清单")).getAllByRole("option"),
+    ).toHaveLength(1),
+  );
+  fireEvent.change(within(dialog).getByLabelText("后续封存清单"), {
+    target: { value: NEXT_SOURCE },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "准备后续批次" }));
+  act(() => login("other", "project_admin"));
+  act(() => login());
+  await act(async () => response.resolve({ item: child, reused: false }));
+  expect(screen.queryByRole("dialog", { name: "后台任务详情" })).not.toBeInTheDocument();
+  expect(screen.getByTestId("url")).toHaveTextContent(`migration_copy=${COPY}`);
+});
+
+it("generation report permission refusal clears the private review and choices", async () => {
+  api.inventories.mockImplementationOnce(() => Promise.resolve({ items: [source], total: 1 }));
+  api.inventories.mockRejectedValue(new ApiError(403, "denied"));
+  mount();
+  const dialog = await review();
+  fireEvent.click(await within(dialog).findByRole("button", { name: "准备后续批次" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(screen.queryByText("登记目标")).not.toBeInTheDocument();
+  expect(api.generation).not.toHaveBeenCalled();
 });
