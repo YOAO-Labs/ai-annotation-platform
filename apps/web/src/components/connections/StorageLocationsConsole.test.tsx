@@ -236,7 +236,7 @@ it("offers only the controlled avatar action and refreshes mapping, locations an
   expect(
     within(screen.getByRole("row", { name: /托管数据集/ })).queryByRole("button"),
   ).not.toBeInTheDocument();
-  expect(screen.getByText(/当前开放头像和报告附件用途的位置切换/)).toBeInTheDocument();
+  expect(screen.getByText(/当前开放头像、报告附件和审计归档用途的位置切换/)).toBeInTheDocument();
   fireEvent.click(button);
   await screen.findByRole("option", { name: target.name });
   fireEvent.change(screen.getByRole("combobox", { name: "目标存储位置" }), {

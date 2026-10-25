@@ -4,6 +4,7 @@ import type {
   AvatarBindingCandidate,
   AvatarBindingPreview,
   BugAttachmentBindingPreview,
+  AuditArchiveBindingPreview,
   StorageBindingOut,
 } from "@/api/generated/types.gen";
 import { ApiError } from "@/api/client";
@@ -17,7 +18,7 @@ import { verifiedContentError } from "@/hooks/useVerifiedImage";
 import { storageAccessDenied } from "./storageQueryState";
 
 interface Props {
-  purpose: "avatars" | "bug-reports";
+  purpose: "avatars" | "bug-reports" | "audit-archive";
   binding: StorageBindingOut;
   onApplied: () => Promise<void>;
 }
@@ -36,17 +37,36 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
   if (code === "storage_binding_preview_invalid") return "确认凭证无效，请重新预览。";
   if (code === "avatar_history_unlocated")
     return "存在缺少存储定位的历史头像，请相关用户重新上传头像或改用预设头像后重新预览。";
-  if (["avatar_binding_unchanged", "bug_attachment_binding_unchanged"].includes(code))
+  if (
+    [
+      "avatar_binding_unchanged",
+      "bug_attachment_binding_unchanged",
+      "audit_archive_binding_unchanged",
+    ].includes(code)
+  )
     return "请选择与当前绑定不同的存储位置。";
-  if (["avatar_binding_target_missing", "bug_attachment_binding_target_missing"].includes(code))
+  if (
+    [
+      "avatar_binding_target_missing",
+      "bug_attachment_binding_target_missing",
+      "audit_archive_binding_target_missing",
+    ].includes(code)
+  )
     return "目标位置已不存在，请刷新候选位置后重新选择。";
-  if (["avatar_storage_binding_unproven", "bug_attachment_storage_binding_unproven"].includes(code))
+  if (
+    [
+      "avatar_storage_binding_unproven",
+      "bug_attachment_storage_binding_unproven",
+      "audit_archive_storage_binding_unproven",
+    ].includes(code)
+  )
     return "用途绑定或目标配置无法确认，请刷新存储配置后重新预览。";
   if (code === "storage_binding_busy") return "其他存储配置操作正在进行，请稍后重新预览。";
   if (
     [
       "avatar_storage_conditions_unsupported",
       "bug_attachment_storage_conditions_unsupported",
+      "audit_archive_storage_conditions_unsupported",
     ].includes(code)
   )
     return "目标不支持条件写入，请选择支持该能力的存储位置。";
@@ -54,6 +74,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
     [
       "avatar_storage_probe_cleanup_unproven",
       "bug_attachment_storage_probe_cleanup_unproven",
+      "audit_archive_storage_probe_cleanup_unproven",
       "storage_operation_unsettled",
     ].includes(code)
   )
@@ -86,7 +107,7 @@ function ChangeOwner({
   session: number;
   trigger: RefObject<HTMLButtonElement>;
 }) {
-  const noun = purpose === "avatars" ? "头像" : "报告附件";
+  const noun = { avatars: "头像", "bug-reports": "报告附件", "audit-archive": "审计归档" }[purpose];
   const capture = useSessionGuard();
   const pushToast = useToastStore((state) => state.push);
   const selectId = useId();
@@ -96,9 +117,9 @@ function ChangeOwner({
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
   const [selected, setSelected] = useState<AvatarBindingCandidate | null>(null);
-  const [preview, setPreview] = useState<AvatarBindingPreview | BugAttachmentBindingPreview | null>(
-    null,
-  );
+  const [preview, setPreview] = useState<
+    AvatarBindingPreview | BugAttachmentBindingPreview | AuditArchiveBindingPreview | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [applying, setApplying] = useState(false);
   const [expired, setExpired] = useState(false);
@@ -107,7 +128,11 @@ function ChangeOwner({
   const [error, setError] = useState("");
   const candidates = useQuery({
     queryKey: [
-      purpose === "avatars" ? "avatar-binding-candidates" : "bug-attachment-binding-candidates",
+      {
+        avatars: "avatar-binding-candidates",
+        "bug-reports": "bug-attachment-binding-candidates",
+        "audit-archive": "audit-archive-binding-candidates",
+      }[purpose],
       session,
       page,
       pageSize,
@@ -181,9 +206,11 @@ function ChangeOwner({
   const fail = (failure: unknown) => {
     setError(changeError(failure, purpose));
     if (
-      ["avatar_binding_target_missing", "bug_attachment_binding_target_missing"].includes(
-        errorCode(failure),
-      )
+      [
+        "avatar_binding_target_missing",
+        "bug_attachment_binding_target_missing",
+        "audit_archive_binding_target_missing",
+      ].includes(errorCode(failure))
     ) {
       setPreview(null);
       setSelected(null);
@@ -319,7 +346,14 @@ function ChangeOwner({
       >
         <div className="space-y-4 text-sm">
           <p className="text-xs leading-relaxed text-muted-foreground">
-            仅后续新上传的{noun}写入新位置。已有{noun}继续按保存的位置读取和清理，不会随绑定迁移。
+            {purpose === "audit-archive" ? (
+              <>仅后续新分配的审计归档写入新位置。已有及已分配归档继续使用保存的位置，永久保留。</>
+            ) : (
+              <>
+                仅后续新上传的{noun}写入新位置。已有{noun}
+                继续按保存的位置读取和清理，不会随绑定迁移。
+              </>
+            )}
           </p>
           {accessDenied ? (
             <p role="alert" className="text-xs leading-relaxed text-status-danger">
@@ -441,8 +475,12 @@ function ChangeOwner({
                   </p>
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     已登记{noun}：待完成 {visiblePreview.history.pending} · 可用{" "}
-                    {visiblePreview.history.ready} · 待清理 {visiblePreview.history.retired}
+                    {visiblePreview.history.ready}
+                    {"retired" in visiblePreview.history && (
+                      <> · 待清理 {visiblePreview.history.retired}</>
+                    )}
                     。这些对象保留原位置。
+                    {purpose === "audit-archive" && "归档永久保留，不执行物理清理。"}
                   </p>
                   {"unlocated_users" in visiblePreview.history &&
                     visiblePreview.history.unlocated_users > 0 && (

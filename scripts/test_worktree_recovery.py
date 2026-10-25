@@ -1783,6 +1783,18 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 original[self.models.binding][0].bucket,
             )
 
+    async def test_new_audit_archive_location_refuses_without_partial_mapping(self):
+        original = deepcopy(self.rows)
+        self.rows[self.models.archive][0].storage_ref["schema"] = 2
+        self.rows[self.models.archive][0].storage_ref["binding_generation"] = 2
+        with self.assertRaises(WorktreeError):
+            await remap_storage(self.db, self.source, self.target, self.endpoint)
+        self.db.flush.assert_not_awaited()
+        self.assertEqual(
+            self.rows[self.models.binding][0].bucket,
+            original[self.models.binding][0].bucket,
+        )
+
     def test_protected_archive_preserves_source_receipt_and_publication_facts(self):
         from worktree_recovery_fixture import digest, protected_row
 

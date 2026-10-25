@@ -688,6 +688,9 @@
 | GET | `/bindings/bug-reports/candidates` |
 | POST | `/bindings/bug-reports/change-preview` |
 | PATCH | `/bindings/bug-reports` |
+| GET | `/bindings/audit-archive/candidates` |
+| POST | `/bindings/audit-archive/change-preview` |
+| PATCH | `/bindings/audit-archive` |
 | GET | `/{location_id}` |
 | GET | `/{location_id}/source-summary` |
 | POST | `/{location_id}/change-preview` |
@@ -1071,4 +1074,4 @@
 
 ---
 
-_共 97 模块 / 624 路由_
+_共 97 模块 / 627 路由_

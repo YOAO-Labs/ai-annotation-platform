@@ -208,7 +208,15 @@ async def list_archives(db, actor, request):
             key = storage.key_for(row.year, row.month, row.id)
             if (
                 not isinstance(row.storage_ref, dict)
-                or row.storage_ref.get("object_key") != key
+                or not (
+                    row.storage_ref.get("object_key") == key
+                    or (
+                        isinstance(row.storage_ref.get("object_key"), str)
+                        and row.storage_ref["object_key"].endswith(
+                            "_aap_managed/audit-archive/" + key
+                        )
+                    )
+                )
                 or row.published_at is None
             ):
                 reject()
@@ -237,6 +245,7 @@ async def read_archive_rows(db, actor, request, year, month, *, limit=100, offse
         proof = await capture_authority(db, actor, request)
         await reauthorize(db, proof)
         receipt = storage.snapshot(await _ready_month(db, year, month))
+        target = await storage.io_target(db, receipt)
         await db.commit()
         _check_clock(proof)
         revision = None
@@ -257,6 +266,7 @@ async def read_archive_rows(db, actor, request, year, month, *, limit=100, offse
             receipt,
             limit=limit,
             offset=offset,
+            **({"target": target} if target is not None else {}),
             on_acquired=acquired,
         )
         await reauthorize(db, proof)

@@ -170,6 +170,9 @@ async def _candidate(db: AsyncSession, source: SourcePartition, job_id: UUID, fi
 
 async def _write_candidate(db: AsyncSession, receipt, file) -> int:
     revision = None
+    target = await archive_storage.io_target(db, receipt)
+    if target is not None:
+        await db.rollback()
 
     async def acquired(permit):
         nonlocal revision
@@ -194,6 +197,7 @@ async def _write_candidate(db: AsyncSession, receipt, file) -> int:
         archive_storage.write,
         receipt,
         file,
+        **({"target": target} if target is not None else {}),
         timeout=archive_storage.VERIFY_SECONDS,
         on_acquired=acquired,
     )

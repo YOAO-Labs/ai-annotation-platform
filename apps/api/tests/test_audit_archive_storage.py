@@ -598,15 +598,19 @@ async def test_allocate_alone_checks_current_canonical_binding(storage, monkeypa
         generation=1,
         bucket="archive-current",
     )
+
+    async def scalar(query):
+        return location if "storage_locations" in str(query) else binding
+
     db = SimpleNamespace(
-        get=AsyncMock(return_value=location), scalar=AsyncMock(return_value=binding)
+        get=AsyncMock(return_value=location), scalar=AsyncMock(side_effect=scalar)
     )
     ensure = AsyncMock()
     monkeypatch.setattr(owners, "ensure_legacy_bindings", ensure)
     ref = await owners.allocate(db, row)
     assert ref == reference("archive-current")
     ensure.assert_awaited_once_with(db)
-    binding.generation = 2
+    binding.generation = 0
     with pytest.raises(owners.AuditArchiveStorageError) as rejected:
         await owners.allocate(db, row)
     assert rejected.value.code == "audit_archive_storage_binding_unproven"

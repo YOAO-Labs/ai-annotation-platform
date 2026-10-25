@@ -196,7 +196,7 @@ FAMILIES = (
         "audit_archive_output.AuditArchiveOutput",
         "audit_archive_storage",
         "other_platform",
-        rf"^[0-9]{{4}}/[0-9]{{2}}/{_UUID}\.jsonl\.gz$",
+        rf"^(?:(?:[^/]+/)*_aap_managed/audit-archive/)?[0-9]{{4}}/[0-9]{{2}}/{_UUID}\.jsonl\.gz$",
         1,
         "key_for",
         ("year", "month", "id"),
@@ -482,7 +482,11 @@ async def classify(db, bucket, objects):
                     },
                 )
                 category, prefix = family.category, family.prefix
-                if family.service in {"avatar_storage", "bug_attachment_storage"} and (
+                if family.service in {
+                    "avatar_storage",
+                    "bug_attachment_storage",
+                    "audit_archive_storage",
+                } and (
                     owner.ref["endpoint_url"] != endpoint()
                     or owner.ref["storage_identity"] != identity
                 ):

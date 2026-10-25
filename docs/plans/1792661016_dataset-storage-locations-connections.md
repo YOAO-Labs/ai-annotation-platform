@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12 与 B13 各切片至 B3-M1 completed locally；Tracker M2 未启动。B14 已完成头像新写入位置受控切换及历史定位验收；B15完成报告附件隔离实现与本地验收、待主树集成，另外七用途仍锁定。完整 E02 继续执行，不分配发布版本。
+> 状态：E02-A、B1–B12 与 B13 各切片至 B3-M1 completed locally；Tracker M2 未启动。B14 已完成头像新写入位置受控切换及历史定位验收；B15报告附件已集成，B16审计归档完成隔离实现与本片验收、待主树集成，另外六用途仍锁定。完整 E02 继续执行，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -11,6 +11,10 @@
 ## 本轮定稿：E02-B16／E09-B9 审计归档用途切换
 
 2026-10-25，基于`a04678026`沿原始S04／AC05、AC10推进独立audit-archive用途，完整边界、准确owner和验证见[E09-B9合同](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b16e09-b9-审计归档新写入位置切换)。仅切后续归档分配，旧ready及pending继续原位置；复用现有归档和居中确认，不新增业务、训练规模或全消费者资格前置。另六用途保持锁定，整项E02仍活动。
+
+## E02-B16 Outcome：审计归档用途切换
+
+2026-10-25，0247与独立audit-archive新写入切换完成隔离交付；旧ready、切换前pending保留保存位置，新分配才使用新目标，历史读取跟随当前连接凭据，另六用途保持锁定。273项不同本片检查与实际PostgreSQL／S3／maintenance Worker的A两份／B一份、真实密钥轮换撤销、坏凭据拒绝及明暗桌面／窄屏确认UI通过；所属test／e2e、临时账号和原始产物清理，人工3100／8100保持。准确证据、恢复边界、父任务Creation窄修及待集成状态见[E09-B9 Outcome](1792661016_dataset-storage-console-boundaries.md#e09-b9-outcome审计归档新写入位置切换)。完整E02继续活动，不增加训练测量或消费者资格前置。
 
 ## 本轮定稿：E02-B15／E09-B8 报告附件新写入位置切换
 

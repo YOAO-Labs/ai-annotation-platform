@@ -318,6 +318,7 @@ async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
         "legacy_mapping_locked",
         "reviewed_avatar_switch",
         "reviewed_bug_attachment_switch",
+        "reviewed_audit_archive_switch",
     }
     training = await db_session.get(StorageBinding, "training")
     training.generation = 2
@@ -336,7 +337,7 @@ async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
     assert {
         row["change_policy"]
         for key, row in rows.items()
-        if key not in {"avatars", "bug-reports"}
+        if key not in {"avatars", "bug-reports", "audit-archive"}
     } == {"legacy_mapping_locked"}
     await db_session.refresh(training)
     await db_session.refresh(location)

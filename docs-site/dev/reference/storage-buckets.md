@@ -18,7 +18,7 @@ last_reviewed: 2026-10-25
 | `datasets`      | `MINIO_DATASETS_BUCKET`      | 数据集源文件（原始图像/视频/点云/传感器标定）      | `__aap_managed_datasets__/{dataset_id}/_objects/{upload_id}/{relative_path}`；历史真实键保留                                                                                                                                         | 永久                                                                       | **备份**                                                                                                                        |
 | `bug-reports`   | `MINIO_BUG_REPORTS_BUCKET`   | 快捷 Bug 反馈截图附件                              | `bug-report-attachments/{user_id}/{uuid}-{name}`                                                                                                                                                                                     | 整桶 180 天                                                                | 不备份                                                                                                                          |
 | `media-cache`   | `MINIO_MEDIA_CACHE_BUCKET`   | **派生媒体缓存**：缩略图、视频抽帧、分片、转码代理 | `thumbnails/{item_id}.webp`、`videos/{item_id}/frames/{idx}_{w}.{fmt}`、`videos/{item_id}/chunks/{id}.mp4`、`playback/{item_id}.mp4`、`pyramids/{item_id}/...`                                                                       | **仅 `videos/` 30 天**；`playback/`、`thumbnails/` 不过期                  | **不备份**（`videos/` 帧与分片按需重生；`playback/` 与 `thumbnails/` 入库时一次性生成，若丢失需重跑 `generate_video_metadata`） |
-| `audit-archive` | `MINIO_AUDIT_ARCHIVE_BUCKET` | 审计日志冷分区归档                                 | `{YYYY}/{MM}.jsonl.gz`                                                                                                                                                                                                               | **永久**（合规保留）                                                       | **强备份**（建议开启 Versioning + Object Lock）                                                                                 |
+| `audit-archive` | `MINIO_AUDIT_ARCHIVE_BUCKET` | 审计日志冷分区归档                                 | `{YYYY}/{MM}/{archive_uuid}.jsonl.gz`                                                                                                                                                                                                | **永久**（合规保留）                                                       | **强备份**（建议开启 Versioning + Object Lock）                                                                                 |
 | `import`        | `MINIO_IMPORT_BUCKET`        | 预标注与数据集导入的临时中转产物                   | `prediction-inputs/{attempt}/original/...`、`prediction-inputs/{attempt}/crops/...`、导入暂存键                                                                                                                                      | 预标输入需启用版本控制，按固定版本清理；移除平台整桶过期，未知旧对象待盘点 | 恢复演练保留责任记录、对象元信息及内容                                                                                          |
 | `export`        | `MINIO_EXPORT_BUCKET`        | 异步导出的标注数据包                               | 一次性 Key（ZIP / 多目标富格式导出包）                                                                                                                                                                                               | 整桶 7 天                                                                  | 不备份（短生命周期）                                                                                                            |
 | `avatars`       | `MINIO_AVATARS_BUCKET`       | **用户头像**（上传后规范化的 `256×256` WebP）      | `{token}.webp`（`token` 为 32 位随机十六进制字符串）                                                                                                                                                                                 | **永久，且不挂 Lifecycle**                                                 | **备份**                                                                                                                        |
@@ -69,13 +69,13 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 
 ## 容量监控与日常巡检
 
-- **前端入口**：存储管理展示真实位置、分节点探测和九用途映射，不再重复数据集目录。用途映射来自 `GET /api/v1/storage-locations/bindings`；共享桶不合并用途行。`read_policy=consumer_owned_compatibility`保留各业务固定定位及旧读取路径，`write_policy=deployment_mapping`描述新写入的兼容部署目标，其余七用途的`change_policy=legacy_mapping_locked`保持锁定；头像和报告附件使用`write_policy=current_binding`，分别通过`reviewed_avatar_switch`和`reviewed_bug_attachment_switch`支持经预览确认切换。位置配置修订与用途绑定代次独立返回；配置匹配不代表健康或迁移资格。
+- **前端入口**：存储管理展示真实位置、分节点探测和九用途映射，不再重复数据集目录。用途映射来自 `GET /api/v1/storage-locations/bindings`；共享桶不合并用途行。`read_policy=consumer_owned_compatibility`保留各业务固定定位及旧读取路径，`write_policy=deployment_mapping`描述新写入的兼容部署目标，其余六用途的`change_policy=legacy_mapping_locked`保持锁定；头像、报告附件和审计归档使用`write_policy=current_binding`，分别通过`reviewed_avatar_switch`、`reviewed_bug_attachment_switch`和`reviewed_audit_archive_switch`支持经预览确认切换。位置配置修订与用途绑定代次独立返回；配置匹配不代表健康或迁移资格。
 - **统计边界**：平台对象字节读取持久盘点快照，已采纳源索引规模按准确来源地址去重，二者分列。物理容量、提供方配额及其他缺少可靠测量的指标保持未提供；刷新只查询已有记录，不同步列举全部桶。快照和分项口径见下文。
 - **巡检要点**：
   - `media-cache` 体积主要受 `videos/` 前缀的 30 天 Lifecycle 约束；若出现异常增长，通常意味着大量长视频被高频随机寻帧，可结合 `video_frame_service` 缓存命中率排查。
   - `avatars` 单对象不超过约 40 KB（`256×256` WebP），总体积随注册用户数线性增长；若对象数显著多于用户数，可排查是否存在 `users.avatar_ref` 未引用的孤儿对象。
 
-数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本。七用途保持兼容部署映射，头像和报告附件可经真实托管探针及预览确认切换新写入位置；已固定对象按各自owner记录读取，历史头像定位缺失时阻止该用途切换，不声称全部历史定位已覆盖。用途策略不复用外部引用适配器的只读能力声明。
+数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本。六用途保持兼容部署映射，头像、报告附件和审计归档可经真实托管探针及预览确认切换新写入位置；已固定对象按各自owner记录读取，历史头像定位缺失时阻止该用途切换，不声称全部历史定位已覆盖。用途策略不复用外部引用适配器的只读能力声明。
 
 独立Task新上传的最终原件位于annotations用途的 `__aap_task_originals__/<Task UUID>/<Creation UUID>/payload`。浏览器只写import暂存区，完整核验封存后保存独立TaskOriginal；删除业务Task或测试fixture不会按前缀删除该原件。历史未知Task不补造归属，全部原件读取者的固定位置接入仍须独立完成。
 
@@ -111,6 +111,8 @@ Celery default worker 执行盘点，Beat 每 30 秒回收超过 120 秒租约�
 启用分类统计前应用 0242，并刷新执行盘点的 Worker；无需重建镜像。统计仍限当前配置的平台桶与当前对象，不覆盖历史版本、未完成分片、本地临时磁盘或提供方物理容量。外部已采纳源索引规模继续独立统计。
 
 报告附件可采用已登记全局 S3 位置的新写入绑定。schema2 物理键位于基前缀下 `_aap_managed/bug-reports/bug-report-attachments/<owner>/<upload>.<ext>`，公开报告键仍从 `bug-report-attachments/` 开始。旧与在途上传按保存 endpoint／bucket／key／实际版本处理；当前平台部署桶盘点不包含外部目标。分类必须同时匹配端点，不能把同桶同键的外部声明套用到当前端点对象。
+
+审计归档新分配同样可使用已登记全局 S3，schema2 的准确物理键位于基前缀下 `_aap_managed/audit-archive/{YYYY}/{MM}/{archive_uuid}.jsonl.gz`，公开逻辑键不带该前缀。旧归档和已分配 pending 保持原位置，当前凭据轮换不改历史归属。分类按保存的物理地址核对；外部未覆盖不计入当前部署桶总量，本用途尚未接入增量账目，摘要仍为 partial。
 
 ## 当前对象增量与周期核对
 
