@@ -14,6 +14,51 @@
 
 ## 本次晋升复核与实施合同
 
+### E02-B15／E09-B8：报告附件新写入位置切换
+
+2026-10-25，基于干净`1e49033c1`，沿整套Epic实施／提交授权定稿，状态approved。对应原始E09-S05、E02-S04／AC05／AC10。九用途中头像已开放受控切换，报告附件已有独立pending／ready／retired及严格逻辑键读取，但分配／解析与数据库约束仍固定legacy位置／代次1；本片补齐bug-reports，另外七用途继续锁定。实际迁移、退役和完整E09收口仍为原有独立范围。
+
+采用与头像同一控制台入口、候选分页、五分钟预览确认及权限合同；仅接受legacy或已登记全局S3位置。新增`/storage-locations/bindings/bug-reports/candidates`、`/change-preview`及绑定PATCH，凭证使用独立audience，绑定当前用途代次、目标／连接／维护修订、原管理员／Key及实际影响。真实受控条件PUT、完整GET／SHA与准确DELETE在SQL锁外、已有StorageOperation内执行，未知收尾不允许切换。身份／Key后按序连接、Location，再锁Binding；新分配共享锁与切换排他锁串行，锁后复核捕获事实。
+
+保留公开逻辑键`bug-report-attachments/{owner_uuid}/{upload_uuid}.{ext}`。旧schema1完整解释不变；新schema2保存正代次、准确Location／endpoint／bucket／受控前缀完整物理键／storage_identity，取当前位置当前凭据，但不因正常密钥轮换否认历史定位。保存真实provider VersionId并用于后续HEAD／GET／DELETE；未知写入维持pending责任，不猜版本。独立pending在PUT前提交，其分配时owner固定：切换前已分配上传继续A，切换后新分配使用B，现有报告字段、绑定权限、期限、退休与pending不自动清理合同保持。
+
+`read()`与首次报告绑定已先经`_for_key()`拒绝缺独立owner的键，退休／清理只处理已知上传；没有按当前绑定猜读旧附件的路径。因此不照搬头像历史缺口阻断：未知历史保持原拒绝，不能影响can_apply，不新增全库扫描或历史修复前置。所有状态的已保存附件加入位置引用保护；用途公共校验仅放开准确bug-reports新代次，避免阻断无关上传。分类仍按endpoint＋bucket＋完整key归属，现有平台A盘点不能包含外部B。九桶恢复在任何映射写入前拒绝未覆盖的新绑定、schema2或实际VersionId，不建设跨端点备份系统。
+
+目标实现从头像模块抽取封闭`avatars | bug-reports`参数的窄S3目标／探针共用层，保留头像公开函数与错误类型适配；不另建配置或迁移框架。前端抽用现有居中Modal及分页／确认交互，保留头像包装及独立响应归属、失效确认和稳定焦点。跨API、DB、S3、Web与恢复工具，超过八文件，准确范围如下：
+
+| 范围         | 文件                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 目标／用途   | 新`apps/api/app/services/managed_s3_target.py`、`bug_attachment_storage_target.py`、`bug_attachment_binding_change.py`；现有`avatar_storage_target.py`、`bug_attachment_storage.py`、`bug_attachment_uploads.py`                                                                                                                                                                                  |
+| 数据／接线   | `apps/api/app/db/models/bug_attachment_upload.py`；新`apps/api/alembic/versions/0245_bug_attachment_location_bindings.py`；`services/dataset_assets.py`、`storage_location.py`、`storage_usage_categories.py`，`schemas/storage_location.py`、`api/v1/storage_locations.py`                                                                                                                       |
+| Web          | 新`apps/web/src/components/connections/StorageBindingChangeButton.tsx`及测试；现有`AvatarBindingChangeButton.tsx`及测试、`StorageLocationsConsole.tsx`及测试、`apps/web/src/api/storage.ts`                                                                                                                                                                                                       |
+| 恢复／合同   | `scripts/worktree_recovery_mapping.py`、`scripts/test_worktree_recovery.py`、`apps/api/openapi.snapshot.json`、本地生成Web类型、`packages/python-sdk/api-coverage.toml`                                                                                                                                                                                                                           |
+| 后端定向测试 | 新`apps/api/tests/test_bug_attachment_binding_change.py`、`test_bug_attachment_location_records.py`、`test_migration_0245_bug_attachment_location_bindings.py`；现有`test_bug_attachment_storage.py`、`test_bug_attachment_uploads.py`、`test_avatar_storage_target.py`、`test_avatar_binding_change.py`、`test_storage_usage_categories.py`，`test_storage_locations_api.py`中的新增位置保护断言 |
+| 文档         | README、CHANGELOG Unreleased、`docs-site/user-guide/datasets/storage-connections.md`、`docs-site/api/guides/bug-reports.md`及`storage-locations.md`、`docs-site/dev/concepts/storage-connections.md`、`docs-site/dev/reference/storage-buckets.md`、`docs-site/ops/deploy/storage-recovery.md`、E02／本计划／执行队列                                                                             |
+
+```text
+Storage UI -> candidate / probe / versioned confirmation -> current Binding
+JWT upload -> pending saved owner A or B -> exact S3 write -> ready receipt
+report logical key -> saved owner -> current credentials -> exact saved object/version
+retirement / cleanup --------------------^              -> precise deletion
+```
+
+0245增加schema2／可空实际版本及pending一次性回执约束，保留全部schema1事实；降级先锁上传表及Binding，存在schema2、实际VersionId或非1代绑定即拒绝，只有旧事实时恢复旧约束。功能回退采用同一受控流程将后续新分配切回A，保留schema与B历史读取，不改写旧owner或承诺旧应用读取新事实。
+
+独立修改代理在当前本地HEAD创建的干净隔离树内实现、验证和提交；根C5／C6被测源码及六份C5工具保持冻结，两个测量终结前不集成应用改动。纯检查用该树本地API虚拟环境；DB用该树已核验可丢弃test，实际S3／浏览器用独立e2e，不复用根test／e2e。运行新增附件／迁移及受影响头像／分类测试、恢复纯测试、Web相关Vitest、tsc／lint／CSS tokens、OpenAPI与SDK合同、文档检查及构建。真实A→B核对旧ready／在途pending留A、新上传B、原逻辑键、下载和准确清理；另验证修订竞争、正常轮换、只读／坏凭据探针拒绝、位置保护、七用途锁定、未知历史不阻断及恢复拒绝零部分修改。仅新增控件做明暗／桌面／窄屏、Escape／焦点和请求／控制台核验，不重跑整套消费者或历史恢复资格。
+
+分层命令在隔离树执行（新增文件随实现提供）：
+
+```sh
+pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/python -m pytest tests/test_bug_attachment_*.py tests/test_migration_0245_bug_attachment_location_bindings.py tests/test_avatar_storage_target.py tests/test_avatar_binding_change.py tests/test_storage_usage_categories.py tests/test_storage_locations_api.py'
+PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p test_worktree_recovery.py
+pnpm --filter @anno/web exec vitest run src/components/connections/StorageBindingChangeButton.test.tsx src/components/connections/AvatarBindingChangeButton.test.tsx src/components/connections/StorageLocationsConsole.test.tsx
+pnpm --filter @anno/web exec tsc -b --noEmit
+pnpm --filter @anno/web lint
+pnpm docs:build
+```
+
+集成后按现有owner刷新受影响人工API／Worker并应用迁移，保留3100／8100、两Worker／Beat及既有业务／原件；独立清理该树测试资源和中间产物，验证提交及patch等价后清理代理树。不重建镜像、改变依赖或分配发布版本；不以本片作为E01、E12或其他原始Epic验收的新前置。
+
 ### E02-B14／E09-B7：头像用途的受控位置切换
 
 对应原始 E02-S04、AC05／AC10 与 E09-S05。实现真正的已登记位置A→B：仅后续头像分配采用新绑定；既有pending／ready／retired上传按保存的位置读取、发布和清理，不把同端点换桶当成全部交付。先开放avatars，其余八用途保持原有锁定合同，不追加Tracker、会话、审核或其他消费者改造。
