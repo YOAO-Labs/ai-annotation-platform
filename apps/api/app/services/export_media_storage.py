@@ -452,7 +452,7 @@ def _client(client, owner):
 
 
 @contextmanager
-def open_storage(record, factory=None, *, target=None):
+def open_storage(record, factory=None, *, target=None, single_attempt=False):
     """The caller admits/drains constructor, every operation and actual close."""
     owner = resolve(record)
     if target is not None:
@@ -463,7 +463,9 @@ def open_storage(record, factory=None, *, target=None):
             or target.key_prefix + prefix_for(_field(record, "id")) != owner.prefix
         ):
             _reject()
-        with target.client() as client:
+        with target.client(
+            **({"single_attempt": True} if single_attempt else {})
+        ) as client:
             yield _client(client, owner)
         return
     if owner.ref["schema"] != 1:
@@ -509,7 +511,9 @@ def _version(response):
     return value
 
 
-def _read(client, owner, key, expected, deadline, *, written=None):
+def _read(
+    client, owner, key, expected, deadline, *, written=None, accounting_attempt=None
+):
     _budget(deadline)
     params = {"Bucket": owner.bucket, "Key": key}
     head = client.head_object(**params)
@@ -566,6 +570,8 @@ def _read(client, owner, key, expected, deadline, *, written=None):
     ):
         _reject("integrity_mismatch")
     _budget(deadline)
+    if accounting_attempt is not None:
+        accounting_attempt.verified(client, version)
     return dict(expected)
 
 
@@ -610,7 +616,7 @@ def _borrowed_fd(descriptor, expected):
             raise mark_unsettled(exc)
 
 
-def write_object(client, record, relative, source_fd):
+def write_object(client, record, relative, source_fd, *, accounting=None):
     """Borrow an int FD serially, restore its cursor, and close only our duplicate."""
     owner = resolve(record)
     _client(client, owner)
@@ -636,7 +642,13 @@ def write_object(client, record, relative, source_fd):
                 _reject("integrity_mismatch")
             stream.seek(0)
             _live(record)
-            written = client.put_object(
+            from app.services import media_cache_accounting
+
+            written, attempt = media_cache_accounting.put(
+                accounting,
+                client,
+                key,
+                expected,
                 Bucket=owner.bucket,
                 Key=key,
                 Body=stream,
@@ -646,7 +658,15 @@ def write_object(client, record, relative, source_fd):
                 IfNoneMatch="*",
             )
             _http_ok(written)
-            result = _read(client, owner, key, expected, deadline, written=written)
+            result = _read(
+                client,
+                owner,
+                key,
+                expected,
+                deadline,
+                written=written,
+                accounting_attempt=attempt,
+            )
         _live(record)
         return result
     except Exception as exc:

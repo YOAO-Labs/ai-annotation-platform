@@ -1,4 +1,4 @@
-"""Real reader/storage algorithms over fake providers; no DB or service I/O."""
+"""Real transfer algorithms and isolated accounting SQL over fake providers."""
 
 import asyncio
 from copy import deepcopy
@@ -19,6 +19,7 @@ from app.services import storage_access
 from app.services.content_snapshot import ContentError
 from tests.test_export_media_storage import Client, RAW
 from tests.test_managed_original_reader import Provider
+from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
 
 
 class BaseLimit(BaseException):
@@ -65,7 +66,7 @@ class Snapshot:
 
 
 class Runtime:
-    def __init__(self, monkeypatch):
+    def __init__(self, monkeypatch, accounting_factory):
         self.base, self.engine = object(), object()
         self.snapshot = Snapshot()
         self.source = Source(
@@ -148,6 +149,10 @@ class Runtime:
             )
             self.claim_calls += 1
 
+        async def read_options(db, source):
+            assert db is runtime.base and source == runtime.source
+            return {}
+
         original_stage = reader.BinaryStage
 
         def stage(*args, **kwargs):
@@ -192,10 +197,17 @@ class Runtime:
         self.client.put_object, self.client.close = put, output_close
         self.provider.head_hook = lambda: self.block("capture")
         monkeypatch.setattr(transfer, "AsyncSession", Session)
+
+        def accounting_sessions(bind, *, expire_on_commit):
+            assert bind is runtime.engine and not expire_on_commit
+            return accounting_factory
+
+        monkeypatch.setattr(transfer, "async_sessionmaker", accounting_sessions)
         monkeypatch.setattr(storage_access, "engine", lambda _db: self.engine)
         monkeypatch.setattr(storage_access, "acquire", acquire)
         monkeypatch.setattr(storage_access, "check", gate)
         monkeypatch.setattr(transfer.bundles, "check_claim", check_claim)
+        monkeypatch.setattr(transfer.original_sources, "read_options", read_options)
         monkeypatch.setattr(reader, "BinaryStage", stage)
         monkeypatch.setattr(reader, "create_client", source_client)
         monkeypatch.setattr(physical, "create_client", output_client)
@@ -248,9 +260,9 @@ class Runtime:
 
 
 @pytest.fixture
-def runtime(monkeypatch):
+def runtime(monkeypatch, accounting_factory):
     monkeypatch.setattr(physical.settings, "minio_public_url", "")
-    value = Runtime(monkeypatch)
+    value = Runtime(monkeypatch, accounting_factory)
     try:
         yield value
     finally:
