@@ -5,6 +5,20 @@
 
 原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增，B6接入独立导出媒体新增，B7接入导出ZIP写入净变化；其他生产者及媒体缓存／导出移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
 
+## 本轮定稿：E12-B8 报告附件受控新增增量
+
+2026-10-26，基于`32c5bfe3f`继续原始E12-S03／AC01、§5和工程任务第2项。报告附件已有BugAttachmentUpload UUID、保存的物理地址、条件PUT回执、按返回版本完整SHA／大小读回，以及`storage_access.run`的permit／原生线程排空；本片只补共享`bug_attachment_uploads.upload`→`bug_attachment_storage.write`的容量事实，不改报告、上传授权、图片格式／10MiB／像素预算、绑定、180天期限或清理。
+
+新增生产者`bug_attachment_uploads`、owner为BugAttachmentUpload.id、分类`other_platform`，复用现有Recorder／Mutation与调用者Engine上的独立短事务。每次Python条件PUT调用前保存一个耐久意图；意图失败不开始PUT。原SDK配置和重试保持，记账写入使用所属独占client，schema1及schema2默认A沿已有owned选项，外部目标保持原client策略。普通读取和探测不改变，不替换共享实例，不新增条件写能力门槛或上传器。
+
+公开SDK参数／before-send事件仅核对冻结Bucket、Key及IfNoneMatch=\*并数实际发送，回调返回None且不修改请求。不解析签名URL；没有hook、参数不能核实、多次发送或回执未知均保留unknown。只有恰好一次真实提交、明确成功ACK、返回不可变非null版本、既有完整读回的准确版本／SHA／大小一致、当前HEAD仍为该版本，且线程／Body／client和原permit均真实收尾后，才能确认正增量。只有明确单次条件失败412可确认本次零；409、自动重试后412、无版本或关闭不明不推断零，更不解释早期未决窗口。条件写ACK本身证明提交时当前槽不存在，无需引入ZIP的历史版本LIST要求。
+
+物理事实在原异步上传owner中独立发布，后续权限／配置／ready提交失败或业务回滚不抹去已发生写入。复用原guard、revision与取消排空；取消和其他BaseException先收尾账目再按原语义传播。普通记账发布异常不改变成功业务或原始错误，留下pending／unknown。每次实际调用为独立窗口，不按ready状态、报告绑定或同SHA补算历史。现有删除／退休、历史对象及其他生产者继续未覆盖，整体coverage=partial、projected_total_bytes=null，不增加GC或删除许可。
+
+准确范围：新增私有`bug_attachment_accounting.py`及专项测试，现有`bug_attachment_storage.py`、`bug_attachment_uploads.py`、`schemas/storage.py`与相关附件／target／账目回归；共享Recorder或target仅在确需复用窄接口时调整，B7不顺带重构。Web现有StorageUsageAccounting及测试；必要OpenAPI／本树生成类型和SDK合同；README、CHANGELOG、用户storage-connections、API storage-locations、开发storage-buckets、本计划与实施队列。后端在当前HEAD隔离树实现，主树负责Web／文档与集成。无迁移、新公开端点、请求字段、配置、依赖、镜像、权限或格式变更。
+
+仅使用核实owner的一次性test资源：准确保存地址、独立意图先于PUT、真实小图片生产上传与schema1／schema2默认A、重复条件失败、SDK重复发送／丢ACK后412、无hook／null／错误版本／当前替换、完整读取／关闭失败、ready发布失败、重复取消与账目发布异常。检查已改caller的真实线程／PG收尾，相关已有回归、Ruff、OpenAPI／codegen、SDK、Web类型／lint／CSS tokens及正式文档；真实摘要UI只验新增覆盖文案、折叠与明暗宽窄，不重做报告产品或其他消费者资格。主树集成前核实人工3100／8100／0257与所属任务空闲，刷新确需加载的进程，保存原业务／对象／文件并清理本片资源，再正常提交。完整E12及整套Epic继续活动，未覆盖项不新增为本片前置，不推送／发布或执行训练测量。
+
 ## 本轮定稿：E12-B7 导出 ZIP 写入增量
 
 2026-10-26，基于`1d4872f97`继续原始E12-S03／AC01、§5及工程任务第2项。ZIP已有独立ExportOutput、准确保存地址、完整SHA／大小及真实线程收尾，但`upload_file`隐藏PUT／CompleteMultipart的返回版本；仅将成功ZIP大小相加会在同键重试时重复累计。普通导出经`export_outputs.write`，独立媒体导出经`workers/lidar_export.py`的原`_io`直接调用`export_storage.write`，本片覆盖这两个既有异步入口，不按导出格式拆专项。
