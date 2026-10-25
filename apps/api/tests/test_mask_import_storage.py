@@ -287,17 +287,21 @@ async def test_upload_does_not_return_url_after_actor_revocation(
 
 
 @pytest.mark.parametrize("new_owner", [False, True])
+@pytest.mark.parametrize("tamper", [None, "changed", "missing_default"])
 async def test_preflight_pins_upload_or_explicit_legacy_and_resume_retains_it(
     db_session,
     super_admin,
     monkeypatch,
     tmp_path,
     new_owner,
+    tamper,
 ):
     from app.services import import_storage
+    from app.db.models.annotation import Annotation
+    from app.workers import mask_format_import as worker
 
     user, _ = super_admin
-    project, _, payload = await _seed_aap_import(db_session, owner_id=user.id)
+    project, task, payload = await _seed_aap_import(db_session, owner_id=user.id)
     identifier = uuid.uuid4()
     prefix = f"mask-formats/{project.id}/{user.id}/{identifier}/"
     key = prefix + "a.json"
@@ -323,10 +327,11 @@ async def test_preflight_pins_upload_or_explicit_legacy_and_resume_retains_it(
 
     @asynccontextmanager
     async def materialize(
-        _db, *, object_key, expected_sha256, staging_ref, observation
+        _db, *, object_key, expected_sha256, staging_ref, observation=None
     ):
         captured.append(deepcopy(staging_ref))
-        observation["revision"] = 1
+        if observation is not None:
+            observation["revision"] = 1
         yield service.StagedObject(
             object_key, expected_sha256, str(local), len(payload)
         )
@@ -373,6 +378,50 @@ async def test_preflight_pins_upload_or_explicit_legacy_and_resume_retains_it(
         batch.options_digest,
     )
     assert batch.status == "pending"
+
+    if tamper is not None:
+        altered = deepcopy(batch.plan_json)
+        if tamper == "changed":
+            altered["estimated_bytes"] += 1
+        else:
+            del altered["warnings"]
+        batch.plan_json = altered
+    await db_session.commit()
+
+    @asynccontextmanager
+    async def session():
+        yield db_session
+
+    async def dispose():
+        pass
+
+    monkeypatch.setattr(worker, "materialize_staged_object", materialize)
+    monkeypatch.setattr(
+        worker,
+        "create_async_engine",
+        lambda *_a, **_kw: SimpleNamespace(dispose=dispose),
+    )
+    monkeypatch.setattr(worker, "async_sessionmaker", lambda *_a, **_kw: session)
+    if tamper is None:
+        await worker._run_mask_format_import(str(batch.id), "mask-plan-regression")
+        assert batch.status == "completed"
+        assert batch.result_json["items"]["0"]["imported"] == 1
+    else:
+        with pytest.raises(RuntimeError, match="^format_plan_digest_conflict$"):
+            await worker._run_mask_format_import(str(batch.id), "mask-plan-regression")
+        assert batch.status == "failed"
+    annotations = (
+        (
+            await db_session.execute(
+                select(Annotation).where(Annotation.task_id == task.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(annotations) == (1 if tamper is None else 0)
+    assert captured == [ref, ref]
+    assert batch.staging_ref == ref
 
 
 async def test_null_old_batch_is_legacy_even_with_current_external_binding(monkeypatch):
