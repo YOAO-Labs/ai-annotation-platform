@@ -370,8 +370,9 @@ def _load_task_image(task):
 
     from PIL import Image
 
-    from app.services.storage import StorageService
+    from app.services.storage import StorageService, require_legacy_task_path
 
+    require_legacy_task_path(task)
     storage = StorageService()
     bucket = storage.datasets_bucket if task.dataset_item_id else storage.bucket
     try:

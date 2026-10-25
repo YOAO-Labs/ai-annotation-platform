@@ -79,6 +79,23 @@ def upgrade():
             f"CREATE INDEX ix_{table}_saved_location ON {table} ((storage_ref->>'location_id'))"
         )
     op.execute(NEW_GUARD)
+    op.execute("""
+        CREATE FUNCTION guard_annotations_storage_ref() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF OLD.storage_ref->>'schema'='2' AND NEW.storage_ref IS DISTINCT FROM OLD.storage_ref THEN
+                RAISE EXCEPTION 'Saved annotation-file address is immutable' USING ERRCODE='23514';
+            END IF;
+            RETURN NEW;
+        END $$;
+    """)
+    for table in (
+        "comment_attachment_uploads",
+        "guide_asset_uploads",
+        "raster_mask_objects",
+    ):
+        op.execute(
+            f"CREATE TRIGGER trg_{table}_annotations_ref BEFORE UPDATE ON {table} FOR EACH ROW EXECUTE FUNCTION guard_annotations_storage_ref()"
+        )
 
 
 def downgrade():
@@ -97,6 +114,13 @@ def downgrade():
             END IF;
         END $$;
     """)
+    for table in (
+        "comment_attachment_uploads",
+        "guide_asset_uploads",
+        "raster_mask_objects",
+    ):
+        op.execute(f"DROP TRIGGER trg_{table}_annotations_ref ON {table}")
+    op.execute("DROP FUNCTION guard_annotations_storage_ref()")
     op.execute(OLD_GUARD)
     for table, name, old, new in CHECKS:
         _replace(table, name, old)
