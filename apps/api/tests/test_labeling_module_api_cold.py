@@ -504,17 +504,18 @@ asyncio.run(main())
     return payload
 
 
-async def _wait_for_task_lock_waiter(test_engine) -> bool:
+async def _wait_for_task_lock_waiter(test_engine, blocker_pid: int) -> bool:
     deadline = time.monotonic() + 8
     statement = text(
         "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity "
         "WHERE datname=current_database() AND usename='identity_api_consumer' "
         "AND state='active' "
-        "AND wait_event_type='Lock' AND query LIKE '%lock_task_for_core_read%')"
+        "AND wait_event_type='Lock' "
+        "AND :blocker_pid = ANY(pg_catalog.pg_blocking_pids(pid)))"
     )
     while time.monotonic() < deadline:
         async with test_engine.connect() as db:
-            if await db.scalar(statement):
+            if await db.scalar(statement, {"blocker_pid": blocker_pid}):
                 return True
         await asyncio.sleep(0.05)
     return False
@@ -531,6 +532,7 @@ async def _cleanup_rows(
     if not any((actor_id, outsider_id, project_id, task_id)):
         return
     async with test_engine.begin() as db:
+        await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
         if actor_id is not None or outsider_id is not None:
             await db.execute(
                 text(
@@ -540,6 +542,10 @@ async def _cleanup_rows(
                 {"actor_id": actor_id, "outsider_id": outsider_id},
             )
         if task_id is not None:
+            await db.execute(
+                text("DELETE FROM public.task_locks WHERE task_id=:task_id"),
+                {"task_id": task_id},
+            )
             await db.execute(
                 text("DELETE FROM public.annotation_operations WHERE task_id=:task_id"),
                 {"task_id": task_id},
@@ -819,7 +825,10 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
                 pending_write = asyncio.create_task(
                     client.post(read_path, headers=write_headers, json=payload)
                 )
-                lock_wait_observed = await _wait_for_task_lock_waiter(test_engine)
+                blocker_pid = await lock_session.scalar(text("SELECT pg_backend_pid()"))
+                lock_wait_observed = await _wait_for_task_lock_waiter(
+                    test_engine, blocker_pid
+                )
             created = await asyncio.wait_for(pending_write, timeout=30)
             assert lock_wait_observed, "API write bypassed the Task row lock"
             assert created.status_code == 201, created.text
@@ -1023,8 +1032,13 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
                 project_id=project_id,
                 task_id=task_id,
             )
-        except Exception:
-            cleanup_errors.append("cold API fixture rows could not be removed")
+        except Exception as exc:
+            cause = getattr(getattr(exc, "orig", exc), "__cause__", None)
+            cleanup_errors.append(
+                f"cold API fixture cleanup failed: {type(exc).__name__} "
+                f"sqlstate={getattr(cause, 'sqlstate', None)} "
+                f"constraint={getattr(cause, 'constraint_name', None)}"
+            )
         for path in (auth_secret_file, environment_file):
             try:
                 path.unlink(missing_ok=True)

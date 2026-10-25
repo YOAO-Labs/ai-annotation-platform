@@ -11,7 +11,7 @@ from pathlib import Path
 import asyncpg
 import pytest
 from alembic.script import ScriptDirectory
-from sqlalchemy import text
+from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from aap_labeling.annotation_write_contract import (
@@ -22,6 +22,7 @@ from aap_labeling.annotation_write_contract import (
 from aap_labeling.annotation_write_data import AnnotationWriteDataClient
 from aap_labeling.core_read_contract import CORE_READ_RELATIONS
 from aap_owner_data.postgres import verify_function_only_role
+from app.db.models.task import Task
 from tests.factory import create_task
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_identity_recovery import _alembic, _postgres_tool
@@ -33,7 +34,7 @@ from tests.test_inference_backend_dependency_reads_restore import (
     _drop_owned_clone,
 )
 from tests.test_labeling_annotation_writes_native import _create
-from tests.test_workspace_project_access_step_native import _seed
+from tests.test_workspace_project_access_step_native import _cleanup, _seed
 from tests.workspace_project_query_helpers import _dsn
 
 pytestmark = [
@@ -322,8 +323,16 @@ async def test_current_labeling_module_state_survives_owned_restore(
         hide_parameters=True,
     )
     role_connections: list[asyncpg.Connection] = []
+    maker = world = None
+    task_id = None
 
     try:
+        maker, world = await _seed(test_engine)
+        async with maker.begin() as db:
+            task = await create_task(
+                db, project_id=world["project_id"], status="in_progress"
+            )
+        task_id = task.id
         database_acl = await _database_acl(test_engine)
         baseline_dump.touch(mode=0o600, exist_ok=False)
         baseline_dump.write_bytes(
@@ -363,12 +372,6 @@ async def test_current_labeling_module_state_survives_owned_restore(
         assert migration.returncode == 0
         assert await _database_head(source_engine) == current_head
 
-        maker, world = await _seed(source_engine)
-        async with maker.begin() as db:
-            task = await create_task(
-                db, project_id=world["project_id"], status="in_progress"
-            )
-        task_id = task.id
         annotation_id = uuid.uuid4()
         operation_id = uuid.uuid4()
         idempotency_key = f"module-restore-{uuid.uuid4().hex}"
@@ -565,4 +568,9 @@ async def test_current_labeling_module_state_survives_owned_restore(
         ):
             if database in created:
                 await _drop_owned_clone(admin, test_engine, database, marker)
+        if maker is not None and world is not None:
+            if task_id is not None:
+                async with maker.begin() as db:
+                    await db.execute(delete(Task).where(Task.id == task_id))
+            await _cleanup(maker, world)
         await admin.dispose()
