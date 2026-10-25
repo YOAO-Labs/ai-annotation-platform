@@ -1,5 +1,5 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning", "storage", "storage-locations", "dataset-sources", "files", "originals"]
+watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning", "storage", "storage-locations", "dataset-sources", "files", "originals", "media-cache"]
 
 [operations]
 "DELETE /api/v1/projects/{project_id}/guide-assets" = { status = "excluded", reason = "web-only" }
@@ -519,3 +519,4 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "GET /api/v1/storage-locations/bindings/media-cache/candidates" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage-locations/bindings/media-cache/change-preview" = { status = "excluded", reason = "web-only" }
 "PATCH /api/v1/storage-locations/bindings/media-cache" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/media-cache/{kind}/{output_id}/{relative}" = { status = "excluded", reason = "web-only" }
