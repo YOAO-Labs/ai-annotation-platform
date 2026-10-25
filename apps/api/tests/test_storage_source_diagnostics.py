@@ -118,7 +118,7 @@ async def test_original_and_preview_are_independent_and_get_has_no_source_io(
     assert str(world[0]) not in str(row)
 
 
-@pytest.mark.parametrize("mismatch", ["sha", "asset", "spec", "destination", "binding"])
+@pytest.mark.parametrize("mismatch", ["sha", "asset", "spec", "destination"])
 async def test_preview_records_must_match_current_content_and_destination(
     db_session, evidence_world, httpx_client, super_admin, mismatch
 ):
@@ -132,10 +132,6 @@ async def test_preview_records_must_match_current_content_and_destination(
         preview.spec = "old-spec"
     elif mismatch == "destination":
         preview.bucket = "obsolete"
-    else:
-        await db_session.execute(
-            delete(StorageBinding).where(StorageBinding.purpose == "avatars")
-        )
     await db_session.commit()
     ref = (await read_summary(httpx_client, world, super_admin))["items"][0][
         "diagnostics"
@@ -145,6 +141,21 @@ async def test_preview_records_must_match_current_content_and_destination(
     assert ref["preview_counts"]["failed"] == 1
     assert ref["preview_counts"]["unrecorded"] == 2
     assert ref["original_counts"]["verified"] == 3
+
+
+async def test_legacy_preview_evidence_does_not_follow_unrelated_current_bindings(
+    db_session, evidence_world, httpx_client, super_admin
+):
+    world, _, _ = evidence_world
+    await db_session.execute(
+        delete(StorageBinding).where(StorageBinding.purpose == "avatars")
+    )
+    await db_session.commit()
+    ref = (await read_summary(httpx_client, world, super_admin))["items"][0][
+        "diagnostics"
+    ]["references"]
+    assert ref["preview_counts"]["ready"] == 1
+    assert ref["preview_counts"]["failed"] == 1
 
 
 @pytest.mark.parametrize("policy", ["source", "location", "disabled", "unregistered"])

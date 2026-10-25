@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.db.models.thumbnail_output import media_cache_ref_check
 from app.db.base import Base
 
 
@@ -46,6 +47,15 @@ COALESCE((
     AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
 ), false)
 """
+
+
+_OUTPUT_REF_CHECK = (
+    "("
+    + _OUTPUT_REF_CHECK
+    + ") OR ("
+    + media_cache_ref_check("'image-pyramids/objects/' || id::text || '/'")
+    + ")"
+)
 
 
 class ImagePyramidAsset(Base):

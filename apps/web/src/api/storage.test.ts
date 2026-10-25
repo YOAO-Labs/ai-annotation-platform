@@ -30,7 +30,7 @@ it("pages avatar binding candidates with cancellation and uses reviewed apply pa
   });
 });
 
-it.each(["import", "datasets"] as const)(
+it.each(["import", "datasets", "media-cache"] as const)(
   "routes %s binding review and confirmation to its own endpoints",
   (purpose) => {
     const signal = new AbortController().signal;

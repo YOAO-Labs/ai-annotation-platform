@@ -270,19 +270,20 @@ async def get_image_pyramid(
         async with objects.reading(
             db, owner, generation, authority=authority
         ) as output_owner:
-            manifest = await objects.manifest(storage_service, output_owner, generation)
-            await originals.physical(
-                physical.verify_object,
-                storage_service,
-                output_owner,
-                generation.overview_key,
-            )
-            overview_url = storage_service.generate_download_url(
-                generation.overview_key,
-                expires_in=settings.image_pyramid_url_expiry_seconds,
-                bucket=physical.resolve(output_owner).bucket,
-                align=False,
-            )
+            async with objects.transport(db, output_owner) as storage:
+                manifest = await objects.manifest(storage, output_owner, generation)
+                await originals.physical(
+                    physical.verify_object,
+                    storage,
+                    output_owner,
+                    generation.overview_key,
+                )
+                overview_url = physical.signed_url(
+                    storage,
+                    output_owner,
+                    generation.overview_key,
+                    settings.image_pyramid_url_expiry_seconds,
+                )
     except (ContentError, physical.ImagePyramidStorageError) as exc:
         if exc.code not in {
             "image_pyramid_storage_missing",
@@ -404,10 +405,18 @@ async def create_image_pyramid_asset_urls(
         async with objects.reading(
             db, owner, generation, authority=authority
         ) as output_owner:
-            manifest = await objects.manifest(storage_service, output_owner, generation)
-            return await _asset_urls(
-                db, task, asset, generation, manifest, payload, output_owner
-            )
+            async with objects.transport(db, output_owner) as storage:
+                manifest = await objects.manifest(storage, output_owner, generation)
+                return await _asset_urls(
+                    db,
+                    task,
+                    asset,
+                    generation,
+                    manifest,
+                    payload,
+                    output_owner,
+                    storage=storage,
+                )
     except (ContentError, physical.ImagePyramidStorageError) as exc:
         if exc.code not in {
             "image_pyramid_storage_missing",
@@ -420,7 +429,17 @@ async def create_image_pyramid_asset_urls(
         raise HTTPException(409, {"reason": "inconsistent_ready"}) from None
 
 
-async def _asset_urls(db, task, asset, generation, manifest, payload, output_owner):
+async def _asset_urls(
+    db,
+    task,
+    asset,
+    generation,
+    manifest,
+    payload,
+    output_owner,
+    *,
+    storage=storage_service,
+):
     levels = {int(level["level"]): level for level in manifest["levels"]}
     unique: list[Any] = []
     seen: set[tuple[Any, ...]] = set()
@@ -474,14 +493,9 @@ async def _asset_urls(db, task, asset, generation, manifest, payload, output_own
                 "x": item.x,
                 "y": item.y,
             }
-        await originals.physical(
-            physical.verify_object, storage_service, output_owner, key
-        )
-        url = storage_service.generate_download_url(
-            key,
-            expires_in=settings.image_pyramid_url_expiry_seconds,
-            bucket=physical.resolve(output_owner).bucket,
-            align=False,
+        await originals.physical(physical.verify_object, storage, output_owner, key)
+        url = physical.signed_url(
+            storage, output_owner, key, settings.image_pyramid_url_expiry_seconds
         )
         output.append(ImagePyramidAssetUrl(**output_item, url=url))
         IMAGE_PYRAMID_ASSET_URL_ITEMS_TOTAL.labels(kind=item.kind).inc()

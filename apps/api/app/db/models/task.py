@@ -28,6 +28,11 @@ class RejectReasonType(str, enum.Enum):
 
 class Task(Base):
     __tablename__ = "tasks"
+    thumbnail_output_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("thumbnail_outputs.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
 
     # v0.11.30 · 大表查询地基索引（与迁移 0090 同步，经 10 万行 EXPLAIN 实测保留）。
     # 单列索引仍由各列的 index=True 声明；此处补两条热路径所需的组合。

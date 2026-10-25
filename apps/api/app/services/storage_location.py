@@ -84,10 +84,17 @@ async def location_is_referenced(db, location_id):
     from app.db.models.avatar_upload import AvatarUpload
     from app.db.models.bug_attachment_upload import BugAttachmentUpload
     from app.db.models.dataset_source import DatasetSource
+    from app.db.models.original_cache import OriginalCacheEntry
+    from app.db.models.thumbnail_output import ThumbnailOutput
+    from app.db.models.image_pyramid import ImagePyramidOutput
+    from app.db.models.video_derivative import VideoDerivativeOutput
     from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
     from app.db.models.managed_original_retirement import ManagedOriginalRetirement
 
     for model, column in (
+        (ThumbnailOutput, ThumbnailOutput.storage_ref),
+        (ImagePyramidOutput, ImagePyramidOutput.storage_ref),
+        (VideoDerivativeOutput, VideoDerivativeOutput.storage_ref),
         (PredictionInputLease, PredictionInputLease.storage_ref),
         (ManagedOriginalCreation, ManagedOriginalCreation.staging_ref),
         (MaskFormatUpload, MaskFormatUpload.storage_ref),
@@ -100,6 +107,7 @@ async def location_is_referenced(db, location_id):
         ):
             return True
     for model in (
+        OriginalCacheEntry,
         ManagedOriginalCreation,
         DatasetAuxiliaryOriginal,
         ManagedOriginalRetirement,
@@ -703,6 +711,7 @@ async def binding_rows(db):
                     "export",
                     "import",
                     "datasets",
+                    "media-cache",
                 }
                 else "deployment_mapping",
                 "change_policy": "reviewed_avatar_switch"
@@ -718,6 +727,8 @@ async def binding_rows(db):
                     if purpose == "import"
                     else "reviewed_dataset_switch"
                     if purpose == "datasets"
+                    else "reviewed_media_cache_switch"
+                    if purpose == "media-cache"
                     else "legacy_mapping_locked"
                 ),
             }

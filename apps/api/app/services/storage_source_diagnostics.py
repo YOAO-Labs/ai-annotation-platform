@@ -1,6 +1,6 @@
 """Page-scoped saved evidence; never probe a source or regenerate a derivative."""
 
-from sqlalchemy import String, and_, case, cast, func, or_, select
+from sqlalchemy import String, and_, case, cast, func, or_, select, tuple_
 
 from app.db.models.dataset_asset import DatasetAsset, StorageLocation
 from app.db.models.dataset_source import (
@@ -10,8 +10,9 @@ from app.db.models.dataset_source import (
     DatasetSourceItem,
     DatasetSourcePreview,
 )
-from app.services.dataset_assets import LEGACY_LOCATION_ID, validate_legacy_bindings
-from app.services.dataset_workbench import STATES, observations
+from app.db.models.thumbnail_output import ThumbnailOutput
+from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.dataset_workbench import STATES, available_cache_ids, observations
 from app.services.directory_previews import SPEC
 from app.services.storage import storage_service
 from app.services.directory_policy import preview_policy_clause
@@ -19,8 +20,101 @@ from app.services.directory_policy import preview_policy_clause
 PREVIEW_STATES = ("ready", "failed", "unrecorded", "not_requested", "blocked")
 
 
+async def available_preview_keys(db, source_ids):
+    """Validate saved preview owners and current target metadata, never bytes."""
+    from app.services import media_cache_storage, storage_access, thumbnail_outputs
+    from app.services.content_snapshot import ContentError
+
+    rows = await db.execute(
+        select(DatasetSourcePreview, ThumbnailOutput, DatasetSource.location_id)
+        .join(DatasetSource, DatasetSource.id == DatasetSourcePreview.source_id)
+        .outerjoin(
+            ThumbnailOutput,
+            ThumbnailOutput.id == DatasetSourcePreview.thumbnail_output_id,
+        )
+        .where(
+            DatasetSourcePreview.source_id.in_(source_ids),
+            DatasetSourcePreview.state == "ready",
+        )
+    )
+    targets, sources, available = {}, {}, []
+    for preview, output, source_location_id in rows:
+        try:
+            if preview.thumbnail_output_id is None:
+                if (
+                    preview.location_id != LEGACY_LOCATION_ID
+                    or preview.bucket != storage_service.media_cache_bucket
+                ):
+                    continue
+                target_key = None
+                if target_key not in targets:
+                    targets[target_key] = False
+                    location = await db.get(
+                        StorageLocation, LEGACY_LOCATION_ID, populate_existing=True
+                    )
+                    await media_cache_storage.target_for(db, location)
+                    await storage_access.check(db, LEGACY_LOCATION_ID)
+                    targets[target_key] = True
+            else:
+                if (
+                    output is None
+                    or output.state != "ready"
+                    or output.uncertain_write
+                    or (output.owner_kind, output.owner_id, output.path_digest)
+                    != ("directory_preview", preview.source_id, preview.path_digest)
+                    or output.input_ref.get("directory")
+                    != {
+                        "source_id": str(preview.source_id),
+                        "path_digest": preview.path_digest,
+                        "source_sha256": preview.source_sha256,
+                        "spec": preview.spec,
+                    }
+                    or output.input_ref.get("encoded")
+                    != {"sha256": output.sha256, "size_bytes": output.size_bytes}
+                    or (output.sha256, output.size_bytes)
+                    != (preview.sha256, preview.size_bytes)
+                ):
+                    continue
+                saved = thumbnail_outputs.owner(output)
+                if (saved.location_id, saved.bucket, saved.key("thumbnail.webp")) != (
+                    preview.location_id,
+                    preview.bucket,
+                    preview.object_key,
+                ):
+                    continue
+                target_key = tuple(
+                    sorted(
+                        (key, value)
+                        for key, value in saved.ref.items()
+                        if key != "prefix"
+                    )
+                )
+                if target_key not in targets:
+                    targets[target_key] = False
+                    await media_cache_storage.target_for_ref(db, saved.ref)
+                    await storage_access.check(db, saved.location_id)
+                    targets[target_key] = True
+            if not targets[target_key]:
+                continue
+            if source_location_id not in sources:
+                sources[source_location_id] = False
+                await storage_access.check(db, source_location_id)
+                sources[source_location_id] = True
+            if not sources[source_location_id]:
+                continue
+            available.append((preview.source_id, preview.path_digest))
+        except (ContentError, ValueError):
+            continue
+    return available
+
+
 async def reference_evidence(db, source_ids, actor):
-    obs = observations(None, actor, reference_source_ids=source_ids)
+    cache_ids = await available_cache_ids(
+        db, None, actor, reference_source_ids=source_ids
+    )
+    obs = observations(
+        None, actor, reference_source_ids=source_ids, cache_entry_ids=cache_ids
+    )
     # Match by current business identity, allowing an explicitly accepted move.
     # EXISTS keeps one count per retained reference even if several heads match.
     record = (
@@ -45,13 +139,14 @@ async def reference_evidence(db, source_ids, actor):
         )
         .correlate(obs, DatasetAsset)
     )
+    preview_keys = await available_preview_keys(db, source_ids)
     ready = record.where(
         DatasetSourcePreview.state == "ready",
-        DatasetSourcePreview.location_id == LEGACY_LOCATION_ID,
-        DatasetSourcePreview.bucket == storage_service.media_cache_bucket,
+        tuple_(DatasetSourcePreview.source_id, DatasetSourcePreview.path_digest).in_(
+            preview_keys
+        ),
     )
     failed = record.where(DatasetSourcePreview.state == "failed")
-    bindings_valid = not await validate_legacy_bindings(db)
     state = case(
         (
             or_(
@@ -65,7 +160,7 @@ async def reference_evidence(db, source_ids, actor):
             ~preview_policy_clause(),
             "not_requested",
         ),
-        (and_(bindings_valid, ready.exists()), "ready"),
+        (ready.exists(), "ready"),
         (failed.exists(), "failed"),
         else_="unrecorded",
     )

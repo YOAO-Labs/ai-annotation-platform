@@ -6,6 +6,7 @@ import type {
   ExportBindingPreview,
   ImportBindingPreview,
   DatasetBindingPreview,
+  MediaCacheBindingPreview,
   AvatarBindingApply,
   AvatarBindingCandidates,
   AvatarBindingChange,
@@ -162,7 +163,14 @@ export const storageApi = {
   applyAvatarBinding: (payload: AvatarBindingApply) =>
     apiClient.patch<StorageBindingOut>("/storage-locations/bindings/avatars", payload),
   bindingCandidates: (
-    purpose: "avatars" | "bug-reports" | "audit-archive" | "export" | "import" | "datasets",
+    purpose:
+      | "avatars"
+      | "bug-reports"
+      | "audit-archive"
+      | "export"
+      | "import"
+      | "datasets"
+      | "media-cache",
     offset: number,
     signal?: AbortSignal,
     limit = 20,
@@ -174,7 +182,14 @@ export const storageApi = {
           { signal },
         ),
   previewBinding: (
-    purpose: "avatars" | "bug-reports" | "audit-archive" | "export" | "import" | "datasets",
+    purpose:
+      | "avatars"
+      | "bug-reports"
+      | "audit-archive"
+      | "export"
+      | "import"
+      | "datasets"
+      | "media-cache",
     payload: AvatarBindingChange,
   ) =>
     purpose === "avatars"
@@ -185,9 +200,17 @@ export const storageApi = {
           | ExportBindingPreview
           | ImportBindingPreview
           | DatasetBindingPreview
+          | MediaCacheBindingPreview
         >(`/storage-locations/bindings/${purpose}/change-preview`, payload),
   applyBinding: (
-    purpose: "avatars" | "bug-reports" | "audit-archive" | "export" | "import" | "datasets",
+    purpose:
+      | "avatars"
+      | "bug-reports"
+      | "audit-archive"
+      | "export"
+      | "import"
+      | "datasets"
+      | "media-cache",
     payload: AvatarBindingApply,
   ) =>
     purpose === "avatars"

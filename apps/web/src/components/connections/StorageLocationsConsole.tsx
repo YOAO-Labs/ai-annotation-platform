@@ -42,6 +42,7 @@ const BINDING_CHANGE_POLICIES = {
   export: "reviewed_export_switch",
   import: "reviewed_import_switch",
   datasets: "reviewed_dataset_switch",
+  "media-cache": "reviewed_media_cache_switch",
 } as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KIND: Record<string, string> = {
@@ -265,7 +266,8 @@ function ConsoleOwner() {
                                 purpose === "audit-archive" ||
                                 purpose === "export" ||
                                 purpose === "import" ||
-                                purpose === "datasets") &&
+                                purpose === "datasets" ||
+                                purpose === "media-cache") &&
                                 binding?.state === "configured" &&
                                 binding.change_policy === BINDING_CHANGE_POLICIES[purpose] && (
                                   <StorageBindingChangeButton
@@ -283,6 +285,7 @@ function ConsoleOwner() {
                                           ["export-binding-candidates"],
                                           ["import-binding-candidates"],
                                           ["dataset-binding-candidates"],
+                                          ["media-cache-binding-candidates"],
                                           ["storage-buckets"],
                                         ].map((queryKey) => client.invalidateQueries({ queryKey })),
                                       );

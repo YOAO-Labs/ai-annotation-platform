@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 import uuid
 import re
+import sys
 
 from sqlalchemy import String, cast, exists, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -314,9 +315,30 @@ async def reading(db, owner, generation, *, authority=None):
             await session.commit()
 
 
+@asynccontextmanager
+async def transport(db, output):
+    """Use live credentials while the enclosing reading permit owns all I/O."""
+    target = await physical.transport_target(db, output)
+    if target is None:
+        yield storage_service
+        return
+    context, entered = physical.open_storage(target=target), []
+
+    def open_owned():
+        value = context.__enter__()
+        entered.append(True)
+        return value
+
+    try:
+        yield await originals.physical(open_owned)
+    finally:
+        if entered:
+            await originals.physical(context.__exit__, *sys.exc_info())
+
+
 async def thumbnail_url(db, owner_kind, owner_id, path):
     """A cache key alone never grants physical ownership to a common serializer."""
-    if not path or not path.startswith("image-pyramids/"):
+    if not path:
         return None
     from app.services.image_pyramid import get_asset_for_owner, load_owner
     from fastapi import HTTPException
@@ -336,15 +358,13 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
                 return None
             await session.commit()
             async with reading(session, owner, generation) as output:
-                await originals.physical(
-                    physical.verify_object, storage_service, output, path
-                )
-                url = storage_service.generate_download_url(
-                    path,
-                    bucket=physical.resolve(output).bucket,
-                    expires_in=settings.image_pyramid_url_expiry_seconds,
-                    align=False,
-                )
+                async with transport(session, output) as storage:
+                    await originals.physical(
+                        physical.verify_object, storage, output, path
+                    )
+                    url = physical.signed_url(
+                        storage, output, path, settings.image_pyramid_url_expiry_seconds
+                    )
             return url
     except (ContentError, physical.ImagePyramidStorageError, HTTPException):
         return None
@@ -463,6 +483,7 @@ async def reconcile(db, storage):
             continue
         receipt = snapshot(output)
         try:
+            target = await physical.transport_target(db, receipt, require_enabled=False)
 
             async def admitted(permit):
                 current = await db.scalar(
@@ -496,6 +517,9 @@ async def reconcile(db, storage):
                 await db.commit()
 
             def remove():
+                if target is not None:
+                    with physical.open_storage(target=target) as owned:
+                        return physical.delete(owned, receipt)
                 owned = storage
                 try:
                     if owned is None:

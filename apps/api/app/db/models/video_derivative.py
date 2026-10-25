@@ -7,6 +7,7 @@ from sqlalchemy import CheckConstraint, DateTime, Index, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.db.models.thumbnail_output import media_cache_ref_check
 from app.db.base import Base
 
 
@@ -34,6 +35,15 @@ COALESCE((
     AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
 ), false)
 """
+
+VIDEO_DERIVATIVE_STORAGE_REF_CHECK = (
+    "("
+    + VIDEO_DERIVATIVE_STORAGE_REF_CHECK
+    + ") OR ("
+    + media_cache_ref_check("'video-derivatives/objects/' || id::text || '/'")
+    + ")"
+)
+
 VIDEO_DERIVATIVE_INPUT_SHAPE_CHECK = """
 COALESCE(jsonb_typeof(spec) = 'object'
     AND jsonb_typeof(original_ref) = 'object'

@@ -13,7 +13,15 @@ from app.services import connector_guard, storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.sources.s3_reference import S3Access
 
-PURPOSES = {"avatars", "bug-reports", "audit-archive", "export", "import", "datasets"}
+PURPOSES = {
+    "avatars",
+    "bug-reports",
+    "audit-archive",
+    "export",
+    "import",
+    "datasets",
+    "media-cache",
+}
 
 
 def owner_module(purpose):
@@ -37,6 +45,10 @@ def owner_module(purpose):
         from app.services import import_storage
 
         return import_storage
+    if purpose == "media-cache":
+        from app.services import media_cache_storage
+
+        return media_cache_storage
     if purpose == "datasets":
         from app.services import dataset_storage
 
@@ -55,6 +67,8 @@ def error(purpose, suffix):
         if purpose == "audit-archive"
         else (owners.ImportStorageError, "import_storage_")
         if purpose == "import"
+        else (owners.MediaCacheStorageError, "media_cache_storage_")
+        if purpose == "media-cache"
         else (owners.DatasetStorageError, "dataset_storage_")
         if purpose == "datasets"
         else (owners.ExportStorageError, "export_storage_")
@@ -75,6 +89,10 @@ def managed_prefix(base, *, purpose="avatars"):
     ):
         raise error(purpose, "binding_unproven")
     result = (base + "/" if base else "") + f"_aap_managed/{purpose}/"
+    if purpose == "media-cache":
+        if len(result.encode("utf-8")) > 436:
+            raise error(purpose, "binding_unproven")
+        return result
     if purpose == "datasets":
         if len(result) > 891 or len(result.encode("utf-8")) > 915:
             raise error(purpose, "binding_unproven")
@@ -143,7 +161,14 @@ async def target_for(db, location, *, purpose, require_enabled=True):
             location.config_revision != 1
             or (
                 purpose
-                in {"bug-reports", "audit-archive", "export", "import", "datasets"}
+                in {
+                    "bug-reports",
+                    "audit-archive",
+                    "export",
+                    "import",
+                    "datasets",
+                    "media-cache",
+                }
                 and type(location.config.get("use_ssl")) is not bool
             )
             or location.config
@@ -165,6 +190,7 @@ async def target_for(db, location, *, purpose, require_enabled=True):
                     "export": "export_bucket",
                     "import": "import_bucket",
                     "datasets": "datasets_bucket",
+                    "media-cache": "media_cache_bucket",
                 }[purpose],
             ),
             "",
