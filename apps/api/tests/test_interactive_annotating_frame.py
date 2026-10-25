@@ -150,6 +150,9 @@ def patched(monkeypatch):
         captured["input_owner"] = owner
 
         class Inputs:
+            async def close(self):
+                captured["input_closed"] = True
+
             async def upload_frame(self, task, content):
                 captured["upload_key"] = "prediction-inputs/request/original/frame.jpg"
                 captured["upload_size"] = len(content)
@@ -160,6 +163,16 @@ def patched(monkeypatch):
             yield Inputs()
         finally:
             captured["input_closed"] = True
+
+    from app.api.v1 import ml_backends as routes
+
+    final_boundary = routes._reacquire_write_boundary
+
+    async def after_physical_close(*args, **kwargs):
+        assert captured.get("input_closed")
+        return await final_boundary(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "_reacquire_write_boundary", after_physical_close)
 
     with (
         patch(

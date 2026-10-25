@@ -524,15 +524,17 @@ async def classify(db, bucket, objects):
                     },
                 )
                 category, prefix = family.category, family.prefix
+                saved_ref = owner if isinstance(owner, dict) else owner.ref
                 if family.service in {
                     "avatar_storage",
                     "bug_attachment_storage",
                     "audit_archive_storage",
                     "export_storage",
                     "export_media_storage",
+                    "prediction_inputs",
                 } and (
-                    owner.ref["endpoint_url"] != endpoint()
-                    or owner.ref["storage_identity"] != identity
+                    saved_ref["endpoint_url"] != endpoint()
+                    or saved_ref["storage_identity"] != identity
                 ):
                     continue
             owner_bucket = owner["bucket"] if isinstance(owner, dict) else owner.bucket

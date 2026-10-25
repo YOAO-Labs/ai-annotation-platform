@@ -309,6 +309,9 @@ async def _run_secondary_inference(
             detail=f"ML backend error (HTTP {status})",
         ) from exc
 
+    if inputs is not None:
+        # Temporary crop delivery ends before any annotation mutation.
+        await inputs.close()
     if original_operation is not None:
         task, annotation = await original_operation.final()
 
@@ -393,6 +396,12 @@ async def run_secondary_inference(db, *, input_session_factory=None, **kwargs):
     )
     if kwargs["task"] is None or kwargs["task"].file_type == "image":
         return await _run_secondary_inference(db, prepared_request=prepared, **kwargs)
+    from app.services.reference_keys import is_reference
+
+    if is_reference(kwargs["task"].file_path):
+        raise HTTPException(409, detail={"code": "reference_operation_not_supported"})
+    if kwargs.get("original_operation") is not None:
+        raise ContentError("prediction_original_receipt_invalid")
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.services import prediction_inputs, storage_access
 

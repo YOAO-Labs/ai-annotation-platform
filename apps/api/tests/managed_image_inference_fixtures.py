@@ -296,6 +296,9 @@ async def attach_managed(
         # This is a provider seam, not a creation/publication receipt shortcut.
         with world.monkeypatch.context() as patch:
             patch.setattr(creation, "create_client", lambda **_: client)
+            from tests.test_managed_original_creation import stage_client
+
+            stage_client(patch, client)
             created = await creation.complete_direct(db, allocation)
         task.file_path, task.file_name = allocation["object_key"], "original.png"
         await task_originals.publish(db, task, allocation, created)

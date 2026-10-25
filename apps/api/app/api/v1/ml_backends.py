@@ -1616,6 +1616,8 @@ async def predict_frame(
             [{"id": str(task.id), "file_path": frame_url}], context=context
         )
 
+        # Finish physical input cleanup before the final authority/write locks.
+        await inputs.close()
         raw_shapes: list[dict] = []
         for r in results:
             if isinstance(r.result, list):
@@ -1818,6 +1820,8 @@ async def interactive_annotating_frame(
             outcome="success",
             duration_seconds=time.monotonic() - inference_started,
         )
+        # Finish physical input cleanup before the final authority locks.
+        await inputs.close()
         # Do not return restricted candidates from a revoked/role-changed authority:
         # re-acquire the task row and locked membership at the response boundary.
         await _reacquire_write_boundary(db, task.id, current_user)
