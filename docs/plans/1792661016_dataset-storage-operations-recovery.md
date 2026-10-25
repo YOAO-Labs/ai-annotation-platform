@@ -5,6 +5,22 @@
 
 原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增，B6接入独立导出媒体新增，B7接入导出ZIP写入净变化，B8接入报告附件受控新增，B9接入头像／评论附件／指南图片／持久RLE／审计归档受控新增，B10接入冻结文件／主动学习保留图片／评估报告／脱敏日志的覆盖写入净变化，B11接入独立导出媒体的准确版本删除；其他生产者及媒体缓存／ZIP／训练等移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
 
+## 本轮定稿：E12-B12 缩略图、头像与报告附件删除观测
+
+2026-10-26，基于`51d32790a`继续原始E12-S03／AC01、§5及工程任务第2项的删除侧。本片覆盖既有`thumbnail_cleanup.remove/reconcile`、`avatar.delete_avatar_object/avatar_uploads._cleanup_one`、`bug_attachment_storage.delete/bug_attachment_uploads._cleanup_one`三条清理链全部实际DELETE（含旧报告附件按key快捷分支）；不改退休资格、引用／租约、保留窗口、原读取与缺失核验或清理算法。ZIP、其余缓存／附件／训练清理、外部签名写入仍是独立原始缺口，不增加消费者或格式资格。
+
+新增薄`object_removal_accounting.py`：直接导入B11的Recorder／Observation及finish，仅实现`recorder(db, receipt, *, producer, purpose, owner_id=None)`，从已验证保存ref取得endpoint／bucket，默认receipt.id。producer为`thumbnail_removals`／`avatar_removals`／`bug_attachment_removals`；owner分别为ThumbnailOutput.id、头像token无损转换的UUID、附件自身UUID，purpose分别为media_cache／other_platform／other_platform。B11 helper、已有export删除与共享begin的默认预测去重均不改，不复制证明算法。
+
+三个physical接口只增加可选accounting：`thumbnail_cleanup.remove(target, output, *, accounting=None)`、`avatar.delete_avatar_object(record, *, target=None, accounting=None)`、`bug_attachment_storage.delete(record, *, target=None, accounting=None)`。只有实际调用DELETE之前才建Observation并独立提交意图；原HEAD／完整内容核验提前返回不造意图。缩略图保留原IfMatch及实际observed VersionId，头像保留object_params，报告附件保留null／None读回、missing返回及旧legacy快捷分支。只在显式观测时使用已有owned client选项，原Config、重试、超时、SDK参数及错误／返回保持；旧legacy附件分支仅换同配置独占client发原Bucket／Key，不补业务GET／缺失核验。缩略图及头像的complete在原业务absence证明之后，报告附件仅做不阻断业务的旁路complete。
+
+沿B11逐调用删除窗口：只有不可变非null准确版本、单次真实提交、明确匹配ACK、完整准确key前后版本集合只移除本次版本且当前HEAD一致时，才确认当前内容大小差；非当前版本零、显露旧版本可正。key-only、null、缺hook、多次发送、丢ACK、缺观测权限或收尾不明保持unknown，原删除照常；不能由成功删除数量或业务行消失补算负量，不把当前净变化当历史版本／磁盘释放量。意图失败时该次DELETE不开始，已经发生的其他事实仍保留。
+
+三个异步owner保留原admitted／acquired的完整guard，先捕获实际permit，再执行原回调；原线程／client及许可真实结清后独立finish，随后才按原规则发布deleted／移除业务行。需在异常路径同样收尾账目，后续guard或业务失败不抹掉物理事实；普通记账发布失败保留原业务结果，新取消排空后传播。未获permit或其\_settled不明确时不得确认。缩略图按每一候选独立维护recorder，不能在批处理间借用旧permit或丢失先前失败窗口。
+
+两个基于本合同的隔离实现树：core负责薄factory、头像／报告附件physical、schema三producer及其专项；owners负责完整thumbnail_cleanup（physical与reconcile同文件）、avatar_uploads／bug_attachment_uploads的cleanup owner及相关测试，先接core薄factory真实依赖提交。主树负责容量摘要及测试、README／CHANGELOG／用户／API／开发说明、必要合同生成、整合及人工环境保留。原“尚未计入清理”的文案仅在响应明确声明相应删除producer时更新，不能从新增producer推断删除支持。无迁移、依赖、配置、镜像、新公开端点／字段、版本、推送或发布。
+
+只用有owner证明的一次性test资源验证三条真实生产physical／异步owner、小对象PG／MinIO准确版本删除及当前回退净值、无DELETE的提前返回、旧key-only／null未知、耐久意图、部分／后置业务失败、原权限／absence／IfMatch、重试和native／client／permit／取消收尾。复用相关回归，不重新资格化完整用户资料、报告、格式或训练流程；新缺陷只修直接影响本功能的部分。正常代码／文档检查后，在0257任务空闲时刷新准确所属人工服务，核对22producer实际摘要、明暗宽窄与原数据／对象／文件保持；按owner销毁测试资源和清理临时树／私密产物再提交。coverage仍partial、projected_total_bytes仍null，完整E12与整套Epic保持活动。
+
 ## 本轮定稿：E12-B11 独立导出媒体准确版本删除增量
 
 2026-10-26，基于`55a08c556`继续原始E12-S03／AC01、§5及工程任务第2项的删除侧。图片、视频、LiDAR独立媒体共用`export_media_retirement._physical_delete`→`export_media_storage.delete_inventory`，已有保存Bundle、准确键／VersionId逐项删除、最终空前缀核验及真实permit／原生client收尾。本片接入此共享链全部实际版本删除，不改格式、引用、保留、退休资格或原删除算法；ZIP的按key删除、缓存／训练清理及外部签名写入仍是独立原始缺口，不为本片追加其他消费者或部署前置。
