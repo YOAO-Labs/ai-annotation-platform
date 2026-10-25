@@ -22,6 +22,7 @@ from app.db.models.bug_report import BugReport
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.user import User
 from app.schemas.bug_report import BugAttachment
+from app.services import bug_attachment_accounting as accounting
 from app.services import bug_attachment_storage as storage, storage_access
 from app.services.content_snapshot import ContentError
 
@@ -250,9 +251,11 @@ async def upload(db, authority, data, mime_type, file_name):
     await reauthorize(db, authority)
     await db.commit()
     revision = None
+    owned_permit = None
 
     async def acquired(permit):
-        nonlocal revision
+        nonlocal revision, owned_permit
+        owned_permit = permit
         revision = permit.revision
         current = await _locked(db, receipt.id)
         if current is None or current.state != "pending" or not same(current, receipt):
@@ -261,6 +264,8 @@ async def upload(db, authority, data, mime_type, file_name):
             reject("bug_attachment_expired", 410)
         await db.commit()
 
+    recorder = accounting.recorder(db, receipt)
+    failure = None
     try:
         version = await storage_access.run(
             db,
@@ -269,6 +274,7 @@ async def upload(db, authority, data, mime_type, file_name):
             storage.write,
             receipt,
             data,
+            accounting=recorder,
             on_acquired=acquired,
             **({"target": target} if target is not None else {}),
         )
@@ -300,10 +306,20 @@ async def upload(db, authority, data, mime_type, file_name):
             reject("bug_attachment_expired", 410)
         current.state = "ready"
         await db.commit()
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise http_error(exc) from None
+    except BaseException as exc:
+        failure = exc
+    failure = await accounting.finish(
+        recorder,
+        failure,
+        settled=owned_permit is not None
+        and getattr(owned_permit, "_settled", False) is True,
+    )
+    if isinstance(failure, HTTPException):
+        raise failure
+    if isinstance(failure, Exception):
+        raise http_error(failure) from None
+    if failure is not None:
+        raise failure
     return attachment(receipt)
 
 

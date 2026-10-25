@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock
 import uuid
 
 from botocore.exceptions import ClientError
+from botocore.config import Config
 from PIL import Image
 import pytest
 
@@ -82,6 +83,23 @@ def storage(monkeypatch):
     )
     monkeypatch.setattr(owners, "storage_service", service)
     return service
+
+
+@pytest.fixture
+def owned_writer(storage, monkeypatch):
+    from app.services import storage as module
+
+    config = Config(retries={"max_attempts": 3})
+    storage.client.meta.config = config
+    client = SimpleNamespace(
+        head_object=lambda **kw: storage.client.head_object(**kw),
+        get_object=lambda **kw: storage.client.get_object(**kw),
+        put_object=lambda **kw: storage.client.put_object(**kw),
+        close=Mock(),
+    )
+    factory = Mock(return_value=SimpleNamespace(client=client))
+    monkeypatch.setattr(module, "StorageService", factory)
+    return factory, client, config
 
 
 def test_saved_owner_survives_current_bucket_change_and_is_copied(storage):
@@ -440,7 +458,7 @@ def test_streaming_never_requests_unbounded_or_full_object_read(storage, monkeyp
     assert body.closed
 
 
-def test_write_uses_conditional_create_and_full_saved_read(storage):
+def test_write_uses_conditional_create_and_full_saved_read(storage, owned_writer):
     body = readable(storage)
     storage.client.put_object.return_value = {}
     owners.write(record(), RAW)
@@ -454,6 +472,8 @@ def test_write_uses_conditional_create_and_full_saved_read(storage):
     assert body.closed
     assert storage.client.head_object.call_count == 2
     storage.delete_object.assert_not_called()
+    owned_writer[0].assert_called_once_with(client_config=owned_writer[2])
+    owned_writer[1].close.assert_called_once()
 
 
 def test_local_content_change_is_rejected_before_upload(storage):
@@ -466,7 +486,7 @@ def test_local_content_change_is_rejected_before_upload(storage):
 
 
 @pytest.mark.parametrize("failure", [RuntimeError("secret"), s3_error("412")])
-def test_upload_failure_never_deletes_or_falls_back(storage, failure):
+def test_upload_failure_never_deletes_or_falls_back(storage, failure, owned_writer):
     readable(storage)
     storage.client.put_object.side_effect = failure
     with pytest.raises(owners.BugAttachmentStorageError) as caught:

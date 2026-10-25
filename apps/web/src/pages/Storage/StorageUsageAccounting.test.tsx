@@ -96,6 +96,7 @@ it("keeps signed confirmed changes separate from unknown coverage and unknown re
   expect(screen.getByText("未知", { exact: true })).toBeVisible();
   expect(screen.getByText(/可核对部分的未解释净变化/)).toHaveTextContent("+512 B，整体变化仍未知");
   expect(screen.getByText(/其他用途和外部变动尚未覆盖/)).toBeVisible();
+  expect(screen.queryByText(/已接入报告附件受控新增/)).not.toBeInTheDocument();
   expect(screen.queryByText("0 B", { exact: true })).not.toBeInTheDocument();
 });
 
@@ -420,4 +421,20 @@ it("does not exclude ZIP when both export producers are declared", () => {
   expect(screen.getByText(/已接入独立导出媒体受控新增；导出清理尚未计入/)).toBeVisible();
   expect(screen.getByText(/已接入导出 ZIP 写入观测/)).toBeVisible();
   expect(screen.queryByText(/ZIP 和导出清理尚未计入/)).not.toBeInTheDocument();
+});
+
+it("explains declared report attachment writes without claiming cleanup coverage", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["bug_attachment_uploads"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入报告附件受控新增/)).toHaveTextContent(
+    "重试或回执不明保持未知，附件退休和清理尚未计入",
+  );
+  expect(screen.queryByText(/已接入导出 ZIP 写入观测/)).not.toBeInTheDocument();
+  expect(screen.getByText("部分覆盖")).toBeVisible();
+  expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
 });

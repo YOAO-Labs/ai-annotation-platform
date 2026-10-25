@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock
 import uuid
 
 from botocore.exceptions import ClientError
+from botocore.config import Config
 from fastapi import HTTPException
 from PIL import Image
 import pytest
@@ -102,6 +103,22 @@ class BugObjects:
 def patch_objects(monkeypatch):
     objects = BugObjects()
     monkeypatch.setattr(storage, "storage_service", objects)
+    from app.services import storage as module
+
+    objects.client.meta.config = Config(retries={"max_attempts": 3})
+
+    def owned(**kwargs):
+        assert kwargs["client_config"] is objects.client.meta.config
+        return SimpleNamespace(
+            client=SimpleNamespace(
+                put_object=lambda **params: objects.client.put_object(**params),
+                head_object=lambda **params: objects.client.head_object(**params),
+                get_object=lambda **params: objects.client.get_object(**params),
+                close=lambda: None,
+            )
+        )
+
+    monkeypatch.setattr(module, "StorageService", owned)
     return objects
 
 

@@ -72,6 +72,7 @@ class StorageUsageAccountingSummary(BaseModel):
             "video_derivative_outputs",
             "export_media_outputs",
             "export_zip_outputs",
+            "bug_attachment_uploads",
         ]
     )
     confirmed_added_bytes: int = 0

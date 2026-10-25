@@ -443,12 +443,25 @@ def _unavailable(exc):
     return error
 
 
-def _client_context(record, target):
+def _client_context(record, target, *, owned=False):
     owner = resolve(record)
     ref = owner.ref
     if target is None:
         if ref["location_id"] != str(LEGACY_LOCATION_ID):
             _reject("bug_attachment_storage_binding_unproven")
+        if owned:
+            from app.services.managed_s3_target import Target
+
+            return Target(
+                LEGACY_LOCATION_ID,
+                ref["config_revision"],
+                None,
+                owner.endpoint_url,
+                owner.bucket,
+                "",
+                purpose="bug-reports",
+                _legacy_client=storage_service.client,
+            ).client(owned=True)
         return nullcontext(storage_service.client)
     if (
         str(target.location_id) != ref["location_id"]
@@ -458,7 +471,7 @@ def _client_context(record, target):
         != owner.object_key
     ):
         _reject()
-    return target.client()
+    return target.client(**({"owned": True} if owned else {}))
 
 
 def read(record, *, missing_ok=False, target=None) -> bytes | None:
@@ -547,7 +560,7 @@ def _read(client, record, *, missing_ok=False) -> bytes | None:
     return b"".join(chunks)
 
 
-def write(record, data, *, target=None) -> str | None:
+def write(record, data, *, target=None, accounting=None) -> str | None:
     """Conditionally create the saved physical key and return the provider receipt."""
     from app.services.managed_s3_target import _conditional_put
     from app.services.bug_attachment_storage_target import version_id, object_params
@@ -561,15 +574,34 @@ def write(record, data, *, target=None) -> str | None:
         _reject("bug_attachment_storage_integrity_mismatch")
     validate_image(data, record.mime_type)
     try:
-        with _client_context(record, target) as client:
-            response = _conditional_put(
-                client,
-                {
-                    **object_params(owner.bucket, owner.object_key),
-                    "ContentType": record.mime_type,
-                },
-                data,
+        with _client_context(record, target, owned=True) as client:
+            from app.services.bug_attachment_accounting import Observation
+
+            observation = (
+                Observation(
+                    accounting,
+                    client,
+                    owner.object_key,
+                    {
+                        "sha256": record.sha256,
+                        "size_bytes": record.size_bytes,
+                    },
+                )
+                if accounting is not None
+                else None
             )
+
+            def submit():
+                return _conditional_put(
+                    client,
+                    {
+                        **object_params(owner.bucket, owner.object_key),
+                        "ContentType": record.mime_type,
+                    },
+                    data,
+                )
+
+            response = submit() if observation is None else observation.submit(submit)
             receipt = SimpleNamespace(
                 **{
                     name: getattr(record, name)
@@ -588,6 +620,8 @@ def write(record, data, *, target=None) -> str | None:
                 object_version_id=version_id(response),
             )
             _read(client, receipt)
+            if observation is not None:
+                observation.verified(receipt.object_version_id)
             return receipt.object_version_id
     except BugAttachmentStorageError:
         raise

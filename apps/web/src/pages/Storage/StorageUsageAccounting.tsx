@@ -158,6 +158,8 @@ function AccountingOwner({ accounting, reconciliation, schedule, onAccessDenied 
                 : "已接入独立导出媒体受控新增；ZIP 和导出清理尚未计入。")}
             {accounting?.producers.includes("export_zip_outputs") &&
               "已接入导出 ZIP 写入观测；证据完整才计净变化，同键等长覆盖为零，重试或版本证据不明保持未知。ZIP 退休和清理不代表已确认移除。"}
+            {accounting?.producers.includes("bug_attachment_uploads") &&
+              "已接入报告附件受控新增；重试或回执不明保持未知，附件退休和清理尚未计入。"}
             其他用途和外部变动尚未覆盖，不能据此推算平台总占用。
             只计当前可见对象内容字节，不含历史版本、删除标记与磁盘开销。
           </p>
