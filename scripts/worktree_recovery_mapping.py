@@ -98,6 +98,9 @@ async def remap_storage(
     )
     from app.db.models.dataset_source import DatasetSourcePreview
     from app.db.models.original_cache import OriginalCacheEntry
+    from app.db.models.thumbnail_output import ThumbnailOutput
+    from app.db.models.image_pyramid import ImagePyramidOutput
+    from app.db.models.video_derivative import VideoDerivativeOutput
     from app.db.models.managed_original_retirement import ManagedOriginalRetirement
     from app.db.models.prediction_input import PredictionInputLease
     from app.db.models.training_storage_deletion import TrainingStorageDeletion
@@ -178,6 +181,26 @@ async def remap_storage(
         )
     ):
         raise WorktreeError("数据集原件含新归属，当前九桶恢复未覆盖其映射")
+
+    if (
+        await db.scalar(select(ThumbnailOutput.id).limit(1))
+        or await db.scalar(
+            select(OriginalCacheEntry.id)
+            .where(OriginalCacheEntry.storage_ref.is_not(None))
+            .limit(1)
+        )
+        or await db.scalar(
+            select(ImagePyramidOutput.id)
+            .where(ImagePyramidOutput.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        )
+        or await db.scalar(
+            select(VideoDerivativeOutput.id)
+            .where(VideoDerivativeOutput.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        )
+    ):
+        raise WorktreeError("媒体缓存含新归属，当前九桶恢复未覆盖其映射")
 
     mapping = bucket_mapping(source, target)
     planned = []

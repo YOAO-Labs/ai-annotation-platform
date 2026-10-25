@@ -7,7 +7,6 @@ from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.dataset_asset import (
     DatasetAsset,
     DatasetAssetLocation,
-    StorageBinding,
     StorageLocation,
 )
 from app.db.models.original_cache import OriginalCacheEntry
@@ -135,6 +134,7 @@ def observations(
     reference_source_ids=None,
     item_ids=None,
     state_only=False,
+    cache_entry_ids=(),
 ):
     """One SQL relation for both filtering and display, without source I/O."""
     if dataset_id is None and reference_source_ids is None:
@@ -312,19 +312,11 @@ def observations(
             )
         )
         return union_all(reference_states, managed_states).subquery("item_observations")
-    from app.services.original_cache import storage_identity
-    from app.services.storage import storage_service
-
     cache = (
-        select(OriginalCacheEntry.verified_at, OriginalCacheEntry.expires_at)
-        .join(
-            StorageBinding,
-            and_(
-                StorageBinding.purpose == "media-cache",
-                StorageBinding.location_id == OriginalCacheEntry.location_id,
-                StorageBinding.bucket == OriginalCacheEntry.bucket,
-                StorageBinding.generation == OriginalCacheEntry.binding_generation,
-            ),
+        select(
+            OriginalCacheEntry.id,
+            OriginalCacheEntry.verified_at,
+            OriginalCacheEntry.expires_at,
         )
         .join(
             DatasetAssetLocation,
@@ -335,13 +327,19 @@ def observations(
                 DatasetAssetLocation.role == "original_cache",
                 DatasetAssetLocation.reference_state == "present",
                 DatasetAssetLocation.object_key
-                == func.concat(
-                    "original-cache/v1/",
-                    OriginalCacheEntry.asset_id,
-                    "/",
-                    OriginalCacheEntry.sha256,
-                    "/",
-                    OriginalCacheEntry.id,
+                == case(
+                    (
+                        OriginalCacheEntry.storage_ref.is_not(None),
+                        OriginalCacheEntry.storage_ref["prefix"].astext + "payload",
+                    ),
+                    else_=func.concat(
+                        "original-cache/v1/",
+                        OriginalCacheEntry.asset_id,
+                        "/",
+                        OriginalCacheEntry.sha256,
+                        "/",
+                        OriginalCacheEntry.id,
+                    ),
                 ),
             ),
         )
@@ -362,9 +360,11 @@ def observations(
             OriginalCacheEntry.source_revision == DatasetSource.config_revision,
             OriginalCacheEntry.policy_revision == DatasetSource.policy_revision,
             OriginalCacheEntry.location_revision == StorageLocation.config_revision,
-            OriginalCacheEntry.storage_identity == storage_identity(storage_service),
             OriginalCacheEntry.state == "ready",
             OriginalCacheEntry.expires_at > func.now(),
+            OriginalCacheEntry.id.in_(cache_entry_ids)
+            if cache_entry_ids is not None
+            else literal(True),
         )
         .correlate(
             DatasetItem, DatasetAsset, DatasetReference, DatasetSource, StorageLocation
@@ -381,6 +381,7 @@ def observations(
                     else_=replica,
                 ).label("observed_at"),
                 func.coalesce(preview, False).label("preview_available"),
+                cache.c.id.label("original_cache_entry_id"),
                 cache.c.verified_at.is_not(None).label("original_cache_recorded"),
                 cache.c.verified_at.label("original_cache_recorded_at"),
                 cache.c.expires_at.label("original_cache_expires_at"),
@@ -411,6 +412,63 @@ def observations(
     if item_ids is not None:
         base = base.where(DatasetItem.id.in_(item_ids))
     return base.subquery("item_observations")
+
+
+async def available_cache_ids(
+    db, dataset_id, actor, *, reference_source_ids=None, item_ids=None
+):
+    """Check page-scoped saved destinations without opening provider clients."""
+    from app.services import original_cache, storage_access
+    from app.services.content_snapshot import ContentError
+
+    candidates = observations(
+        dataset_id,
+        actor,
+        reference_source_ids=reference_source_ids,
+        item_ids=item_ids,
+        cache_entry_ids=None,
+    )
+    records = await db.scalars(
+        select(OriginalCacheEntry).join(
+            candidates,
+            candidates.c.original_cache_entry_id == OriginalCacheEntry.id,
+        )
+    )
+    destinations, sources, available = {}, {}, []
+    for record in records:
+        try:
+            # Validate every UUID prefix; current transport is shared by equal
+            # saved address facts, independent of the active allocation binding.
+            original_cache.object_key(record)
+            target = (
+                record.location_id,
+                record.bucket,
+                record.binding_generation,
+                record.storage_identity,
+                tuple(
+                    sorted(
+                        (key, value)
+                        for key, value in (record.storage_ref or {}).items()
+                        if key != "prefix"
+                    )
+                ),
+            )
+            if target not in destinations:
+                destinations[target] = False
+                await original_cache.prepare_target(db, record)
+                destinations[target] = True
+            if not destinations[target]:
+                continue
+            if record.scope_location_id not in sources:
+                sources[record.scope_location_id] = False
+                await storage_access.check(db, record.scope_location_id)
+                sources[record.scope_location_id] = True
+            if not sources[record.scope_location_id]:
+                continue
+            available.append(record.id)
+        except (ContentError, ValueError):
+            continue
+    return available
 
 
 def availability(row):
@@ -604,11 +662,15 @@ async def item_page(
         .cte("dataset_page")
         .prefix_with("MATERIALIZED", dialect="postgresql")
     )
+    cache_ids = await available_cache_ids(
+        db, dataset_id, actor, item_ids=select(members.c.item_id)
+    )
     details = observations(
         dataset_id,
         actor,
         preferred_source_id=source_id,
         item_ids=select(members.c.item_id),
+        cache_entry_ids=cache_ids,
     )
     rows = list(
         (
