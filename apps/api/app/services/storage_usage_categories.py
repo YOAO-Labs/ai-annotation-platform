@@ -16,6 +16,7 @@ from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
 from app.db.models.dataset_source import DatasetSourcePreview
 from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+from app.db.models.thumbnail_output import ThumbnailOutput
 from app.db.models.original_cache import OriginalCacheEntry
 from app.db.models.mask_format_upload import MaskFormatUpload
 from app.db.models.mask_format_import import MaskFormatImport
@@ -65,7 +66,7 @@ FAMILIES = (
         "image_pyramid.ImagePyramidOutput",
         "image_pyramid_storage",
         "preview_cache",
-        rf"^image-pyramids/objects/{_UUID}/",
+        rf"^(?:(?:[^/]+/)*_aap_managed/media-cache/)?image-pyramids/objects/{_UUID}/",
         1,
         "prefix_for",
         ("id",),
@@ -74,7 +75,7 @@ FAMILIES = (
         "video_derivative.VideoDerivativeOutput",
         "video_derivative_storage",
         "preview_cache",
-        rf"^video-derivatives/objects/{_UUID}/",
+        rf"^(?:(?:[^/]+/)*_aap_managed/media-cache/)?video-derivatives/objects/{_UUID}/",
         1,
         "prefix_for",
         ("id",),
@@ -361,6 +362,20 @@ async def classify(db, bucket, objects):
             ),
         ),
     ]
+    thumbnail_key = ThumbnailOutput.storage_ref["prefix"].astext + "thumbnail.webp"
+    queries.append(
+        _claim(
+            ThumbnailOutput,
+            "preview_cache",
+            thumbnail_key,
+            (
+                ThumbnailOutput.storage_ref["endpoint_url"].astext == endpoint(),
+                ThumbnailOutput.storage_ref["bucket"].astext == bucket,
+                ThumbnailOutput.storage_ref["storage_identity"].astext == identity,
+                thumbnail_key.in_(keys),
+            ),
+        )
+    )
     for model in (DatasetAssetLocation, DatasetAuxiliaryOriginal):
         queries.append(
             _claim(
@@ -449,7 +464,8 @@ async def classify(db, bucket, objects):
         for key in keys
         if (
             match := re.match(
-                rf"^original-cache/v1/{_UUID}/[0-9a-f]{{64}}/{_UUID}$", key
+                rf"^(?:(?:[^/]+/)*_aap_managed/media-cache/)?original-cache/v1/{_UUID}/[0-9a-f]{{64}}/{_UUID}(?:/payload)?$",
+                key,
             )
         )
     }
@@ -459,7 +475,14 @@ async def classify(db, bucket, objects):
                 literal("cache").label("kind"),
                 _json_fields(
                     OriginalCacheEntry,
-                    ("id", "asset_id", "sha256", "storage_identity", "bucket"),
+                    (
+                        "id",
+                        "asset_id",
+                        "sha256",
+                        "storage_identity",
+                        "bucket",
+                        "storage_ref",
+                    ),
                 ).label("data"),
             ).where(OriginalCacheEntry.id.in_(cache_ids))
         )
@@ -532,12 +555,25 @@ async def classify(db, bucket, objects):
                 expected = getattr(service, family.method)(
                     *[data[name] for name in family.arguments]
                 )
-                owner = service.resolve_ref(
-                    data["storage_ref"],
-                    **{
-                        "expected_prefix" if family.prefix else "expected_key": expected
-                    },
-                )
+                if (
+                    family.service
+                    in {"image_pyramid_storage", "video_derivative_storage"}
+                    and (data["storage_ref"] or {}).get("schema") == 2
+                ):
+                    from app.services import media_cache_storage
+
+                    owner = media_cache_storage.resolve_ref(
+                        data["storage_ref"], expected_prefix=expected
+                    )
+                else:
+                    owner = service.resolve_ref(
+                        data["storage_ref"],
+                        **{
+                            "expected_prefix"
+                            if family.prefix
+                            else "expected_key": expected
+                        },
+                    )
                 category, prefix = family.category, family.prefix
                 saved_ref = owner if isinstance(owner, dict) else owner.ref
                 if family.service in {
@@ -547,6 +583,8 @@ async def classify(db, bucket, objects):
                     "export_storage",
                     "export_media_storage",
                     "prediction_inputs",
+                    "image_pyramid_storage",
+                    "video_derivative_storage",
                 } and (
                     saved_ref["endpoint_url"] != endpoint()
                     or saved_ref["storage_identity"] != identity

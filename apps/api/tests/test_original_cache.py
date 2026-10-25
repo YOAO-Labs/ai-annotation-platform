@@ -542,9 +542,13 @@ async def test_cleanup_never_follows_a_new_storage_target(cache_world, change):
     entry = await record(world)
     assert await cache.retire(world.factory, entry.id)
     setattr(world, change, getattr(world, change) + "-different")
-    assert await cache.purge(world.factory, entry.id) == "deferred"
-    assert not world.deletions and world.objects
-    assert (await record(world)).error_code == "storage_identity_changed"
+    if change == "bucket":
+        assert await cache.purge(world.factory, entry.id) == "removed"
+        assert world.deletions == [(entry.bucket, cache.object_key(entry))]
+    else:
+        assert await cache.purge(world.factory, entry.id) == "deferred"
+        assert not world.deletions and world.objects
+        assert (await record(world)).error_code == "storage_identity_changed"
 
 
 async def test_retirement_does_not_delete_managed_or_neighbor_objects(cache_world):
@@ -743,7 +747,7 @@ async def test_four_distinct_snapshots_fill_without_requesting_extra_snapshot_ad
 
 
 @pytest.mark.parametrize("during_read", [False, True])
-async def test_current_binding_is_required_before_and_after_read(
+async def test_saved_target_is_independent_of_current_binding_before_and_after_read(
     cache_world, during_read
 ):
     from app.db.models.dataset_asset import StorageBinding
@@ -760,11 +764,11 @@ async def test_current_binding_is_required_before_and_after_read(
         await alter(world, StorageBinding, "media-cache", generation=2)
         if during_read:
             world.get_release.set()
-            assert await pending is None
+            content = await pending
         else:
-            assert (
-                await cache.read(world.factory, world.source_id, world.asset_id) is None
-            )
+            content = await cache.read(world.factory, world.source_id, world.asset_id)
+        assert content is not None
+        content.close()
     finally:
         if world.get_release:
             world.get_release.set()

@@ -16,6 +16,7 @@ from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.storage_connection import StorageConnection
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import media_cache_storage as storage
+from app.services import storage_usage_categories as categories
 from app.services.original_cache import now
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.storage_location import register_connection, location_is_referenced
@@ -158,6 +159,33 @@ async def test_b_ref_owner_insert_and_caller_commit_are_one_short_transaction(
     assert target.bucket == "saved-b" and ref["config_revision"] == 1
     assert await location_is_referenced(db, location.id)
     assert (await db.get(ThumbnailOutput, identifier)).storage_ref == ref
+    key = ref["prefix"] + "thumbnail.webp"
+    monkeypatch.setattr(categories, "endpoint", lambda: "https://objects.example.test")
+    for state in ("building", "ready", "failed", "retiring", "deleted"):
+        await db.execute(
+            update(ThumbnailOutput)
+            .where(ThumbnailOutput.id == identifier)
+            .values(
+                state=state,
+                **(
+                    {
+                        "sha256": "a" * 64,
+                        "size_bytes": 5,
+                        "etag": '"e"',
+                        "ready_at": now(),
+                    }
+                    if state == "ready"
+                    else {}
+                ),
+            )
+        )
+        await db.commit()
+        assert await location_is_referenced(db, location.id)
+        result = await categories.classify(
+            db, "saved-b", [{"key": key, "size": 5}, {"key": key + ".other", "size": 7}]
+        )
+        assert result["categories"]["preview_cache"]["size_bytes"] == 5
+        assert result["categories"]["unclassified"]["size_bytes"] == 7
 
 
 async def test_busy_allocation_recovers_savepoint_and_keeps_pending_business(
