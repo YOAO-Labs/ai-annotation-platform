@@ -3,6 +3,36 @@
 > 状态：E09-A、E09-B1/B2/B3/B4/B5/B6/B7 complete locally；B7已交付头像新写入位置受控切换；B8报告附件、B9审计归档、B10导出均已完成本片验收与主树集成；B11导入存储接线已完成本地验收、主树集成与人工0250刷新，Mask计划摘要问题已窄修并验证实际标注发布；另外四用途仍锁定；B6已交付媒体重试共享任务详情；B5补齐九用途读写策略与真实位置修订；B4与E12-C2交付当前已采纳源索引规模，E12-C3交付平台当前对象六分类；位置影响、配置确认、逻辑维护与原件保留／核验沿既有 E11 交付。其余用途变更、实际迁移／物理退役尚未完成，完整 E09 继续活动，不分配发布版本。
 > 转入日期：2026-10-22；A 切片验收：2026-10-23；初始调研基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 
+## 本轮定稿：E02-B19／E09-B12 数据集原件新写入位置切换
+
+2026-10-25，基于干净`d11a257f1`复核原始E02-S04／AC05、AC10与E09-S05，沿用户整套实施／提交授权approved。上一轮Mask摘要修复已合入并刷新人工环境。本片完整开放`datasets`用途的新托管原件分配，覆盖普通DatasetItem及同用途的raw_lidar／map辅助原件；Task独立原件的`annotations`、预览的`media-cache`和`training`三个用途仍锁定。只实现新目标、旧定位、当前凭据、位置保护和既有读回／元数据收尾；不增加模型、训练规模、Tracker、会话或审核专项。
+
+### 方案、数据所有者与兼容
+
+复用现有ManagedOriginalCreation作为唯一写入责任，保留条件创建、完整读回、CAS、取消与增量账目。新增schema2 configuration仅在dataset／dataset_auxiliary保存最终目标引用，完整旧configuration摘要仍先校验；旧原件按保存的A校验，不与当前datasets绑定比较，Task只验证自己的annotations依赖。import暂存的保存引用和首截止继续独立，不能把新暂存位置当作最终原件位置。
+
+0251接0250，仅给当前DatasetAssetLocation和DatasetAuxiliaryOriginal增加nullable `storage_ref`及必要约束／索引；Creation继续用已有configuration，不另建原件owner。新引用保存闭合、无密钥的schema／purpose、位置、分配修订与绑定代次、endpoint／bucket／完整key或受控根及storage identity，并逐项核对owner列。旧NULL明确沿原legacy分支，不跟随当前绑定，不从不可变Creation历史推导可能已迁移的当前副本。辅助原件新前缀保持原UUID后缀、逻辑路径和内容合同；旧FACTS／Snapshot／OriginalSource字段集与序列化保持，storage_ref只在持久owner及其独立幂等／绑定比较中参与。迁移不回填旧事实；降级只在不会丢失新增地址事实时允许，应用回退保留schema与相容读取。
+
+分配必须在线性化的短独立事务中，按Connection→Location→Binding复核目标并耐久插入Creation，再释放锁执行provider I/O。不得跨网络保留新目标或业务行锁；directory_copy在源Location／Source加锁前预分配候选，最终业务提交仍复核来源与权限，避免同源／目标位置的锁重入。全key同时受1000字符与1024 UTF-8字节限制；受控根连同`_aap_managed/datasets/`最多891字符／915字节，预留108字符普通后缀加最小文件名及109字符辅助后缀；实际长逻辑名仍按完整key检查。原写入超时预算不因复用S3Access的读取默认值而缩短。
+
+所有新Asset登记使用此次Creation的准确位置／桶／key／引用；旧补登记、legacy校验与扫描明确使用A，不能从ensure_legacy_bindings拿到当前B后误认旧文件。新建Dataset没有实际消费者的零字节目录marker删除，保留storage_scan_prefix元数据。直接上传图片尺寸与复制去重读已有canonical来源，不再另用全局客户端猜桶。
+
+### 统一读取、凭据与既有收尾
+
+统一original_sources从当前owner解析保存endpoint／bucket／key，保留唯一present副本、SHA／size、Gate与关系核验。独立metadata sidecar准备当前连接凭据和白名单，物理客户端只在原许可内打开；原OriginalSource／ReplicaFacts／LocationFacts和辅助FACTS不增加密钥或回调。新非NULL分支的location_revision取保存分配修订，实时凭据／配置修订单独捕获；正常密钥轮换不改变冻结内容事实。旧NULL／TaskOriginal保持原事实字节与解析规则。实际端点／桶／受控根改向仍拒绝，停用及维护状态继续按当前位置检查。
+
+只给现有集中读取入口透传准确client_context：dataset_content、original_binary／response、original_playback、prediction_originals、video_prediction_originals、image_pyramid_originals、video_derivative_originals、export_media_transfer、training_dataset_originals、active_learning_originals、sample_evaluation_originals、point_cloud_quality/originals及NuScenes辅助原件复验。业务、模型、格式和冻结摘要算法不改，不将这些消费者重新展开为资格专项。
+
+既有Retirement采集与只读完整核验按保存地址准备target，不依赖当前Binding或全局A客户端；不扩大物理回收权限。Creation所有状态、AssetLocation、AuxiliaryOriginal与Retirement的保存位置均阻止连接改向／删除。盘点分类按实际endpoint／bucket／完整key，新B不冒充当前平台总量；现有九桶恢复在修改映射前拒绝未覆盖的新地址，测试拒绝边界即可，不重跑整库恢复或要求历史补认。
+
+### 控制面、文件范围与验证
+
+复用共享managed_s3_target、现有登记位置／加密连接／白名单和五分钟预览确认。新增dataset_storage及dataset_storage_target／dataset_binding_change；候选为legacy或已登记global S3，预览在自有前缀实际验证空PUT与非空MPU的条件创建、完整读回和准确收尾，能力失败不更新绑定。仅有namespace写入的真实要求进探针，不额外要求新provider性能资格。历史摘要为asset_locations、creation_allocations、auxiliary_originals、retirements四项元数据计数；已知旧A沿原校验，未知不猜作B，不以全库回填作为实施前置。三个路由沿`/storage-locations/bindings/datasets`及`/candidates`、`/change-preview`，复用admin／scope／Key权限、配置代次和竞争检查；API schema使用DatasetBinding系列，SDK明确排除该管理面。
+
+这是同一地址接线跨owner、读取入口和控制面的改动，预计超过8文件。后端准确落点为上述新helper、managed_s3_target、sources/s3_reference、0251、dataset_asset／dataset_auxiliary_original模型、managed_original_creation、dataset_assets、dataset服务及datasets API、dataset_references、legacy_asset_verification、auxiliary_originals、NuScenes导入脚本与显式legacy fixture／backfill入口；读取入口如上；另含managed_original_reader、retirement／verification／probe、storage_location、存储绑定策略／分类和现有备份恢复拒绝入口、storage_locations API与schema。Web仅storage API、useStorage、既有用途列表与StorageBindingChangeButton及相关测试。同步OpenAPI／本树生成类型、SDK coverage及四项合同、用户存储指南、API指南、README、CHANGELOG和本计划／E02／执行队列；没有依赖、环境变量、任务签名、镜像、发布或权限算法变化。新增路径若确属同一接线在实施报告逐项说明，不自行扩展专项。
+
+使用当前local HEAD的隔离树、本地API虚拟环境与准确owner的可销毁test／e2e。回归覆盖旧及在途A、新B、辅助原件、保存地址读回、当前密钥轮换、坏目标／竞争拒绝、原件尺寸／复制、legacy补登记、纯冻结事实不变、位置保护和0251降级拒绝。真实API／S3／所属Worker证明A／B地址与字节及退役只读证据；原有消费者仅跑直接受影响调用回归，不追加真实模型训练、万条测量、全消费者或全库恢复。新用途控件沿现有居中Modal做明暗×桌面／窄屏及Escape／焦点、错误请求／控制台与溢出核验。检查与正常提交后合入，应用人工0251并刷新受影响API／Worker，保留3100／8100、Beat与既有数据。每轮清理所属测试中间产物，最终销毁所属资源并保留非敏感摘要；完整E02／E09继续活动。
+
 ## 当前集成状态
 
 2026-10-25，B11导入暂存用途切换已正常合入主树，来源提交`a0ecd53ba`，合入提交`98b88cc66`。人工环境已从0249应用0250，保留原3100／8100、两个所属Worker与绑定Beat；原171张表既有字段的9,230行、九桶24个版本／删除标记及12个源文件的全部摘要保持，两项新nullable暂存引用保持NULL，新增Mask上传表为空。迁移后原监督服务已恢复，Worker各注册73项任务、原队列与direct路由保持，维护协议、受控manual根与DEBUG=false均保持；实际数据库健康、三个导入绑定端点及Vite新控件／说明已确认服务于当前树。原交付时Mask摘要拒绝的冻结基线复现保留在Outcome；其后已按用户授权修复并完成实际发布，当前以[补充修复](#e09-b11-补充修复mask-计划摘要与标注发布)为准。C6万条辅助测量已停止，不作为验收前置；annotations、datasets、media-cache、training四用途仍锁定，完整E09继续活动。
