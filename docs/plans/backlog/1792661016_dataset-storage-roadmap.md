@@ -125,7 +125,7 @@ U01–U09 保留来源材料的需求编号；本轮仅将整套规划转为项�
 | E08  | [数据集工作台与质量](../archive/1792661016_dataset-workbench-quality.md)             | 独立详情、筛选、保存视图、样本质量与业务关系 | 完整 E08 已归档；条件后续按原计划触发      |
 | E09  | [存储控制台与界面去重](../archive/1792661016_dataset-storage-console-boundaries.md)  | 存储唯一入口、正确指标、跨页上下文衔接       | M1 去重；M2 运维视图                       |
 | E10  | [版本与训练消费](../1792661016_dataset-versions-training-consumption.md)             | 外部源可冻结、版本不漂移、训练近端缓存       | M1 单目录最小冻结与兼容；M2 增强           |
-| E11  | [权限与生命周期](../1792661016_dataset-permissions-lifecycle.md)                     | 源读取授权、影响预览、引用保护、受控回收     | M1 最小保护；M2 完整治理                   |
+| E11  | [权限与生命周期](../archive/1792661016_dataset-permissions-lifecycle.md)             | 源读取授权、影响预览、引用保护、受控回收     | 原始七故事、十项AC及八项工程任务完整归档   |
 | E12  | [运维、容量与恢复](../1792661016_dataset-storage-operations-recovery.md)             | 异步统计、健康与告警、备份和恢复验证         | A1 对象快照、A2 来源诊断已交付；其余待复核 |
 
 ## 6. 首期最小闭环
