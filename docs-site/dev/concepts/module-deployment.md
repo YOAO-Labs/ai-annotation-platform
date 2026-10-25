@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-25
 ---
 
 # 所有业务模块的独立部署与语言替换
@@ -30,10 +30,35 @@ last_reviewed: 2026-10-23
 | insights      | 34 个路径、37 个操作；`project_task_views` 是其 1 张权威表，另有跨域列表、Dashboard、分析视图及物化统计。只读查询和可重建投影适合作为低事务风险候选。                                                                                                                                             | 查询仍跨 owner 表并共享授权判断；保存视图写入与运行时都在 API。需由各 owner 提供批量只读合同或可重建投影，定义新鲜度、授权和数据删除语义，避免逐行 RPC。                                                               |
 | jobs          | `async_jobs` 为 1 张通用作业表；建题有创建/取消/恢复合同，项目删除保留原 Project scope，数据集解绑按 Dataset/Project/association 代次取消匹配的活动建题作业。                                                                                                                                     | Celery 注册名/参数仍是 Python 内部协议；通用状态和领域终态需独立作业协议、队列交接、取消确认及消费者重启恢复。                                                                                                         |
 | audit         | `audit_logs` 为 1 张所有者表；月度汇总算法已移到本地 Python 函数；项目删除与数据集解绑会在各自同一事务中由 Audit owner 记录事件。                                                                                                                                                                 | 其他业务审计仍需与业务写入同事务提交；分区归档涉及对象存储。Go 月报仅是架构实验，不是生产模块或目标完成证明。                                                                                                          |
-| notifications | 支撑路由的一部分；`notifications` 和 `notification_preferences` 共 2 张所有者表，偏好命令已有局部所有者。                                                                                                                                                                                         | 持久通知可能与审核或作业状态同事务写入，发布与偏好同步有提交后 Redis pub/sub 语义。需要独立写入/投递协议、去重和提交后重放，不把 Redis pub/sub 当持久事件账本。                                                        |
+| notifications | 完整 Python owner、固定数据合同、独立 publisher／socket 及既有 API／worker 绑定已实现；采用候选通过四镜像、真实组合和完整 PG 恢复的限定本地资格，见[模块装配](#notifications-primary-adoption-candidate)。                                                                                        | 主工作树源码采用、日常库升级及独立拓扑未切换；历史 0313 资产迁移须与暂缓功能合并协调。Node 消费者已验证，完整替代语言 owner 和生产容量未验证。                                                                         |
 | ops           | 主 API 的 29 个运维脚本、一个 application CLI、迁移入口和 Compose 运行单元已有清单；生产 API 与队列 worker 使用同一 API Dockerfile。                                                                                                                                                              | 需要逐模块独立工件、启动/健康/迁移职责、最小凭据、日志/指标与升级回退流程。现有队列拆分和运维清单不提供模块级运行时或权限边界。                                                                                        |
 
 这些模块的公开 HTTP 仍由主 API 聚合。现有端口、owner 表台账和架构守卫证明的是代码内部依赖方向及选定写入职责，不证明独立二进制、独立部署、最小凭据或跨语言兼容。下述建题数据接口也只覆盖选定的事务操作，不改变模块整体未完成的判断。
+
+## Notifications 整模块独立装配 {#notifications-primary-adoption-candidate}
+
+当前采用候选的 Python owner、数据合同、即时／持久 publisher、socket、共享 Identity
+准入、分离凭据、原 API／worker 入口与 SDK 原生 JSONB 载荷已具备。以主工作树
+`5421fa1af` 为基线的业务实现自 `e19247554` 起未改，新增内容仅为既有冷验收接线、
+测试依赖与证据。主工作树尚未合入，日常库及运行拓扑未切换。
+
+源码 `913d3fc5c` 的一个冷组合案例和 `0325 → 0189 → 0325` 完整往返通过，覆盖真实
+REST、原 WS 地址桥接、Node HTTP 字节保留和越界抑制、偏好／已读／删除同步、当前
+撤权、终态提交前发布及回滚、普通失败最佳努力，以及恢复后持久 outbox 接管和新事件。
+四个镜像均按候选实际输入构建并核对非 editable 安装；3,374 项运行输入未变，全部
+自有资源和存储身份清理成功。最终启动器准备后重新应用并验证普通角色的私表、事实
+视图及私有 helper 拒绝。已通过的包 224 项、准入 48 项和 SDK／CLI／OpenAPI 50 项在
+核对未变源码及原结果哈希后复用，没有重复执行。
+
+规范收据 `.worktree/notifications-candidate-cold-qualification.json` 的 SHA-256 为
+`4057783eab9b2713a345ef6f3b060b7336e7a622e369bc318ac3200573e9460f`。
+原两个准备阶段失败保留，成功记录不覆盖旧状态。Node 是实际消费者，未作为另一语言
+owner；Go 仍仅实验，未取得其他平台或生产容量资格。
+
+候选完整保留 `0307 → 0325` 的十九项历史迁移与五十七份冻结文件，未引入 0326 Jobs
+列表能力。历史含 Workspace、Audit 和视频输入保留，0313 会改变资产垃圾领取围栏，
+应与此前暂缓的训练／资产功能合并协调，不能当成纯 Notifications 升级直接应用日常库。
+本地模块及采用候选资格已完成；主线合回、数据库采用与日常拓扑仍分别记录。
 
 ## Identity 整模块独立装配
 
