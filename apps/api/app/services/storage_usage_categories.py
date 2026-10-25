@@ -159,7 +159,7 @@ FAMILIES = (
         "comment_attachment_upload.CommentAttachmentUpload",
         "comment_attachment_storage",
         "other_platform",
-        rf"^comment-attachments/{_UUID}/{_UUID}$",
+        rf"^(?:(?:[^/]+/)*_aap_managed/annotations/)?comment-attachments/{_UUID}/{_UUID}$",
         2,
         "key_for",
         ("annotation_id", "id"),
@@ -169,7 +169,7 @@ FAMILIES = (
         "guide_asset_upload.GuideAssetUpload",
         "guide_asset_storage",
         "other_platform",
-        rf"^projects/{_UUID}/guide/{_UUID}$",
+        rf"^(?:(?:[^/]+/)*_aap_managed/annotations/)?projects/{_UUID}/guide/{_UUID}$",
         2,
         "key_for",
         ("project_id", "id"),
@@ -179,7 +179,7 @@ FAMILIES = (
         "raster_mask_object.RasterMaskObject",
         "raster_object_storage",
         "other_platform",
-        rf"^raster-masks/objects/{_UUID}\.json(?:\.gz)?$",
+        rf"^(?:(?:[^/]+/)*_aap_managed/annotations/)?raster-masks/objects/{_UUID}\.json(?:\.gz)?$",
         1,
         "key_for",
         ("id", "storage_encoding"),
@@ -376,7 +376,7 @@ async def classify(db, bucket, objects):
             ),
         )
     )
-    for model in (DatasetAssetLocation, DatasetAuxiliaryOriginal):
+    for model in (DatasetAssetLocation, DatasetAuxiliaryOriginal, TaskOriginal):
         queries.append(
             _claim(
                 model,
@@ -585,6 +585,9 @@ async def classify(db, bucket, objects):
                     "prediction_inputs",
                     "image_pyramid_storage",
                     "video_derivative_storage",
+                    "comment_attachment_storage",
+                    "guide_asset_storage",
+                    "raster_object_storage",
                 } and (
                     saved_ref["endpoint_url"] != endpoint()
                     or saved_ref["storage_identity"] != identity

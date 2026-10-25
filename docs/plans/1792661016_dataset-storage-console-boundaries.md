@@ -29,7 +29,7 @@ Task原件／RLE／评论／指南 → 保存地址＋当前凭据 → 原permit
 
 ### 控制面、影响与迁移
 
-复用候选→实际探针→五分钟预览→锁内确认／审计。新接口为`/storage-locations/bindings/annotations`及`/candidates`、`/change-preview`，DTO为AnnotationsBinding系列，write_policy为reviewed_annotations_switch。history列task_originals、creation_allocations（仅task）、raster_mask_objects、comment_attachments、guide_assets五类责任记录，说明不能相加冒充对象总数。探针只验证当前原件与附件所需条件PUT、非空条件MPU、完整读回及准确收尾，复用datasets既有物理探针；不附加供应商性能或业务测量。
+复用候选→实际探针→五分钟预览→锁内确认／审计。新接口为`/storage-locations/bindings/annotations`及`/candidates`、`/change-preview`，DTO为AnnotationsBinding系列，write_policy为current_binding，change_policy为reviewed_annotations_switch。history列task_originals、creation_allocations（仅task）、raster_mask_objects、comment_attachments、guide_assets五类责任记录，说明不能相加冒充对象总数。探针只验证当前原件与附件所需条件PUT、非空条件MPU、完整读回及准确收尾，复用datasets既有物理探针；不附加供应商性能或业务测量。
 
 0253接0252，增加Task引用并调整四组地址约束／不可变保护，不回填旧记录。存在新引用时拒绝破坏性降级；应用回退保留schema，可受控切回后续分配。位置／连接改向及删除保护所有保存状态和Task Creation；占用按实际endpoint／bucket／完整key分类，外部B不计入A部署盘点。九桶恢复在首次映射修改前拒绝新Task／Creation／RLE／评论／指南地址事实，切回A或已退役也不绕过，不把跨目标整库恢复加入本片。
 
@@ -40,6 +40,12 @@ Task原件／RLE／评论／指南 → 保存地址＋当前凭据 → 原permit
 按当前HEAD创建独立树：基础／Task接线 → 三组消费者及控制面集成 → 保存地址保护／计量／恢复边界 → 真实A／B和浏览器 → 主树／人工迁移。修改代理有独立tree与不重叠文件范围，提交后父树集中，不将半合同代码放入活动人工环境。单元／DB通过`pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest <affected tests> -p no:cacheprovider'`，SDK沿aap-sdk-contracts；Web沿现有Vitest／tsc／CSS token，实际API快照codegen，正式文档构建。所有数据库验证仅所属可销毁test；真实provider用独立e2e与小型合成原件／附件／RLE，验证旧／在途A、新B、回切A、当前密钥轮换与撤销、坏目标／竞争拒绝、逻辑键不变、同源认证读取及现有清理的准确目标。Modal做明暗×桌面／窄屏、Escape／焦点、滚动、溢出和实际请求检查，不重跑模型或既有标注状态机。
 
 正常提交并在完整合同验收后集成；人工先停所属Beat、确认两个Worker无active／reserved／scheduled，冻结既有表旧字段／对象版本／源文件摘要，迁移0253后复核保持，恢复原3100／8100和原队列／direct路由、73项任务与维护协议。不重建后端镜像、不升级版本／推送、不写入人工验收夹具；每轮清理所属测试中间产物，最终销毁test／e2e／B与临时树。只有本片完成才开放第八用途，完整E02／E09仍不归档。
+
+### 隔离实施检查点：保存位置保护、盘点与恢复边界
+
+基础地址与0253来自`b3054667c`，三组消费者接线来自`eaf5c535f`，均已进入隔离集成树。位置引用保护覆盖评论、指南、RLE的全部保存状态及独立Task定位，不因切换绑定或业务删除而丢失；当前对象分项按实际端点、桶与完整key识别新受控根，保留旧NULL Task恢复定位。九桶恢复在任何映射修改前拒绝五组新标注地址事实，包括回切A及退休记录；此处不新增跨目标完整恢复要求。
+
+隔离test的10项新增位置／盘点检查通过，覆盖三组owner的9种状态、同桶同key跨端点拒绝及独立Task引用查询；此前43项盘点／Task保护检查通过，两组有重叠，不累计。55项恢复检查通过，其中新guard覆盖19种owner状态子场景。扩大运行时遇到的8项旧恢复夹具错误，已在未修改的主树`b258f38f4`复现相同错误，涉及导出模拟DB及预测输入旧签名／字段，不转为本片修复或验收前置。此为隔离实施进展，Task最终接线、完整集成、真实A／B、浏览器及人工迁移尚待完成；人工环境仍为0252和七用途。
 
 ## 本轮定稿：E02-B20／E09-B13 媒体缓存新分配位置切换
 

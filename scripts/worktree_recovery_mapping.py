@@ -202,6 +202,40 @@ async def remap_storage(
     ):
         raise WorktreeError("媒体缓存含新归属，当前九桶恢复未覆盖其映射")
 
+    if (
+        await db.scalar(
+            select(TaskOriginal.id)
+            .where(TaskOriginal.storage_ref.is_not(None))
+            .limit(1)
+        )
+        or await db.scalar(
+            select(ManagedOriginalCreation.id)
+            .where(
+                ManagedOriginalCreation.owner_kind == "task",
+                ManagedOriginalCreation.configuration["original_ref"].astext.is_not(
+                    None
+                ),
+            )
+            .limit(1)
+        )
+        or await db.scalar(
+            select(CommentAttachmentUpload.id)
+            .where(CommentAttachmentUpload.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        )
+        or await db.scalar(
+            select(GuideAssetUpload.id)
+            .where(GuideAssetUpload.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        )
+        or await db.scalar(
+            select(RasterMaskObject.id)
+            .where(RasterMaskObject.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        )
+    ):
+        raise WorktreeError("标注文件含新归属，当前九桶恢复未覆盖其映射")
+
     mapping = bucket_mapping(source, target)
     planned = []
     ledger = []
