@@ -11,6 +11,13 @@ last_reviewed: 2026-10-25
 API 先由 Workspace 核验当前项目管理权，再调用 Labeling 读取统计。
 这里只描述内部提供方配置；完整 Labeling 模块仍在迁移。
 
+视频人工控制、导入／转换、多相机、Mask 质检／修复、点云／视频质检和无来源任务
+维护已接入固定 Native 能力；通用读取使用八项公开关系与三项行锁。普通 API／worker
+继续持有原业务事务与提交权，专用账号 profile 和验收选择器见 `DEV.md`。
+章节读取经过 Assets Media 的五列公开投影，质检账号只得到命令执行权。
+视频 worker 中间状态及 AI 路由溯源的 Inference 读取仍在收口；这些源码边界不代表完整模块独立运行
+或备份恢复已完成，详细状态见[唯一台账](/dev/concepts/module-deployment)。
+
 ## 读取与事务
 
 类别统计与属性读取保持为两条顺序 SQL，均只按标注的项目 ID 和启用状态筛选。

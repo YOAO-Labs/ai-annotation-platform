@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
@@ -27,9 +28,11 @@ from app.services.data_management.filter_tree import (
 from app.services.data_management.schema import build_data_manager_schema
 from app.services.data_management.task_filters import _MAX_IN_VALUES, compile_filter
 from app.services.data_management.views import (
+    _last_activity_at_expr,
     builtin_views,
     invalid_filter_fields,
 )
+from app.services.labeling_core_read_relations import task_row
 
 
 def _project(*, data_type: str = "image", scene_mode: bool = False) -> Project:
@@ -70,6 +73,33 @@ def _assert_422(callable_, *args, **kwargs) -> None:
     with pytest.raises(HTTPException) as exc:
         callable_(*args, **kwargs)
     assert exc.value.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("feedback.kind", "issue"),
+        ("feedback.status", "open"),
+        ("feedback.severity", "warning"),
+    ],
+)
+def test_feedback_filter_correlates_to_the_public_task_row(field, value):
+    statement = select(task_row.id).where(
+        compile_filter({"field": field, "op": "eq", "value": value})
+    )
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+    assert "FROM aap_labeling_v1.annotation_feedback_facts" in sql
+    assert "annotation_feedback_facts.task_id = aap_labeling_v1.task_rows.id" in sql
+    assert "FROM aap_labeling_v1.annotation_feedback_facts, " not in sql
+    assert "public.annotation_feedbacks" not in sql
+
+
+def test_activity_feedback_read_correlates_to_the_public_task_row():
+    statement = select(task_row.id, _last_activity_at_expr())
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+    assert "annotation_feedback_facts.task_id = aap_labeling_v1.task_rows.id" in sql
+    assert "FROM aap_labeling_v1.annotation_feedback_facts, " not in sql
+    assert "public.annotation_feedbacks" not in sql
 
 
 def test_root_rule_and_nested_groups_compile_for_task_and_entity_grains():

@@ -193,6 +193,31 @@ LOGIN, after matching migrations and common owner/runtime grants. Mask and scene
 LOGINs get exactly three and one functions; no private base table access is granted.
 Native, cold and restore qualification remains a complete-module acceptance gate.
 
+## Video control, transfer, core reads and quality
+
+`video_control_command` owns human candidate and keyframe control; its worker
+state consumers remain under migration. `annotation_transfer_command` owns the
+existing import, conversion, camera editing and Mask format-import ledger.
+`task_maintenance_command` owns source-less Task cleanup and derived counters.
+All borrow the original caller transaction and preserve its commit boundary.
+
+Eight public core-row views retain native column types. Three fixed row-lock
+functions return their explicit published column order and preserve the selected
+lock mode. The core-read LOGIN receives only these views and lock functions.
+
+`mask_qc_command`, `mask_repair_command` and `raster_mask_retention_query` own the
+Mask quality/repair state and reference reads. `spatial_quality_command` owns the
+existing point-cloud and video quality data. Its chapter read uses the five-column
+Assets Media `video_chapter_facts` projection; only the Assets owner reads the
+underlying chapter table.
+
+Apply the matching `labeling-video-control`, `labeling-annotation-transfer`,
+`labeling-core-read`, `labeling-mask-quality`, `labeling-spatial-quality` or
+`labeling-task-maintenance` grants profile after migrations and common grants.
+Each filename ends in `-grants.sql` under `infra/docker`. These trusted profiles
+grant no private-table access, CREATE, TEMP or role membership. Operation source
+integration does not establish full module runtime or recovery qualification.
+
 ## Drafts and schema cleanup
 
 `annotation_maintenance_command(jsonb)` owns existing draft reads/writes, cleanup

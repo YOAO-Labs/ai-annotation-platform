@@ -155,9 +155,27 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text),
     aap_labeling_v1.mask_edit_command(jsonb),
     aap_labeling_v1.mask_revision_command(jsonb),
     aap_labeling_v1.ai_mask_accept_command(jsonb),
-    aap_labeling_v1.scene_read_query(jsonb)
+    aap_labeling_v1.scene_read_query(jsonb),
+    aap_labeling_v1.video_control_command(jsonb),
+    aap_labeling_v1.annotation_transfer_command(jsonb),
+    aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean),
+    aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
+    aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
+    aap_labeling_v1.mask_qc_command(jsonb),
+    aap_labeling_v1.mask_repair_command(jsonb),
+    aap_labeling_v1.raster_mask_retention_query(jsonb),
+    aap_labeling_v1.spatial_quality_command(jsonb),
+    aap_labeling_v1.task_maintenance_command(jsonb)
     TO :"application_role";
-GRANT SELECT ON aap_labeling_v1.annotation_comment_facts,
+GRANT SELECT ON aap_labeling_v1.task_rows,
+    aap_labeling_v1.batch_rows,
+    aap_labeling_v1.annotation_rows,
+    aap_labeling_v1.prediction_rows,
+    aap_labeling_v1.prediction_meta_rows,
+    aap_labeling_v1.failed_prediction_rows,
+    aap_labeling_v1.task_lock_rows,
+    aap_labeling_v1.task_dataset_item_link_rows,
+    aap_labeling_v1.annotation_comment_facts,
     aap_labeling_v1.annotation_feedback_facts, aap_labeling_v1.task_event_facts
     TO :"application_role";
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.

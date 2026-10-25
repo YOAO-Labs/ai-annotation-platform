@@ -88,6 +88,22 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_labeling_v1.video_control_command(jsonb)": "0350_labeling_video_control.sql",
+    "aap_labeling_v1.annotation_transfer_command(jsonb)": "0351_labeling_annotation_transfer.sql",
+    "aap_labeling_v1._annotation_transfer_exact_fields(jsonb,text[])": "0351_labeling_annotation_transfer.sql",
+    "aap_labeling_v1._annotation_transfer_without_track_ids(jsonb)": "0351_labeling_annotation_transfer.sql",
+    "aap_labeling_v1._annotation_transfer_without_suffix(text)": "0351_labeling_annotation_transfer.sql",
+    "aap_labeling_v1._annotation_transfer_camera_bbox_valid(jsonb)": "0351_labeling_annotation_transfer.sql",
+    "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean)": "0352_labeling_core_read.sql",
+    "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)": "0352_labeling_core_read.sql",
+    "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)": "0352_labeling_core_read.sql",
+    "aap_labeling_v1.mask_qc_command(jsonb)": "0353_labeling_mask_quality.sql",
+    "aap_labeling_v1.mask_repair_command(jsonb)": "0353_labeling_mask_quality.sql",
+    "aap_labeling_v1.raster_mask_retention_query(jsonb)": "0353_labeling_mask_quality.sql",
+    "aap_labeling_v1._quality_exact_keys(jsonb,text[])": "0353_labeling_mask_quality.sql",
+    "aap_labeling_v1._raster_mask_reference_keys()": "0353_labeling_mask_quality.sql",
+    "aap_labeling_v1.spatial_quality_command(jsonb)": "0354_labeling_spatial_quality.sql",
+    "aap_labeling_v1.task_maintenance_command(jsonb)": "0355_labeling_task_maintenance.sql",
     "aap_labeling_v1.discussion_command(jsonb)": "0347_labeling_discussion.sql",
     "aap_labeling_v1.task_event_command(jsonb)": "0347_labeling_discussion.sql",
     "aap_labeling_v1.mask_edit_command(jsonb)": "0348_labeling_mask_edits.sql",
@@ -162,6 +178,223 @@ AUDIT_READ_ROLE = "audit_read_client"
 AUDIT_DAILY_REFRESH_ROLE = "audit_daily_refresh_client"
 JOBS_NOTIFICATION_SCOPE_ROLE = "jobs_notification_scope_client"
 READ_RELATION_SPECS = {
+    "aap_labeling_v1.task_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("project_id", "uuid"),
+            ("dataset_item_id", "uuid"),
+            ("display_id", "character varying(30)"),
+            ("file_name", "character varying(500)"),
+            ("file_path", "character varying(1000)"),
+            ("file_type", "character varying(20)"),
+            ("media_source_generation", "bigint"),
+            ("media_object_identity", "jsonb"),
+            ("media_source_drifted", "boolean"),
+            ("tags", "jsonb"),
+            ("status", "character varying(30)"),
+            ("assignee_id", "uuid"),
+            ("assignee_is_override", "boolean"),
+            ("assigned_at", "timestamp with time zone"),
+            ("is_labeled", "boolean"),
+            ("overlap", "integer"),
+            ("total_annotations", "integer"),
+            ("total_predictions", "integer"),
+            ("precomputed_agreement", "double precision"),
+            ("sequence_order", "integer"),
+            ("thumbnail_path", "character varying(512)"),
+            ("blurhash", "character varying(64)"),
+            ("batch_id", "uuid"),
+            ("version", "integer"),
+            ("submitted_at", "timestamp with time zone"),
+            ("reviewer_id", "uuid"),
+            ("reviewer_is_override", "boolean"),
+            ("reviewer_claimed_at", "timestamp with time zone"),
+            ("review_round_id", "uuid"),
+            ("first_review_eligible", "boolean"),
+            ("first_reviewed_at", "timestamp with time zone"),
+            ("first_review_result", "character varying(16)"),
+            ("first_review_contributor_ids", "jsonb"),
+            ("annotation_contributor_ids", "jsonb"),
+            ("review_contributor_ids", "jsonb"),
+            ("review_submitter_id", "uuid"),
+            ("reviewed_at", "timestamp with time zone"),
+            ("reject_reason", "character varying(2000)"),
+            ("reject_reason_type", "character varying(20)"),
+            ("skip_reason", "character varying(50)"),
+            ("skipped_at", "timestamp with time zone"),
+            ("reopened_count", "integer"),
+            ("last_reopened_at", "timestamp with time zone"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.batch_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("project_id", "uuid"),
+            ("dataset_id", "uuid"),
+            ("display_id", "character varying(30)"),
+            ("name", "character varying(255)"),
+            ("description", "text"),
+            ("status", "character varying(30)"),
+            ("priority", "integer"),
+            ("deadline", "date"),
+            ("assigned_user_ids", "jsonb"),
+            ("total_tasks", "integer"),
+            ("completed_tasks", "integer"),
+            ("review_tasks", "integer"),
+            ("approved_tasks", "integer"),
+            ("rejected_tasks", "integer"),
+            ("created_by", "uuid"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+            ("review_feedback", "text"),
+            ("reviewed_at", "timestamp with time zone"),
+            ("reviewed_by", "uuid"),
+            ("annotator_id", "uuid"),
+            ("reviewer_id", "uuid"),
+            ("admin_locked", "boolean"),
+            ("admin_lock_reason", "character varying(500)"),
+            ("admin_locked_at", "timestamp with time zone"),
+            ("admin_locked_by", "uuid"),
+        ],
+    },
+    "aap_labeling_v1.annotation_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("project_id", "uuid"),
+            ("video_segment_id", "uuid"),
+            ("user_id", "uuid"),
+            ("source", "character varying(20)"),
+            ("annotation_type", "character varying(30)"),
+            ("tool_unit_id", "character varying(30)"),
+            ("class_name", "character varying(100)"),
+            ("geometry", "jsonb"),
+            ("confidence", "double precision"),
+            ("parent_prediction_id", "uuid"),
+            ("parent_annotation_id", "uuid"),
+            ("track_id", "character varying(64)"),
+            ("scene_track_id", "uuid"),
+            ("sensor_dataset_item_id", "uuid"),
+            ("sensor_role", "character varying(50)"),
+            ("sensor_visibility", "character varying(16)"),
+            ("calibration_revision", "integer"),
+            ("calibration_digest", "character varying(64)"),
+            ("temporal_role", "character varying(16)"),
+            ("lead_time", "double precision"),
+            ("was_cancelled", "boolean"),
+            ("ground_truth", "boolean"),
+            ("is_active", "boolean"),
+            ("attributes", "jsonb"),
+            ("attributes_meta", "jsonb"),
+            ("z_order", "integer"),
+            ("is_locked", "boolean"),
+            ("is_hidden", "boolean"),
+            ("version", "integer"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.prediction_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("project_id", "uuid"),
+            ("ml_backend_id", "uuid"),
+            ("ml_backend_pool_id", "uuid"),
+            ("model_version", "character varying(100)"),
+            ("score", "double precision"),
+            ("tool_unit_id", "character varying(30)"),
+            ("result", "jsonb"),
+            ("cluster", "integer"),
+            ("mislabeling", "double precision"),
+            ("source", "character varying(20)"),
+            ("rejected_shape_indexes", "jsonb"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.prediction_meta_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("prediction_id", "uuid"),
+            ("prediction_created_at", "timestamp with time zone"),
+            ("failed_prediction_id", "uuid"),
+            ("inference_time_ms", "integer"),
+            ("prompt_tokens", "integer"),
+            ("completion_tokens", "integer"),
+            ("total_tokens", "integer"),
+            ("prompt_cost", "double precision"),
+            ("completion_cost", "double precision"),
+            ("total_cost", "double precision"),
+            ("extra", "jsonb"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.failed_prediction_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("project_id", "uuid"),
+            ("ml_backend_id", "uuid"),
+            ("ml_backend_pool_id", "uuid"),
+            ("model_version", "character varying(100)"),
+            ("error_type", "character varying(100)"),
+            ("message", "text"),
+            ("retry_count", "integer"),
+            ("last_retry_at", "timestamp with time zone"),
+            ("dismissed_at", "timestamp with time zone"),
+            ("extra", "jsonb"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.task_lock_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("user_id", "uuid"),
+            ("expire_at", "timestamp with time zone"),
+            ("unique_id", "uuid"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.task_dataset_item_link_rows": {
+        "sql": "0352_labeling_core_read.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("dataset_item_id", "uuid"),
+            ("role", "character varying(50)"),
+            ("sensor_name", "character varying(100)"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_assets_v1.video_chapter_facts": {
+        "sql": "0354_labeling_spatial_quality.sql",
+        "owner": "assets_code",
+        "columns": [
+            ("id", "uuid"),
+            ("dataset_item_id", "uuid"),
+            ("title", "character varying(200)"),
+            ("start_frame", "integer"),
+            ("end_frame", "integer"),
+        ],
+    },
     "aap_notifications_v1.notification_facts": {
         "sql": "0319_notifications_read_relations.sql",
         "owner": "notifications_code",
@@ -286,6 +519,12 @@ READ_RELATION_SPECS = {
     },
 }
 IDENTITY_CLIENT_ROLES = {
+    "LABELING_VIDEO_CONTROL": "labeling_video_control_client",
+    "LABELING_ANNOTATION_TRANSFER": "labeling_annotation_transfer_client",
+    "LABELING_CORE_READ": "labeling_core_read_client",
+    "LABELING_MASK_QUALITY": "labeling_mask_quality_client",
+    "LABELING_SPATIAL_QUALITY": "labeling_spatial_quality_client",
+    "LABELING_TASK_MAINTENANCE": "labeling_task_maintenance_client",
     "AUTH": "identity_auth_client",
     "ACTOR_STATUS": "identity_actor_status_client",
     "COMMAND": "identity_command_client",
@@ -384,6 +623,12 @@ MODULE_ROLES = (
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
+    "0350_labeling_video_control.sql",
+    "0351_labeling_annotation_transfer.sql",
+    "0352_labeling_core_read.sql",
+    "0353_labeling_mask_quality.sql",
+    "0354_labeling_spatial_quality.sql",
+    "0355_labeling_task_maintenance.sql",
     "0190_workspace_data_contract.sql",
     "0191_dataset_task_append_contract.sql",
     "0192_creation_authority.sql",
@@ -590,6 +835,11 @@ SQL_ARTIFACTS = (
     "0349_labeling_scene_read.sql",
 )
 SCHEMA_ARTIFACTS = (
+    "0350_labeling_video_control.schema.json",
+    "0351_labeling_annotation_transfer.schema.json",
+    "0353_labeling_mask_quality.schema.json",
+    "0354_labeling_spatial_quality.schema.json",
+    "0355_labeling_task_maintenance.schema.json",
     "0191_task_append.schema.json",
     "0192_creation_authority.schema.json",
     "0193_task_creation_jobs.schema.json",
@@ -753,6 +1003,12 @@ SCHEMA_ARTIFACTS = (
     "0349_labeling_scene_read.schema.json",
 )
 TEST_FILES = (
+    "tests/test_labeling_video_control_native.py",
+    "tests/test_labeling_annotation_transfer_native.py",
+    "tests/test_labeling_core_read_native.py",
+    "tests/test_labeling_mask_quality_native.py",
+    "tests/test_labeling_spatial_quality_native.py",
+    "tests/test_labeling_task_maintenance_native.py",
     "tests/test_scale_seed_workspace_native.py",
     "tests/test_workspace_e2e_native.py",
     "tests/test_gpu_registry_delete_noop_native.py",
@@ -4083,6 +4339,24 @@ def main(argv: list[str] | None = None) -> int:
         labeling_scene_read_grants_path = (
             ROOT / "infra/docker/labeling-scene-read-grants.sql"
         )
+        labeling_video_control_grants_path = (
+            ROOT / "infra/docker/labeling-video-control-grants.sql"
+        )
+        labeling_annotation_transfer_grants_path = (
+            ROOT / "infra/docker/labeling-annotation-transfer-grants.sql"
+        )
+        labeling_core_read_grants_path = (
+            ROOT / "infra/docker/labeling-core-read-grants.sql"
+        )
+        labeling_mask_quality_grants_path = (
+            ROOT / "infra/docker/labeling-mask-quality-grants.sql"
+        )
+        labeling_spatial_quality_grants_path = (
+            ROOT / "infra/docker/labeling-spatial-quality-grants.sql"
+        )
+        labeling_task_maintenance_grants_path = (
+            ROOT / "infra/docker/labeling-task-maintenance-grants.sql"
+        )
         video_restore_grants_path = ROOT / "infra/docker/video-restore-grants.sql"
         inference_pipelines_grants_path = (
             ROOT / "infra/docker/inference-pipelines-grants.sql"
@@ -4203,6 +4477,12 @@ def main(argv: list[str] | None = None) -> int:
             or not labeling_discussion_grants_path.is_file()
             or not labeling_mask_edit_grants_path.is_file()
             or not labeling_scene_read_grants_path.is_file()
+            or not labeling_video_control_grants_path.is_file()
+            or not labeling_annotation_transfer_grants_path.is_file()
+            or not labeling_core_read_grants_path.is_file()
+            or not labeling_mask_quality_grants_path.is_file()
+            or not labeling_spatial_quality_grants_path.is_file()
+            or not labeling_task_maintenance_grants_path.is_file()
             or not video_restore_grants_path.is_file()
             or not inference_pipelines_grants_path.is_file()
             or not inference_backend_probe_grants_path.is_file()
@@ -4337,6 +4617,24 @@ def main(argv: list[str] | None = None) -> int:
         )
         labeling_scene_read_grant_sql = labeling_scene_read_grants_path.read_text(
             encoding="utf-8"
+        )
+        labeling_video_control_grant_sql = labeling_video_control_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_annotation_transfer_grant_sql = (
+            labeling_annotation_transfer_grants_path.read_text(encoding="utf-8")
+        )
+        labeling_core_read_grant_sql = labeling_core_read_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_mask_quality_grant_sql = labeling_mask_quality_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_spatial_quality_grant_sql = (
+            labeling_spatial_quality_grants_path.read_text(encoding="utf-8")
+        )
+        labeling_task_maintenance_grant_sql = (
+            labeling_task_maintenance_grants_path.read_text(encoding="utf-8")
         )
         video_restore_grant_sql = video_restore_grants_path.read_text(encoding="utf-8")
         inference_pipelines_grant_sql = inference_pipelines_grants_path.read_text(
@@ -4524,8 +4822,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0349"]:
-            raise RuntimeError("module-data acceptance requires migration head 0349")
+        if heads != ["0355"]:
+            raise RuntimeError("module-data acceptance requires migration head 0355")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -6441,6 +6739,102 @@ def main(argv: list[str] | None = None) -> int:
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
                 "scene_read_role": "labeling_scene_read_client",
+            },
+        )
+        phase = "install-labeling-video-control-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_video_control_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "video_control_role": "labeling_video_control_client",
+            },
+        )
+        phase = "install-labeling-annotation-transfer-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_annotation_transfer_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "annotation_transfer_role": "labeling_annotation_transfer_client",
+            },
+        )
+        phase = "install-labeling-core-read-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_core_read_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "core_read_role": "labeling_core_read_client",
+            },
+        )
+        phase = "install-labeling-mask-quality-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_mask_quality_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "quality_role": "labeling_mask_quality_client",
+            },
+        )
+        phase = "install-labeling-spatial-quality-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_spatial_quality_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "spatial_quality_role": "labeling_spatial_quality_client",
+            },
+        )
+        phase = "install-labeling-task-maintenance-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_task_maintenance_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "task_maintenance_role": "labeling_task_maintenance_client",
             },
         )
         phase = "install-video-restore-grants"

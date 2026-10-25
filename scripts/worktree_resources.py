@@ -1203,7 +1203,8 @@ class LocalResources:
                     "REVOKE ALL (id, kind, scope_project_id) "
                     f"ON TABLE aap_jobs_v1.notification_scope_facts FROM {role}, PUBLIC",
                     f"GRANT SELECT ON aap_jobs_v1.notification_scope_facts TO {role}",
-                    "GRANT SELECT ON aap_labeling_v1.annotation_comment_facts, "
+                    "GRANT SELECT ON aap_labeling_v1.task_rows, aap_labeling_v1.batch_rows, aap_labeling_v1.annotation_rows, aap_labeling_v1.prediction_rows, aap_labeling_v1.prediction_meta_rows, aap_labeling_v1.failed_prediction_rows, aap_labeling_v1.task_lock_rows, aap_labeling_v1.task_dataset_item_link_rows, "
+                    "aap_labeling_v1.annotation_comment_facts, "
                     "aap_labeling_v1.annotation_feedback_facts, "
                     f"aap_labeling_v1.task_event_facts TO {role}",
                     "REVOKE EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv() "
@@ -1315,6 +1316,16 @@ class LocalResources:
                     "aap_labeling_v1.mask_revision_command(jsonb), "
                     "aap_labeling_v1.ai_mask_accept_command(jsonb), "
                     "aap_labeling_v1.scene_read_query(jsonb), "
+                    "aap_labeling_v1.video_control_command(jsonb), "
+                    "aap_labeling_v1.annotation_transfer_command(jsonb), "
+                    "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean), "
+                    "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean), "
+                    "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean), "
+                    "aap_labeling_v1.mask_qc_command(jsonb), "
+                    "aap_labeling_v1.mask_repair_command(jsonb), "
+                    "aap_labeling_v1.raster_mask_retention_query(jsonb), "
+                    "aap_labeling_v1.spatial_quality_command(jsonb), "
+                    "aap_labeling_v1.task_maintenance_command(jsonb), "
                     "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb), "
                     "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid), "
                     "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb), "

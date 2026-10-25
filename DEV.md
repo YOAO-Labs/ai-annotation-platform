@@ -3255,3 +3255,20 @@ python3 scripts/verify_docker_host_forwarding.py \
 独占验收库选择器为 `AAP_MODULE_DATA_LABELING_DISCUSSION_URL`、
 `AAP_MODULE_DATA_LABELING_MASK_EDIT_URL`、`AAP_MODULE_DATA_LABELING_SCENE_READ_URL`，
 均不新增产品 DSN／HTTP 部署模式；日常 API／worker 仍借用原业务事务。
+
+视频人工控制、导入转换、核心读取、Mask 质检／修复、点云／视频质检和无来源任务维护
+分别使用 `infra/docker/labeling-video-control-grants.sql`、
+`labeling-annotation-transfer-grants.sql`、`labeling-core-read-grants.sql`、
+`labeling-mask-quality-grants.sql`、`labeling-spatial-quality-grants.sql`、
+`labeling-task-maintenance-grants.sql`。Mask 质检 profile 的 psql 参数是 `quality_role`；
+其他参数依次为 `video_control_role`、`annotation_transfer_role`、`core_read_role`、
+`spatial_quality_role`、`task_maintenance_role`。先应用匹配迁移、common owner 和普通
+运行授权，再应用专用账号 profile。
+
+独占验收库的六个选择器依次为 `AAP_MODULE_DATA_LABELING_VIDEO_CONTROL_URL`、
+`AAP_MODULE_DATA_LABELING_ANNOTATION_TRANSFER_URL`、`AAP_MODULE_DATA_LABELING_CORE_READ_URL`、
+`AAP_MODULE_DATA_LABELING_MASK_QUALITY_URL`、`AAP_MODULE_DATA_LABELING_SPATIAL_QUALITY_URL`、
+`AAP_MODULE_DATA_LABELING_TASK_MAINTENANCE_URL`；它们仅供验收，不是产品 DSN。
+无来源清理的实际消费者案例仍使用既有受限 API 账号，同一事务中调用固定 owner。
+核心读取账号只读八项公开关系并执行三项行锁；其余命令账号均无私有底表权限。
+实现期间不逐操作启动完整冷环境；原生、冷工件及恢复按完整模块集中验收。

@@ -123,6 +123,44 @@ def test_module_cold_case_selects_api_bootstrap_credentials(test_path):
             "0348_labeling_mask_edits",
         ),
         (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_VIDEO_CONTROL"],
+            ("aap_labeling_v1.video_control_command(jsonb)",),
+            "0350_labeling_video_control",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_ANNOTATION_TRANSFER"],
+            ("aap_labeling_v1.annotation_transfer_command(jsonb)",),
+            "0351_labeling_annotation_transfer",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_CORE_READ"],
+            (
+                "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean)",
+                "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)",
+                "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)",
+            ),
+            "0352_labeling_core_read",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_MASK_QUALITY"],
+            (
+                "aap_labeling_v1.mask_qc_command(jsonb)",
+                "aap_labeling_v1.mask_repair_command(jsonb)",
+                "aap_labeling_v1.raster_mask_retention_query(jsonb)",
+            ),
+            "0353_labeling_mask_quality",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_SPATIAL_QUALITY"],
+            ("aap_labeling_v1.spatial_quality_command(jsonb)",),
+            "0354_labeling_spatial_quality",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_TASK_MAINTENANCE"],
+            ("aap_labeling_v1.task_maintenance_command(jsonb)",),
+            "0355_labeling_task_maintenance",
+        ),
+        (
             verifier.IDENTITY_CLIENT_ROLES["LABELING_SCENE_READ"],
             ("aap_labeling_v1.scene_read_query(jsonb)",),
             "0349_labeling_scene_read",
@@ -153,7 +191,8 @@ def test_capability_logins_have_no_temporary_grant(
     temporary_grant = sql.split("GRANT TEMPORARY ON DATABASE", 1)[1]
     assert role not in temporary_grant
     assert artifact + ".sql" in verifier.SQL_ARTIFACTS
-    assert artifact + ".schema.json" in verifier.SCHEMA_ARTIFACTS
+    if artifact != "0352_labeling_core_read":
+        assert artifact + ".schema.json" in verifier.SCHEMA_ARTIFACTS
     for signature in functions:
         assert verifier.FUNCTION_BODY_ARTIFACTS[signature] == artifact + ".sql"
 

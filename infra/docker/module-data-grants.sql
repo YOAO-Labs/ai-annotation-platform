@@ -590,6 +590,83 @@ BEGIN
     END LOOP;
 END $$;
 
+-- Fixed owner write columns used by the remaining Labeling commands.
+GRANT DELETE ON public.annotation_conversion_plans TO :"labeling_owner";
+GRANT INSERT (actor_id, expires_at, id, plan_json, request_digest, request_json, snapshot_digest, task_id, token_hash) ON public.annotation_conversion_plans TO :"labeling_owner";
+GRANT UPDATE (executed_idempotency_key, executed_operation_id) ON public.annotation_conversion_plans TO :"labeling_owner";
+GRANT UPDATE (response_json) ON public.annotation_operations TO :"labeling_owner";
+GRANT INSERT (calibration_digest, calibration_revision, created_at, sensor_dataset_item_id, sensor_role, sensor_visibility) ON public.annotations TO :"labeling_owner";
+GRANT UPDATE (calibration_digest, calibration_revision, sensor_visibility) ON public.annotations TO :"labeling_owner";
+GRANT INSERT (adapter_version, format_id, id, manifest_version, mapping_digest, mapping_json, options_digest, options_json, plan_digest, plan_json, project_id, receipt_expires_at, requested_by_id, result_json, staged_object_key, staged_sha256, status, token_hash) ON public.mask_format_imports TO :"labeling_owner";
+GRANT UPDATE (async_job_id, completed_at, result_json, status, updated_at) ON public.mask_format_imports TO :"labeling_owner";
+GRANT INSERT (annotation_id, annotation_version, code, dedupe_key, frame_end, frame_start, id, last_seen_run_id, metric, project_id, region_bbox, region_digest, region_mask_ref, related_annotation_ids, run_id, severity, severity_rank, source, source_versions, status, suggestion, task_id, threshold, updated_at) ON public.mask_qc_issues TO :"labeling_owner";
+GRANT UPDATE (last_seen_run_id, metric, region_bbox, region_digest, region_mask_ref, resolved_at, resolved_by_id, severity, severity_rank, source, status, suggestion, threshold, updated_at) ON public.mask_qc_issues TO :"labeling_owner";
+GRANT INSERT (async_job_id, config_digest, config_revision, config_snapshot, id, progress_pct, project_id, requested_by_id, scope_json, singleflight_key, source_snapshot, source_snapshot_digest, status, summary, task_snapshot_digests) ON public.mask_qc_runs TO :"labeling_owner";
+GRANT UPDATE (completed_at, error_message, progress_pct, started_at, status, summary, updated_at) ON public.mask_qc_runs TO :"labeling_owner";
+GRANT INSERT (id, plan_digest, plan_json, project_id, receipt_expires_at, request_json, requested_by_id, result_json, status, token_hash) ON public.mask_repair_batches TO :"labeling_owner";
+GRANT UPDATE (async_job_id, completed_at, requested_by_id, result_json, rollback_async_job_id, rollback_expires_at, rolled_back_at, status, updated_at) ON public.mask_repair_batches TO :"labeling_owner";
+GRANT INSERT (annotation_id, candidate_digest, decision, frame_end, frame_start, id, project_id, qc_issue_id, region_digest, region_mask_ref, result_annotation_version, reviewer_id, source_annotation_version, source_job_id, source_job_revision, task_id) ON public.mask_review_scopes TO :"labeling_owner";
+GRANT UPDATE (id) ON public.mask_review_scopes TO :"labeling_owner";
+GRANT INSERT (baseline_config_digest, baseline_config_revision, baseline_config_snapshot, candidate_config_digest, candidate_config_snapshot, created_by_id, cutoff_at, gate_reasons, gate_status, id, project_id, sample_count, sample_snapshot, summary) ON public.point_cloud_quality_evaluations TO :"labeling_owner";
+GRANT UPDATE (promoted_at, promoted_by_id, promoted_config_revision) ON public.point_cloud_quality_evaluations TO :"labeling_owner";
+GRANT INSERT (annotation_id, annotation_version, class_name, code, dedupe_key, evidence, frame_end, frame_start, id, last_seen_run_id, locator, metric, project_id, related_annotation_ids, rule_version, run_id, scene_id, scene_track_id, severity, severity_rank, source_versions, status, suggested_command, task_id, threshold, track_revision) ON public.point_cloud_quality_issues TO :"labeling_owner";
+GRANT UPDATE (annotation_id, annotation_version, class_name, evidence, last_seen_run_id, locator, metric, related_annotation_ids, resolution_reason, resolved_at, resolved_by_id, review_note, review_verdict, reviewed_at, reviewed_by_id, run_id, scene_track_id, severity, severity_rank, source_versions, status, suggested_command, task_id, threshold, track_revision, updated_at) ON public.point_cloud_quality_issues TO :"labeling_owner";
+GRANT INSERT (async_job_id, config_digest, config_revision, config_snapshot, id, progress_pct, project_id, requested_by_id, scope_json, singleflight_key, source_snapshot, source_snapshot_digest, status, summary) ON public.point_cloud_quality_runs TO :"labeling_owner";
+GRANT UPDATE (completed_at, error_message, progress_pct, started_at, status, summary, updated_at) ON public.point_cloud_quality_runs TO :"labeling_owner";
+GRANT INSERT (dataset_item_id, end_frame, id, segment_index, start_frame, status) ON public.video_segments TO :"labeling_owner";
+GRANT UPDATE (lock_expires_at, locked_at, locked_by, status, updated_at) ON public.video_segments TO :"labeling_owner";
+GRANT DELETE ON public.video_track_quality_issues TO :"labeling_owner";
+GRANT INSERT (code, frame_end, frame_start, id, left_annotation_id, metric, right_annotation_id, run_id) ON public.video_track_quality_issues TO :"labeling_owner";
+GRANT INSERT (async_job_id, id, input_digest, input_snapshot, left_segment_id, metrics, pairs, progress_pct, requested_by_id, right_segment_id, sampling_digest, status, task_id) ON public.video_track_quality_runs TO :"labeling_owner";
+GRANT UPDATE (accepted_at, accepted_by_id, completed_at, error_message, metrics, pairs, progress_pct, stale_at, started_at, status, updated_at) ON public.video_track_quality_runs TO :"labeling_owner";
+GRANT INSERT (annotation_id, correction_frame, created_by, dataset_item_id, direction, event_channel, from_frame, id, job_kind, model_key, prompt, revision, segment_id, status, target_class_name, target_tool_unit_id, task_id, to_frame, track_id_snapshot) ON public.video_tracker_jobs TO :"labeling_owner";
+GRANT UPDATE (cancel_requested_at, celery_task_id, event_channel, prompt, revision) ON public.video_tracker_jobs TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.workspace_project_query_dataset_ids(uuid) TO :"labeling_owner";
+
+-- Fixed owner snapshots for the remaining Labeling operation families.
+GRANT SELECT (
+    id, dataset_item_id, segment_index, start_frame, end_frame, assignee_id, status, locked_by, locked_at, lock_expires_at, created_at, updated_at
+) ON public.video_segments TO :"labeling_owner";
+GRANT SELECT (
+    id, task_id, dataset_item_id, annotation_id, segment_id, target_class_name, target_tool_unit_id, created_by, status, job_kind, track_id_snapshot, correction_frame, model_key, direction, from_frame, to_frame, prompt, staged_result, revision, event_channel, celery_task_id, cancel_requested_at, started_at, completed_at, error_message, created_at, updated_at
+) ON public.video_tracker_jobs TO :"labeling_owner";
+GRANT SELECT (
+    id, project_id, task_id, annotation_id, qc_issue_id, source_job_id, reviewer_id, source_annotation_version, result_annotation_version, source_job_revision, frame_start, frame_end, region_mask_ref, region_digest, candidate_digest, decision, created_at
+) ON public.mask_review_scopes TO :"labeling_owner";
+GRANT SELECT (
+    id, token_hash, task_id, actor_id, request_digest, snapshot_digest, request_json, plan_json, executed_operation_id, executed_idempotency_key, created_at, expires_at
+) ON public.annotation_conversion_plans TO :"labeling_owner";
+GRANT SELECT (
+    id, project_id, requested_by_id, async_job_id, format_id, adapter_version, manifest_version, staged_object_key, staged_sha256, mapping_json, options_json, mapping_digest, options_digest, plan_json, plan_digest, token_hash, receipt_expires_at, status, result_json, created_at, updated_at, completed_at
+) ON public.mask_format_imports TO :"labeling_owner";
+GRANT SELECT (
+    id, project_id, async_job_id, requested_by_id, status, progress_pct, scope_json, config_revision, config_digest, config_snapshot, source_snapshot, source_snapshot_digest, task_snapshot_digests, singleflight_key, summary, error_message, started_at, completed_at, created_at, updated_at
+) ON public.mask_qc_runs TO :"labeling_owner";
+GRANT SELECT (
+    id, run_id, last_seen_run_id, project_id, task_id, annotation_id, annotation_version, related_annotation_ids, source_versions, code, severity, severity_rank, status, frame_start, frame_end, metric, threshold, region_bbox, region_mask_ref, region_digest, dedupe_key, source, suggestion, resolved_by_id, resolved_at, created_at, updated_at
+) ON public.mask_qc_issues TO :"labeling_owner";
+GRANT SELECT (
+    id, project_id, requested_by_id, async_job_id, rollback_async_job_id, token_hash, status, plan_digest, request_json, plan_json, result_json, receipt_expires_at, rollback_expires_at, created_at, updated_at, completed_at, rolled_back_at
+) ON public.mask_repair_batches TO :"labeling_owner";
+GRANT SELECT (
+    id, project_id, async_job_id, requested_by_id, status, progress_pct, scope_json, config_revision, config_digest, config_snapshot, source_snapshot, source_snapshot_digest, singleflight_key, summary, error_message, started_at, completed_at, created_at, updated_at
+) ON public.point_cloud_quality_runs TO :"labeling_owner";
+GRANT SELECT (
+    id, run_id, last_seen_run_id, project_id, scene_id, task_id, annotation_id, annotation_version, scene_track_id, track_revision, related_annotation_ids, source_versions, class_name, code, rule_version, severity, severity_rank, status, frame_start, frame_end, metric, threshold, evidence, locator, suggested_command, dedupe_key, resolution_reason, resolved_by_id, resolved_at, review_verdict, review_note, reviewed_by_id, reviewed_at, created_at, updated_at
+) ON public.point_cloud_quality_issues TO :"labeling_owner";
+GRANT SELECT (
+    id, project_id, created_by_id, baseline_config_revision, baseline_config_digest, baseline_config_snapshot, candidate_config_digest, candidate_config_snapshot, cutoff_at, sample_count, sample_snapshot, summary, gate_status, gate_reasons, promoted_by_id, promoted_at, promoted_config_revision, created_at
+) ON public.point_cloud_quality_evaluations TO :"labeling_owner";
+GRANT SELECT (
+    id, task_id, left_segment_id, right_segment_id, async_job_id, requested_by_id, status, progress_pct, input_snapshot, input_digest, sampling_digest, metrics, pairs, error_message, accepted_by_id, accepted_at, stale_at, started_at, completed_at, created_at, updated_at
+) ON public.video_track_quality_runs TO :"labeling_owner";
+GRANT SELECT (
+    id, run_id, left_annotation_id, right_annotation_id, code, frame_start, frame_end, metric, created_at
+) ON public.video_track_quality_issues TO :"labeling_owner";
+GRANT SELECT (id, sensor_name, created_at) ON public.task_dataset_item_links TO :"labeling_owner";
+GRANT SELECT (id, dataset_item_id, title, start_frame, end_frame) ON public.video_chapters TO :"assets_owner";
+GRANT SELECT ON aap_assets_v1.video_chapter_facts TO :"labeling_owner";
+
 -- Labeling owns task creation, lifecycle/evidence, edit locks and counters.
 GRANT SELECT (total_annotations, is_labeled),
     UPDATE (total_annotations, is_labeled)
@@ -636,7 +713,7 @@ GRANT SELECT (sequence_order),
     ON public.tasks TO :"labeling_owner";
 GRANT SELECT (id, project_id, task_id), DELETE
     ON public.predictions TO :"labeling_owner";
-GRANT SELECT (object_key, created_at), DELETE
+GRANT SELECT (object_key, task_id, created_at), DELETE
     ON public.raster_mask_uploads TO :"labeling_owner";
 GRANT SELECT, INSERT, UPDATE, DELETE ON
     public.mask_gc_intents,
@@ -2370,6 +2447,7 @@ ALTER FUNCTION aap_assets_v1.workspace_configuration_dataset_scenes(uuid)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.workspace_configuration_existing_item_ids(uuid[])
     OWNER TO :"assets_owner";
+ALTER VIEW aap_assets_v1.video_chapter_facts OWNER TO :"assets_owner";
 ALTER VIEW aap_assets_v1.project_dataset_item_sources OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_dataset_reference(uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_current_association(uuid, uuid) OWNER TO :"assets_owner";
@@ -2663,6 +2741,46 @@ ALTER FUNCTION aap_labeling_v1._scene_read_interval_json(uuid,uuid,integer,integ
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,text,text,jsonb,text,uuid,text,text,boolean,boolean,boolean,boolean,integer,timestamptz,integer)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.video_control_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.annotation_transfer_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._annotation_transfer_exact_fields(jsonb,text[])
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._annotation_transfer_without_track_ids(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._annotation_transfer_without_suffix(text)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._annotation_transfer_camera_bbox_valid(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.mask_qc_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.mask_repair_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.raster_mask_retention_query(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._quality_exact_keys(jsonb,text[])
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._raster_mask_reference_keys()
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.spatial_quality_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.task_maintenance_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.task_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.batch_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.annotation_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.prediction_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.prediction_meta_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.failed_prediction_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.task_lock_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.task_dataset_item_link_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.annotation_comment_facts OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.annotation_feedback_facts OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.task_event_facts OWNER TO :"labeling_owner";

@@ -2646,7 +2646,10 @@
       ],
       "argument_types": ["jsonb"],
       "caller_transaction_required": true,
-      "dependencies": ["aap_assets_v1.workspace_project_query_dataset_ids(uuid)"],
+      "dependencies": [
+        "aap_assets_v1.workspace_project_query_dataset_ids(uuid)",
+        "aap_assets_v1.video_chapter_facts"
+      ],
       "fixed_targets": [
         "public.tasks",
         "public.annotations",
@@ -2659,7 +2662,8 @@
         "public.point_cloud_quality_evaluations",
         "public.video_track_quality_runs",
         "public.video_track_quality_issues",
-        "aap_assets_v1.workspace_project_query_dataset_ids(uuid)"
+        "aap_assets_v1.workspace_project_query_dataset_ids(uuid)",
+        "aap_assets_v1.video_chapter_facts"
       ],
       "owner": "labeling",
       "returns": "jsonb",
@@ -2983,6 +2987,9 @@
             "metric"
           ],
           "delete": ["run_id"]
+        },
+        "aap_assets_v1.video_chapter_facts": {
+          "select": ["id", "dataset_item_id", "title", "start_frame", "end_frame"]
         }
       }
     }
