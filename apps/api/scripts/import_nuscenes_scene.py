@@ -640,6 +640,10 @@ async def import_nuscenes(
         }
 
     async def verify_owner(owner):
+        from functools import partial
+        from app.services import dataset_storage
+
+        read_options = {}
         if hasattr(owner, "owner_kind"):
             spec = reader.ObjectSpec(
                 owner.endpoint_url,
@@ -649,6 +653,9 @@ async def import_nuscenes(
                 owner.size_bytes,
             )
             location_id, gate_revision = owner.location_id, owner.maintenance_revision
+            read_options = await original_sources.read_options(
+                db, owner, read_timeout=60
+            )
         else:
             where = auxiliary.resolve(owner)
             spec = reader.ObjectSpec(
@@ -660,6 +667,14 @@ async def import_nuscenes(
             )
             location_id = where.location_id
             gate_revision = await storage_access.check(db, location_id)
+            if (
+                owner.storage_ref is not None
+                and location_id != dataset_storage.LEGACY_LOCATION_ID
+            ):
+                target = await dataset_storage.target_for_ref(db, owner.storage_ref)
+                read_options = {
+                    "client_context": partial(target.client, read_timeout=60)
+                }
         from app.services.export_media_transfer import Admission
 
         async with await storage_access.acquire(
@@ -678,6 +693,7 @@ async def import_nuscenes(
                     admission.release,
                     transport_timeout_seconds=60,
                     retain_on_close_error=True,
+                    **read_options,
                 )
             except BaseException as exc:
                 failure = exc
@@ -898,6 +914,8 @@ async def import_nuscenes(
                 sha256=created.sha256,
                 size_bytes=created.size_bytes,
                 etag=created.etag,
+                binding=creation.original_locator(candidate["allocation"]),
+                storage_ref=creation.original_ref(candidate["allocation"]),
             )
             await creation.attach(db, item, created.creation_id)
         return item

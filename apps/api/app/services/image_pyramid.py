@@ -21,6 +21,7 @@ from app.db.models.image_pyramid import (
 from app.db.models.task import Task
 from app.services.storage import StorageService, storage_service
 from app.services import image_pyramid_originals as originals
+from app.services.content_snapshot import ContentError
 from app.schemas.image_pyramid import ImagePyramidSummary
 
 PYRAMID_SCHEMA = "aap-image-pyramid/v1"
@@ -179,7 +180,12 @@ def sha256_digest(data: bytes) -> str:
 
 
 async def owner_for_task(db: AsyncSession, task: Task) -> ImagePyramidOwner:
-    source = await originals.pin(db, "task", task.id)
+    try:
+        source = await originals.pin(db, "task", task.id)
+    except ContentError as exc:
+        if exc.code == "directory_cache_not_supported":
+            raise ImagePyramidError(exc.code) from None
+        raise
     if source.item_id is not None:
         item = await db.get(DatasetItem, source.item_id, populate_existing=True)
         return _owner("dataset_item", item.id, source, item.width, item.height)
@@ -203,7 +209,12 @@ def _owner(kind, identifier, source, width, height):
 async def owner_for_dataset_item(
     db: AsyncSession, item: DatasetItem
 ) -> ImagePyramidOwner:
-    source = await originals.pin(db, "dataset_item", item.id)
+    try:
+        source = await originals.pin(db, "dataset_item", item.id)
+    except ContentError as exc:
+        if exc.code == "directory_cache_not_supported":
+            raise ImagePyramidError(exc.code) from None
+        raise
     return _owner("dataset_item", item.id, source, item.width, item.height)
 
 

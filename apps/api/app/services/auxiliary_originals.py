@@ -22,7 +22,7 @@ from app.db.models.dataset_auxiliary_original import (
 )
 from app.services import managed_original_creation as creation
 from app.services import original_sources as sources
-from app.services import storage_access, task_originals
+from app.services import dataset_storage, storage_access, task_originals
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
@@ -47,6 +47,7 @@ FACTS = (
     "version_id",
     "created_at",
 )
+PERSIST_FIELDS = (*FACTS, "storage_ref")
 _SHA = re.compile(r"[0-9a-f]{64}")
 _Snapshot = make_dataclass(
     "AuxiliaryOriginalSnapshot", [(key, object) for key in FACTS], frozen=True
@@ -126,14 +127,27 @@ def key_for(dataset_id, identifier):
 def resolve(row, *, endpoint_url=None):
     if row is None:
         reject("unpinned")
+    reference = _get(row, "storage_ref")
+    saved = None
+    if reference is not None:
+        try:
+            saved = dataset_storage.resolve_ref(reference)
+        except dataset_storage.DatasetStorageError:
+            reject("invalid_location")
+        if any(
+            getattr(saved, name) != _get(row, name)
+            for name in ("location_id", "bucket", "object_key", "storage_identity")
+        ):
+            reject("invalid_location")
+    prefix = saved.key_prefix if saved is not None else ""
     identifiers = [
         _get(row, name) for name in ("id", "creation_id", "dataset_id", "location_id")
     ]
     if (
         any(not isinstance(value, uuid.UUID) for value in identifiers)
         or identifiers[0] != identifiers[1]
-        or identifiers[3] != LEGACY_LOCATION_ID
-        or _get(row, "object_key") != key_for(identifiers[2], identifiers[0])
+        or (saved is None and identifiers[3] != LEGACY_LOCATION_ID)
+        or _get(row, "object_key") != prefix + key_for(identifiers[2], identifiers[0])
         or not isinstance(_get(row, "sha256"), str)
         or not _SHA.fullmatch(_get(row, "sha256"))
         or type(_get(row, "size_bytes")) is not int
@@ -169,6 +183,8 @@ def resolve(row, *, endpoint_url=None):
         endpoint = task_originals._endpoint(
             endpoint_url
             if endpoint_url is not None
+            else saved.endpoint_url
+            if saved is not None
             else f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
         )
     except ContentError:
@@ -176,7 +192,7 @@ def resolve(row, *, endpoint_url=None):
     if identity != managed_storage_identity(endpoint, bucket):
         reject("invalid_location")
     return task_originals.Locator(
-        LEGACY_LOCATION_ID, identity, bucket, _get(row, "object_key"), endpoint
+        identifiers[3], identity, bucket, _get(row, "object_key"), endpoint
     )
 
 
@@ -203,7 +219,7 @@ async def _persist(db, values):
             .mappings()
             .one()
         )
-        if any(row[key] != values[key] for key in FACTS):
+        if any(row[key] != values[key] for key in PERSIST_FIELDS):
             reject("creation_conflict")
         return dict(row)
 
@@ -240,6 +256,7 @@ async def publish(db, allocation, created, *, kind, source_contract):
         source_contract=frozen,
         creation_id=row["id"],
         created_at=row["completed_at"],
+        storage_ref=creation.original_ref(row),
     )
     resolve(values)
     operation = asyncio.create_task(_persist(db, values))
@@ -287,13 +304,12 @@ def _receipt_contract(metadata, owner, kind):
 async def _bind_guard(db, owner):
     async with sources._reads(db, True):
         row = await _owner(db, owner.id, True)
-        if row is None or any(row[key] != getattr(owner, key) for key in FACTS):
+        if row is None or any(
+            row[key] != getattr(owner, key) for key in PERSIST_FIELDS
+        ):
             reject("contract_changed")
-        locations = await sources._locations(
-            db, [owner.location_id], True, bounded=True
-        )
-        endpoint, _ = sources._platform_location(
-            locations[0] if len(locations) == 1 else None, bounded=True
+        endpoint, _ = await sources.saved_location(
+            db, owner.location_id, owner.storage_ref, lock=True, bounded=True
         )
         resolve(row, endpoint_url=endpoint)
         await sources._gate(db, owner.location_id, True, bounded=True)
@@ -341,7 +357,7 @@ async def _owner(db, identifier, lock):
         ).label("etag")
         if name == "etag"
         else getattr(Original, name)
-        for name in FACTS
+        for name in PERSIST_FIELDS
     ]
     row = (
         (
@@ -458,11 +474,8 @@ async def _resolve_task(db, task_id, kind, lock):
         _receipt_contract(
             item.metadata if kind == "raw_lidar" else scene.source_metadata, row, kind
         )
-        locations = await sources._locations(
-            db, [locator.location_id], lock, bounded=True
-        )
-        endpoint, location_facts = sources._platform_location(
-            locations[0] if len(locations) == 1 else None, bounded=True
+        endpoint, location_facts = await sources.saved_location(
+            db, locator.location_id, row.get("storage_ref"), lock=lock, bounded=True
         )
         resolve(row, endpoint_url=endpoint)
         revision = await sources._gate(db, locator.location_id, lock, bounded=True)

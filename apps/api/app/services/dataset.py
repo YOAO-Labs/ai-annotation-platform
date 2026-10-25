@@ -410,11 +410,6 @@ class DatasetService:
         ds = Dataset(**kwargs)
         self.db.add(ds)
         await self.db.flush()
-        storage_service.ensure_bucket(storage_service.datasets_bucket)
-        storage_service.create_folder(
-            managed_dataset_prefix(ds_id).rstrip("/"),
-            bucket=storage_service.datasets_bucket,
-        )
         return ds
 
     async def update(
@@ -600,6 +595,7 @@ class DatasetService:
         sha256: str | None = None,
         object_etag: str | None = None,
         storage_binding=None,
+        storage_ref=None,
         logical_path: str | None = None,
     ) -> DatasetItem:
         ds = await writable_dataset(self.db, dataset_id)
@@ -631,6 +627,7 @@ class DatasetService:
             size_bytes=file_size,
             etag=object_etag,
             binding=storage_binding,
+            storage_ref=storage_ref,
         )
         return item
 
@@ -792,6 +789,7 @@ class DatasetService:
                 ),
             )
             storage_key = allocation["object_key"]
+            await self.db.commit()
             creation = await originals.create_stream(
                 self.db, allocation, stream, content_type=content_type
             )
@@ -832,7 +830,9 @@ class DatasetService:
                 if head_bytes
                 else None
             )
-            if dims is None:
+            if dims is None and creation is not None:
+                dims = await originals.image_dimensions(self.db, allocation, creation)
+            elif dims is None:
                 dims = storage_service.read_image_dimensions(
                     storage_key,
                     bucket=storage_service.datasets_bucket,
@@ -841,6 +841,12 @@ class DatasetService:
                 width, height = dims
 
         await check_authority(lock=True)
+        if creation is not None and final_name in await self._existing_file_names(
+            dataset_id
+        ):
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("managed_original_creation_input_changed")
         item = await self.add_item(
             dataset_id=dataset_id,
             file_name=final_name,
@@ -852,6 +858,12 @@ class DatasetService:
             height=height,
             sha256=sha256,
             object_etag=object_etag,
+            storage_binding=originals.original_locator(allocation)
+            if creation is not None
+            else None,
+            storage_ref=originals.original_ref(allocation)
+            if creation is not None
+            else None,
             logical_path=final_name,
         )
         if creation is not None:
