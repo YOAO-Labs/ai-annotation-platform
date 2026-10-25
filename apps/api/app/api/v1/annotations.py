@@ -26,14 +26,12 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
 from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.project import Project
-from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import (
@@ -63,6 +61,7 @@ from app.services.raster_mask_storage import (
     build_rle_gzip_reference,
     build_rle_reference,
     classify_raster_mask_content_error,
+    count_unlinked_mask_uploads,
     load_coco_rle,
     lock_raster_mask_references,
     reserve_raster_mask_upload,
@@ -101,17 +100,7 @@ MAX_MASK_OBJECTS_PER_TASK = 256
 
 async def _count_task_mask_references(db: AsyncSession, task_id: uuid.UUID) -> int:
     """Count anonymous uploads not yet claimed by an annotation transaction."""
-    return int(
-        (
-            await db.execute(
-                select(func.count(RasterMaskUpload.id)).where(
-                    RasterMaskUpload.task_id == task_id,
-                    RasterMaskUpload.linked_at.is_(None),
-                )
-            )
-        ).scalar()
-        or 0
-    )
+    return await count_unlinked_mask_uploads(db, task_id)
 
 
 _MASK_CONTENT_RESPONSES = {
