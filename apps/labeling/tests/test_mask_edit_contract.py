@@ -16,12 +16,22 @@ from aap_labeling.ai_mask_accept_contract import (
 from aap_labeling.mask_edit_contract import (
     MASK_EDIT_PROTOCOL,
     ApplyPolygonSlice,
+    ClaimRasterMaskUploads,
+    ClaimRasterMaskUploadsData,
+    CountUnlinkedMaskUploads,
+    CountUnlinkedMaskUploadsData,
+    ClaimedRasterMaskUpload,
+    LockRasterMaskUploadTask,
+    LockRasterMaskUploadTaskData,
     MaskAnnotationData,
     MaskEditUnavailable,
     ReadMaskUploadKeys,
     ReadMaskUploadKeysData,
     ReadMaskVideoSegments,
     ReadMaskVideoSegmentsData,
+    ReserveRasterMaskUpload,
+    ReserveRasterMaskUploadData,
+    RasterMaskUploadRecord,
     decode_mask_edit_command,
     decode_mask_edit_reply,
     mask_edit_command_json,
@@ -205,3 +215,84 @@ def test_mask_reads_have_fixed_closed_requests_and_typed_results():
         "data": upload_data.model_dump(mode="json"),
     }
     assert decode_mask_edit_reply(read_uploads, upload_reply) == upload_data
+
+    locked_uploads = read_uploads.model_copy(update={"lock": True})
+    assert decode_mask_edit_command(mask_edit_command_json(locked_uploads)) == (
+        locked_uploads
+    )
+
+    count_request = CountUnlinkedMaskUploads(
+        schema=MASK_EDIT_PROTOCOL,
+        operation="count_unlinked_mask_uploads",
+        task_id=task_id,
+    )
+    count_data = CountUnlinkedMaskUploadsData(count=2)
+    count_reply = {
+        "schema": MASK_EDIT_PROTOCOL,
+        "ok": True,
+        "request": count_request.model_dump(mode="json", by_alias=True),
+        "data": count_data.model_dump(mode="json"),
+    }
+    assert decode_mask_edit_reply(count_request, count_reply) == count_data
+
+    lock_request = LockRasterMaskUploadTask(
+        schema=MASK_EDIT_PROTOCOL,
+        operation="lock_raster_mask_upload_task",
+        task_id=task_id,
+    )
+    lock_data = LockRasterMaskUploadTaskData(locked=True)
+    lock_reply = {
+        "schema": MASK_EDIT_PROTOCOL,
+        "ok": True,
+        "request": lock_request.model_dump(mode="json", by_alias=True),
+        "data": lock_data.model_dump(mode="json"),
+    }
+    assert decode_mask_edit_reply(lock_request, lock_reply) == lock_data
+
+    reserve_request = ReserveRasterMaskUpload(
+        schema=MASK_EDIT_PROTOCOL,
+        operation="reserve_raster_mask_upload",
+        task_id=task_id,
+        upload_id=uuid.uuid4(),
+        object_key="raster-masks/sha256/new",
+        limit=3,
+    )
+    record = RasterMaskUploadRecord(
+        id=reserve_request.upload_id,
+        task_id=task_id,
+        object_key=reserve_request.object_key,
+        linked_at=None,
+        created_at=datetime.now(timezone.utc),
+    )
+    reserve_data = ReserveRasterMaskUploadData(count=3, reserved=True, upload=record)
+    reserve_reply = {
+        "schema": MASK_EDIT_PROTOCOL,
+        "ok": True,
+        "request": reserve_request.model_dump(mode="json", by_alias=True),
+        "data": reserve_data.model_dump(mode="json"),
+    }
+    assert decode_mask_edit_reply(reserve_request, reserve_reply) == reserve_data
+
+    claim_request = ClaimRasterMaskUploads(
+        schema=MASK_EDIT_PROTOCOL,
+        operation="claim_raster_mask_uploads",
+        task_id=task_id,
+        object_keys=["raster-masks/sha256/new"],
+    )
+    claim_data = ClaimRasterMaskUploadsData(
+        uploads=[
+            ClaimedRasterMaskUpload(
+                id=uuid.uuid4(),
+                task_id=task_id,
+                object_key=claim_request.object_keys[0],
+                linked_at=datetime.now(timezone.utc),
+            )
+        ]
+    )
+    claim_reply = {
+        "schema": MASK_EDIT_PROTOCOL,
+        "ok": True,
+        "request": claim_request.model_dump(mode="json", by_alias=True),
+        "data": claim_data.model_dump(mode="json"),
+    }
+    assert decode_mask_edit_reply(claim_request, claim_reply) == claim_data

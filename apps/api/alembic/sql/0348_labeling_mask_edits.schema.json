@@ -569,6 +569,114 @@
       "title": "ApplySliceRestore",
       "type": "object"
     },
+    "ClaimRasterMaskUploads": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "claim_raster_mask_uploads",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "object_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Object Keys",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "object_keys"],
+      "title": "ClaimRasterMaskUploads",
+      "type": "object"
+    },
+    "ClaimRasterMaskUploadsData": {
+      "additionalProperties": false,
+      "properties": {
+        "uploads": {
+          "items": {
+            "$ref": "#/$defs/ClaimedRasterMaskUpload"
+          },
+          "title": "Uploads",
+          "type": "array"
+        }
+      },
+      "required": ["uploads"],
+      "title": "ClaimRasterMaskUploadsData",
+      "type": "object"
+    },
+    "ClaimedRasterMaskUpload": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "object_key": {
+          "title": "Object Key",
+          "type": "string"
+        },
+        "linked_at": {
+          "format": "date-time",
+          "title": "Linked At",
+          "type": "string"
+        }
+      },
+      "required": ["id", "task_id", "object_key", "linked_at"],
+      "title": "ClaimedRasterMaskUpload",
+      "type": "object"
+    },
+    "CountUnlinkedMaskUploads": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "count_unlinked_mask_uploads",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id"],
+      "title": "CountUnlinkedMaskUploads",
+      "type": "object"
+    },
+    "CountUnlinkedMaskUploadsData": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        }
+      },
+      "required": ["count"],
+      "title": "CountUnlinkedMaskUploadsData",
+      "type": "object"
+    },
     "CreateMaskAnnotation": {
       "additionalProperties": false,
       "properties": {
@@ -656,6 +764,42 @@
       },
       "required": ["schema", "operation", "task_id", "actor_id", "idempotency_key"],
       "title": "FindOperation",
+      "type": "object"
+    },
+    "LockRasterMaskUploadTask": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "lock_raster_mask_upload_task",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "task_id"],
+      "title": "LockRasterMaskUploadTask",
+      "type": "object"
+    },
+    "LockRasterMaskUploadTaskData": {
+      "additionalProperties": false,
+      "properties": {
+        "locked": {
+          "const": true,
+          "title": "Locked",
+          "type": "boolean"
+        }
+      },
+      "required": ["locked"],
+      "title": "LockRasterMaskUploadTaskData",
       "type": "object"
     },
     "MaskAnnotationData": {
@@ -853,6 +997,45 @@
       "title": "MaskVideoSegmentRecord",
       "type": "object"
     },
+    "RasterMaskUploadRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "object_key": {
+          "title": "Object Key",
+          "type": "string"
+        },
+        "linked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Linked At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": ["id", "task_id", "object_key", "linked_at", "created_at"],
+      "title": "RasterMaskUploadRecord",
+      "type": "object"
+    },
     "ReadMaskUploadKeys": {
       "additionalProperties": false,
       "properties": {
@@ -878,6 +1061,11 @@
           "maxItems": 1000,
           "title": "Object Keys",
           "type": "array"
+        },
+        "lock": {
+          "default": false,
+          "title": "Lock",
+          "type": "boolean"
         }
       },
       "required": ["schema", "operation", "task_id", "object_keys"],
@@ -1007,6 +1195,69 @@
       },
       "required": ["schema", "operation", "task_id", "operation_id", "lock"],
       "title": "ReadOperation",
+      "type": "object"
+    },
+    "ReserveRasterMaskUpload": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "reserve_raster_mask_upload",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "upload_id": {
+          "format": "uuid",
+          "title": "Upload Id",
+          "type": "string"
+        },
+        "object_key": {
+          "title": "Object Key",
+          "type": "string"
+        },
+        "limit": {
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "upload_id", "object_key", "limit"],
+      "title": "ReserveRasterMaskUpload",
+      "type": "object"
+    },
+    "ReserveRasterMaskUploadData": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "reserved": {
+          "title": "Reserved",
+          "type": "boolean"
+        },
+        "upload": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RasterMaskUploadRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["count", "reserved", "upload"],
+      "title": "ReserveRasterMaskUploadData",
       "type": "object"
     },
     "RestoreSliceAnnotation": {
@@ -1302,10 +1553,14 @@
           "apply_mask_mutations": "#/$defs/ApplyMaskMutations",
           "apply_polygon_slice": "#/$defs/ApplyPolygonSlice",
           "apply_slice_restore": "#/$defs/ApplySliceRestore",
+          "claim_raster_mask_uploads": "#/$defs/ClaimRasterMaskUploads",
+          "count_unlinked_mask_uploads": "#/$defs/CountUnlinkedMaskUploads",
           "find_operation": "#/$defs/FindOperation",
+          "lock_raster_mask_upload_task": "#/$defs/LockRasterMaskUploadTask",
           "read_operation": "#/$defs/ReadOperation",
           "read_reserved_mask_uploads": "#/$defs/ReadMaskUploadKeys",
           "read_video_segments": "#/$defs/ReadMaskVideoSegments",
+          "reserve_raster_mask_upload": "#/$defs/ReserveRasterMaskUpload",
           "write_operation": "#/$defs/WriteAnnotationOperation"
         },
         "propertyName": "operation"
@@ -1319,6 +1574,18 @@
         },
         {
           "$ref": "#/$defs/ReadMaskUploadKeys"
+        },
+        {
+          "$ref": "#/$defs/CountUnlinkedMaskUploads"
+        },
+        {
+          "$ref": "#/$defs/LockRasterMaskUploadTask"
+        },
+        {
+          "$ref": "#/$defs/ReserveRasterMaskUpload"
+        },
+        {
+          "$ref": "#/$defs/ClaimRasterMaskUploads"
         },
         {
           "$ref": "#/$defs/ReadMaskVideoSegments"
@@ -1345,6 +1612,18 @@
         },
         {
           "$ref": "#/$defs/ReadMaskUploadKeysData"
+        },
+        {
+          "$ref": "#/$defs/CountUnlinkedMaskUploadsData"
+        },
+        {
+          "$ref": "#/$defs/LockRasterMaskUploadTaskData"
+        },
+        {
+          "$ref": "#/$defs/ReserveRasterMaskUploadData"
+        },
+        {
+          "$ref": "#/$defs/ClaimRasterMaskUploadsData"
         },
         {
           "$ref": "#/$defs/ReadMaskVideoSegmentsData"

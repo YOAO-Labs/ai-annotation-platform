@@ -20,10 +20,14 @@ from aap_labeling.mask_edit_contract import (
     MASK_EDIT_PROTOCOL,
     ApplyMaskMutations,
     ApplyPolygonSlice,
+    ClaimRasterMaskUploads,
+    CountUnlinkedMaskUploads,
     FindOperation,
+    LockRasterMaskUploadTask,
     MaskEditDataClient,
     ReadMaskUploadKeys,
     ReadMaskVideoSegments,
+    ReserveRasterMaskUpload,
     UpdateMaskAnnotation,
     WriteAnnotationOperation,
 )
@@ -72,6 +76,10 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
     video_task_id = None
     dataset_id = None
     item_id = None
+    upload_id = None
+    upload_created_at = None
+    upload_key = "raster-masks/sha256/" + "d" * 64 + ".json"
+    created_upload_key = "raster-masks/sha256/" + "e" * 64 + ".json"
     connection = None
     transaction = None
     polygon_id = uuid.uuid4()
@@ -171,13 +179,11 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
                 created_at=now,
             )
             db.add_all([polygon, mask, prediction])
-            db.add(
-                RasterMaskUpload(
-                    task_id=task.id,
-                    object_key="raster-masks/sha256/" + "d" * 64 + ".json",
-                )
-            )
+            upload = RasterMaskUpload(task_id=task.id, object_key=upload_key)
+            db.add(upload)
             await db.flush()
+            upload_id = upload.id
+            upload_created_at = upload.created_at
             db.add(
                 MaskAnnotationRevision(
                     project_id=task.project_id,
@@ -237,15 +243,104 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
                 schema=MASK_EDIT_PROTOCOL,
                 operation="read_reserved_mask_uploads",
                 task_id=task_id,
-                object_keys=[
-                    "raster-masks/sha256/" + "d" * 64 + ".json",
-                    "raster-masks/missing",
-                ],
+                object_keys=[upload_key, "raster-masks/missing"],
             )
         )
-        assert owned_uploads.object_keys == [
-            "raster-masks/sha256/" + "d" * 64 + ".json"
-        ]
+        assert owned_uploads.object_keys == [upload_key]
+        locked_uploads = await edits.command(
+            ReadMaskUploadKeys(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="read_reserved_mask_uploads",
+                task_id=task_id,
+                object_keys=[upload_key],
+                lock=True,
+            )
+        )
+        assert locked_uploads.object_keys == [upload_key]
+        assert (
+            await edits.command(
+                CountUnlinkedMaskUploads(
+                    schema=MASK_EDIT_PROTOCOL,
+                    operation="count_unlinked_mask_uploads",
+                    task_id=task_id,
+                )
+            )
+        ).count == 1
+        await edits.command(
+            LockRasterMaskUploadTask(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="lock_raster_mask_upload_task",
+                task_id=task_id,
+            )
+        )
+        renewed = await edits.command(
+            ReserveRasterMaskUpload(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="reserve_raster_mask_upload",
+                task_id=task_id,
+                upload_id=uuid.uuid4(),
+                object_key=upload_key,
+                limit=0,
+            )
+        )
+        assert renewed.reserved and renewed.count == 1
+        assert renewed.upload is not None and renewed.upload.id == upload_id
+        new_upload_id = uuid.uuid4()
+        reserved = await edits.command(
+            ReserveRasterMaskUpload(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="reserve_raster_mask_upload",
+                task_id=task_id,
+                upload_id=new_upload_id,
+                object_key=created_upload_key,
+                limit=2,
+            )
+        )
+        assert reserved.reserved and reserved.count == 2
+        assert reserved.upload is not None and reserved.upload.id == new_upload_id
+        over_quota = await edits.command(
+            ReserveRasterMaskUpload(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="reserve_raster_mask_upload",
+                task_id=task_id,
+                upload_id=uuid.uuid4(),
+                object_key="raster-masks/sha256/" + "f" * 64 + ".json",
+                limit=2,
+            )
+        )
+        assert not over_quota.reserved and over_quota.count == 2
+        claimed = await edits.command(
+            ClaimRasterMaskUploads(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="claim_raster_mask_uploads",
+                task_id=task_id,
+                object_keys=[upload_key, created_upload_key],
+            )
+        )
+        assert {row.object_key for row in claimed.uploads} == {
+            upload_key,
+            created_upload_key,
+        }
+        assert all(row.linked_at is not None for row in claimed.uploads)
+        assert not (
+            await edits.command(
+                ClaimRasterMaskUploads(
+                    schema=MASK_EDIT_PROTOCOL,
+                    operation="claim_raster_mask_uploads",
+                    task_id=task_id,
+                    object_keys=[upload_key, created_upload_key],
+                )
+            )
+        ).uploads
+        assert (
+            await edits.command(
+                CountUnlinkedMaskUploads(
+                    schema=MASK_EDIT_PROTOCOL,
+                    operation="count_unlinked_mask_uploads",
+                    task_id=task_id,
+                )
+            )
+        ).count == 0
         all_segments = await edits.command(
             ReadMaskVideoSegments(
                 schema=MASK_EDIT_PROTOCOL,
@@ -418,6 +513,19 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
         transaction = None
 
         async with maker() as db:
+            assert upload_id is not None
+            restored_upload = await db.get(RasterMaskUpload, upload_id)
+            assert restored_upload is not None and restored_upload.linked_at is None
+            assert restored_upload.created_at == upload_created_at
+            assert (
+                await db.scalar(
+                    select(RasterMaskUpload.id).where(
+                        RasterMaskUpload.task_id == task_id,
+                        RasterMaskUpload.object_key == created_upload_key,
+                    )
+                )
+                is None
+            )
             source = await db.get(Annotation, polygon_id)
             mask = await db.get(Annotation, mask_id)
             assert source.geometry == source_geometry and source.version == 1

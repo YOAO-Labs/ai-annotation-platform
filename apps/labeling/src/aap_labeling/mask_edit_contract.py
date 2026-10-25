@@ -21,6 +21,7 @@ from .annotation_write_contract import _json_bytes
 
 MASK_EDIT_PROTOCOL = "aap-labeling-mask-edits/v1"
 MASK_EDIT_FUNCTION = "aap_labeling_v1.mask_edit_command(jsonb)"
+MAX_MASK_UPLOAD_KEYS_PER_COMMAND = 1000
 
 
 class _ClosedModel(BaseModel):
@@ -58,7 +59,32 @@ class ReadOperation(_Command):
 class ReadMaskUploadKeys(_Command):
     operation: Literal["read_reserved_mask_uploads"]
     task_id: uuid.UUID
-    object_keys: list[StrictStr] = Field(max_length=1000)
+    object_keys: list[StrictStr] = Field(max_length=MAX_MASK_UPLOAD_KEYS_PER_COMMAND)
+    lock: StrictBool = False
+
+
+class CountUnlinkedMaskUploads(_Command):
+    operation: Literal["count_unlinked_mask_uploads"]
+    task_id: uuid.UUID
+
+
+class LockRasterMaskUploadTask(_Command):
+    operation: Literal["lock_raster_mask_upload_task"]
+    task_id: uuid.UUID
+
+
+class ReserveRasterMaskUpload(_Command):
+    operation: Literal["reserve_raster_mask_upload"]
+    task_id: uuid.UUID
+    upload_id: uuid.UUID
+    object_key: StrictStr
+    limit: StrictInt
+
+
+class ClaimRasterMaskUploads(_Command):
+    operation: Literal["claim_raster_mask_uploads"]
+    task_id: uuid.UUID
+    object_keys: list[StrictStr]
 
 
 class ReadMaskVideoSegments(_Command):
@@ -172,6 +198,10 @@ MaskEditCommand = Annotated[
     FindOperation
     | ReadOperation
     | ReadMaskUploadKeys
+    | CountUnlinkedMaskUploads
+    | LockRasterMaskUploadTask
+    | ReserveRasterMaskUpload
+    | ClaimRasterMaskUploads
     | ReadMaskVideoSegments
     | ApplyPolygonSlice
     | ApplyMaskMutations
@@ -218,6 +248,39 @@ class ReadMaskUploadKeysData(_ClosedModel):
     object_keys: list[StrictStr]
 
 
+class CountUnlinkedMaskUploadsData(_ClosedModel):
+    count: StrictInt = Field(ge=0)
+
+
+class LockRasterMaskUploadTaskData(_ClosedModel):
+    locked: Literal[True]
+
+
+class RasterMaskUploadRecord(_ClosedModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    object_key: StrictStr
+    linked_at: AwareDatetime | None
+    created_at: AwareDatetime
+
+
+class ReserveRasterMaskUploadData(_ClosedModel):
+    count: StrictInt = Field(ge=0)
+    reserved: StrictBool
+    upload: RasterMaskUploadRecord | None
+
+
+class ClaimedRasterMaskUpload(_ClosedModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    object_key: StrictStr
+    linked_at: AwareDatetime
+
+
+class ClaimRasterMaskUploadsData(_ClosedModel):
+    uploads: list[ClaimedRasterMaskUpload]
+
+
 class MaskVideoSegmentRecord(_ClosedModel):
     id: uuid.UUID
     segment_index: StrictInt
@@ -256,6 +319,10 @@ class _Reply(_ClosedModel):
     data: (
         AnnotationOperationData
         | ReadMaskUploadKeysData
+        | CountUnlinkedMaskUploadsData
+        | LockRasterMaskUploadTaskData
+        | ReserveRasterMaskUploadData
+        | ClaimRasterMaskUploadsData
         | ReadMaskVideoSegmentsData
         | ApplySliceData
         | ApplyMaskMutationsData
@@ -296,6 +363,10 @@ def decode_mask_edit_reply(request: MaskEditCommand, value: object):
         FindOperation: AnnotationOperationData,
         ReadOperation: AnnotationOperationData,
         ReadMaskUploadKeys: ReadMaskUploadKeysData,
+        CountUnlinkedMaskUploads: CountUnlinkedMaskUploadsData,
+        LockRasterMaskUploadTask: LockRasterMaskUploadTaskData,
+        ReserveRasterMaskUpload: ReserveRasterMaskUploadData,
+        ClaimRasterMaskUploads: ClaimRasterMaskUploadsData,
         ReadMaskVideoSegments: ReadMaskVideoSegmentsData,
         ApplyPolygonSlice: ApplySliceData,
         ApplyMaskMutations: ApplyMaskMutationsData,

@@ -41,6 +41,11 @@ DECLARE
     v_segments jsonb := '[]'::jsonb;
     v_upload_keys text[];
     v_upload_rows jsonb;
+    v_upload record;
+    v_upload_count bigint;
+    v_upload_found boolean;
+    v_upload_reserved boolean;
+    v_upload_data jsonb;
 BEGIN
     IF jsonb_typeof(p_request) IS DISTINCT FROM 'object'
        OR p_request ->> 'schema' IS DISTINCT FROM 'aap-labeling-mask-edits/v1'
@@ -54,6 +59,17 @@ BEGIN
         WHEN 'read_operation' THEN
             v_expected_keys := ARRAY['schema','operation','task_id','operation_id','lock'];
         WHEN 'read_reserved_mask_uploads' THEN
+            v_expected_keys := ARRAY['schema','operation','task_id','object_keys'];
+            IF p_request ? 'lock' THEN
+                v_expected_keys := array_append(v_expected_keys,'lock');
+            END IF;
+        WHEN 'count_unlinked_mask_uploads' THEN
+            v_expected_keys := ARRAY['schema','operation','task_id'];
+        WHEN 'lock_raster_mask_upload_task' THEN
+            v_expected_keys := ARRAY['schema','operation','task_id'];
+        WHEN 'reserve_raster_mask_upload' THEN
+            v_expected_keys := ARRAY['schema','operation','task_id','upload_id','object_key','limit'];
+        WHEN 'claim_raster_mask_uploads' THEN
             v_expected_keys := ARRAY['schema','operation','task_id','object_keys'];
         WHEN 'read_video_segments' THEN
             v_expected_keys := ARRAY[
@@ -147,7 +163,9 @@ BEGIN
     ELSIF v_operation = 'read_reserved_mask_uploads' THEN
         IF jsonb_typeof(p_request -> 'task_id') IS DISTINCT FROM 'string'
            OR jsonb_typeof(p_request -> 'object_keys') IS DISTINCT FROM 'array'
-           OR jsonb_array_length(p_request -> 'object_keys') > 1000 THEN
+           OR jsonb_array_length(p_request -> 'object_keys') > 1000
+           OR (p_request ? 'lock'
+               AND jsonb_typeof(p_request -> 'lock') IS DISTINCT FROM 'boolean') THEN
             RAISE EXCEPTION 'Invalid Mask upload-key read request' USING ERRCODE = '22023';
         END IF;
         v_task_id := (p_request ->> 'task_id')::uuid;
@@ -160,12 +178,117 @@ BEGIN
         SELECT COALESCE(array_agg(value ORDER BY value),ARRAY[]::text[])
         INTO v_upload_keys
         FROM jsonb_array_elements_text(p_request -> 'object_keys') AS keys(value);
-        SELECT COALESCE(jsonb_agg(upload.object_key ORDER BY upload.object_key),'[]'::jsonb)
-        INTO v_upload_rows
+        IF COALESCE((p_request ->> 'lock')::boolean,false) THEN
+            SELECT COALESCE(jsonb_agg(selected.object_key ORDER BY selected.object_key),'[]'::jsonb)
+            INTO v_upload_rows
+            FROM (
+                SELECT upload.object_key
+                FROM public.raster_mask_uploads AS upload
+                WHERE upload.task_id = v_task_id
+                  AND upload.object_key = ANY(v_upload_keys)
+                ORDER BY upload.object_key
+                FOR UPDATE
+            ) AS selected;
+        ELSE
+            SELECT COALESCE(jsonb_agg(upload.object_key ORDER BY upload.object_key),'[]'::jsonb)
+            INTO v_upload_rows
+            FROM public.raster_mask_uploads AS upload
+            WHERE upload.task_id = v_task_id
+              AND upload.object_key = ANY(v_upload_keys);
+        END IF;
+        v_data := jsonb_build_object('object_keys',v_upload_rows);
+    ELSIF v_operation = 'count_unlinked_mask_uploads' THEN
+        IF jsonb_typeof(p_request -> 'task_id') IS DISTINCT FROM 'string' THEN
+            RAISE EXCEPTION 'Invalid Mask upload count request' USING ERRCODE = '22023';
+        END IF;
+        v_task_id := (p_request ->> 'task_id')::uuid;
+        SELECT count(upload.id) INTO v_upload_count
         FROM public.raster_mask_uploads AS upload
         WHERE upload.task_id = v_task_id
-          AND upload.object_key = ANY(v_upload_keys);
-        v_data := jsonb_build_object('object_keys',v_upload_rows);
+          AND upload.linked_at IS NULL;
+        v_data := jsonb_build_object('count',v_upload_count);
+    ELSIF v_operation = 'lock_raster_mask_upload_task' THEN
+        IF jsonb_typeof(p_request -> 'task_id') IS DISTINCT FROM 'string' THEN
+            RAISE EXCEPTION 'Invalid Mask upload task-lock request' USING ERRCODE = '22023';
+        END IF;
+        v_task_id := (p_request ->> 'task_id')::uuid;
+        PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtextextended('aap:raster-mask-upload:' || v_task_id::text,0)
+        );
+        v_data := jsonb_build_object('locked',true);
+    ELSIF v_operation = 'reserve_raster_mask_upload' THEN
+        IF jsonb_typeof(p_request -> 'task_id') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(p_request -> 'upload_id') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(p_request -> 'object_key') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(p_request -> 'limit') IS DISTINCT FROM 'number'
+           OR p_request ->> 'limit' !~ '^-?[0-9]+$' THEN
+            RAISE EXCEPTION 'Invalid Mask upload reservation request' USING ERRCODE = '22023';
+        END IF;
+        v_task_id := (p_request ->> 'task_id')::uuid;
+        v_expected_id := (p_request ->> 'upload_id')::uuid;
+        SELECT upload.* INTO v_upload
+        FROM public.raster_mask_uploads AS upload
+        WHERE upload.task_id = v_task_id
+          AND upload.object_key = p_request ->> 'object_key';
+        v_upload_found := FOUND;
+        SELECT count(upload.id) INTO v_upload_count
+        FROM public.raster_mask_uploads AS upload
+        WHERE upload.task_id = v_task_id
+          AND upload.linked_at IS NULL;
+        IF v_upload_found THEN
+            UPDATE public.raster_mask_uploads AS upload
+            SET created_at = pg_catalog.clock_timestamp()
+            WHERE upload.id = v_upload.id
+            RETURNING upload.* INTO v_upload;
+            v_upload_reserved := true;
+        ELSIF v_upload_count >= (p_request ->> 'limit')::bigint THEN
+            v_upload_reserved := false;
+        ELSE
+            INSERT INTO public.raster_mask_uploads (id,task_id,object_key)
+            VALUES (v_expected_id,v_task_id,p_request ->> 'object_key')
+            RETURNING * INTO v_upload;
+            v_upload_reserved := true;
+            v_upload_count := v_upload_count + 1;
+        END IF;
+        IF v_upload_reserved THEN
+            v_upload_data := jsonb_build_object(
+                'id',v_upload.id,'task_id',v_upload.task_id,
+                'object_key',v_upload.object_key,'linked_at',v_upload.linked_at,
+                'created_at',v_upload.created_at
+            );
+        ELSE
+            v_upload_data := NULL;
+        END IF;
+        v_data := jsonb_build_object(
+            'count',v_upload_count,'reserved',v_upload_reserved,'upload',v_upload_data
+        );
+    ELSIF v_operation = 'claim_raster_mask_uploads' THEN
+        IF jsonb_typeof(p_request -> 'task_id') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(p_request -> 'object_keys') IS DISTINCT FROM 'array' THEN
+            RAISE EXCEPTION 'Invalid Mask upload claim request' USING ERRCODE = '22023';
+        END IF;
+        v_task_id := (p_request ->> 'task_id')::uuid;
+        IF EXISTS (
+            SELECT 1 FROM jsonb_array_elements(p_request -> 'object_keys') AS item(value)
+            WHERE jsonb_typeof(item.value) IS DISTINCT FROM 'string'
+        ) THEN
+            RAISE EXCEPTION 'Invalid Mask upload claim keys' USING ERRCODE = '22023';
+        END IF;
+        SELECT COALESCE(array_agg(value ORDER BY value),ARRAY[]::text[])
+        INTO v_upload_keys
+        FROM jsonb_array_elements_text(p_request -> 'object_keys') AS keys(value);
+        WITH claimed AS (
+            UPDATE public.raster_mask_uploads AS upload
+            SET linked_at = pg_catalog.now()
+            WHERE upload.task_id = v_task_id
+              AND upload.object_key = ANY(v_upload_keys)
+              AND upload.linked_at IS NULL
+            RETURNING upload.id,upload.task_id,upload.object_key,upload.linked_at
+        )
+        SELECT COALESCE(jsonb_agg(to_jsonb(claimed) ORDER BY claimed.object_key),'[]'::jsonb)
+        INTO v_upload_rows
+        FROM claimed;
+        v_data := jsonb_build_object('uploads',v_upload_rows);
     ELSIF v_operation = 'read_video_segments' THEN
         IF jsonb_typeof(p_request -> 'task_id') IS DISTINCT FROM 'string'
            OR jsonb_typeof(p_request -> 'project_id') IS DISTINCT FROM 'string'
