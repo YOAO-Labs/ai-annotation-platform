@@ -11,7 +11,7 @@ from app.application.task_workflow_locks import lock_current_task_target
 from app.db.models.notification import Notification
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
+from app.services.labeling_core_read_relations import batch_row, get_core_row
 from app.services import task_access
 from app.services.annotation_evidence import (
     assert_review_evidence_current,
@@ -80,7 +80,11 @@ class TaskReviewWorkflow:
         )
         if access.is_manager:
             return project
-        batch = await self.db.get(TaskBatch, task.batch_id) if task.batch_id else None
+        batch = (
+            await get_core_row(self.db, batch_row, task.batch_id)
+            if task.batch_id
+            else None
+        )
         effective_reviewer_id = effective_task_reviewer_id(task, batch)
         if effective_reviewer_id != actor.id or task.reviewer_claimed_at is None:
             raise TaskWorkflowError(
@@ -117,7 +121,9 @@ class TaskReviewWorkflow:
 
         if task.reviewer_claimed_at is None:
             batch = (
-                await self.db.get(TaskBatch, task.batch_id) if task.batch_id else None
+                await get_core_row(self.db, batch_row, task.batch_id)
+                if task.batch_id
+                else None
             )
             effective_reviewer_id = effective_task_reviewer_id(task, batch)
             if (

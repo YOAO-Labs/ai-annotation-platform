@@ -29,6 +29,13 @@ from app.services.scheduler import (
 from app.services.project_access import resolve_project_access_by_id
 from app.services.project_write_guard import lock_project_manager
 from app.services.task_lock import TaskLockService
+from app.services.labeling_core_read_relations import (
+    batch_row,
+    execute_core_read,
+    lock_batch_rows_for_core_read,
+    lock_task_for_core_read,
+    task_row,
+)
 
 
 _ASSIGNABLE_TASK_STATUSES = {"pending", "in_progress", "review", "rejected"}
@@ -89,10 +96,14 @@ class LabelingTaskAssignmentService:
             # after waiting; a changed scope is a stale preview, not an open pool.
             expected_batches = dict(
                 (
-                    await self.db.execute(
-                        select(Task.id, Task.batch_id)
-                        .where(Task.project_id == project_id, Task.id.in_(task_ids))
-                        .order_by(Task.id)
+                    await execute_core_read(
+                        self.db,
+                        select(task_row.id, task_row.batch_id)
+                        .where(
+                            task_row.project_id == project_id,
+                            task_row.id.in_(task_ids),
+                        )
+                        .order_by(task_row.id),
                     )
                 ).all()
             )
@@ -103,36 +114,25 @@ class LabelingTaskAssignmentService:
             }
             batches = {}
             if batch_ids:
-                batches = {
-                    batch.id: batch
-                    for batch in (
-                        await self.db.execute(
-                            select(TaskBatch)
-                            .where(
-                                TaskBatch.project_id == project_id,
-                                TaskBatch.id.in_(batch_ids),
-                            )
-                            .order_by(TaskBatch.id)
-                            .with_for_update()
-                            .execution_options(populate_existing=True)
-                        )
-                    )
-                    .scalars()
-                    .all()
-                }
-            task_rows = (
-                (
-                    await self.db.execute(
-                        select(Task)
-                        .where(Task.project_id == project_id, Task.id.in_(task_ids))
-                        .order_by(Task.id)
-                        .with_for_update()
-                        .execution_options(populate_existing=True)
-                    )
+                locked_batches = await lock_batch_rows_for_core_read(
+                    self.db,
+                    sorted(batch_ids, key=str),
+                    project_id=project_id,
+                    lock_mode="update",
+                    populate_existing=True,
                 )
-                .scalars()
-                .all()
-            )
+                batches = {batch.id: batch for batch in locked_batches}
+            task_rows = []
+            for task_id in sorted(set(task_ids), key=str):
+                task = await lock_task_for_core_read(
+                    self.db,
+                    task_id,
+                    project_id=project_id,
+                    lock_mode="update",
+                    populate_existing=True,
+                )
+                if task is not None:
+                    task_rows.append(task)
             if any(
                 task.id not in expected_batches
                 or task.batch_id != expected_batches[task.id]
@@ -142,19 +142,19 @@ class LabelingTaskAssignmentService:
                 raise _stale_preview()
             return {task.id: (task, batches.get(task.batch_id)) for task in task_rows}
         stmt = (
-            select(Task, TaskBatch)
+            select(task_row, batch_row)
             .outerjoin(
-                TaskBatch,
+                batch_row,
                 and_(
-                    TaskBatch.id == Task.batch_id,
-                    TaskBatch.project_id == project_id,
+                    batch_row.id == task_row.batch_id,
+                    batch_row.project_id == project_id,
                 ),
             )
-            .where(Task.project_id == project_id, Task.id.in_(task_ids))
-            .order_by(Task.id)
+            .where(task_row.project_id == project_id, task_row.id.in_(task_ids))
+            .order_by(task_row.id)
             .execution_options(populate_existing=True)
         )
-        rows = (await self.db.execute(stmt)).all()
+        rows = (await execute_core_read(self.db, stmt)).all()
         if any(task.batch_id is not None and batch is None for task, batch in rows):
             raise _stale_preview()
         return {task.id: (task, batch) for task, batch in rows}

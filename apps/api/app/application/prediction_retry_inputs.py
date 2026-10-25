@@ -15,6 +15,11 @@ from aap_assets_video_inputs.evidence import (
     VideoInputEvidence,
     VideoInputFailureEvidence,
 )
+from app.services.labeling_core_read_relations import (
+    failed_prediction_row,
+    get_core_row,
+    task_row,
+)
 
 
 log = logging.getLogger(__name__)
@@ -153,8 +158,6 @@ async def _prepare_retry_input(
     from aap_assets_inputs import contract as c
     from aap_assets_inputs.contract import InputFailure
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
-    from app.db.models.prediction import FailedPrediction
-    from app.db.models.task import Task
 
     fid = uuid.UUID(failed_id)
     accepted_input = None
@@ -164,7 +167,7 @@ async def _prepare_retry_input(
     task = backend = None
     async with session_factory() as db:
         if frozen_attempt is None:
-            failed = await db.get(FailedPrediction, fid)
+            failed = await get_core_row(db, failed_prediction_row, fid)
         else:
             from types import SimpleNamespace
 
@@ -179,7 +182,11 @@ async def _prepare_retry_input(
         if failed is not None:
             task_id = failed.task_id
             extra = failed.extra if isinstance(failed.extra, dict) else {}
-            task = await db.get(Task, failed.task_id) if failed.task_id else None
+            task = (
+                await get_core_row(db, task_row, failed.task_id)
+                if failed.task_id
+                else None
+            )
             backend = (
                 await db.get(MLBackend, failed.ml_backend_id)
                 if failed.ml_backend_id is not None

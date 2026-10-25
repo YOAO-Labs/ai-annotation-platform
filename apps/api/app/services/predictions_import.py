@@ -33,7 +33,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import DatasetItem
 from app.services.project_access import get_workspace_project
-from app.db.models.prediction import Prediction
 from app.schemas.aap_json import (
     AAPImportErrorEntry,
     AAPImportResult,
@@ -65,6 +64,7 @@ from app.services.raster_mask_storage import (
     store_mask_reference_objects,
     validate_mask_geometry_for_task,
 )
+from app.services.labeling_core_read_relations import prediction_row
 from app.utils.raster_mask_rle import coco_rle_area
 
 logger = logging.getLogger(__name__)
@@ -319,14 +319,16 @@ async def _purge_predictions(
             "total": data.total,
         }
 
-    filters = [Prediction.project_id == project_id]
+    filters = [prediction_row.project_id == project_id]
     if normalized_task_ids is not None:
-        filters.append(Prediction.task_id.in_(normalized_task_ids))
+        filters.append(prediction_row.task_id.in_(normalized_task_ids))
     if source_scope != "all":
-        filters.append(Prediction.source == source_scope)
+        filters.append(prediction_row.source == source_scope)
 
     target_rows = (
-        await db.execute(select(Prediction.id, Prediction.source).where(*filters))
+        await db.execute(
+            select(prediction_row.id, prediction_row.source).where(*filters)
+        )
     ).all()
     target_ids = [row[0] for row in target_rows]
     counts = _empty_purge_counts()

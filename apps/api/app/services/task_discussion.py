@@ -40,6 +40,11 @@ from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorStatus
 from app.services.identity_read_relations import account_profiles
 from app.services.user_brief import resolve_briefs
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    task_row,
+)
 from app.services.labeling_discussion_relations import (
     annotation_comment_facts,
     annotation_feedback_facts,
@@ -200,7 +205,7 @@ async def require_visible_task(
 ) -> Task:
     """Resolve a task and apply the repository's batch/project visibility rules."""
 
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     user = await _read_request_actor(db, actor_id)
@@ -227,7 +232,7 @@ async def require_visible_annotation(
     callers can opt into the existing active-annotation requirement.
     """
 
-    annotation = await db.get(Annotation, annotation_id)
+    annotation = await get_core_row(db, annotation_row, annotation_id)
     if annotation is None:
         raise HTTPException(status_code=404, detail="Annotation not found")
     if task_id is not None and annotation.task_id != task_id:
@@ -333,16 +338,18 @@ def _identifier_selects(
                 literal("annotation_comment").label("source"),
             )
             .join(
-                Annotation,
-                Annotation.id == annotation_comment_facts.annotation_id,
+                annotation_row,
+                annotation_row.id == annotation_comment_facts.annotation_id,
             )
             .where(
-                Annotation.task_id == task_id,
+                annotation_row.task_id == task_id,
                 annotation_comment_facts.is_active.is_(True),
             )
         )
         if annotation_id is not None:
-            annotation_query = annotation_query.where(Annotation.id == annotation_id)
+            annotation_query = annotation_query.where(
+                annotation_row.id == annotation_id
+            )
         selects.append(annotation_query)
 
     if scope in {"all", "task"}:
@@ -379,13 +386,13 @@ def task_comment_count_sq() -> ColumnElement[int]:
     # each source select explicitly to keep the count attached to the outer
     # task row instead of counting the whole table.
     source_selects = _identifier_selects(
-        task_id=Task.id,
+        task_id=task_row.id,
         scope="all",
         annotation_id=None,
-        project_id=Task.project_id,
+        project_id=task_row.project_id,
     )
     identifiers = union_all(
-        *(item.correlate(Task) for item in source_selects)
+        *(item.correlate(task_row) for item in source_selects)
     ).subquery()
     return select(func.count()).select_from(identifiers).scalar_subquery()
 

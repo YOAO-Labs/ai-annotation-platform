@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from aap_audit.read_relation_postgres import audit_events
 from aap_labeling.review_evidence_policy import (
@@ -26,9 +27,16 @@ from aap_labeling.review_evidence_policy import (
     record_first_review_fact,
     start_review_round,
 )
-from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.services.audit_read_relations import execute_audit_relation_read
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    execute_core_read,
+    get_core_row,
+    lock_task_for_core_read,
+    lock_task_rows_for_core_read,
+    task_row,
+)
 
 _BUSY_SQLSTATES = {"55P03", "40P01", "40001"}
 __all__ = [
@@ -62,15 +70,16 @@ async def task_contributor_snapshot(
     ids = {value for value in extra_user_ids if value is not None}
     if task.assignee_id is not None:
         ids.add(task.assignee_id)
-    rows = await db.execute(
-        select(Annotation.user_id)
+    rows = await execute_core_read(
+        db,
+        select(annotation_row.user_id)
         .where(
-            Annotation.task_id == task.id,
-            Annotation.user_id.is_not(None),
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
+            annotation_row.task_id == task.id,
+            annotation_row.user_id.is_not(None),
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
         )
-        .distinct()
+        .distinct(),
     )
     ids.update(value for (value,) in rows if value is not None)
     return sorted(str(value) for value in ids)
@@ -141,15 +150,17 @@ async def lock_tasks_for_evidence(
     ids = sorted({task_id for task_id in task_ids if task_id is not None}, key=str)
     if not ids:
         return
-    statement = (
-        select(Task.id)
-        .where(Task.id.in_(ids))
-        .order_by(Task.id)
-        .with_for_update(nowait=nowait)
-    )
     try:
         with db.no_autoflush:
-            await db.execute(statement)
+            if nowait:
+                await lock_task_rows_for_core_read(db, ids)
+            else:
+                for task_id in ids:
+                    await lock_task_for_core_read(
+                        db,
+                        task_id,
+                        lock_mode="update",
+                    )
     except DBAPIError as exc:
         sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
             exc.orig, "pgcode", None
@@ -173,17 +184,41 @@ async def refresh_task_evidence(
     if nowait:
         await lock_tasks_for_evidence(db, [task.id], nowait=True)
     await db.flush()
-    await db.refresh(
-        task,
-        [
+    locked = await lock_task_for_core_read(
+        db, task.id, lock_mode="update", populate_existing=False
+    )
+    if locked is None:
+        from sqlalchemy.exc import InvalidRequestError
+
+        raise InvalidRequestError(f"Could not refresh instance '{task}'")
+    refreshed = (
+        await execute_core_read(
+            db,
+            select(
+                task_row.project_id,
+                task_row.batch_id,
+                task_row.status,
+                task_row.review_round_id,
+                task_row.annotation_contributor_ids,
+            ).where(task_row.id == task.id),
+        )
+    ).one_or_none()
+    if refreshed is None:
+        from sqlalchemy.exc import InvalidRequestError
+
+        raise InvalidRequestError(f"Could not refresh instance '{task}'")
+    for attribute, value in zip(
+        (
             "project_id",
             "batch_id",
             "status",
             "review_round_id",
             "annotation_contributor_ids",
-        ],
-        with_for_update=True,
-    )
+        ),
+        refreshed,
+        strict=True,
+    ):
+        set_committed_value(task, attribute, value)
 
 
 async def record_annotation_actor(
@@ -248,7 +283,7 @@ async def record_annotation_actor_for_task(
     if canonical_actor_id(actor_id) is None:
         return False
     with db.no_autoflush:
-        task = await db.get(Task, task_id)
+        task = await get_core_row(db, task_row, task_id)
     if task is None:
         return False
     return await record_annotation_actor(db, task, actor_id, nowait=nowait)

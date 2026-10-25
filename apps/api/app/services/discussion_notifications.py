@@ -21,6 +21,7 @@ from app.db.models.notification import Notification
 from app.db.models.task import Task
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.identity_read_relations import account_profiles
+from app.services.labeling_core_read_relations import get_core_row, task_row
 from app.services.project_access import resolve_project_access_by_id
 from app.services.feedback import FeedbackService
 from app.services.notification import NotificationService
@@ -62,7 +63,7 @@ async def _accessible_active_user_ids(
     if not user_ids or task_id is None:
         return []
 
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None or task.project_id != project_id:
         return []
 

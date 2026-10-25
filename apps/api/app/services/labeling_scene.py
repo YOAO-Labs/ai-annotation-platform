@@ -11,6 +11,7 @@ from app.db.models.task import Task
 from app.schemas.scene import NeighborInfo, NeighborsResponse
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.labeling_scene_read import read_scene_data
+from app.services.labeling_core_read_relations import get_core_row, task_row
 from aap_assets_catalog.spatial_contract import (
     GetSceneRequest,
     ReadItemsRequest,
@@ -224,7 +225,7 @@ async def get_neighbors_for_task(
     task_id: uuid.UUID,
     k: int = 1,
 ) -> NeighborsResponse | None:
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None:
         return None
     primary_item_id = await resolve_primary_item_id(db, task)

@@ -15,12 +15,16 @@ from app.config import settings
 from app.db.enums import PlatformRole
 from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
-from app.db.models.prediction import FailedPrediction
 from app.schemas.async_job import AsyncJobRetryFailedResponse
 from app.services import async_job as jobs, prediction as prediction_service
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.pipeline_validation import resolve_preannotate_queue
 from app.services.prediction_retry import MAX_RETRY_COUNT, PredictionRetryDispatcher
+from app.services.labeling_core_read_relations import (
+    failed_prediction_row,
+    get_core_row,
+    task_row,
+)
 
 _RETRY_FAILED_KINDS = {"batch_predict"}
 
@@ -40,7 +44,6 @@ class SqlPredictionRetry(PredictionRetryPort):
             PredictionRetryFailure,
         )
         from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
-        from app.db.models.task import Task
 
         try:
             result = await SqlAlchemyPredictionRetryData(self._db, writer=True).call(
@@ -58,7 +61,11 @@ class SqlPredictionRetry(PredictionRetryPort):
         # were already accepted by the native owners in this same transaction.
         metadata = {}
         attempt = result.attempt
-        task = await self._db.get(Task, attempt.task_id) if attempt.task_id else None
+        task = (
+            await get_core_row(self._db, task_row, attempt.task_id)
+            if attempt.task_id
+            else None
+        )
         project = await get_workspace_project(self._db, project_id=attempt.project_id)
         backend = (
             await self._db.get(MLBackend, attempt.ml_backend_id)
@@ -82,7 +89,7 @@ class SqlPredictionRetry(PredictionRetryPort):
     ) -> None:
         try:
             db = self._db
-            fp = await db.get(FailedPrediction, failed_id)
+            fp = await get_core_row(db, failed_prediction_row, failed_id)
             if not fp:
                 raise HTTPException(
                     status_code=404, detail="Failed prediction not found"

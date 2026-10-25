@@ -4,13 +4,12 @@ import uuid
 from typing import Literal
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.application.task_workflow_locks import (
+    lock_core_nowait,
     lock_current_task_target,
-    lock_row_nowait,
 )
 from app.db.enums import ProjectRole
 from app.db.models.annotation import Annotation
@@ -34,6 +33,7 @@ from app.services.identity_contracts import IdentityActorFacts, IdentityActorSta
 from app.services.notification import NotificationService
 from aap_workspace_contract.access import ProjectAccess
 from app.services.task_discussion import require_visible_annotation
+from app.services.labeling_core_read_relations import lock_annotation_rows_for_core_read
 
 
 class AnnotationCommentWorkflow:
@@ -259,14 +259,18 @@ class AnnotationCommentWorkflow:
             await task_access.assert_task_visible(
                 self.db, task, actor.id, access=access
             )
-            annotation = await lock_row_nowait(
+            annotations = await lock_core_nowait(
                 self.db,
-                select(Annotation)
-                .where(Annotation.id == annotation_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True),
+                lambda: lock_annotation_rows_for_core_read(
+                    self.db,
+                    [annotation_id],
+                    lock_mode="update",
+                    nowait=True,
+                    populate_existing=True,
+                ),
                 reason="annotation_busy",
             )
+            annotation = annotations[0] if annotations else None
         except TaskWorkflowError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
         if annotation is None:

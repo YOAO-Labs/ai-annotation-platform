@@ -675,8 +675,8 @@ class PredictionService:
         ):
             raise ValueError("prediction write scope does not match its target")
         result = _prediction_result_for_write(request)
-        preflight_task = await self.db.get(
-            Task, request.task_id, populate_existing=True
+        preflight_task = await get_core_row(
+            self.db, task_row, request.task_id, populate_existing=True
         )
         try:
             verified_content = await preflight_mask_payload_for_write(

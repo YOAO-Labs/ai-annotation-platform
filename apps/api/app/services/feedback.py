@@ -18,13 +18,10 @@ from sqlalchemy import and_, any_, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import ARRAY, UUID as PGUUID, array
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 from sqlalchemy.orm import make_transient_to_detached
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.annotation_feedback import AnnotationFeedback
-from app.db.models.annotation import Annotation
-from app.db.models.task import Task
 from app.schemas.annotation_feedback import FeedbackAnchorPosition
 from aap_labeling.discussion_contract import (
     DISCUSSION_PROTOCOL,
@@ -41,6 +38,12 @@ from app.services.labeling_discussion_data import discussion_command
 from app.services.labeling_discussion_relations import (
     annotation_feedback_facts,
     feedback_facts_alias,
+)
+from app.services.labeling_core_read_relations import (
+    alias_core_row,
+    annotation_row,
+    get_core_row,
+    task_row,
 )
 
 logger = logging.getLogger(__name__)
@@ -205,7 +208,7 @@ class FeedbackService:
                 status_code=422, detail="annotation_version requires annotation_id"
             )
 
-        task = await self.db.get(Task, task_id)
+        task = await get_core_row(self.db, task_row, task_id)
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
         if task.project_id != project_id:
@@ -217,7 +220,7 @@ class FeedbackService:
                 status_code=422, detail="video_context requires a video task"
             )
         if annotation_id is not None:
-            annotation = await self.db.get(Annotation, annotation_id)
+            annotation = await get_core_row(self.db, annotation_row, annotation_id)
             if (
                 annotation is None
                 or not annotation.is_active
@@ -961,13 +964,10 @@ def _same_anchor_scope_clause(left: AnnotationFeedback, right: AnnotationFeedbac
 def _valid_root_clause(root: AnnotationFeedback):
     """Reject malformed roots that point at another task/project annotation."""
 
-    from app.db.models.annotation import Annotation
-    from app.db.models.task import Task
-
     # Aliased tables keep the anti-orphan checks independent of any outer
     # Task/Annotation in correlated contexts (Data Manager counts).
-    root_task = aliased(Task)
-    root_annotation = aliased(Annotation)
+    root_task = alias_core_row(task_row, name="root_task")
+    root_annotation = alias_core_row(annotation_row, name="root_annotation")
     task_ok = (
         ~select(root_task.id)
         .where(
@@ -1015,8 +1015,8 @@ def unresolved_issue_count_sq() -> ColumnElement[int]:
     return (
         select(func.count(af.id))
         .where(
-            af.project_id == Task.project_id,
-            af.task_id == Task.id,
+            af.project_id == task_row.project_id,
+            af.task_id == task_row.id,
             open_root_issue_clause(af),
         )
         .scalar_subquery()

@@ -32,15 +32,26 @@ from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services import task_access
 from app.services.task_lock import TaskLockService
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    task_row,
+)
 from aap_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
 
 
 async def _load_task_or_404(db: AsyncSession, task_id: UUID) -> Task:
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+async def _refresh_annotation(db: AsyncSession, annotation: Annotation) -> None:
+    """Refresh a committed annotation through Labeling's public row relation."""
+    db.expire(annotation)
+    await get_core_row(db, annotation_row, annotation.id)
 
 
 class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
@@ -114,7 +125,9 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
     ) -> PropagateResponse:
         self._assert_bound(source_task_id, actor_id)
         try:
-            source_annotation = await self._db.get(Annotation, annotation_id)
+            source_annotation = await get_core_row(
+                self._db, annotation_row, annotation_id
+            )
             if (
                 source_annotation is None
                 or source_annotation.task_id != self._source_task.id
@@ -158,7 +171,7 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
                 },
             )
             await self._db.commit()
-            await self._db.refresh(new_annotation)
+            await _refresh_annotation(self._db, new_annotation)
             return PropagateResponse(
                 annotation=AnnotationOut.model_validate(new_annotation),
                 motion_compensated=motion_compensated,
@@ -214,7 +227,7 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
             )
             await self._db.commit()
             for _, annotation in results:
-                await self._db.refresh(annotation)
+                await _refresh_annotation(self._db, annotation)
             return PropagateBatchResponse(
                 items=[
                     PropagateBatchItem(
@@ -303,7 +316,7 @@ class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):
             )
             await self._db.commit()
             for annotation in created:
-                await self._db.refresh(annotation)
+                await _refresh_annotation(self._db, annotation)
             return InterpolateRangeResponse(
                 annotations=[
                     AnnotationOut.model_validate(annotation) for annotation in created

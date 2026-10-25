@@ -20,6 +20,7 @@ from app.services.raster_mask_storage import (
     store_generated_mask_content,
     validate_mask_geometry_for_task,
 )
+from app.services.labeling_core_read_relations import get_core_row, task_row
 
 
 def _native_mask_candidate(value: Any) -> NativeMaskCandidate | None:
@@ -147,7 +148,9 @@ async def normalize_batch_prediction_masks(
         cache_key = (request.task_id, request.project_id)
         task = task_cache.get(cache_key)
         if task is None:
-            task = await db.get(Task, request.task_id, populate_existing=True)
+            task = await get_core_row(
+                db, task_row, request.task_id, populate_existing=True
+            )
             if task is None or task.project_id != request.project_id:
                 raise RasterMaskContractError(
                     status_code=409,

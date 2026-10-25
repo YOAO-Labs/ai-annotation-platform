@@ -21,6 +21,7 @@ from app.application.preannotation_results import (
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.raster_mask_contract import RasterMaskContractError
+from app.services.labeling_core_read_relations import get_core_row, task_row
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,7 +280,6 @@ async def _apply_ready_result(
 
 
 async def _overwrite(execution, db, request, *, member=None):
-    from app.db.models.task import Task
     from app.services.batch import BatchService
     from app.services.labeling_write_guard import lock_labeling_write
 
@@ -297,7 +297,10 @@ async def _overwrite(execution, db, request, *, member=None):
         if item.write_scope is None:
             continue
         scope = restore_write_scope(item.write_scope)
-        if await db.get(Task, item.task_id, populate_existing=True) is None:
+        if (
+            await get_core_row(db, task_row, item.task_id, populate_existing=True)
+            is None
+        ):
             continue
         await lock_labeling_write(
             db,
@@ -343,7 +346,6 @@ async def run_durable_batch(
     """Resume captured raw/prepared bodies; count only atomic native outcomes."""
     from aap_preannotation_results.contract import BatchResultFailure
     from aap_assets_mask_content.contract import MaskContentFailure
-    from app.db.models.task import Task
     from app.services import prediction_progress
     from app.services.async_job_notify import notify_job_terminal
     from app.services.batch_result_masks import normalize_batch_prediction_masks
@@ -401,7 +403,9 @@ async def run_durable_batch(
             current = await execution.read_result(member.ordinal)
             result = current.result
             if result is None or not result.raw_complete:
-                task = await db.get(Task, member.task_id, populate_existing=True)
+                task = await get_core_row(
+                    db, task_row, member.task_id, populate_existing=True
+                )
                 if task is None:
                     await execution.call(
                         "finish_batch_result_failure",
@@ -524,7 +528,9 @@ async def run_durable_batch(
             if gpu_error is not None:
                 context = {**context, "gpu_arbiter_failures": [gpu_error]}
                 error_code = gpu_error["error_code"]
-            current_task = await db.get(Task, member.task_id, populate_existing=True)
+            current_task = await get_core_row(
+                db, task_row, member.task_id, populate_existing=True
+            )
             if current_task is None:
                 error_code = "task_missing"
             elif current_task.project_id != execution.scope["project_id"]:

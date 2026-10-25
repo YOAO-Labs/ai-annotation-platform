@@ -12,10 +12,9 @@ from app.services.project_access import get_workspace_project
 from app.application.task_workflow_locks import (
     lock_current_batch_target,
     lock_current_task_target,
-    lock_rows_nowait,
+    lock_core_nowait,
 )
 from app.db.enums import BatchStatus
-from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.mask_qc import MaskQCRun
 from app.db.models.task import Task
@@ -31,8 +30,22 @@ from app.services.mask_qc.config import load_mask_qc_config
 from aap_workspace_contract.access import ProjectAccess
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import task_access
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    execute_core_read,
+    get_core_row,
+    lock_batch_task_rows_for_core_read,
+    task_row,
+)
 
 _SUBMIT_REVIEW_CHUNK_SIZE = 200
+
+
+async def _refresh_core_row(db: AsyncSession, row_model, row) -> None:
+    """Reload a just-committed core row through its public relation."""
+    db.expire(row)
+    await get_core_row(db, row_model, row.id)
 
 
 def _assert_batch_submit_authority(
@@ -80,17 +93,18 @@ async def _prepare_submission(
     project = await get_workspace_project(db, project_id=task.project_id)
     config = load_mask_qc_config(project.mask_qc_config if project else None)
     has_mask = (
-        await db.execute(
-            select(Annotation.id)
+        await execute_core_read(
+            db,
+            select(annotation_row.id)
             .where(
-                Annotation.task_id == task.id,
-                Annotation.is_active.is_(True),
-                Annotation.was_cancelled.is_(False),
-                Annotation.geometry["type"].astext.in_(
+                annotation_row.task_id == task.id,
+                annotation_row.is_active.is_(True),
+                annotation_row.was_cancelled.is_(False),
+                annotation_row.geometry["type"].astext.in_(
                     ("raster_mask", "video_track_mask")
                 ),
             )
-            .limit(1)
+            .limit(1),
         )
     ).scalar_one_or_none() is not None
     if (
@@ -254,14 +268,15 @@ class TaskSubmissionWorkflow:
         candidate_ids = [
             row[0]
             for row in (
-                await self.db.execute(
-                    select(Task.id)
+                await execute_core_read(
+                    self.db,
+                    select(task_row.id)
                     .where(
-                        Task.project_id == project_id,
-                        Task.batch_id == batch_id,
-                        Task.status.in_(("pending", "in_progress")),
+                        task_row.project_id == project_id,
+                        task_row.batch_id == batch_id,
+                        task_row.status.in_(("pending", "in_progress")),
                     )
-                    .order_by(Task.created_at, Task.id)
+                    .order_by(task_row.created_at, task_row.id),
                 )
             ).all()
         ]
@@ -280,19 +295,18 @@ class TaskSubmissionWorkflow:
                 _assert_batch_submittable(batch)
 
             chunk_ids = candidate_ids[start : start + chunk_size]
-            tasks = await lock_rows_nowait(
+            tasks = await lock_core_nowait(
                 self.db,
-                select(Task)
-                .where(
-                    Task.id.in_(chunk_ids),
-                    Task.project_id == project_id,
-                    Task.batch_id == batch_id,
-                )
-                .order_by(Task.created_at, Task.id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True),
+                lambda: lock_batch_task_rows_for_core_read(
+                    self.db,
+                    chunk_ids,
+                    project_id=project_id,
+                    batch_id=batch_id,
+                    populate_existing=True,
+                ),
                 reason="task_busy",
             )
+            tasks.sort(key=lambda task: (task.created_at, task.id))
             quality_dispatches: list[tuple[uuid.UUID, uuid.UUID]] = []
             for task in tasks:
                 if task.status not in ("pending", "in_progress"):
@@ -373,7 +387,7 @@ class TaskSubmissionWorkflow:
         _assert_batch_submittable(batch)
         await batch_service.check_auto_transitions(batch_id)
         await batch_service.recalculate_counters(batch_id)
-        await self.db.refresh(batch)
+        await _refresh_core_row(self.db, batch_row, batch)
         if batch.status != before_status:
             await AuditService.log(
                 self.db,
@@ -391,17 +405,19 @@ class TaskSubmissionWorkflow:
                 },
             )
         await self.db.commit()
-        await self.db.refresh(batch)
+        await _refresh_core_row(self.db, batch_row, batch)
         remaining = (
-            await self.db.scalar(
+            await execute_core_read(
+                self.db,
                 select(func.count())
-                .select_from(Task)
+                .select_from(task_row)
                 .where(
-                    Task.batch_id == batch_id,
-                    Task.status.in_(("pending", "in_progress")),
-                )
+                    task_row.batch_id == batch_id,
+                    task_row.status.in_(("pending", "in_progress")),
+                ),
             )
-        ) or 0
+        ).scalar_one_or_none()
+        remaining = remaining or 0
         return {
             "batch_id": batch_id,
             "status": batch.status,

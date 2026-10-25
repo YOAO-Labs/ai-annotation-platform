@@ -23,7 +23,6 @@ from aap_labeling.discussion_contract import (
 )
 
 from app.db.enums import MANAGER_PLATFORM_ROLES, PlatformRole
-from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -31,6 +30,7 @@ from app.services.identity_read_relations import account_profiles
 from app.services.labeling_discussion_data import discussion_command
 from app.services.labeling_discussion_relations import annotation_comment_facts
 from app.services.workspace_read_relations import project_facts, project_member_facts
+from app.services.labeling_core_read_relations import annotation_row
 
 
 class AnnotationCommentService:
@@ -206,8 +206,11 @@ class AnnotationCommentService:
     ) -> list[AnnotationComment]:
         query = (
             select(annotation_comment_facts)
-            .join(Annotation, Annotation.id == annotation_comment_facts.annotation_id)
-            .where(Annotation.task_id == task_id)
+            .join(
+                annotation_row,
+                annotation_row.id == annotation_comment_facts.annotation_id,
+            )
+            .where(annotation_row.task_id == task_id)
         )
         if annotation_id is not None:
             query = query.where(annotation_comment_facts.annotation_id == annotation_id)
@@ -243,14 +246,14 @@ class AnnotationCommentService:
                         func.count(annotation_comment_facts.id),
                     )
                     .join(
-                        Annotation,
-                        Annotation.id == annotation_comment_facts.annotation_id,
+                        annotation_row,
+                        annotation_row.id == annotation_comment_facts.annotation_id,
                     )
                     .where(
-                        Annotation.task_id == task_id,
-                        Annotation.project_id == project_id,
-                        Annotation.is_active.is_(True),
-                        Annotation.was_cancelled.is_(False),
+                        annotation_row.task_id == task_id,
+                        annotation_row.project_id == project_id,
+                        annotation_row.is_active.is_(True),
+                        annotation_row.was_cancelled.is_(False),
                         annotation_comment_facts.is_active.is_(True),
                     )
                     .group_by(annotation_comment_facts.annotation_id)
