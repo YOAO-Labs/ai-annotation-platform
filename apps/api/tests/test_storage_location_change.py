@@ -19,6 +19,10 @@ from tests.factory import create_project, create_task
 from tests.test_dataset_content import content_world as content_world
 from tests.test_dataset_references import reference_world as reference_world
 from tests.test_storage_locations_api import headers
+from tests.test_storage_maintenance_targets import (
+    change_confirmation_target,
+    saved_avatar,
+)
 from tests.test_storage_maintenance_impact import (
     cache_entry,
     forbid_source_io,
@@ -72,7 +76,9 @@ async def test_preview_is_read_only_offline_and_apply_records_reviewed_changes(
     forbid_source_io(monkeypatch)
     with statements(db) as sql:
         review = await preview(httpx_client, where, super_admin)
-    assert all(statement.lstrip().upper().startswith("SELECT") for statement in sql)
+    assert all(
+        statement.lstrip().upper().startswith(("SELECT", "WITH")) for statement in sql
+    )
     assert sum("jsonb_array_elements" in statement for statement in sql) == 1
     assert review["changes"] == [{"field": "enabled", "before": True, "after": False}]
     assert review["impact"]["counts"]["sources"] == 1
@@ -102,6 +108,29 @@ async def test_preview_is_read_only_offline_and_apply_records_reviewed_changes(
     ) == datetime.fromisoformat(review["measured_at"])
     assert "impact_token" not in str(audit.detail_json)
     assert "private-source-directory" not in str(audit.detail_json)
+
+
+@pytest.mark.parametrize(
+    "change", ["replacement", "state", "binding", "unknown", "polling"]
+)
+async def test_saved_target_confirmation_uses_selected_semantics(
+    db_session, super_admin, httpx_client, monkeypatch, change
+):
+    where = await location(db_session)
+    row = await saved_avatar(db_session, where)
+    await db_session.commit()
+    forbid_source_io(monkeypatch)
+    reviewed = await preview(httpx_client, where, super_admin)
+    assert reviewed["impact"]["counts"]["target_avatars"] == 1
+    await change_confirmation_target(db_session, where, row, change)
+    response = await apply(httpx_client, where, super_admin, reviewed)
+    if change in {"unknown", "polling"}:
+        assert response.status_code == 200, response.text
+        assert response.json()["config_revision"] == 2
+    else:
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "storage_change_preview_changed"
+        assert where.enabled and where.config_revision == 1
 
 
 @pytest.mark.parametrize(

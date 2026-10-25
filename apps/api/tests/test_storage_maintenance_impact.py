@@ -198,7 +198,9 @@ async def test_empty_offline_location_is_read_only_and_query_count_is_fixed(
     with statements(db) as initial_queries:
         empty = await read(httpx_client, where, super_admin)
     assert empty["counts"] and not any(empty["counts"].values())
-    assert all(sql.lstrip().upper().startswith("SELECT") for sql in initial_queries)
+    assert all(
+        sql.lstrip().upper().startswith(("SELECT", "WITH")) for sql in initial_queries
+    )
     # The result must not grow or issue one query per retained source/page.
     for index in range(45):
         await source(
@@ -214,7 +216,9 @@ async def test_empty_offline_location_is_read_only_and_query_count_is_fixed(
     assert populated["counts"]["enabled_sources"] == 15
     assert populated["counts"]["unregistered_sources"] == 15
     assert len(populated_queries) == len(initial_queries) <= 8
-    assert all(sql.lstrip().upper().startswith("SELECT") for sql in populated_queries)
+    assert all(
+        sql.lstrip().upper().startswith(("SELECT", "WITH")) for sql in populated_queries
+    )
     assert sum("jsonb_array_elements" in sql for sql in populated_queries) == 1
     assert set(populated) == set(empty)
     assert set(populated["counts"]) == set(empty["counts"])
@@ -365,7 +369,7 @@ async def test_real_accepted_history_and_current_relationships_are_deduplicated(
     assert counts["projects"] == 3 and counts["tasks"] == 3
     assert counts["annotations"] == 2
     assert len(queries) <= 8
-    assert all(sql.lstrip().upper().startswith("SELECT") for sql in queries)
+    assert all(sql.lstrip().upper().startswith(("SELECT", "WITH")) for sql in queries)
 
 
 async def test_active_runs_survive_job_retention_and_schedules_use_enabled_state(
@@ -452,6 +456,7 @@ def cache_entry(scope, physical, now, *, state="ready", size=10):
 
 def input_lease(task_id, now, *, state="active", expired=False):
     return PredictionInputLease(
+        contract_version=1,
         id=uuid.uuid4(),
         owner_id=uuid.uuid4(),
         owner_kind="batch_predict",
@@ -533,7 +538,7 @@ async def test_cache_orphans_preview_destinations_and_current_input_links(
     assert counts["active_input_leases"] == 2 and counts["cleanup_input_leases"] == 1
     assert counts["ready_previews"] == 1 and counts["preview_bytes"] == 123
     assert counts["failed_previews"] == 0
-    assert all(sql.lstrip().upper().startswith("SELECT") for sql in queries)
+    assert all(sql.lstrip().upper().startswith(("SELECT", "WITH")) for sql in queries)
     preview.state = "failed"
     preview.size_bytes = 999
     await db.commit()

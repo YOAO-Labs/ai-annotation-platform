@@ -47300,6 +47300,10 @@
             "title": "Cleanup Input Leases",
             "type": "integer"
           },
+          "current_bindings": {
+            "title": "Current Bindings",
+            "type": "integer"
+          },
           "datasets": {
             "title": "Datasets",
             "type": "integer"
@@ -47344,12 +47348,76 @@
             "title": "Sources",
             "type": "integer"
           },
+          "target_annotations": {
+            "title": "Target Annotations",
+            "type": "integer"
+          },
+          "target_audit_archive": {
+            "title": "Target Audit Archive",
+            "type": "integer"
+          },
+          "target_avatars": {
+            "title": "Target Avatars",
+            "type": "integer"
+          },
+          "target_bug_reports": {
+            "title": "Target Bug Reports",
+            "type": "integer"
+          },
+          "target_datasets": {
+            "title": "Target Datasets",
+            "type": "integer"
+          },
+          "target_export": {
+            "title": "Target Export",
+            "type": "integer"
+          },
+          "target_import": {
+            "title": "Target Import",
+            "type": "integer"
+          },
+          "target_media_cache": {
+            "title": "Target Media Cache",
+            "type": "integer"
+          },
+          "target_records": {
+            "title": "Target Records",
+            "type": "integer"
+          },
+          "target_related_datasets": {
+            "title": "Target Related Datasets",
+            "type": "integer"
+          },
+          "target_related_projects": {
+            "title": "Target Related Projects",
+            "type": "integer"
+          },
+          "target_related_tasks": {
+            "title": "Target Related Tasks",
+            "type": "integer"
+          },
+          "target_runs": {
+            "title": "Target Runs",
+            "type": "integer"
+          },
+          "target_training": {
+            "title": "Target Training",
+            "type": "integer"
+          },
+          "target_versions": {
+            "title": "Target Versions",
+            "type": "integer"
+          },
           "tasks": {
             "title": "Tasks",
             "type": "integer"
           },
           "unfinished_lineage_versions": {
             "title": "Unfinished Lineage Versions",
+            "type": "integer"
+          },
+          "unlocated_targets": {
+            "title": "Unlocated Targets",
             "type": "integer"
           },
           "unregistered_sources": {
@@ -47379,7 +47447,24 @@
           "active_input_leases",
           "cleanup_input_leases",
           "ready_lineage_versions",
-          "unfinished_lineage_versions"
+          "unfinished_lineage_versions",
+          "target_records",
+          "target_annotations",
+          "target_datasets",
+          "target_training",
+          "target_media_cache",
+          "target_audit_archive",
+          "target_import",
+          "target_export",
+          "target_avatars",
+          "target_bug_reports",
+          "target_related_datasets",
+          "target_related_projects",
+          "target_related_tasks",
+          "target_versions",
+          "target_runs",
+          "current_bindings",
+          "unlocated_targets"
         ],
         "title": "StorageMaintenanceCounts",
         "type": "object"

@@ -21,7 +21,8 @@ from app.db.models.original_cache import OriginalCacheEntry, OriginalCacheReadLe
 from app.db.models.prediction_input import PredictionInputLease
 from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
-from app.services import storage_location
+from app.services import storage_location, storage_maintenance_targets
+from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.dataset_content import key_authority
 from app.services.dataset_source_access import require_manager
 
@@ -172,6 +173,10 @@ def dependencies(location_id, *, with_fingerprint=False):
             TrainingDatasetVersion.status.in_(["pending", "running"]),
         ),
     }
+    target_counts, target_fingerprint = storage_maintenance_targets.dependencies(
+        location_id, with_fingerprint=with_fingerprint
+    )
+    counts.update(target_counts)
     columns = [value.label(name) for name, value in counts.items()]
     if with_fingerprint:
         # Hash semantic row identities in SQL. The application receives a fixed-size
@@ -200,6 +205,7 @@ def dependencies(location_id, *, with_fingerprint=False):
             )
 
         fingerprints = [
+            target_fingerprint,
             footprint(
                 DatasetSource,
                 "id dataset_id config_revision policy_revision enabled unregistered_at generation",
@@ -290,7 +296,11 @@ async def impact(db, location_id, actor, *, api_key_id=None):
     actor = await administrator(db, actor)
     proof = await key_authority(db, actor, api_key_id, "datasets:read")
     location = await storage_location.get_visible(db, location_id, actor)
-    if location.kind != "filesystem" and location.connection_id is None:
+    if (
+        location.kind != "filesystem"
+        and location.connection_id is None
+        and location.id != LEGACY_LOCATION_ID
+    ):
         raise HTTPException(
             409, detail={"code": "platform_maintenance_impact_unsupported"}
         )

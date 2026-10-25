@@ -171,7 +171,7 @@ API本地探测等待窗口3秒，远端等待窗口5秒。超时结果不会自
 
 ## 只读维护影响
 
-`GET /storage-locations/{location_id}/maintenance-impact` 要求当前有效超级管理员和 `datasets:read`；返回前再次检查账号、API Key及位置修订。仅支持 filesystem 或连接支持的外部位置，平台用途位置返回409、`platform_maintenance_impact_unsupported`；查询期间修订变化返回409、`storage_location_revision_changed`。无写入、审计追加、源I/O或任务投递。
+`GET /storage-locations/{location_id}/maintenance-impact` 要求当前有效超级管理员和 `datasets:read`；返回前再次检查账号、API Key及位置修订。支持 filesystem、连接支持的外部位置和已知默认托管位置；其他无连接的未知 S3 位置返回409、`platform_maintenance_impact_unsupported`。默认位置仅增加只读盘点，其配置变更、drain和stop限制保持不变。查询期间修订变化返回409、`storage_location_revision_changed`。无写入、审计追加、源I/O或任务投递。
 
 响应含 `location_id`、`config_revision`、数据库 `measured_at`、`scope=stored_dependencies`、固定大小的 `counts`。全部计数来自同一条SQL的数据库快照，不受来源列表分页影响：
 
@@ -185,7 +185,22 @@ API本地探测等待窗口3秒，远端等待窗口5秒。超时结果不会自
 | `active_input_leases` / `cleanup_input_leases`                                  | 通过当前Task可归属样本的临时输入记录，按状态区分，不代表全部预测或修复作业                                    |
 | `ready_lineage_versions` / `unfinished_lineage_versions`                        | snapshot.samples内source_lineage.location_id明确匹配的位置版本；同版本多成员只计一次，未完成仅pending/running |
 
-`frozen_coverage=recorded_location_lineage_only` 和 `input_coverage=current_task_links_only` 显式限定归因；缺位置血缘的历史、托管冻结和失去Task关系的输入未计入。输入按持久状态计数，包含已到期但尚未转入清理的active记录，不代表运行作业或有效下载凭证。`execution_permission=false`，本响应不生成impact proof，不可作为停用/归档/回收的提交许可。位置修订更新可能使旧扫描、同步、预测上下文及完整缓存失配，各owner在自己的检查点复核；任务人员授权、预览和已保留冻结内容有独立合同，详见[维护影响](/user-guide/datasets/storage-connections#位置维护影响)。
+以上计数保持来源关系范围。新增保存目标与当前绑定计数与其分开：
+
+| 计数                                                                                                                                                                                       | 范围                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `target_records`                                                                                                                                                                           | 输出保存在所选位置的责任角色总数，包含在途、失败、退休和删除责任                           |
+| `target_annotations` / `target_datasets` / `target_training` / `target_media_cache` / `target_audit_archive` / `target_import` / `target_export` / `target_avatars` / `target_bug_reports` | 相同保存位置范围，按九种用途分别统计                                                       |
+| `target_related_datasets` / `target_related_projects` / `target_related_tasks`                                                                                                             | 沿保存业务ID和现有明确关系去重的关联数，关系丢失时不猜测                                   |
+| `target_versions` / `target_runs`                                                                                                                                                          | 自身输出保存在此的训练版本／实验数；Run.dataset_id是训练版本，不作为业务数据集ID           |
+| `current_bindings`                                                                                                                                                                         | 当前指向此位置的用途映射项数，与历史保存目标独立                                           |
+| `unlocated_targets`                                                                                                                                                                        | **全平台**未保存位置的保留责任数，不归到所选位置，不进入配置或访问维护确认的计数摘要／指纹 |
+
+保存目标按27类持久owner的 `storage_ref`、`staging_ref` 或明确物理 `location_id` 定位，不随今日端点、绑定或启用状态改写。Creation最终原件与实际存在的暂存分别计角色，可能分属不同用途和位置；无暂存键不虚构角色。AssetLocation只将 `managed_original` 计作目标，Preview须有物理桶／键；OriginalCacheEntry以 `location_id` 作为目标，原 `cache_entries` 仍按来源 `scope_location_id` 统计。NULL引用但已有明确标量位置的记录仍可归属；真正缺位置的历史不按当前Binding回填。
+
+角色数不是文件数、容量或清理许可。同一文件可能同时有Creation、当前定位或退役声明；不从对象键反解业务ID，不遍历完整私有业务文档。配置和访问维护两个确认路径复用相同单条SQL，覆盖所选位置的角色身份、保存定位、状态、显示的业务关系和当前绑定；等量替换也需重新预览，心跳、访问及仅重试时间不使预览失效。全局未知历史的变化不阻塞无关位置确认。
+
+`frozen_coverage=recorded_location_lineage_only` 和 `input_coverage=current_task_links_only` 继续限定原来源计数；缺位置血缘的历史、托管冻结和失去Task关系的输入未计入这两类来源统计，其保存目标另由上述字段表达。输入按持久状态计数，包含已到期但尚未转入清理的active记录，不代表运行作业或有效下载凭证。`execution_permission=false`，本响应不生成impact proof，不可作为停用/归档/回收的提交许可。位置修订更新可能使旧扫描、同步、预测上下文及完整缓存失配，各owner在自己的检查点复核；任务人员授权、预览和已保留冻结内容有独立合同，详见[维护影响](/user-guide/datasets/storage-connections#位置维护影响)。
 
 ## 位置访问维护
 
