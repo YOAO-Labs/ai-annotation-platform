@@ -26,7 +26,7 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service
-from app.services import training_dataset_storage
+from app.services import training_dataset_storage, training_storage_io
 from app.services import training_dataset_originals as originals
 from app.services import storage_access
 from app.services.training_dataset_bridge import content_digest
@@ -116,9 +116,12 @@ def file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_output(bucket, key, expected_sha256, expected_size, *, snapshot_digest=None):
+def verify_output(
+    bucket, key, expected_sha256, expected_size, *, snapshot_digest=None, transport=None
+):
     """Read back the actual saved object, without trusting its SHA metadata."""
-    head = storage_service.client.head_object(Bucket=bucket, Key=key)
+    destination = transport or storage_service
+    head = destination.client.head_object(Bucket=bucket, Key=key)
     if head["ContentLength"] != expected_size or (
         snapshot_digest is not None
         and head.get("Metadata", {}).get("snapshot-digest") != snapshot_digest
@@ -129,7 +132,7 @@ def verify_output(bucket, key, expected_sha256, expected_size, *, snapshot_diges
     params = {"Bucket": bucket, "Key": key, "IfMatch": head["ETag"]}
     if head.get("VersionId"):
         params["VersionId"] = head["VersionId"]
-    response = storage_service.client.get_object(**params)
+    response = destination.client.get_object(**params)
     digest, size = hashlib.sha256(), 0
     with storage_access.closing_registered(response["Body"]) as body:
         while chunk := body.read(min(1024 * 1024, expected_size - size + 1)):
@@ -154,17 +157,21 @@ def materialize_image(
     bucket: str,
     verified_reference=None,
     verified_original=None,
+    transport=None,
 ) -> dict:
     """Reuse preserved source bytes on retries; never reread changed originals."""
+    if transport is None and training_dataset_storage.MANAGED_NAMESPACE in prefix + "/":
+        training_dataset_storage._reject("training_storage_binding_unproven")
+    destination = transport or storage_service
     key = f"{prefix}/media/{sample['task_id']}"
     preserved = False
     try:
-        head = storage_service.client.head_object(Bucket=bucket, Key=key)
+        head = destination.client.head_object(Bucket=bucket, Key=key)
         if head.get("Metadata", {}).get("snapshot-digest") != snapshot_digest:
             raise TrainingDatasetError(
                 "preserved_media_conflict", "冻结图片的身份不匹配"
             )
-        response = storage_service.client.get_object(
+        response = destination.client.get_object(
             Bucket=bucket, Key=key, IfMatch=head["ETag"]
         )
         preserved = True
@@ -251,7 +258,7 @@ def materialize_image(
             "image_dimensions_changed", "图片尺寸与冻结的标注坐标范围不一致"
         )
     if not preserved:
-        storage_service.client.upload_file(
+        destination.client.upload_file(
             str(path),
             bucket,
             key,
@@ -259,7 +266,14 @@ def materialize_image(
                 "Metadata": {"snapshot-digest": snapshot_digest, "sha256": digest}
             },
         )
-        verify_output(bucket, key, digest, size, snapshot_digest=snapshot_digest)
+        verify_output(
+            bucket,
+            key,
+            digest,
+            size,
+            snapshot_digest=snapshot_digest,
+            transport=destination,
+        )
     if sample.get("raster_contract"):
         # Independently retained training object, under the same version prefix
         # and deletion owner as the original frozen media.
@@ -267,7 +281,7 @@ def materialize_image(
         mask_path = directory / f"{sample['task_id']}.json"
         with storage_access.closing_registered(mask_path.open("w")) as target:
             target.write(instance_rle_text(payload))
-        storage_service.upload_file(
+        destination.upload_file(
             str(mask_path),
             f"{prefix}/masks/{sample['task_id']}.json",
             bucket=bucket,
@@ -278,6 +292,7 @@ def materialize_image(
             f"{prefix}/masks/{sample['task_id']}.json",
             file_digest(mask_path),
             mask_path.stat().st_size,
+            transport=destination,
         )
     return {
         **({"mask_path": str(mask_path)} if sample.get("raster_contract") else {}),
@@ -291,6 +306,14 @@ def materialize_image(
     }
 
 
+def _materialize_image(target, *args, **kwargs):
+    if target is None:
+        return materialize_image(*args, **kwargs)
+    return training_storage_io.physical(
+        target, lambda bound: materialize_image(*args, transport=bound, **kwargs)
+    )
+
+
 async def materialize_sample(
     db,
     version,
@@ -302,6 +325,7 @@ async def materialize_sample(
     *,
     authority=None,
     guard=None,
+    target=None,
 ):
     """Try retained bytes first, then resolve an authorized reference if needed."""
     owner = training_dataset_storage.resolve(version)
@@ -310,6 +334,8 @@ async def materialize_sample(
             "training_storage_invalid_key", "冻结前缀与版本归属不一致", status_code=409
         )
     owner.contains(f"{prefix}/media/{sample['task_id']}")
+    if target is None and owner.key_prefix:
+        target = await training_storage_io.prepare(db, owner)
 
     async def checkpoint():
         if authority is not None:
@@ -324,7 +350,8 @@ async def materialize_sample(
     await checkpoint()
     try:
         result = await originals.physical(
-            materialize_image,
+            _materialize_image,
+            target,
             sample,
             prefix,
             snapshot_digest,
@@ -348,7 +375,8 @@ async def materialize_sample(
             source,
         ):
             result = await originals.physical(
-                materialize_image,
+                _materialize_image,
+                target,
                 sample,
                 prefix,
                 snapshot_digest,
@@ -378,7 +406,8 @@ async def materialize_sample(
     failure = None
     try:
         result = await originals.physical(
-            materialize_image,
+            _materialize_image,
+            target,
             sample,
             prefix,
             snapshot_digest,
@@ -498,6 +527,7 @@ async def _build_dataset(
             )
             parent_manifest = parent.manifest if parent else None
             await db.commit()
+            target = await training_storage_io.prepare(db, owner)
             permit = await storage_access.acquire(
                 db,
                 uuid.UUID(owner.ref["location_id"]),
@@ -531,6 +561,7 @@ async def _build_dataset(
                                 node_id,
                                 authority=authority,
                                 guard=guard,
+                                target=target,
                             )
                         )
                         if media[-1].pop("_source_backed", False):
@@ -555,20 +586,27 @@ async def _build_dataset(
                     owner = training_dataset_storage.resolve(version)
                     package_key = owner.key(f"attempts/{attempt_id}/dataset.zip")
                     await originals.physical(
-                        storage_service.upload_file,
-                        str(package),
-                        package_key,
-                        bucket=owner.bucket,
-                        content_type="application/zip",
+                        training_storage_io.physical,
+                        target,
+                        lambda bound: bound.upload_file(
+                            str(package),
+                            package_key,
+                            bucket=owner.bucket,
+                            content_type="application/zip",
+                        ),
                     )
                     package_digest = await originals.physical(file_digest, package)
                     package_size = package.stat().st_size
                     await originals.physical(
-                        verify_output,
-                        owner.bucket,
-                        package_key,
-                        package_digest,
-                        package_size,
+                        training_storage_io.physical,
+                        target,
+                        lambda bound: verify_output(
+                            owner.bucket,
+                            package_key,
+                            package_digest,
+                            package_size,
+                            transport=bound,
+                        ),
                     )
                 await assert_dataset_authority(db, version)
                 await originals.check(db, authority)
@@ -680,6 +718,7 @@ async def _build_dataset(
                 try:
                     if cleanup:
                         owner = training_dataset_storage.resolve_ref(owner.ref)
+                        cleanup_target = await training_storage_io.prepare(db, owner)
                         cleanup_permit = await storage_access.acquire(
                             db,
                             uuid.UUID(owner.ref["location_id"]),
@@ -688,9 +727,12 @@ async def _build_dataset(
                         )
                         async with cleanup_permit:
                             await originals.physical(
-                                storage_service.delete_prefix,
-                                f"{prefix}/attempts/{attempt_id}/",
-                                bucket=owner.bucket,
+                                training_storage_io.physical,
+                                cleanup_target,
+                                lambda bound: bound.delete_prefix(
+                                    f"{prefix}/attempts/{attempt_id}/",
+                                    bucket=owner.bucket,
+                                ),
                             )
                 except Exception:
                     log.exception("Training attempt cleanup failed: %s", attempt_id)

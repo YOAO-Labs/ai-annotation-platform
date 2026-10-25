@@ -1,6 +1,5 @@
 """Project-authorized, bounded inspection of immutable training data."""
 
-import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Literal
@@ -30,6 +29,7 @@ from app.schemas.training_dataset_analysis import (
     TrainingDatasetFrozenMask,
 )
 from app.services import training_dataset_analysis as service
+from app.services import training_dataset_storage, training_storage_io
 from app.services.training_dataset_bridge import TrainingDatasetError
 
 router = APIRouter(
@@ -329,8 +329,13 @@ async def sample_mask(
         raise HTTPException(status_code=404, detail="数据版本已删除")
     row = await sample_row(db, version_id, task_id)
     try:
-        return await asyncio.to_thread(
-            service.read_instance_mask, project.id, version, row, annotation_id
+        return await training_storage_io.run(
+            db,
+            training_dataset_storage.resolve(version),
+            "training_dataset_mask",
+            lambda bound: service.read_instance_mask(
+                project.id, version, row, annotation_id, transport=bound
+            ),
         )
     except TrainingDatasetError as exc:
         raise HTTPException(
@@ -379,8 +384,13 @@ async def sample_media(
             status_code=409, detail="该任务未纳入训练包，没有可读取的冻结成员媒体"
         )
     try:
-        source, content_type = await asyncio.to_thread(
-            service.read_media, project.id, version, row, preview=preview
+        source, content_type = await training_storage_io.run(
+            db,
+            training_dataset_storage.resolve(version),
+            "training_dataset_media",
+            lambda bound: service.read_media(
+                project.id, version, row, preview=preview, transport=bound
+            ),
         )
     except TrainingDatasetError as exc:
         row.media_state = (

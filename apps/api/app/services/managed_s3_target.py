@@ -108,8 +108,14 @@ def managed_prefix(base, *, purpose="avatars"):
         raise error(purpose, "binding_unproven")
     result = (base + "/" if base else "") + f"_aap_managed/{purpose}/"
     if purpose == "training":
+        from app.services.reference_keys import is_reference
+
         try:
-            valid = len(result) <= 266 and len(result.encode("utf-8")) <= 707
+            valid = (
+                len(result) <= 266
+                and len(result.encode("utf-8")) <= 707
+                and not is_reference(result)
+            )
         except UnicodeError:
             valid = False
         if not valid:

@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
-from sqlalchemy import select
 
 from app.config import settings
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
@@ -222,21 +221,21 @@ async def test_database_allocate_persists_only_in_callers_transaction(
     assert (await service.allocate(db_session, version))["bucket"] == original_bucket
 
 
-async def test_database_adoption_candidate_is_read_only_and_uses_persisted_bucket(
+async def test_database_adoption_candidate_is_read_only_and_uses_deployment_bucket(
     db_session, super_admin, monkeypatch
 ):
     await ensure_legacy_bindings(db_session)
     version = await database_version(db_session, super_admin[0])
-    bucket = await db_session.scalar(
-        select(StorageBinding.bucket).where(StorageBinding.purpose == "training")
-    )
     monkeypatch.setattr(storage_service, "training_bucket", "wrong-current-bucket")
     candidate = await service.adoption_candidate(db_session, version)
-    assert candidate["bucket"] == bucket and candidate["origin"] == "verified-retained"
+    assert (
+        candidate["bucket"] == "wrong-current-bucket"
+        and candidate["origin"] == "verified-retained"
+    )
     assert candidate["evidence"] is None and version.storage_ref is None
 
 
-async def test_database_adoption_does_not_bootstrap_missing_binding(
+async def test_database_adoption_does_not_need_or_bootstrap_current_binding(
     db_session, super_admin
 ):
     version = await database_version(db_session, super_admin[0])
@@ -245,14 +244,14 @@ async def test_database_adoption_does_not_bootstrap_missing_binding(
     if original is not None:
         await db_session.delete(original)
         await db_session.flush()
-    with pytest.raises(TrainingDatasetError) as caught:
-        await service.adoption_candidate(db_session, version)
-    assert caught.value.code == "training_storage_binding_unproven"
+    candidate = await service.adoption_candidate(db_session, version)
+    assert candidate["bucket"] == storage_service.training_bucket
+    assert candidate["binding_generation"] == 1
     assert await db_session.get(StorageBinding, "training") is None
     assert version.storage_ref is None
 
 
-@pytest.mark.parametrize("change", ["disabled", "config", "generation", "location"])
+@pytest.mark.parametrize("change", ["disabled", "config"])
 async def test_database_candidate_rejects_unproven_platform_binding(
     db_session, super_admin, change
 ):

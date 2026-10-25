@@ -86,6 +86,7 @@ def test_root_preserves_existing_five_hundred_character_and_unicode_byte_limits(
         "../bad",
         "a//b",
         "a\\b",
+        "__aap_reference__/opaque",
         "\ud800",
     ):
         with pytest.raises(TrainingDatasetError):
@@ -201,3 +202,30 @@ async def test_run_passes_explicit_target_and_transaction_hook_without_committin
         callback,
     )
     assert seen[0][1]["on_acquired"] is acquired
+
+
+def test_registered_client_close_uncertainty_survives_facade(monkeypatch):
+    from app.services.sources import s3_reference
+
+    class Client:
+        meta = SimpleNamespace(events=SimpleNamespace(register=lambda *args: None))
+
+        def close(self):
+            raise OSError("client close did not settle")
+
+    monkeypatch.setattr(s3_reference, "allowed_endpoint", lambda *args: None)
+    monkeypatch.setattr(
+        s3_reference,
+        "decrypt_secret",
+        lambda value: {"access_key": "test", "secret_key": "test"},
+    )
+    monkeypatch.setattr(s3_reference.boto3, "client", lambda *args, **kwargs: Client())
+    access = s3_reference.S3Access(
+        {"endpoint": "https://objects.example.test", "bucket": "saved-training"},
+        "encrypted",
+        (),
+    )
+    destination = replace(target(), _access=access)
+    with pytest.raises(OSError) as failure:
+        io.physical(destination, lambda bound: "callback completed")
+    assert failure.value.storage_operation_unsettled is True

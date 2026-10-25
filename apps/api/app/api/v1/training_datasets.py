@@ -1,6 +1,5 @@
 """Project-manager API for immutable training datasets."""
 
-import asyncio
 from copy import deepcopy
 from datetime import datetime, timezone
 import uuid
@@ -29,6 +28,7 @@ from app.services import training_datasets as service
 from app.services import project_task_dataset as task_datasets
 from app.services import training_storage_cleanup as cleanup
 from app.services import training_dataset_storage as storage_owners
+from app.services import training_storage_io
 from app.services.training_storage_adoption import CAPACITY as _adoption_capacity
 from app.services.training_list_filters import (
     ISODate,
@@ -38,7 +38,6 @@ from app.services.training_list_filters import (
 from aap_task_contract import VisualTask
 from app.services.project_write_guard import lock_actor_project_authority
 from app.services.project_access import resolve_project_access_by_id
-from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 from app.services.content_snapshot import ContentError
 from app.services.original_request import connected_snapshot
@@ -363,17 +362,22 @@ async def download_version(
         owner.contains(version.package_key)
     except TrainingDatasetError as exc:
         fail(exc)
-    if not await asyncio.to_thread(
-        storage_service.verify_upload,
-        version.package_key,
-        bucket=owner.bucket,
-    ):
-        raise HTTPException(
-            status_code=409, detail="训练包不可用，请联系管理员检查持久存储"
+
+    def download(bound):
+        if not bound.verify_upload(version.package_key, bucket=owner.bucket):
+            raise HTTPException(
+                status_code=409, detail="训练包不可用，请联系管理员检查持久存储"
+            )
+        return bound.generate_download_url(
+            version.package_key, bucket=owner.bucket, expires_in=600
         )
-    url = storage_service.generate_download_url(
-        version.package_key, bucket=owner.bucket, expires_in=600
-    )
+
+    try:
+        url = await training_storage_io.run(
+            db, owner, "training_dataset_download", download
+        )
+    except TrainingDatasetError as exc:
+        fail(exc)
     return {"url": url, "sha256": version.package_sha256}
 
 
@@ -610,8 +614,6 @@ async def delete_version(
             detail="运行中或被后续版本、训练实验、未清理增强预览引用的数据版本不能删除",
         )
     try:
-        await cleanup.delete_record(
-            db, version, f"projects/{project.id}/datasets/{version.id}/"
-        )
+        await cleanup.delete_record(db, version, storage_owners.resolve(version).prefix)
     except TrainingDatasetError as exc:
         fail(exc)

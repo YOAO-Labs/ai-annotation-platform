@@ -71,10 +71,10 @@ async def test_get_does_not_adopt_explicit_pin_is_idempotent_and_download_uses_s
     assert version.storage_ref is None and store.reads == []
     snapshot, manifest = deepcopy(version.snapshot), deepcopy(version.manifest)
     original_bucket = store.bucket
-    # An explicit candidate comes from the registered binding, never this value.
-    monkeypatch.setattr(
-        storage_service, "training_bucket", "different-current-training"
-    )
+    # Current allocation no longer supplies the historical candidate.
+    binding = await db_session.get(StorageBinding, "training")
+    binding.generation = 2
+    await db_session.flush()
     response = await httpx_client.post(path + "/storage-pin", headers=auth)
     assert response.status_code == 200, response.text
     await db_session.refresh(version)
@@ -97,6 +97,18 @@ async def test_get_does_not_adopt_explicit_pin_is_idempotent_and_download_uses_s
         return "http://owned-storage/saved-copy"
 
     monkeypatch.setattr(storage_service, "generate_download_url", sign)
+    from app.services import training_storage_io, training_dataset_storage
+    from contextlib import contextmanager
+
+    @contextmanager
+    def admitted(target):
+        yield storage_service
+
+    async def capture_fixture(db, owner, **kwargs):
+        return await training_dataset_storage.target_for_ref(db, owner.ref, **kwargs)
+
+    monkeypatch.setattr(training_storage_io, "prepare", capture_fixture)
+    monkeypatch.setattr(training_storage_io, "service", admitted)
     downloaded = await httpx_client.get(path + "/download", headers=auth)
     assert downloaded.status_code == 200, downloaded.text
     assert signed == [(version.package_key, original_bucket)]
@@ -124,7 +136,7 @@ async def test_unavailable_changed_or_active_legacy_copy_never_pins(
     assert version.storage_ref is None and store.objects == before
 
 
-async def test_candidate_change_during_io_rejects_its_previous_result(
+async def test_current_binding_change_during_io_keeps_historical_a_candidate(
     httpx_client, db_session, legacy_version, monkeypatch
 ):
     version, store, auth = legacy_version
@@ -144,9 +156,9 @@ async def test_candidate_change_during_io_rejects_its_previous_result(
         f"/api/v1/projects/{version.project_id}/training-datasets/{version.id}/storage-pin",
         headers=auth,
     )
-    assert response.status_code == 409, response.text
+    assert response.status_code == 200, response.text
     await db_session.refresh(version)
-    assert version.storage_ref is None
+    assert version.storage_ref["bucket"] == store.bucket
 
 
 async def test_employee_cannot_adopt_a_project_owners_copy(

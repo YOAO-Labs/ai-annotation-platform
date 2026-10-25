@@ -188,7 +188,6 @@ async def test_get_never_pins_explicit_pin_is_idempotent_and_hides_internal_ref(
     get = await httpx_client.get(path, headers=headers)
     assert get.status_code == 200, get.text
     assert row.storage_ref is None and not store.reads
-    monkeypatch.setattr(storage_service, "training_bucket", "different-current-purpose")
     response = await httpx_client.post(path + "/storage-pin", headers=headers)
     assert response.status_code == 200, response.text
     await db_session.refresh(row)

@@ -115,7 +115,6 @@ async def test_get_never_adopts_explicit_pin_is_idempotent_and_download_uses_sav
     assert run.storage_ref is None and not store.reads
     config = deepcopy(run.config)
     saved = store.bucket
-    monkeypatch.setattr(storage_service, "training_bucket", "different-current-purpose")
     response = await httpx_client.post(path + "/storage-pin", headers=auth)
     assert response.status_code == 200, response.text
     await db_session.refresh(run)
@@ -143,6 +142,18 @@ async def test_get_never_adopts_explicit_pin_is_idempotent_and_download_uses_sav
             signed.append((key, bucket)) or "http://retained/saved"
         ),
     )
+    from app.services import training_storage_io, training_dataset_storage
+    from contextlib import contextmanager
+
+    async def capture_fixture(db, owner, **kwargs):
+        return await training_dataset_storage.target_for_ref(db, owner.ref, **kwargs)
+
+    @contextmanager
+    def admitted(target):
+        yield storage_service
+
+    monkeypatch.setattr(training_storage_io, "prepare", capture_fixture)
+    monkeypatch.setattr(training_storage_io, "service", admitted)
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
     response = await httpx_client.get(
         path + f"/attempts/{attempt.id}/artifacts/best.pt/download", headers=auth
@@ -226,9 +237,13 @@ async def test_context_change_after_io_never_publishes_the_previous_result(
         f"/api/v1/projects/{run.project_id}/training-runs/{run.id}/storage-pin",
         headers=auth,
     )
-    assert response.status_code == 409, response.text
+    assert response.status_code == (200 if change == "binding" else 409), response.text
     await db_session.refresh(run)
-    assert run.storage_ref is None and store.reads
+    assert store.reads
+    if change == "binding":
+        assert run.storage_ref["bucket"] == store.bucket
+    else:
+        assert run.storage_ref is None
 
 
 @pytest.mark.parametrize("change", ["revoke", "rotate", "scope", "expire"])

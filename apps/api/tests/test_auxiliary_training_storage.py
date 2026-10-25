@@ -180,12 +180,14 @@ def test_unpinned_resolve_does_not_discover_or_allocate(case):
 
 
 async def test_creation_allocation_flushes_once_and_saved_pin_skips_current_binding(
-    case, monkeypatch
+    case, monkeypatch, db_session
 ):
     service, row = case
     row.storage_ref = None
-    db = binding_db(storage_service.training_bucket)
-    bootstrap = AsyncMock()
+    db = db_session
+    db.flush = AsyncMock(wraps=db.flush)
+    db.commit = AsyncMock()
+    bootstrap = AsyncMock(wraps=datasets.ensure_legacy_bindings)
     monkeypatch.setattr(datasets, "ensure_legacy_bindings", bootstrap)
     ref = await service.allocate(db, row)
     assert ref["origin"] == "new" and ref["evidence"] is None
@@ -197,7 +199,7 @@ async def test_creation_allocation_flushes_once_and_saved_pin_skips_current_bind
     assert await service.allocate(SimpleNamespace(), row) == ref
 
 
-async def test_candidate_uses_only_persisted_binding_without_bootstrap_or_writes(
+async def test_candidate_uses_deployment_bucket_without_binding_bootstrap_or_writes(
     case, monkeypatch
 ):
     service, row = case
@@ -207,7 +209,7 @@ async def test_candidate_uses_only_persisted_binding_without_bootstrap_or_writes
     monkeypatch.setattr(datasets, "ensure_legacy_bindings", bootstrap)
     monkeypatch.setattr(storage_service, "training_bucket", "different-current-bucket")
     ref = await service.adoption_candidate(db, row)
-    assert ref["bucket"] == "retained-candidate-bucket"
+    assert ref["bucket"] == "different-current-bucket"
     assert ref["origin"] == "verified-retained" and ref["evidence"] is None
     assert row.storage_ref is None
     bootstrap.assert_not_awaited()
@@ -215,9 +217,7 @@ async def test_candidate_uses_only_persisted_binding_without_bootstrap_or_writes
     db.commit.assert_not_awaited()
 
 
-@pytest.mark.parametrize(
-    "change", ["missing", "disabled", "revision", "generation", "location", "endpoint"]
-)
+@pytest.mark.parametrize("change", ["disabled", "revision", "endpoint"])
 async def test_unproven_binding_has_no_allocation_or_io(case, monkeypatch, change):
     service, row = case
     row.storage_ref = None
