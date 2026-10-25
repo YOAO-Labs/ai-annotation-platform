@@ -31,6 +31,7 @@ from tests.test_asset_storage_cleanup_runtime import (
     _verify_postgres,
 )
 from tests.test_audit_archive_read_binding import _configure_archive_read
+from tests.conftest import _create_user
 from tests.test_identity_module_assembly_live import _restored_database
 from tests.test_identity_recovery import _postgres_tool
 
@@ -187,8 +188,7 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
     tmp_path,
     monkeypatch,
     httpx_client,
-    auth_headers,
-    annotator,
+    db_session,
     record_property,
 ):
     image = _image()
@@ -216,6 +216,7 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
         async with async_sessionmaker(
             test_engine, expire_on_commit=False
         ).begin() as db:
+            await db.execute(text("SET LOCAL lock_timeout = '5s'"))
             data = AuditMaintenancePostgresData(db)
             await data.ensure_partition(month)
             await db.execute(
@@ -403,6 +404,14 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
             access_key_id_file=str(tmp_path / "reader-key"),
             secret_access_key_file=str(tmp_path / "reader-secret"),
         )
+        # Uncommitted user fixtures would block the earlier partition DDL on users.
+        _, admin_token = await _create_user(
+            db_session, "super_admin", "audit-admin@test.local", "Audit Admin"
+        )
+        _, employee_token = await _create_user(
+            db_session, "employee", "audit-reader@test.local", "Audit Reader"
+        )
+        auth_headers = {"Authorization": f"Bearer {admin_token}"}
         archive_list = await httpx_client.get(
             "/api/v1/audit-logs/archives", headers=auth_headers
         )
@@ -416,10 +425,9 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
             next(item for item in archive.json()["items"] if item["action"] == action)
             == row
         )
-        _, token = annotator
         denied = await httpx_client.get(
             "/api/v1/audit-logs/archives/2001/2",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {employee_token}"},
         )
         assert denied.status_code == 403
         evidence = {
