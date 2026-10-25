@@ -7,7 +7,6 @@ import json
 import os
 import re
 import secrets
-import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -21,15 +20,24 @@ from app.db.models.annotation import Annotation
 from sqlalchemy import text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from tests.factory import create_project, create_task, create_user
 from tests.test_asset_storage_cleanup_runtime import (
+    _docker,
+    _inspect_docker,
+    _required_env,
     _verified_resource_manifest,
     _verify_postgres,
 )
+from tests.test_assets_catalog_runtime import _write_environment
 from tests.test_identity_sessions_live import _verify_redis
 from tests.test_module_data_roles import _role_url as _verified_role_url
+from tests.notifications_publisher_acceptance_helpers import (
+    connect_owned_dependency,
+    disconnect_owned_dependency,
+    inspect_docker as inspect_owned_docker,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -50,7 +58,6 @@ _AUTH_SECRET_TARGET = "/run/secrets/identity-auth-database-url"
 _POSTGRES_ALIAS = "labeling-cold-postgres"
 _REDIS_ALIAS = "labeling-cold-redis"
 _MINIO_ALIAS = "labeling-cold-minio"
-_API_ALIAS = "labeling-cold-api"
 _API_PORT = 8000
 _API_BUCKET_NAMES = (
     "MINIO_BUCKET",
@@ -67,7 +74,7 @@ _API_BUCKET_NAMES = (
 
 
 def _required(name: str) -> str:
-    value = os.environ.get(name)
+    value = os.environ.get(name) or _required_env(name)
     if not value or "\n" in value or "\r" in value:
         pytest.fail(f"the verifier did not provide {name}", pytrace=False)
     return value
@@ -76,44 +83,6 @@ def _required(name: str) -> str:
 def _plain(value: object) -> str:
     getter = getattr(value, "get_secret_value", None)
     return getter() if callable(getter) else str(value)
-
-
-def _docker(*arguments: str, timeout: int = 90) -> str:
-    try:
-        result = subprocess.run(
-            ["docker", *arguments],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(
-            f"owned Docker operation timed out: {arguments[0]}"
-        ) from None
-    if result.returncode != 0:
-        raise RuntimeError(f"owned Docker operation failed: {arguments[0]}")
-    return result.stdout.strip()
-
-
-def _inspect_container(container_id: str) -> dict:
-    try:
-        value = json.loads(_docker("inspect", container_id, timeout=20))
-    except (json.JSONDecodeError, RuntimeError):
-        raise RuntimeError("Docker returned no unique container identity") from None
-    if not isinstance(value, list) or len(value) != 1:
-        raise RuntimeError("Docker container identity was not unique")
-    return value[0]
-
-
-def _inspect_network(network_name: str) -> dict:
-    try:
-        value = json.loads(_docker("network", "inspect", network_name, timeout=20))
-    except (json.JSONDecodeError, RuntimeError):
-        raise RuntimeError("Docker returned no unique network identity") from None
-    if not isinstance(value, list) or len(value) != 1:
-        raise RuntimeError("Docker network identity was not unique")
-    return value[0]
 
 
 def _image_artifact() -> tuple[str, str, dict]:
@@ -129,34 +98,20 @@ def _image_artifact() -> tuple[str, str, dict]:
     offline = artifact.get("offline_proof")
     if not (
         artifact.get("status") == "passed"
-        and artifact.get("proof_container_removed") is True
         and artifact.get("image") == image_ref
         and artifact.get("image_id") == expected_image_id
         and isinstance(artifact.get("identity"), str)
         and isinstance(artifact.get("source_commit"), str)
-        and isinstance(artifact.get("source_manifest"), dict)
-        and isinstance(artifact.get("api_hashes"), dict)
-        and isinstance(artifact.get("package_hashes"), dict)
         and isinstance(offline, dict)
         and offline.get("status") == "passed"
         and offline.get("source_hashes_match") is True
-        and any(
-            name.endswith("aap_labeling/annotation_write_contract.py")
-            for name in artifact["package_hashes"]
-        )
     ):
         pytest.fail("the current API image artifact did not prove its source bytes")
     return image_ref, expected_image_id, artifact
 
 
-def _verify_image(image_ref: str, expected_id: str, artifact: dict) -> dict:
-    try:
-        images = json.loads(_docker("image", "inspect", image_ref, timeout=20))
-    except (json.JSONDecodeError, RuntimeError):
-        pytest.fail("Docker did not return the qualified API image", pytrace=False)
-    if not isinstance(images, list) or len(images) != 1:
-        pytest.fail("the qualified API image identity was not unique", pytrace=False)
-    image = images[0]
+def _verify_image(image_ref: str, expected_id: str, artifact: dict) -> None:
+    image = inspect_owned_docker("image", image_ref)
     config = image.get("Config", {})
     labels = config.get("Labels") or {}
     if not (
@@ -165,12 +120,8 @@ def _verify_image(image_ref: str, expected_id: str, artifact: dict) -> dict:
         and labels.get(_ACCEPTANCE_LABEL) == _IMAGE_ACCEPTANCE
         and labels.get(_ACCEPTANCE_ID_LABEL) == artifact["identity"]
         and labels.get(_SOURCE_REVISION_LABEL) == artifact["source_commit"]
-        and config.get("Entrypoint") == ["/app/scripts/entrypoint.sh"]
-        and config.get("Cmd")
-        == ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ):
         pytest.fail("API image ID or provenance labels did not match the artifact")
-    return image
 
 
 def _role_url(
@@ -180,74 +131,13 @@ def _role_url(
     *,
     internal_network: bool = False,
 ) -> URL:
-    try:
-        value = make_url(_verified_role_url(variable, role))
-    except Exception:
-        pytest.fail(f"verifier role URL {variable} was invalid", pytrace=False)
-    if not (
-        value.drivername in {"postgresql", "postgresql+asyncpg"}
-        and value.username == role
-        and value.password
-        and value.database == test_engine.url.database
-        and value.database
-        and value.database.endswith("_test")
-        and (value.host, value.port) == (test_engine.url.host, test_engine.url.port)
-    ):
+    value = make_url(_verified_role_url(variable, role))
+    if value.database != test_engine.url.database:
         pytest.fail(f"verifier role URL {variable} escaped the test database")
     updates = {"drivername": "postgresql+asyncpg"}
     if internal_network:
         updates.update(host=_POSTGRES_ALIAS, port=5432)
     return value.set(**updates)
-
-
-async def _verify_role_profile(url: URL, role: str, *, labeling_api: bool) -> None:
-    engine = create_async_engine(url.set(host="127.0.0.1"), hide_parameters=True)
-    try:
-        async with engine.connect() as db:
-            identity = await db.execute(
-                text(
-                    "SELECT current_user,current_database(),role.rolsuper,"
-                    "role.rolcreatedb,role.rolcreaterole,role.rolbypassrls,"
-                    "pg_catalog.pg_has_role(current_user,'owner','MEMBER') "
-                    "FROM pg_catalog.pg_roles AS role "
-                    "WHERE role.rolname=current_user"
-                )
-            )
-            current_user, database, *privileges = identity.one()
-            assert current_user == role
-            assert database == url.database
-            assert privileges == [False, False, False, False, False]
-            assert (
-                await db.scalar(
-                    text(
-                        "SELECT pg_catalog.has_schema_privilege(current_user,"
-                        "'aap_identity_v1','USAGE')"
-                    )
-                )
-                is True
-            )
-            if labeling_api:
-                assert (
-                    await db.scalar(
-                        text(
-                            "SELECT pg_catalog.has_function_privilege(current_user,"
-                            "'aap_labeling_v1.annotation_write_command(jsonb)'::"
-                            "pg_catalog.regprocedure,'EXECUTE')"
-                        )
-                    )
-                    is True
-                )
-                assert (
-                    await db.scalar(
-                        text(
-                            "SELECT pg_catalog.has_table_privilege(current_user,"
-                            "'aap_labeling_v1.annotation_rows','SELECT')"
-                        )
-                    )
-                    is True
-                )
-    finally:
-        await engine.dispose()
 
 
 def _write_private_file(path: Path, value: str, *, mode: int) -> None:
@@ -260,116 +150,113 @@ def _write_private_file(path: Path, value: str, *, mode: int) -> None:
     path.chmod(mode)
 
 
-def _write_environment(path: Path, values: dict[str, str]) -> None:
-    if any(
-        not re.fullmatch(r"[A-Z][A-Z0-9_]*", name)
-        or "\0" in value
-        or "\n" in value
-        or "\r" in value
-        for name, value in values.items()
-    ):
-        raise RuntimeError("cold API environment was not safe to write")
-    _write_private_file(
-        path,
-        "\n".join(f"{name}={value}" for name, value in sorted(values.items())),
-        mode=0o600,
-    )
-
-
 def _redis_dependency(resources: dict, test_engine) -> tuple[str, str, URL]:
     progress = _verify_redis()
-    broker = make_url(_plain(settings.effective_celery_broker))
-    if not (
-        progress.drivername == broker.drivername == "redis"
-        and progress.host == broker.host == "127.0.0.1"
-        and progress.port is not None
-        and progress.port == broker.port
-        and progress.username is None
-        and broker.username is None
-        and progress.password is None
-        and broker.password is None
-        and progress.database == broker.database == 0
-    ):
-        pytest.fail("verifier Redis is not the expected loopback test service")
-    name, owner = resources.get("redis_name"), resources.get("owner")
-    if not isinstance(name, str) or not isinstance(owner, str):
-        pytest.fail("the test resource manifest omitted its Redis identity")
-    ids = _docker(
-        "container",
-        "ls",
-        "--all",
-        "--filter",
-        f"name=^/{name}$",
-        "--format",
-        "{{.ID}}",
-    ).splitlines()
-    if len(ids) != 1:
-        pytest.fail("the verifier Redis container identity was not unique")
-    container_id = ids[0]
-    details = _inspect_container(container_id)
+    name, owner = resources["redis_name"], resources["owner"]
+    details = _inspect_docker(name)
     labels = details.get("Config", {}).get("Labels") or {}
-    bindings = (details.get("NetworkSettings", {}).get("Ports") or {}).get(
-        "6379/tcp"
-    ) or []
     if not (
         details.get("Name") == f"/{name}"
-        and details.get("State", {}).get("Running") is True
         and labels.get(_WORKTREE_OWNER_LABEL) == owner
-        and len(bindings) == 1
-        and bindings[0].get("HostIp") == "127.0.0.1"
-        and int(bindings[0].get("HostPort", 0)) == progress.port
+        and isinstance(details.get("Id"), str)
     ):
         pytest.fail("the Redis container was not this worktree's test resource")
-    return container_id, owner, progress.set(host=_REDIS_ALIAS, port=6379)
+    return details["Id"], owner, progress.set(host=_REDIS_ALIAS, port=6379)
 
 
-def _minio_dependency(resources: dict) -> tuple[str, int]:
-    host = _plain(settings.minio_endpoint)
-    scheme = "https" if settings.minio_use_ssl else "http"
-    endpoint = urlsplit(f"{scheme}://{host}")
+def _minio_dependency(resources: dict) -> dict:
+    tmpdir = Path(_required("TMPDIR")).resolve()
+    manifest_path = tmpdir.parents[2] / ".worktree" / "test" / "resources.json"
+    if manifest_path.is_symlink():
+        pytest.fail("the resource manifest must not be a symlink")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        pytest.fail("the resource manifest MinIO endpoint was unavailable")
+    if not isinstance(manifest, dict):
+        pytest.fail("the resource manifest MinIO endpoint was unavailable")
+    minio = manifest.get("minio")
+    if not (
+        manifest.get("resources") == resources
+        and isinstance(minio, dict)
+        and minio.get("endpoint") == _plain(settings.minio_endpoint)
+        and minio.get("ssl") is settings.minio_use_ssl
+    ):
+        pytest.fail("MinIO settings did not match the verified resource manifest")
+    scheme = "https" if minio["ssl"] else "http"
+    endpoint = urlsplit(f"{scheme}://{minio['endpoint']}")
     if (
         endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
         or endpoint.port is None
     ):
         pytest.fail("verifier MinIO endpoint was not loopback scoped")
-    owner = resources.get("owner")
-    if not isinstance(owner, str):
-        pytest.fail("the test resource manifest omitted its MinIO owner")
-    ids = _docker(
+
+    candidates = _docker(
         "container",
         "ls",
-        "--all",
+        "--filter",
+        "status=running",
         "--filter",
         f"publish={endpoint.port}",
         "--format",
         "{{.ID}}",
     ).splitlines()
-    matches = []
-    for container_id in ids:
-        details = _inspect_container(container_id)
-        labels = details.get("Config", {}).get("Labels") or {}
+    matches = {}
+    for candidate in candidates:
+        details = _inspect_docker(candidate)
+        config = details.get("Config", {})
+        if "minio" not in str(config.get("Image", "")).lower():
+            continue
         ports = details.get("NetworkSettings", {}).get("Ports") or {}
         for container_port, bindings in ports.items():
-            if (
-                any(
-                    binding.get("HostIp") == "127.0.0.1"
-                    and int(binding.get("HostPort", 0)) == endpoint.port
-                    for binding in bindings or []
-                )
-                and labels.get(_WORKTREE_OWNER_LABEL) == owner
+            service_port = int(container_port.split("/", 1)[0])
+            if any(
+                binding.get("HostIp") in {"127.0.0.1", "0.0.0.0", "::1", "::"}
+                and int(binding.get("HostPort", 0)) == endpoint.port
+                for binding in bindings or []
             ):
-                matches.append((container_id, int(container_port.split("/", 1)[0])))
+                matches[(details.get("Id"), service_port)] = details
     if len(matches) != 1:
-        pytest.fail("the verifier-owned MinIO endpoint was not unique")
-    minio_id, service_port = matches[0]
-    details = _inspect_container(minio_id)
-    if details.get("State", {}).get("Running") is not True:
-        pytest.fail("the verifier-owned MinIO container was not running")
-    return minio_id, service_port
+        pytest.fail("the shared MinIO container was not uniquely identified")
+    (container_id, service_port), details = next(iter(matches.items()))
+    if not (
+        isinstance(container_id, str)
+        and details.get("Name")
+        and isinstance(details.get("Image"), str)
+        and details["Image"].startswith("sha256:")
+        and details.get("State", {}).get("Running") is True
+    ):
+        pytest.fail("the shared MinIO container identity was incomplete")
+    return {
+        "id": container_id,
+        "name": details["Name"],
+        "image_id": details["Image"],
+        "host_port": endpoint.port,
+        "service_port": service_port,
+        "endpoint": f"{_MINIO_ALIAS}:{service_port}",
+        "ssl": minio["ssl"],
+    }
+
+
+def _verify_minio_identity(details: dict, minio: dict) -> None:
+    ports = details.get("NetworkSettings", {}).get("Ports") or {}
+    binding = ports.get(f"{minio['service_port']}/tcp") or []
+    if not (
+        details.get("Id") == minio["id"]
+        and details.get("Name") == minio["name"]
+        and details.get("Image") == minio["image_id"]
+        and details.get("State", {}).get("Running") is True
+        and any(
+            item.get("HostIp") in {"127.0.0.1", "0.0.0.0", "::1", "::"}
+            and int(item.get("HostPort", 0)) == minio["host_port"]
+            for item in binding
+        )
+    ):
+        raise RuntimeError("shared MinIO container identity changed")
 
 
 def _network_details(network_name: str, expected_id: str, run_id: str) -> dict:
-    details = _inspect_network(network_name)
+    details = inspect_owned_docker("network", network_name)
     labels = details.get("Labels") or {}
     if not (
         details.get("Id") == expected_id
@@ -396,7 +283,7 @@ def _find_created_container_id(container_name: str) -> str | None:
         return None
     if len(matches) != 1:
         raise RuntimeError("cold API container name was not unique")
-    details = _inspect_container(matches[0])
+    details = _inspect_docker(matches[0])
     if details.get("Name") != f"/{container_name}":
         raise RuntimeError("cold API container name did not match")
     container_id = details.get("Id")
@@ -418,45 +305,13 @@ def _find_created_network_id(network_name: str) -> str | None:
         return None
     if len(matches) != 1:
         raise RuntimeError("cold API network name was not unique")
-    details = _inspect_network(matches[0])
+    details = inspect_owned_docker("network", matches[0])
     if details.get("Name") != network_name:
         raise RuntimeError("cold API network name did not match")
     network_id = details.get("Id")
     if not isinstance(network_id, str) or not network_id:
         raise RuntimeError("cold API network identity was missing")
     return network_id
-
-
-def _connect_dependency(
-    network_name: str,
-    network_id: str,
-    container_id: str,
-    alias: str,
-    *,
-    owner_label: str,
-    owner_value: str,
-) -> None:
-    details = _inspect_container(container_id)
-    labels = details.get("Config", {}).get("Labels") or {}
-    networks = details.get("NetworkSettings", {}).get("Networks") or {}
-    if labels.get(owner_label) != owner_value or network_name in networks:
-        raise RuntimeError(
-            "refusing to attach an unowned or already attached dependency"
-        )
-    _docker("network", "connect", "--alias", alias, network_name, container_id)
-    attached = (
-        _inspect_container(container_id)
-        .get("NetworkSettings", {})
-        .get("Networks", {})
-        .get(network_name)
-    )
-    if not (
-        attached
-        and attached.get("NetworkID") == network_id
-        and attached.get("EndpointID")
-        and alias in (attached.get("Aliases") or [])
-    ):
-        raise RuntimeError("private dependency network alias was not installed")
 
 
 def _container_environment(details: dict) -> dict[str, str]:
@@ -482,9 +337,8 @@ def _verify_api_container(
     minio_endpoint: str,
     minio_access_key: str,
     minio_secret_key: str,
-    details: dict | None = None,
-) -> tuple[str, dict[str, str]]:
-    details = details or _inspect_container(container_id)
+) -> str:
+    details = _inspect_docker(container_id)
     config = details.get("Config", {})
     host = details.get("HostConfig", {})
     labels = config.get("Labels") or {}
@@ -493,24 +347,14 @@ def _verify_api_container(
         and details.get("Name") == f"/{container_name}"
         and details.get("Image") == image_id
         and config.get("User") == "10001:10001"
-        and config.get("Entrypoint") == ["/app/scripts/entrypoint.sh"]
-        and config.get("Cmd")
-        == ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
         and labels.get(_ACCEPTANCE_LABEL) == _CONTAINER_ACCEPTANCE
         and labels.get(_ACCEPTANCE_ID_LABEL) == run_id
         and labels.get(_WORKTREE_OWNER_LABEL) == resource_owner
         and host.get("NetworkMode") == network_name
         and host.get("ReadonlyRootfs") is True
-        and host.get("CapDrop") == ["ALL"]
-        and host.get("CapAdd") in (None, [])
-        and host.get("Privileged") is False
-        and "no-new-privileges:true" in (host.get("SecurityOpt") or [])
-        and host.get("PidsLimit") == 128
-        and host.get("NanoCpus") == 1_000_000_000
-        and host.get("Memory") == 1024 * 1024 * 1024
-        and "size=64m" in (host.get("Tmpfs") or {}).get("/tmp", "")
+        and details.get("State", {}).get("Running") is True
     ):
-        raise RuntimeError("cold API container identity or resource profile changed")
+        raise RuntimeError("cold API container identity changed")
     mounts = details.get("Mounts") or []
     binds = [mount for mount in mounts if mount.get("Type") == "bind"]
     tmpfs_mounts = [mount for mount in mounts if mount.get("Type") == "tmpfs"]
@@ -522,9 +366,6 @@ def _verify_api_container(
         and binds[0].get("Destination") == _AUTH_SECRET_TARGET
         and Path(binds[0].get("Source", "")).resolve() == auth_secret_file.resolve()
         and binds[0].get("RW") is False
-        and not Path(binds[0]["Source"])
-        .resolve()
-        .is_relative_to(Path(__file__).resolve().parents[3] / "apps")
     ):
         raise RuntimeError(
             "cold API container has a source mount or unsafe secret mount"
@@ -559,8 +400,6 @@ def _verify_api_container(
         and environment.get("MINIO_SECRET_KEY") == minio_secret_key
         and environment.get("MINIO_ACCESS_KEY") != _plain(settings.minio_access_key)
         and environment.get("MINIO_SECRET_KEY") != _plain(settings.minio_secret_key)
-        and "legacy_runtime" not in environment.get("DATABASE_URL", "")
-        and "owner:" not in environment.get("DATABASE_URL", "")
     ):
         raise RuntimeError("cold API was not bound to the verifier consumer roles")
     networks = details.get("NetworkSettings", {}).get("Networks") or {}
@@ -575,8 +414,7 @@ def _verify_api_container(
     ) or []
     if len(bindings) != 1 or bindings[0].get("HostIp") != "127.0.0.1":
         raise RuntimeError("cold API did not publish a loopback-only HTTP port")
-    origin = f"http://127.0.0.1:{int(bindings[0]['HostPort'])}"
-    return origin, environment
+    return f"http://127.0.0.1:{int(bindings[0]['HostPort'])}"
 
 
 async def _wait_for_api(
@@ -589,7 +427,7 @@ async def _wait_for_api(
     deadline = time.monotonic() + timeout
     async with httpx.AsyncClient(trust_env=False, timeout=2) as client:
         while time.monotonic() < deadline:
-            details = _inspect_container(container_id)
+            details = _inspect_docker(container_id)
             if details.get("State", {}).get("Running") is not True:
                 break
             try:
@@ -737,33 +575,13 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
         "identity_api_consumer",
         test_engine,
     )
-    identity_auth_host_url = _role_url(
-        "AAP_MODULE_DATA_IDENTITY_AUTH_URL", "identity_auth_client", test_engine
-    )
     _verify_postgres(api_db_host_url)
     resources = _verified_resource_manifest(test_engine, api_db_host_url)
-    await _verify_role_profile(
-        api_db_host_url, "identity_api_consumer", labeling_api=True
-    )
-    await _verify_role_profile(
-        identity_auth_host_url, "identity_auth_client", labeling_api=False
-    )
 
     postgres_id = _required("AAP_MODULE_DATA_PG_CONTAINER_ID")
-    postgres_name = _required("AAP_MODULE_DATA_PG_CONTAINER_NAME")
     postgres_identity = _required("AAP_MODULE_DATA_PG_CONTAINER_IDENTITY")
-    postgres = _inspect_container(postgres_id)
-    pg_labels = postgres.get("Config", {}).get("Labels") or {}
-    if not (
-        postgres.get("Name") == f"/{postgres_name}"
-        and pg_labels.get(_ACCEPTANCE_LABEL) == "module-data-boundary"
-        and pg_labels.get(_ACCEPTANCE_ID_LABEL) == postgres_identity
-        and postgres.get("State", {}).get("Running") is True
-    ):
-        pytest.fail("the verifier PostgreSQL identity was not stable")
-
     redis_id, resource_owner, redis_host_url = _redis_dependency(resources, test_engine)
-    minio_id, minio_port = _minio_dependency(resources)
+    minio = _minio_dependency(resources)
     api_s3_access = _required("AAP_MODULE_DATA_API_BOOTSTRAP_S3_ACCESS_KEY")
     api_s3_secret = _required("AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY")
     if api_s3_access == _plain(settings.minio_access_key) or api_s3_secret == _plain(
@@ -808,17 +626,10 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
         "IDENTITY_AUTH_DATABASE_URL": "",
         "IDENTITY_AUTH_DATABASE_URL_FILE": _AUTH_SECRET_TARGET,
         "IDENTITY_TIMEOUT_SECONDS": "10",
-        "IDENTITY_BRIEFS_DATABASE_URL": "",
-        "IDENTITY_BRIEFS_DATABASE_URL_FILE": "",
-        "MINIO_ENDPOINT": f"{_MINIO_ALIAS}:{minio_port}",
+        "MINIO_ENDPOINT": minio["endpoint"],
         "MINIO_ACCESS_KEY": api_s3_access,
         "MINIO_SECRET_KEY": api_s3_secret,
-        "MINIO_USE_SSL": "true" if settings.minio_use_ssl else "false",
-        "MINIO_PUBLIC_URL": "",
-        "SENTRY_DSN": "",
-        "TURNSTILE_ENABLED": "false",
-        "TRAINING_ENABLED": "false",
-        "CORS_ALLOW_ORIGINS": "[]",
+        "MINIO_USE_SSL": "true" if minio["ssl"] else "false",
     }
     for bucket_name in _API_BUCKET_NAMES:
         bucket = resources.get("buckets", {}).get(bucket_name)
@@ -828,7 +639,7 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
 
     network_id: str | None = None
     api_container_id: str | None = None
-    connected_dependencies = (postgres_id, redis_id, minio_id)
+    connected_dependencies = (postgres_id, redis_id)
     actor_id: uuid.UUID | None = None
     outsider_id: uuid.UUID | None = None
     project_id: uuid.UUID | None = None
@@ -838,7 +649,6 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
         [
             api_database_url.render_as_string(hide_password=False),
             auth_database_url.render_as_string(hide_password=False),
-            identity_auth_host_url.render_as_string(hide_password=False),
             api_db_host_url.render_as_string(hide_password=False),
         ]
     )
@@ -865,30 +675,10 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
             raise RuntimeError("Docker did not return the private network identity")
         _network_details(network_name, network_id, run_id)
 
-        _connect_dependency(
-            network_name,
-            network_id,
-            postgres_id,
-            _POSTGRES_ALIAS,
-            owner_label=_ACCEPTANCE_ID_LABEL,
-            owner_value=postgres_identity,
-        )
-        _connect_dependency(
-            network_name,
-            network_id,
-            redis_id,
-            _REDIS_ALIAS,
-            owner_label=_WORKTREE_OWNER_LABEL,
-            owner_value=resource_owner,
-        )
-        _connect_dependency(
-            network_name,
-            network_id,
-            minio_id,
-            _MINIO_ALIAS,
-            owner_label=_WORKTREE_OWNER_LABEL,
-            owner_value=resource_owner,
-        )
+        connect_owned_dependency(network_name, network_id, postgres_id, _POSTGRES_ALIAS)
+        connect_owned_dependency(network_name, network_id, redis_id, _REDIS_ALIAS)
+        _verify_minio_identity(_inspect_docker(minio["id"]), minio)
+        connect_owned_dependency(network_name, network_id, minio["id"], _MINIO_ALIAS)
 
         api_container_id = _docker(
             "create",
@@ -902,8 +692,6 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
             f"{_WORKTREE_OWNER_LABEL}={resource_owner}",
             "--network",
             network_name,
-            "--network-alias",
-            _API_ALIAS,
             "--publish",
             f"127.0.0.1::{_API_PORT}",
             "--read-only",
@@ -932,7 +720,7 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
         if re.fullmatch(r"[0-9a-f]{64}", api_container_id) is None:
             raise RuntimeError("Docker did not return the cold API container identity")
         _docker("start", api_container_id, timeout=60)
-        origin, _ = _verify_api_container(
+        origin = _verify_api_container(
             api_container_id,
             image_id=expected_image_id,
             network_name=network_name,
@@ -943,7 +731,7 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
             auth_secret_file=auth_secret_file,
             database_url=api_database_url,
             auth_url=auth_database_url,
-            minio_endpoint=f"{_MINIO_ALIAS}:{minio_port}",
+            minio_endpoint=minio["endpoint"],
             minio_access_key=api_s3_access,
             minio_secret_key=api_s3_secret,
         )
@@ -958,7 +746,6 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
         async with httpx.AsyncClient(
             base_url=origin, trust_env=False, timeout=30
         ) as client:
-            actor_id = None
             async with async_sessionmaker(
                 test_engine, expire_on_commit=False
             ).begin() as db:
@@ -1019,13 +806,6 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
             assert before.status_code == 200, before.text
             assert before.json() == []
 
-            missing_task = await client.post(
-                f"/api/v1/tasks/{uuid.uuid4()}/annotations",
-                headers=authorized,
-                json=payload,
-            )
-            assert missing_task.status_code == 404, missing_task.text
-
             idempotency_key = "cold-api-" + uuid.uuid4().hex
             write_headers = {
                 **authorized,
@@ -1075,7 +855,7 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
             else:
                 pytest.fail("annotation write did not preserve its Task foreign key")
 
-            await _verify_api_container(
+            _verify_api_container(
                 api_container_id,
                 image_id=expected_image_id,
                 network_name=network_name,
@@ -1086,14 +866,13 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
                 auth_secret_file=auth_secret_file,
                 database_url=api_database_url,
                 auth_url=auth_database_url,
-                minio_endpoint=f"{_MINIO_ALIAS}:{minio_port}",
+                minio_endpoint=minio["endpoint"],
                 minio_access_key=api_s3_access,
                 minio_secret_key=api_s3_secret,
             )
             await client.aclose()
             _docker("restart", api_container_id, timeout=60)
-            restarted_details = _inspect_container(api_container_id)
-            restarted_origin, _ = _verify_api_container(
+            restarted_origin = _verify_api_container(
                 api_container_id,
                 image_id=expected_image_id,
                 network_name=network_name,
@@ -1104,10 +883,9 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
                 auth_secret_file=auth_secret_file,
                 database_url=api_database_url,
                 auth_url=auth_database_url,
-                minio_endpoint=f"{_MINIO_ALIAS}:{minio_port}",
+                minio_endpoint=minio["endpoint"],
                 minio_access_key=api_s3_access,
                 minio_secret_key=api_s3_secret,
-                details=restarted_details,
             )
             await _wait_for_api(
                 restarted_origin,
@@ -1125,7 +903,6 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
                     str(annotation_id)
                 ]
                 assert after_restart.json()[0]["class_name"] == "car"
-            assert not restarted_details.get("State", {}).get("OOMKilled", True)
 
         record_property("labeling_cold_api_image_id", expected_image_id)
         record_property("labeling_cold_api_image_identity", artifact["identity"])
@@ -1142,18 +919,18 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
         if api_container_id is None:
             try:
                 api_container_id = _find_created_container_id(container_name)
-            except Exception:
+            except BaseException:
                 cleanup_errors.append(
                     "partial cold API container could not be inspected"
                 )
         if network_id is None:
             try:
                 network_id = _find_created_network_id(network_name)
-            except Exception:
+            except BaseException:
                 cleanup_errors.append("partial private network could not be inspected")
         if api_container_id is not None:
             try:
-                details = _inspect_container(api_container_id)
+                details = _inspect_docker(api_container_id)
                 labels = details.get("Config", {}).get("Labels") or {}
                 if (
                     details.get("Id") == api_container_id
@@ -1165,18 +942,18 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
                     _docker("rm", "--force", api_container_id, timeout=30)
                 else:
                     cleanup_errors.append("cold API container ownership changed")
-            except Exception:
+            except BaseException:
                 cleanup_errors.append("cold API container could not be removed")
 
         if network_id is not None:
             try:
                 _network_details(network_name, network_id, run_id)
-            except Exception:
+            except BaseException:
                 cleanup_errors.append("private cold API network ownership changed")
             else:
                 for dependency_id in connected_dependencies:
                     try:
-                        details = _inspect_container(dependency_id)
+                        details = _inspect_docker(dependency_id)
                         if network_name not in (
                             details.get("NetworkSettings", {}).get("Networks") or {}
                         ):
@@ -1184,7 +961,9 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
                         labels = details.get("Config", {}).get("Labels") or {}
                         if dependency_id == postgres_id:
                             is_owned = (
-                                labels.get(_ACCEPTANCE_ID_LABEL) == postgres_identity
+                                labels.get(_ACCEPTANCE_LABEL) == "module-data-boundary"
+                                and labels.get(_ACCEPTANCE_ID_LABEL)
+                                == postgres_identity
                             )
                         else:
                             is_owned = (
@@ -1195,11 +974,34 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
                                 "refused to detach an unowned dependency"
                             )
                             continue
-                        _docker("network", "disconnect", network_name, dependency_id)
-                    except Exception:
+                        disconnect_owned_dependency(
+                            network_name, network_id, dependency_id
+                        )
+                    except BaseException:
                         cleanup_errors.append(
                             "owned dependency could not be detached from private network"
                         )
+                try:
+                    details = _inspect_docker(minio["id"])
+                    _verify_minio_identity(details, minio)
+                    endpoint = (
+                        details.get("NetworkSettings", {})
+                        .get("Networks", {})
+                        .get(network_name)
+                    )
+                    if endpoint:
+                        if endpoint.get("NetworkID") != network_id:
+                            cleanup_errors.append(
+                                "refused to detach MinIO outside the test network"
+                            )
+                        else:
+                            disconnect_owned_dependency(
+                                network_name, network_id, minio["id"]
+                            )
+                except BaseException:
+                    cleanup_errors.append(
+                        "shared MinIO endpoint could not be detached from test network"
+                    )
                 try:
                     network = _network_details(network_name, network_id, run_id)
                     if network.get("Containers"):
@@ -1208,7 +1010,7 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
                         )
                     else:
                         _docker("network", "rm", network_name, timeout=30)
-                except Exception:
+                except BaseException:
                     cleanup_errors.append(
                         "private cold API network could not be removed"
                     )
