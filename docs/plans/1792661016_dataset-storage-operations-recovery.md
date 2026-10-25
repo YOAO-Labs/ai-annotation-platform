@@ -5,6 +5,44 @@
 
 当前原始矩阵另有明确缺口：§5／工程任务第2项的平台物理写删增量账目与账实差异核对尚未交付。现有 `storage_usage` Worker累加LIST页并替换持久快照，分类合计核验也只属于同次盘点；局部缓存额度和Creation／Retirement责任账本不能代替平台实际占用增量。该原始待办独立保留，不影响已完成盘点，也不是C5同步测量的新前置。
 
+## 下一片定稿：E12-B4 托管原件集中写入增量
+
+2026-10-25，基线 `5c95be25d`，继续原始 E12-S03／§5／工程任务第2项。B3已在隔离树交付通用账目表、分页对账和周期计划，feature为 `6ccae7415`＋`ab45ab907`；本片在该实现上接通现有托管原件集中写入链，一次覆盖Dataset direct／ZIP／connector／directory_copy、Task及辅助原件，不按导入消费者拆开新资格工程。C6尚在原进程测量，根应用继续冻结；本片不是E07、B8或C6的前置。
+
+最小方案是事后汇总Creation的size；该值不能证明当前可见字节变化，也会丢失真实写入后业务发布失败的事实。因此复用B3的事件与对账，在已有Creation独立事务中登记最终写入意图，并在真实I/O收尾后尽力发布。无需新表、迁移、API端点、任务、配置、命令、依赖或服务。
+
+### 共用意图与实际计量
+
+从 `storage_usage_accounting.begin` 提取可被既有AsyncSession／AsyncConnection事务复用的显式地址入口，接收固定endpoint／bucket／完整key、producer、owner UUID、逻辑组／实际attempt和类别；PredictionInput旧入口保留为薄适配，既有幂等身份及逐实际PUT行为不变。创建按生产者／owner／实际attempt区分；不可变删除仍按物理scope／key／VersionId跨owner去重，不能因通用化退回按业务owner重复扣减。
+
+`managed_original_creation._physical`在既有 prepared→writing 的独立事务中同时保存此最终提交尝试的账目意图；事务未成功就不调用writer.complete。复用同一引擎及Creation已有状态转换，不增加另一套业务责任、消费者门禁或异步任务。端点只取已验证冻结configuration.endpoint，桶／key／owner_kind／origin取该Creation，不从当前Binding猜地址。成功事务不跨原生I/O持锁；每个Creation只沿既有一次最终提交路径执行，重复读取verified结果不再记账。
+
+写入仍由现有writer执行：空对象条件PUT，非空对象条件CompleteMultipart；准备中的parts／abort不属于当前可见对象字节，不作正负量。捕获真实写入回执、prepared大小、完整读回及额外当前HEAD证据，保留返回VersionId与物理结果。仅条件提交成功、完整SHA／大小核验、非空且非null不可变返回版本与当前HEAD相符，并完成原生收尾时记正增量；412为本次零。无版本／null、返回旧版本但当前已替换、应答不明、关闭失败及证据不足保持unknown；不能因为最终看见对象而推断本次创建。
+
+无论Creation回执／读回／业务发布事务随后失败、调用者取消还是最终业务行回滚，已发生的物理事实由独立账目保留。真实I/O未收尾或进程在发布前消失时，已持久意图保留pending／unknown，不按时间消除。账目发布失败不改变已成功原件的业务结果；不新增读取门禁。沿用现有真实drain／close与维护permit次序，不为观察而提前释放资源。
+
+Retirement与Reclamation目前不执行最终物理DELETE，不接负量，也不顺带实现回收。浏览器direct暂存、mask暂存、旧预签名重放、其他生产者和提供方lifecycle仍是未覆盖写删，不能在签发URL时加量。已有LIST分页对账继续负责未解释变化，平台推算总量仍为null；本片不补造历史流水、不宣称全平台账目完成。
+
+```text
+frozen Creation + existing prepared -> writing transaction
+                   | atomic durable mutation intent
+                   v
+existing conditional PUT / CompleteMultipart -> receipt + full readback + current HEAD
+                   | true native close/drain
+                   v
+independent accounting fact -> existing LIST-window reconciliation -> partial summary
+```
+
+### 展示、准确范围与验证
+
+已有摘要的producers列表增加该实际生产者，coverage保持partial。现有存储折叠区按返回producers解释“临时输入写入／清理”和“托管原件受控新增”，不得把原件退役描述成物理移除；未接入与未知总量说明保留。只改覆盖文案和相关断言，不增加控件或重做工作台。
+
+预计19个准确候选路径，超过8文件，以同一增量合同交付：API `services/storage_usage_accounting.py`、`services/managed_original_creation.py`、`schemas/storage.py`；现有 `tests/test_storage_usage_accounting.py`、`tests/test_managed_original_creation.py`、`tests/test_task_original_creation.py`、`tests/test_managed_original_creation_routes.py` 与新 `tests/test_managed_original_accounting.py`（既有夹具仅在受本次新事务影响时调整）；Web `StorageUsageAccounting.tsx`及其测试；用户存储连接指南、API存储位置指南、开发storage-buckets说明、README、CHANGELOG、本计划与执行队列；OpenAPI快照和生成路由文档仅在实际生成差异时纳入。无其他调用者、writer协议、Worker或SDK接口改动；当前树生成类型仍本地生成。
+
+修改代理从合同提交后的当前根HEAD创建独立树，仅在该树应用已验收B8及B3依赖；不得在根树C6终态前合入应用。验证通用入口不改变B3幂等行为，Creation意图与writing原子提交、条件空PUT／MPU成功和412、丢应答、持久化／业务发布失败、取消后真实收尾、精确旧版本与当前替换、无版本保持未知、verified重读不重复；同一集中owner覆盖Dataset／Task／辅助及各origin的固定地址，不重新资格化导入消费者。实际一次性PostgreSQL／MinIO核对已确认原件与账目、LIST前后变化及原件关系保持，测试数据仅在已核验可销毁的test/e2e空间建立。
+
+覆盖文案在真实浏览器明暗／桌面／窄屏查看，复用B3已完成的周期控件和撤权验收，不重复其资格。完成相关API／Web、格式、文档构建、正常提交钩子与diff检查；精确销毁所属资源、清理日志／截图／缓存，仅保留有界摘要及待集成Git树。人工3100／8100、两Worker／Beat和C6原session27154保持。回退保留0246事实表，停用新增接线与说明；不反向删除原件或历史事实。原始其他生产者、外部写入与真实部署测量仍独立推进。
+
 ## 本轮定稿：E12-B3 当前对象增量账目与周期对账
 
 2026-10-25，基线 `587a0c9cd`，落实原始 E12-S03／§5／工程任务第2项。最小路径是保留现有 LIST 快照、只追加写删流水；本片在此基础上复用已有分页任务完成对象级对账及显式周期计划，使账目能被实际核对。首个完整生产者限 `prediction_inputs`；其他用途未接入时明确为部分覆盖，不能勾完全部工程任务，也不能据此新增消费者资格或清理许可。它不是附件切换、训练基准或 E07 迁移清单的前置。
