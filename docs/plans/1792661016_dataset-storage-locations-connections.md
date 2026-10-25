@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12与B13各切片至B3-M1 completed locally；Tracker M2未启动。B14头像、B15报告附件、B16审计归档、B17导出、B18导入暂存、B19数据集原件已交付；B20媒体缓存新分配切换已完成隔离验收、主树集成与人工0252刷新。Mask旧摘要问题已窄修并验证实际发布；annotations和training两用途仍锁定，完整E02继续执行，不分配发布版本。
+> 状态：E02-A、B1–B12与B13各切片至B3-M1 completed locally；Tracker M2未启动。B14头像、B15报告附件、B16审计归档、B17导出、B18导入暂存、B19数据集原件已交付；B20媒体缓存新分配切换已完成隔离验收、主树集成与人工0252刷新。B21标注文件新分配切换已通过主树集成与人工0253刷新，现开放八用途；Mask旧摘要问题已窄修并验证实际发布，training仍锁定，完整E02继续执行，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -1699,3 +1699,7 @@ E02-B15补充修复：独立复核指出显式`null`为可覆盖槽位，本片�
 ## E02-B21 隔离验收：标注文件新分配位置切换
 
 四组既有owner、当前凭据读取、控制面及0253已集中到`2622bc4da`，最终288项后端集成检查通过；真实A／B、回切、轮换撤销、维护门禁、现有Worker清理及明暗／窄屏浏览器已验证。完整证据与准确边界见[E09-B14隔离验收](1792661016_dataset-storage-console-boundaries.md#e09-b14-隔离验收标注文件新分配位置切换)。主树合入与人工环境仍待0253刷新；整项E02继续活动。
+
+## E02-B21 Outcome：标注文件新分配位置切换
+
+实现已通过`eec007a66`合入，0253及原人工3100／8100、两个73任务Worker和绑定Beat刷新完成，八用途可受控切换。四组owner的保存地址、当前凭据、旧及在途A、新B、回切、实际Worker与浏览器证据见[E09-B14隔离验收](1792661016_dataset-storage-console-boundaries.md#e09-b14-隔离验收标注文件新分配位置切换)；173表9,230行、24对象版本／删除标记和12源文件指纹保持及所属资源清理见[E09-B14交付结果](1792661016_dataset-storage-console-boundaries.md#e09-b14-outcome主树交付与人工环境刷新)。training和整项E02仍活动，不扩展标注业务或训练测量。
