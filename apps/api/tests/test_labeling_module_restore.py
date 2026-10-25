@@ -26,6 +26,7 @@ from tests.factory import create_task
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_identity_recovery import _alembic, _postgres_tool
 from tests.test_inference_backend_dependency_reads_restore import (
+    _assert_clone_identity,
     _create_owned_clone,
     _database_acl,
     _database_head,
@@ -51,20 +52,6 @@ _ANNOTATION_WRITE_FUNCTIONS = {
     ("scene_track_domain_command", "jsonb"),
     ("annotation_write_command", "jsonb"),
 }
-
-
-async def _assert_owned_database(engine, database: str, marker: str) -> None:
-    await assert_owned_test_database(engine)
-    assert engine.url.database == database
-    async with engine.connect() as connection:
-        actual = await connection.scalar(
-            text(
-                "SELECT pg_catalog.shobj_description(oid, 'pg_database') "
-                "FROM pg_catalog.pg_database WHERE datname=:name"
-            ),
-            {"name": database},
-        )
-    assert actual == marker
 
 
 async def _labeling_catalog_snapshot(engine) -> dict[str, tuple]:
@@ -369,7 +356,7 @@ async def test_current_labeling_module_state_survives_owned_restore(
         source_engine = create_async_engine(
             test_engine.url.set(database=source_database), hide_parameters=True
         )
-        await _assert_owned_database(source_engine, source_database, source_marker)
+        await _assert_clone_identity(source_engine, source_database, source_marker)
         migration = _alembic(source_engine.url, "upgrade", "head")
         assert migration.returncode == 0
         assert await _database_head(source_engine) == current_head
@@ -453,7 +440,7 @@ async def test_current_labeling_module_state_survives_owned_restore(
         restored_engine = create_async_engine(
             test_engine.url.set(database=restored_database), hide_parameters=True
         )
-        await _assert_owned_database(
+        await _assert_clone_identity(
             restored_engine, restored_database, restored_marker
         )
         assert await _database_head(restored_engine) == current_head
