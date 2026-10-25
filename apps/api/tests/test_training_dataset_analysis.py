@@ -831,6 +831,7 @@ async def test_media_observation_serializes_with_concurrent_version_deletion(
     from app.api.v1.training_datasets import delete_version
     from app.db.models.project import Project
     from app.db.models.user import User
+    from app.services.storage import StorageService
     from tests.factory import create_user
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -865,9 +866,9 @@ async def test_media_observation_serializes_with_concurrent_version_deletion(
     monkeypatch.setattr(service.storage, "client", fake)
     deleted_prefixes = []
     monkeypatch.setattr(
-        service.storage,
+        StorageService,
         "delete_prefix",
-        lambda *args, **kwargs: deleted_prefixes.append(args[0]),
+        lambda self, prefix, **kwargs: deleted_prefixes.append(prefix) or 0,
     )
     deletion_pid = None
 
