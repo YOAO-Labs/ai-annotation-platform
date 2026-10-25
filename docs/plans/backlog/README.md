@@ -40,7 +40,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 | [E06 多站点 Agent](1792661016_dataset-multi-site-agent.md)                                         | 隔离站点出站扫描/读取和断线恢复       | 真实网络触发；不阻塞首目录   |
 | [E07 S3 选型与迁移](../1792661016_dataset-s3-selection-migration.md)                               | 候选契约、全用途迁移及回滚            | 试验独立；切换另过恢复门     |
 | [E08 数据集工作台与质量](../archive/1792661016_dataset-workbench-quality.md)                       | 完整 E08 已验收归档；含项目上下文统计 | 共享／近似重复按原计划后置   |
-| [E09 存储控制台与去重](../1792661016_dataset-storage-console-boundaries.md)                        | 唯一配置、准确指标和上下文深链        | E02；与 E08 迁旧入口         |
+| [E09 存储控制台与去重](../archive/1792661016_dataset-storage-console-boundaries.md)                | 唯一配置、准确指标和上下文深链        | E02；与 E08 迁旧入口         |
 | [E10 版本与训练消费](../1792661016_dataset-versions-training-consumption.md)                       | 目录进入已有冻结体系、血缘及缓存      | 现有任务版本流与 E05；不重建 |
 | [E11 权限与生命周期](../1792661016_dataset-permissions-lifecycle.md)                               | 只读/修订保护、影响预览、恢复/回收    | 最小保护随核心；治理独立启用 |
 | [E12 容量、运维与恢复](../1792661016_dataset-storage-operations-recovery.md)                       | 异步统计、定位故障、一致恢复          | 诊断随核心；恢复先于迁移     |

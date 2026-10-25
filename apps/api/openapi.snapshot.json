@@ -97945,6 +97945,7 @@
     },
     "/api/v1/storage-connections": {
       "get": {
+        "description": "仅项目管理员或超级管理员可读配置；API Key 需 datasets:read。",
         "operationId": "list_connections_api_v1_storage_connections_get",
         "responses": {
           "200": {
@@ -98178,6 +98179,7 @@
         ]
       },
       "get": {
+        "description": "仅项目管理员或超级管理员可读可见连接配置；API Key 需 datasets:read。",
         "operationId": "get_connection_api_v1_storage_connections__conn_id__get",
         "parameters": [
           {

@@ -1,7 +1,43 @@
 # EPIC-09：存储控制台与页面职责去重
 
-> 状态：E09-A、B1–B18已完成各自本地交付；九用途均可受控切换新分配位置，历史与在途对象继续使用保存地址；这不代表已有对象已迁移。B16补齐位置列表的持久健康与已采纳源规模，B17接通配置源迁移清单任务、历史及私密报告，人工环境已更新0256。位置影响、配置确认、逻辑维护与原件保留／核验沿既有E11交付；B18已接通应用初次复制、持久检查点及选择重试，切换与物理退役任务仍未接线，不把整个E07生产资格附加为E09前置。完整E09继续活动，不分配发布版本。
+> 状态：complete / archived；E09-A、B1–B19已完成，七个原始故事、十项AC及八项工程交付已按实现和分项证据收口。B19补齐旧连接器配置读取权限，纠正将E07最终切换／物理退役列为E09前置的解释。已有对象不随用途切换自动搬迁，生产迁移继续归E07；不分配发布版本。
 > 转入日期：2026-10-22；A 切片验收：2026-10-23；初始调研基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
+
+## 本轮定稿：E09-B19 配置读取权限与原始范围收口
+
+2026-10-25基于`fdd0725e8`逐项复核桌面原始七个故事、十项AC和八项工程交付。原始S07／AC09要求维护前影响、阻断及实际任务状态，不要求在E09完成E07的生产切换或物理退役；此前将后二者列为E09收口前置的解释不成立。保留各历史Outcome，最终结论以本轮原始矩阵为准。
+
+唯一确认的实际缺口是AC10：旧连接器列表和单项GET仅要求登录，普通人员仍能读取global配置中的端点、桶、用户名或路径。密钥已经不回显。本片将两接口对齐既有位置管理角色，并要求API Key具备`datasets:read`；保留超管全部、项目管理员global与自建的可见范围及不可见对象404。前端非管理角色不请求配置列表，保留会话隔离和迟到响应保护。既有复制导入本就要求管理角色，不新增选项接口或改变服务端使用授权。
+
+验证覆盖真实鉴权／一次性PostgreSQL的角色、scope、归属和降权，Web角色变化及已有导入调用；补充当前人工环境只读检查。无迁移、Worker、对象存储写入或镜像变更。通过后核对原始矩阵并归档完整E09；E07增量追平、生产切换和退役仍在E07独立推进。
+
+## Outcome — 完整 E09 验收与归档
+
+2026-10-25基于`fdd0725e8`及本轮B19修复，逐项核对桌面原始E09。此前各Outcome中的“尚待迁移／物理退役”记录保留为历史；原始S07／AC09要求影响／阻断和实际提交任务的状态，不能据此附加完整E07生产切换或物理删除条件。当前正式布局沿用户确认的统一字号、全宽管理列表、居中详情及表单外提示；平台对象快照独立展示，站点、物理容量及配额没有可信数据时明确未提供。
+
+| 原始AC | 完成依据 |
+| --- | --- |
+| AC01 | DatasetsPage兼容跳转和唯一StorageLocationsConsole配置入口；A导航、权限及回归。 |
+| AC02 | 存储页没有重复完整Dataset CRUD；StorageLocationSourceSummary带位置过滤和returnTo，A实际往返。 |
+| AC03 | storage_location真实filesystem／S3／SFTP类型及能力，Console消费动态属性；A与B16。 |
+| AC04 | 源规模与平台对象字节分列，物理容量／配额未知不伪造；E12-C2／C3及B16。 |
+| AC05 | storage_source_usage对跨Dataset物理引用去重，实际平台对象按保存地址分项；E12-C2／C3真实双Dataset及对象验收。 |
+| AC06 | 固定九用途、缺失项可见；B5与B7–B15真实受控新分配切换。 |
+| AC07 | 健康、来源规模与对象快照保留时间、旧值及过期／失败状态；B1／B4／B16和E12统计。 |
+| AC08 | 只读源无写探测／删除入口；原图缓存维护跳过租约并按准确保存目标回收，A与既有缓存验收。 |
+| AC09 | E11-B1／B2／C1及E02-B23影响／阻断和确认；B6／B17／B18展示真实Job、部分失败／取消及逐对象结果，不提前宣称迁移完成。 |
+| AC10 | 新位置与来源权限裁剪复用A；B19将旧配置列表／单项GET限定管理角色和datasets:read，保留归属404；普通人员、旧角色、Key、降权与修改请求拒绝见本轮测试。 |
+
+原始七个故事的实现与证据见下方故事矩阵；原始八项工程任务在§11逐项勾选。未知容量和当前统计覆盖是原文要求的准确表达，E06站点部署、E07最终增量／切换／退役、E11物理回收与E12完整物理增量仍由各自Epic推进，不因本计划归档而标为完成。
+
+### E09-B19 交付与验证
+
+- 两个配置GET使用既有管理角色与`datasets:read`检查，仍为超管全部、项目管理员global与自建、其他owner为404；服务端业务使用范围不变。OpenAPI增加准确授权说明，已重新生成本地Web类型。前端非管理角色停用配置查询，角色／会话变化撤销旧请求并隐藏迟到数据。
+- 修改前真实一次性PostgreSQL／ASGI复现：同一管理员JWT降权后单项GET仍200；修复后78项不同相关API／服务用例通过，其中新增19项。最终补充同一降权用例的PATCH拒绝并复验通过，不重复累计。覆盖JWT、API Key缺scope／write-only／read／通配、所有非管理角色、global／自建／他人owner、脱敏及当前角色复核。
+- 相关Web三文件34项通过，其中hook十项。一次命令参数导致额外全套运行，693文件中692文件通过、7,212项通过、两项预标任务详情失败；在干净`fdd0725e8`独立树的原22项中复现相同两项失败。相关34项包含在通过范围，不叠加计数；不将旧预标页面整改列为本轮前置。
+- 人工3100／8100实际API和浏览器正常；该环境只有超管且没有已保存连接器，本轮只验证空配置列表200、未知单项404、新建居中表单、Escape关闭及焦点返回，角色／scope矩阵由前述真实隔离DB验证。首轮564条浏览器记录无HTTP错误，六条无状态记录不计成功，控制台无warn／error、页面异常为零。七张相关业务表40行完整指纹一致，没有提交配置或业务操作。
+- 正式说明：README、CHANGELOG Unreleased、用户存储指南、API连接器指南及开发连接器概念；现有迁移手册与桶指标继续准确覆盖已实现能力。四项SDK合同、OpenAPI一致性、本地codegen、tsc、相关ESLint和Ruff／格式通过；文档frontmatter207、navigation209、readability208及完整构建37.41秒通过。正常提交钩子和最终diff检查纳入同次交付；未运行远端CI、未推送或发布。
+- 按计划规范移入archive并修复全部Markdown引用。测试mode资源、独立基线树、浏览器、私有登录状态、原始网络及测试／构建产物按本轮归属清理，保留人工环境。
 
 ## 本轮定稿：E09-B16 位置列表的持久健康与源规模摘要
 
@@ -489,7 +525,7 @@ PredictionInputs继续既有准确版本清理，因此目标探针覆盖本链�
 
 所属test／e2e数据库、Redis、十八个桶与两个临时S3账号、浏览器和原始测试／截图产物按owner清理，保留有界结果。本片现已合入主树并应用人工0247；3100／8100、两Worker及绑定Beat已刷新，迁移前后原行与对象内容保持。另有父任务窄修 `c8924d4a0`：Creation只依赖datasets／annotations／import的实际配置，73项相关检查独立通过，不计入上述273项。本片未新增审计归档增量账目生产者，当前统计仍partial；外部目标不在九桶恢复范围，工具在任何映射修改前拒绝schema2，不宣称外部恢复已覆盖。完整E02／E09继续活动。
 
-> 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 实施前须通过 [backlog promotion gate](../backlog/README.md#promotion-gate)。[草案总览](../backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](../backlog/1792661016_dataset-storage-architecture.md)和[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 属性     | 草案约定                                                           |
 | -------- | ------------------------------------------------------------------ |
@@ -578,21 +614,21 @@ pnpm docs:build
 
 原始受控用途变更仍为独立待办：当前全九用途共同校验legacy位置／代次1，已有owner仍含旧配置约束，引用位置的读能力也不构成新托管写目标资格。不能只改一条DB绑定或下拉框；也不据此增加Tracker、会话或审核专项前置。媒体失败重试接入共享任务详情另按原始§11推进，本片不改视频执行链。
 
-2026-10-25 随 [E12-C3](1792661016_dataset-storage-operations-recovery.md#e12-c3平台当前对象分项计量) 完成原始 E09-S04 的平台分项展示。沿现有盘点与授权 owner，展示六类实际字节、桶覆盖、采样窗口和未归类／冲突；外部源索引规模独立。旧分类未知、失败保留、刷新不列举，以及明暗／桌面／窄屏已核验。详细后端、真实任务和人工环境证据见 C3 Outcome；不增加消费者、Tracker 或审核改造前置，物理容量和生产目标仍按原始要求记录。
+2026-10-25 随 [E12-C3](../1792661016_dataset-storage-operations-recovery.md#e12-c3平台当前对象分项计量) 完成原始 E09-S04 的平台分项展示。沿现有盘点与授权 owner，展示六类实际字节、桶覆盖、采样窗口和未归类／冲突；外部源索引规模独立。旧分类未知、失败保留、刷新不列举，以及明暗／桌面／窄屏已核验。详细后端、真实任务和人工环境证据见 C3 Outcome；不增加消费者、Tracker 或审核改造前置，物理容量和生产目标仍按原始要求记录。
 
-2026-10-25 基于 `7fe707bb6` 定稿 E09-B4，与 [E12-C2](1792661016_dataset-storage-operations-recovery.md#本轮定稿e12-c2--e09-b4-当前已采纳源索引规模) 同次补齐原始 E09-S04／AC04、AC05 的当前已采纳源索引规模，现已实现并完成本地验收。现有平台桶盘点不包含该量；位置内全部可见来源的固定采纳事实在单 SQL statement 内去重，区分已知部分、未知总量、历史观测与平台对象字节。真实双 Dataset 的 4 条采纳记录去重为 2 文件／226 B，冲突及空范围、分页、刷新和明暗／窄屏均通过，详见 [C2 Outcome](1792661016_dataset-storage-operations-recovery.md#e12-c2--e09-b4当前已采纳源索引规模)。不附加 Tracker、审核或生产站点前置，完整 E09 尚未收口。
+2026-10-25 基于 `7fe707bb6` 定稿 E09-B4，与 [E12-C2](../1792661016_dataset-storage-operations-recovery.md#本轮定稿e12-c2--e09-b4-当前已采纳源索引规模) 同次补齐原始 E09-S04／AC04、AC05 的当前已采纳源索引规模，现已实现并完成本地验收。现有平台桶盘点不包含该量；位置内全部可见来源的固定采纳事实在单 SQL statement 内去重，区分已知部分、未知总量、历史观测与平台对象字节。真实双 Dataset 的 4 条采纳记录去重为 2 文件／226 B，冲突及空范围、分页、刷新和明暗／窄屏均通过，详见 [C2 Outcome](../1792661016_dataset-storage-operations-recovery.md#e12-c2--e09-b4当前已采纳源索引规模)。不附加 Tracker、审核或生产站点前置，完整 E09 尚未收口。
 
-2026-10-24 基于 `802e6e4df` 定稿 E09-B3，与已晋升的 [E11-B1](1792661016_dataset-permissions-lifecycle.md#本轮定稿e11-b1--e09-b3-位置维护影响盘点) 同次交付超级管理员的只读位置维护盘点。准确文件范围、单SQL/当前授权/历史覆盖合同与验证矩阵以E11本轮合同为准。现有居中详情内默认折叠，仅展开/刷新GET，无额外写操作；位置配置变更影响与全部owner安全执行许可分开。归档/恢复、版本化变更门禁和物理回收仍待后续实施。
+2026-10-24 基于 `802e6e4df` 定稿 E09-B3，与已晋升的 [E11-B1](../1792661016_dataset-permissions-lifecycle.md#本轮定稿e11-b1--e09-b3-位置维护影响盘点) 同次交付超级管理员的只读位置维护盘点。准确文件范围、单SQL/当前授权/历史覆盖合同与验证矩阵以E11本轮合同为准。现有居中详情内默认折叠，仅展开/刷新GET，无额外写操作；位置配置变更影响与全部owner安全执行许可分开。归档/恢复、版本化变更门禁和物理回收仍待后续实施。
 
 用户已授权“完成 E10-A，再推进 E08/E09 页面整合”。复核基线 `74bd04c12`，工作树干净；E03/E04 已完成，E10-A 已支持引用原图严格读取后冻结独立副本。本节替代历史候选范围，仅实施 E08-A/E09-A 页面整合；保存视图、质量治理、异步容量统计和维护迁移仍属后续切片。超过 8 个文件，跨前端、API、合同和文档；不创建业务表、不改依赖/环境、不重建镜像。
 
-本轮E11-B2补齐位置配置候选预览与版本绑定确认，范围与验证以[E11实施合同](1792661016_dataset-permissions-lifecycle.md#本轮定稿e11-b2-位置配置候选预览与确认)为准；使用范围及缓存保存入口共用居中确认，不将只读盘点误作全部owner静止或物理回收许可。
+本轮E11-B2补齐位置配置候选预览与版本绑定确认，范围与验证以[E11实施合同](../1792661016_dataset-permissions-lifecycle.md#本轮定稿e11-b2-位置配置候选预览与确认)为准；使用范围及缓存保存入口共用居中确认，不将只读盘点误作全部owner静止或物理回收许可。
 
-E11-C1在同一位置详情内补充默认折叠的访问维护，范围以[E11实施合同](1792661016_dataset-permissions-lifecycle.md#本轮定稿e11-c1-位置访问维护准入与排空)为准；关闭新访问、未收尾记录、停止与恢复各自明确，居中版本化确认。只表达本逻辑Location的受控访问，不能作为共享挂载/桶、候选连接或外部客户端的物理静止证明。
+E11-C1在同一位置详情内补充默认折叠的访问维护，范围以[E11实施合同](../1792661016_dataset-permissions-lifecycle.md#本轮定稿e11-c1-位置访问维护准入与排空)为准；关闭新访问、未收尾记录、停止与恢复各自明确，居中版本化确认。只表达本逻辑Location的受控访问，不能作为共享挂载/桶、候选连接或外部客户端的物理静止证明。
 
-E11-C2-A在平台对象占用卡片内补充默认折叠的托管原件保留与回收预演，范围以[E11实施合同](1792661016_dataset-permissions-lifecycle.md#本轮定稿e11-c2-a-托管原件保留账本与回收预演)为准；只查看业务删除时保存的已登记原件断言和当前保护关系，不按位置统计或推算可释放字节。分页/居中详情、观测时间、无限期保护及未覆盖条件清楚表达，无物理删除操作。
+E11-C2-A在平台对象占用卡片内补充默认折叠的托管原件保留与回收预演，范围以[E11实施合同](../1792661016_dataset-permissions-lifecycle.md#本轮定稿e11-c2-a-托管原件保留账本与回收预演)为准；只查看业务删除时保存的已登记原件断言和当前保护关系，不按位置统计或推算可释放字节。分页/居中详情、观测时间、无限期保护及未覆盖条件清楚表达，无物理删除操作。
 
-E11-C2-B进一步在原件居中详情内提供默认折叠的保留设置与要求：单条期限与整组保护分开，已声明备份/迁移要求经预览登记或显式解除，相关历史分页和原锚点导航保留。范围、验证及未知覆盖以[E11 Outcome](1792661016_dataset-permissions-lifecycle.md#e11-c2-b-显式保留策略与声明要求)为准；不提供物理删除许可，也不把声明编号解释为真实恢复验证。
+E11-C2-B进一步在原件居中详情内提供默认折叠的保留设置与要求：单条期限与整组保护分开，已声明备份/迁移要求经预览登记或显式解除，相关历史分页和原锚点导航保留。范围、验证及未知覆盖以[E11 Outcome](../1792661016_dataset-permissions-lifecycle.md#e11-c2-b-显式保留策略与声明要求)为准；不提供物理删除许可，也不把声明编号解释为真实恢复验证。
 
 ## 准确文件范围
 
@@ -633,19 +669,19 @@ source/job summary <------------------- source + sanitized item status
 
 | 当前 owner / 代码锚点                                                                                | 已有能力、缺口与复用约束                                                                   |
 | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| [StoragePage.tsx](../../apps/web/src/pages/Storage/StoragePage.tsx)                                  | 已有桶/重复数据集概览与视频失败重试；删除重复表时保留媒体维护入口及管理权限。              |
-| [StorageConnectionsPanel.tsx](../../apps/web/src/components/connections/StorageConnectionsPanel.tsx) | 复用现有表单和 hooks，迁到位置详情；导入向导中的内嵌连接创建也需同步迁移。                 |
-| [storage.py](../../apps/api/app/api/v1/storage.py)                                                   | 现有统计六类、health 只 HEAD annotations；新位置健康/九用途合同由 E02/E12 提供，E09 消费。 |
+| [StoragePage.tsx](../../../apps/web/src/pages/Storage/StoragePage.tsx)                                  | 已有桶/重复数据集概览与视频失败重试；删除重复表时保留媒体维护入口及管理权限。              |
+| [StorageConnectionsPanel.tsx](../../../apps/web/src/components/connections/StorageConnectionsPanel.tsx) | 复用现有表单和 hooks，迁到位置详情；导入向导中的内嵌连接创建也需同步迁移。                 |
+| [storage.py](../../../apps/api/app/api/v1/storage.py)                                                   | 现有统计六类、health 只 HEAD annotations；新位置健康/九用途合同由 E02/E12 提供，E09 消费。 |
 
-候选修改入口：[StoragePage.tsx](../../apps/web/src/pages/Storage/StoragePage.tsx)、[StorageConnectionsPanel.tsx](../../apps/web/src/components/connections/StorageConnectionsPanel.tsx)、[ImportDatasetWizard.tsx](../../apps/web/src/components/datasets/ImportDatasetWizard.tsx)、[DatasetsPage.tsx](../../apps/web/src/pages/Datasets/DatasetsPage.tsx)、[storage.ts](../../apps/web/src/api/storage.ts)、[App.tsx](../../apps/web/src/App.tsx)、[storage.py](../../apps/api/app/api/v1/storage.py)、[storage.py](../../apps/api/app/schemas/storage.py)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[StoragePage.tsx](../../../apps/web/src/pages/Storage/StoragePage.tsx)、[StorageConnectionsPanel.tsx](../../../apps/web/src/components/connections/StorageConnectionsPanel.tsx)、[ImportDatasetWizard.tsx](../../../apps/web/src/components/datasets/ImportDatasetWizard.tsx)、[DatasetsPage.tsx](../../../apps/web/src/pages/Datasets/DatasetsPage.tsx)、[storage.ts](../../../apps/web/src/api/storage.ts)、[App.tsx](../../../apps/web/src/App.tsx)、[storage.py](../../../apps/api/app/api/v1/storage.py)、[storage.py](../../../apps/api/app/schemas/storage.py)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 问题与当前依据
 
-当前存储页同时展示后端、桶、数据集数量、数据集存储概览和项目关联；数据集页又管理完整数据集与连接器，两页重复的信息和操作分散了用户注意力。[存储页](../../apps/web/src/pages/Storage/StoragePage.tsx)、[数据集页](../../apps/web/src/pages/Datasets/DatasetsPage.tsx)。
+当前存储页同时展示后端、桶、数据集数量、数据集存储概览和项目关联；数据集页又管理完整数据集与连接器，两页重复的信息和操作分散了用户注意力。[存储页](../../../apps/web/src/pages/Storage/StoragePage.tsx)、[数据集页](../../../apps/web/src/pages/Datasets/DatasetsPage.tsx)。
 
-存储页硬编码 MinIO 和 HTTP 开发环境；“总容量”使用 `total_size_bytes`，实际上来自对象大小汇总。存储服务包含九类业务用途，而存储 API 当前仅覆盖部分桶。后续 UI 应使用位置能力与服务端统计合同，而非写死产品名称和单一后端。[存储服务](../../apps/api/app/services/storage.py)、[存储 API](../../apps/api/app/api/v1/storage.py)。
+存储页硬编码 MinIO 和 HTTP 开发环境；“总容量”使用 `total_size_bytes`，实际上来自对象大小汇总。存储服务包含九类业务用途，而存储 API 当前仅覆盖部分桶。后续 UI 应使用位置能力与服务端统计合同，而非写死产品名称和单一后端。[存储服务](../../../apps/api/app/services/storage.py)、[存储 API](../../../apps/api/app/api/v1/storage.py)。
 
-既有 JobsBell 与任务详情已有统一任务入口，本 Epic 仅接入其上下文展示，不另造任务中心。[JobsBell](../../apps/web/src/components/shell/JobsBell.tsx)。
+既有 JobsBell 与任务详情已有统一任务入口，本 Epic 仅接入其上下文展示，不另造任务中心。[JobsBell](../../../apps/web/src/components/shell/JobsBell.tsx)。
 
 ## 2. 目标、范围与暂不做
 
@@ -789,11 +825,9 @@ source/job summary <------------------- source + sanitized item status
 - [x] 接入权限裁剪、实际连接属性与能力展示。
 - [x] 接入分项用量、统计时间、未知/部分/过期状态；来源规模与平台对象分类分别见E12-C2／C3。
 - [x] 完成位置到数据集的过滤深链及返回状态恢复。
-- [x] 保留媒体资产失败查看和实际重试派发。
-- [x] 将媒体重试接入统一任务详情；返回本人可见的Job，跟随真实资产结果，关闭后刷新失败列表，后台任务与终态通知可重新进入，见E09-B6 Outcome。
-- [x] 完成已有维护影响盘点、版本化配置确认、逻辑位置访问排空／停止／恢复及真实结果展示，见E11-B1／B2／C1。
-- [ ] 接入位置迁移／退役的受控任务提交与实际结果展示；后端能力由E02／E07提供，不附加生产选型或整库迁移资格。
-- [x] A：通过页面整合验收和回归，更新页面归属、迁移说明及未知指标口径；运维统计和维护工作流另行验收。
+- [x] 保留媒体资产失败／重试并接入统一任务详情；返回本人可见Job、真实结果、终态通知与重入，见E09-B6 Outcome。
+- [x] 完成原始维护影响预览、任务提交与结果展示：E11-B1／B2／C1、E02-B23及B17／B18；最终停写、切换和物理退役由E07实施，不作为E09前置。
+- [x] 通过A–B19分项验收和相关回归，更新页面说明、迁移说明及指标字典，见完整Outcome。
 
 完成定义：用户能明确区分“管理数据集”和“维护存储”，每项配置只有一个权威入口；所有指标可追溯口径，不依赖写死的后端名称或虚假的容量假设。
 
@@ -808,11 +842,11 @@ source/job summary <------------------- source + sanitized item status
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[StoragePage.test.tsx](../../apps/web/src/pages/Storage/StoragePage.test.tsx)、[StorageConnectionsPanel.test.tsx](../../apps/web/src/components/connections/StorageConnectionsPanel.test.tsx)、[DatasetsPage.test.tsx](../../apps/web/src/pages/Datasets/DatasetsPage.test.tsx)、[test_storage_event_loop.py](../../apps/api/tests/test_storage_event_loop.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[StoragePage.test.tsx](../../../apps/web/src/pages/Storage/StoragePage.test.tsx)、[StorageConnectionsPanel.test.tsx](../../../apps/web/src/components/connections/StorageConnectionsPanel.test.tsx)、[DatasetsPage.test.tsx](../../../apps/web/src/pages/Datasets/DatasetsPage.test.tsx)、[test_storage_event_loop.py](../../../apps/api/tests/test_storage_event_loop.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[storage-connections.md](../../docs-site/user-guide/datasets/storage-connections.md)、[storage-buckets.md](../../docs-site/dev/reference/storage-buckets.md)、[docker-compose.md](../../docs-site/ops/deploy/docker-compose.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[storage-connections.md](../../../docs-site/user-guide/datasets/storage-connections.md)、[storage-buckets.md](../../../docs-site/dev/reference/storage-buckets.md)、[docker-compose.md](../../../docs-site/ops/deploy/docker-compose.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## Outcome
 
@@ -830,41 +864,41 @@ E09-A 归属去重和准确指标及 E09-B1 平台占用快照完成；E09-B 其
 
 ### E09-B1 本轮范围
 
-按 [E12-A1 实施合同](1792661016_dataset-storage-operations-recovery.md#本轮定稿e12-a1--e09-b1)接入平台九用途的异步对象盘点与成功快照：默认折叠的统计明细、采样窗口、未知/零/过期/失败/部分覆盖、独立刷新与启动、统一居中任务详情。配置与数据集导航不重建。E12 进一步分项归因、物理容量、配额，以及 E11/E07 的清理/迁移/退役仍保留为后续范围，不宣称 E09-B 全部完成。
+按 [E12-A1 实施合同](../1792661016_dataset-storage-operations-recovery.md#本轮定稿e12-a1--e09-b1)接入平台九用途的异步对象盘点与成功快照：默认折叠的统计明细、采样窗口、未知/零/过期/失败/部分覆盖、独立刷新与启动、统一居中任务详情。配置与数据集导航不重建。E12 进一步分项归因、物理容量、配额，以及 E11/E07 的清理/迁移/退役仍保留为后续范围，不宣称 E09-B 全部完成。
 
-E09-B1 已随 `0e85ce496` 完成，最终验收与清理见 [E12 Outcome](1792661016_dataset-storage-operations-recovery.md#outcome)。91 项本地用例及真实盘点、取消保留、重新盘点、居中弹窗、明暗/窄屏验收通过；不重复计为 E09 的另一套统计或任务体系。
+E09-B1 已随 `0e85ce496` 完成，最终验收与清理见 [E12 Outcome](../1792661016_dataset-storage-operations-recovery.md#outcome)。91 项本地用例及真实盘点、取消保留、重新盘点、居中弹窗、明暗/窄屏验收通过；不重复计为 E09 的另一套统计或任务体系。
 
 ### E09-B2 来源诊断
 
-随 `58a9725cf` 和 [E12-A2 实施合同](1792661016_dataset-storage-operations-recovery.md#本轮定稿e12-a2--e09-b2已交付)交付位置内来源的原件/预览/扫描/预检只读诊断；只统计保留的原地引用业务样本，不混入托管复制或源容量。来源分页和任务历史独立，活跃轮次、最近失败及上次完整成功分别表达，继续使用现有居中任务详情和上下文深链。
+随 `58a9725cf` 和 [E12-A2 实施合同](../1792661016_dataset-storage-operations-recovery.md#本轮定稿e12-a2--e09-b2已交付)交付位置内来源的原件/预览/扫描/预检只读诊断；只统计保留的原地引用业务样本，不混入托管复制或源容量。来源分页和任务历史独立，活跃轮次、最近失败及上次完整成功分别表达，继续使用现有居中任务详情和上下文深链。
 
-59 个不同本地用例及明暗/窄屏真实浏览器验收通过，详细证据与清理见 [E12 Outcome](1792661016_dataset-storage-operations-recovery.md#outcome)。E09 仍保留 E11 清理与 E07 迁移/退役等维护影响工作流，不宣称整个 Epic 完成。
+59 个不同本地用例及明暗/窄屏真实浏览器验收通过，详细证据与清理见 [E12 Outcome](../1792661016_dataset-storage-operations-recovery.md#outcome)。E09 仍保留 E11 清理与 E07 迁移/退役等维护影响工作流，不宣称整个 Epic 完成。
 
 ### E09-B3 位置维护盘点
 
-2026-10-24 随 [E11-B1](1792661016_dataset-permissions-lifecycle.md#outcome) 完成只读位置维护盘点：现有居中详情默认折叠，展开与刷新GET汇总全部保留来源和业务关系、活动轮次、副本账本/租约及有证据的冻结版本，说明未覆盖历史和配置副作用。超级管理员与datasets:read前后核验，失败保留旧时间证据，撤权隐藏；不生成提交许可或新增维护写操作。
+2026-10-24 随 [E11-B1](../1792661016_dataset-permissions-lifecycle.md#outcome) 完成只读位置维护盘点：现有居中详情默认折叠，展开与刷新GET汇总全部保留来源和业务关系、活动轮次、副本账本/租约及有证据的冻结版本，说明未覆盖历史和配置副作用。超级管理员与datasets:read前后核验，失败保留旧时间证据，撤权隐藏；不生成提交许可或新增维护写操作。
 
 43个API/DB、21个Web和4个SDK不同用例通过，明暗/桌面/窄屏实际浏览器、Enter/Escape/焦点及零溢出/失败请求验收通过，详细记录和清理见E11 Outcome。正式用户/API/架构文档与OpenAPI同步；无迁移/Worker变更、不重建镜像，人工环境保留。候选配置、版本化变更、归档/恢复、回收和迁移仍属后续合同，整项E09继续活动。
 
 ### E11-B2 位置配置确认
 
-使用范围和缓存配置共用候选预览与居中确认，绑定五分钟令牌、位置/连接修订、当前身份/Key及关系指纹；变更或到期要求重预览。189个不同本地用例、明暗/桌面/窄屏与真实临时位置三次保存验收通过，既有人工位置配置及22项计数未变。完整证据及清理见[E11 Outcome](1792661016_dataset-permissions-lifecycle.md#e11-b2-位置配置候选预览与确认)。全owner静止、归档/恢复、迁移/退役与物理回收仍在后续合同中。
+使用范围和缓存配置共用候选预览与居中确认，绑定五分钟令牌、位置/连接修订、当前身份/Key及关系指纹；变更或到期要求重预览。189个不同本地用例、明暗/桌面/窄屏与真实临时位置三次保存验收通过，既有人工位置配置及22项计数未变。完整证据及清理见[E11 Outcome](../1792661016_dataset-permissions-lifecycle.md#e11-b2-位置配置候选预览与确认)。全owner静止、归档/恢复、迁移/退役与物理回收仍在后续合同中。
 
 ### E11-C1 逻辑位置访问维护
 
-位置详情默认折叠展示当前维护状态、修订、未收尾访问及安全节点/目的，停止须零记录，drain/stop/resume均采用居中预览确认。控制开关默认关闭并解释全API/Worker升级条件；过期/冲突要求重预览，会话/对象/配置隔离及撤权隐藏旧证据。维护组件24项随完整Web6541项通过，实际持有FD的访问阻止停止，句柄结束后停止/恢复成功；明暗、1440/390宽度、Escape/焦点及零溢出/失败请求通过。后端、部署、621项API/DB、SDK4项、原件/业务保留及清理详见[E11 Outcome](1792661016_dataset-permissions-lifecycle.md#e11-c1-逻辑位置访问维护)。其余受控物理回收、迁移/退役和整项E09仍活动。
+位置详情默认折叠展示当前维护状态、修订、未收尾访问及安全节点/目的，停止须零记录，drain/stop/resume均采用居中预览确认。控制开关默认关闭并解释全API/Worker升级条件；过期/冲突要求重预览，会话/对象/配置隔离及撤权隐藏旧证据。维护组件24项随完整Web6541项通过，实际持有FD的访问阻止停止，句柄结束后停止/恢复成功；明暗、1440/390宽度、Escape/焦点及零溢出/失败请求通过。后端、部署、621项API/DB、SDK4项、原件/业务保留及清理详见[E11 Outcome](../1792661016_dataset-permissions-lifecycle.md#e11-c1-逻辑位置访问维护)。其余受控物理回收、迁移/退役和整项E09仍活动。
 
 ### E11-C2-A 托管原件保留预演
 
-平台对象占用卡片新增默认折叠的保留预演，独立分页和居中详情；按断言展示完整计数、重复大小口径、观测时间及引用/保留/未知资格原因。默认不查询，撤权隐藏，会话修订隔离，未知期限为无限期保护，没有删除按钮。含新增16项共36项Web用例通过，真实11样本删除后10+1分页、1440/390明暗及Escape/焦点通过；后端、隔离恢复、187个不同本地用例和精确清理见[E11 Outcome](1792661016_dataset-permissions-lifecycle.md#e11-c2-a-托管原件保留账本与只读预演)。C2-A不覆盖所有物理owner，也不提供回收许可，E09继续活动。
+平台对象占用卡片新增默认折叠的保留预演，独立分页和居中详情；按断言展示完整计数、重复大小口径、观测时间及引用/保留/未知资格原因。默认不查询，撤权隐藏，会话修订隔离，未知期限为无限期保护，没有删除按钮。含新增16项共36项Web用例通过，真实11样本删除后10+1分页、1440/390明暗及Escape/焦点通过；后端、隔离恢复、187个不同本地用例和精确清理见[E11 Outcome](../1792661016_dataset-permissions-lifecycle.md#e11-c2-a-托管原件保留账本与只读预演)。C2-A不覆盖所有物理owner，也不提供回收许可，E09继续活动。
 
 ### E11-C2-C 已登记原件完整核验
 
-现有居中原件详情新增默认折叠的完整核验区，展开才 GET 历史，显式后台读取完整 SHA/大小，显示时间/预算、匹配/变化/缺失及取消结果；摘要另折叠，pending重派、取消请求与未收尾责任分别表达，继续复用通用任务详情。53个不同Web用例和1440/390明暗、真实分页/重派/取消/嵌套Escape/焦点验证通过。342个不同本地用例、真实Worker/MinIO、完整历史恢复与清理见[E11 Outcome](1792661016_dataset-permissions-lifecycle.md#e11-c2-c-已登记原件完整内容核验)。旧结果不提升为独占、最小副本或删除资格；人工环境保留，整项E09继续活动。
+现有居中原件详情新增默认折叠的完整核验区，展开才 GET 历史，显式后台读取完整 SHA/大小，显示时间/预算、匹配/变化/缺失及取消结果；摘要另折叠，pending重派、取消请求与未收尾责任分别表达，继续复用通用任务详情。53个不同Web用例和1440/390明暗、真实分页/重派/取消/嵌套Escape/焦点验证通过。342个不同本地用例、真实Worker/MinIO、完整历史恢复与清理见[E11 Outcome](../1792661016_dataset-permissions-lifecycle.md#e11-c2-c-已登记原件完整内容核验)。旧结果不提升为独占、最小副本或删除资格；人工环境保留，整项E09继续活动。
 
 ### E11-C2-D 新原件条件创建与直传隔离
 
-新数据集上传使用暂存URL并由后端条件创建最终原件，旧URL重放不覆盖已接受内容；ZIP、连接与目录复制共用耐久创建责任和完整回读，扫描不补造证据。保持现有UI合同，实际上传及居中样本详情已验证；修复数据集Task文件链接的用途选桶。363个不同本地用例、四入口实际验收与完整历史恢复、人工环境保持及清理见[E11 Outcome](1792661016_dataset-permissions-lifecycle.md#e11-c2-d-新托管原件条件创建与直传隔离)。固定版本消费、生产独占及物理回收继续活动。
+新数据集上传使用暂存URL并由后端条件创建最终原件，旧URL重放不覆盖已接受内容；ZIP、连接与目录复制共用耐久创建责任和完整回读，扫描不补造证据。保持现有UI合同，实际上传及居中样本详情已验证；修复数据集Task文件链接的用途选桶。363个不同本地用例、四入口实际验收与完整历史恢复、人工环境保持及清理见[E11 Outcome](../1792661016_dataset-permissions-lifecycle.md#e11-c2-d-新托管原件条件创建与直传隔离)。固定版本消费、生产独占及物理回收继续活动。
 
 ## 当前原始故事与验收复核
 
@@ -878,9 +912,9 @@ E09-B1 已随 `0e85ce496` 完成，最终验收与清理见 [E12 Outcome](179266
 | S04 准确分项用量         | 当前可支持范围已交付                                                                 | StorageSourceUsage／StorageUsagePanel，E12-C2跨Dataset物理引用去重、C3准确对象六分类；物理容量／提供方配额保持未知。          |
 | S05 九用途与受控变更     | 九用途展示与新分配位置受控切换均已交付；已有对象不自动迁移                           | B5策略与修订、B7–B15逐用途探针及版本化确认；真实A／B、历史／在途保存地址、轮换、维护与浏览器证据见各Outcome，人工0254已刷新。 |
 | S06 缓存维护与失败媒体   | 缓存影响确认／准确回收及媒体重试与共享任务详情已交付                                 | StorageOriginalCachePanel与StoragePage.retry；B6按实际输出收尾同步本人Job，含派发未确认和部分派生失败。                       |
-| S07 维护影响             | 盘点、配置确认、逻辑维护、B17源清单及B18初次复制任务已交付；最终切换／物理退役未交付 | E11-B1／B2／C1的影响及drain／stop／resume，B17清单和B18复制的独立Worker／真实UI结果；最终切换／退役仍待交付。                 |
+| S07 维护影响             | 原始影响预览与真实任务范围已交付 | E11-B1／B2／C1及E02-B23影响，B17清单和B18复制的独立Worker／真实UI结果；实际最终切换／退役归E07。                 |
 
-原始AC01–AC03及AC06复用唯一入口、过滤／返回上下文、动态类型和九用途展示；AC04–AC05由E12-C2／C3的分列和去重证据覆盖；AC07复用快照／探测／来源摘要的失败保留及过期显示；AC08复用只读源与受控缓存清理；AC10复用位置／来源权限裁剪及超级管理员映射路由。AC09当前已覆盖禁用／配置确认／逻辑维护、源清单与初次复制的实际任务结果；最终切换／物理退役任务仍未交付。完整E09继续活动，不归档；读写策略补齐没有新增模型、Tracker、会话或审核验收条件。
+原始十项AC已按上方最终矩阵收口。AC10除位置／来源裁剪外，由B19补齐旧配置读取面；AC09已覆盖影响／阻断和真实任务结果，最终停写／切换／物理退役不属于本Epic完成条件。完整E09归档，不增加模型、Tracker、会话、审核或训练测量前置。
 
 ## E09-B5 Outcome：用途映射读写策略与位置修订
 
@@ -908,7 +942,7 @@ E09-B1 已随 `0e85ce496` 完成，最终验收与清理见 [E12 Outcome](179266
 
 ## E09-B7 Outcome — 头像用途受控切换
 
-2026-10-25 完成原始 E09-S05 的头像用途变更，与 [E02-B14](1792661016_dataset-storage-locations-connections.md#e02-b14-outcome--头像新写入位置受控切换) 同次交付。现有用途映射提供“切换头像位置”，复用居中 Modal、分页候选、独立标签与灰色提示、真实托管探针、历史影响预览和五分钟确认。目标、用途代次、配置、权限或历史变化使旧预览失效；上传历史缺少定位时显示具体阻断。其余八用途保持原策略与锁定状态，不用只读来源能力推断托管写入资格。
+2026-10-25 完成原始 E09-S05 的头像用途变更，与 [E02-B14](../1792661016_dataset-storage-locations-connections.md#e02-b14-outcome--头像新写入位置受控切换) 同次交付。现有用途映射提供“切换头像位置”，复用居中 Modal、分页候选、独立标签与灰色提示、真实托管探针、历史影响预览和五分钟确认。目标、用途代次、配置、权限或历史变化使旧预览失效；上传历史缺少定位时显示具体阻断。其余八用途保持原策略与锁定状态，不用只读来源能力推断托管写入资格。
 
 旧头像和在途上传继续使用保存位置，新头像才使用新绑定；外部头像目标不在当前部署端点的盘点范围内时明确显示未覆盖，小计不冒充所有位置总量。同桶同键按端点和准确归属分类。成功提交刷新用途映射及占用覆盖提示，稳定外层触发器引用修复绑定更新后焦点丢失；Escape 关闭和成功提交均已实际核验。
 
@@ -918,7 +952,7 @@ E09-B1 已随 `0e85ce496` 完成，最终验收与清理见 [E12 Outcome](179266
 
 ## E09-B8 Outcome — 报告附件新写入位置受控切换
 
-2026-10-25，基于`79cca82c7`的独立树完成原始E09-S05／E02-S04、AC05／AC10的报告附件切片，与[E02-B15](1792661016_dataset-storage-locations-connections.md#e02-b15-outcome--报告附件新写入位置受控切换)同次提交。本节是隔离实现与本地验收结果；根C6仍运行，未集成或刷新人工环境。头像公开适配器保持，窄共享S3目标／探针仅接受头像与报告附件，另外七用途锁定，完整E09仍活动。
+2026-10-25，基于`79cca82c7`的独立树完成原始E09-S05／E02-S04、AC05／AC10的报告附件切片，与[E02-B15](../1792661016_dataset-storage-locations-connections.md#e02-b15-outcome--报告附件新写入位置受控切换)同次提交。本节是隔离实现与本地验收结果；根C6仍运行，未集成或刷新人工环境。头像公开适配器保持，窄共享S3目标／探针仅接受头像与报告附件，另外七用途锁定，完整E09仍活动。
 
 报告附件分配按连接→Location→Binding共享锁捕获当前目标，pending独立责任在PUT前提交；确认按同序复核代次、修订、权限、维护和已知上传影响。schema1保持原解释，schema2固定Location、endpoint、bucket、受控前缀完整物理键与代次，公开`storageKey`不变。provider实际VersionId一次性记录，读删固定该版本；当前位置提供当前凭据，正常轮换不重解释旧地址。旧未知附件继续在首次绑定／读取时拒绝，不进入准入扫描或阻断can_apply；全部pending／ready／retired保护原位置。分类按端点、桶及完整键匹配，当前部署A盘点不认领外部B。
 
@@ -949,7 +983,7 @@ OpenAPI／本地Web类型／API索引及正式用户、API、架构、恢复说�
 
 ## E09-B10 Outcome — 导出新写入位置切换
 
-2026-10-25，基于`7ff39313e`的独立树完成原始E09-S05／E02-S04、AC05／AC10的完整export用途，与[E02-B17](1792661016_dataset-storage-locations-connections.md#e02-b17-outcome--导出新写入位置切换)同次交付。控件来源`d6e02e3d2`已正常合并，核心checkpoint为`eccf3493f`，最终来源为`7f1d390df`；主树通过`ffefc3edd`正常合并，人工0248升级和原服务刷新完成。完整E02／E09仍活动，另外五用途保持锁定。
+2026-10-25，基于`7ff39313e`的独立树完成原始E09-S05／E02-S04、AC05／AC10的完整export用途，与[E02-B17](../1792661016_dataset-storage-locations-connections.md#e02-b17-outcome--导出新写入位置切换)同次交付。控件来源`d6e02e3d2`已正常合并，核心checkpoint为`eccf3493f`，最终来源为`7f1d390df`；主树通过`ffefc3edd`正常合并，人工0248升级和原服务刷新完成。完整E02／E09仍活动，另外五用途保持锁定。
 
 ExportOutput ZIP与ExportMediaBundle图片／视频／LiDAR独立媒体共同使用受控export绑定，ExportArtifact只作索引。新schema2固定Location、代次、endpoint、bucket与完整受控物理键；旧schema1保持原解释。新分配才采用新绑定；在途媒体与其配对ZIP继承同一旧位置，ready与缓存沿保存owner读取，首次168小时截止和冻结ZIP／清单不变。外部ZIP和内嵌媒体直接签其自身endpoint；legacy沿用既有下载受众。物理读、写、核验、签名与删除都使用保存位置的当前凭据，保留原permit、draining、授权、发布与退休边界。签发末端在Gate等待和原Key复核之后再核首次截止，等待跨期不发布URL。
 

@@ -22,10 +22,14 @@ function mutationIsCurrent(context: ReturnType<typeof mutationOwner> | undefined
 
 export function useStorageConnections() {
   const session = useAuthStore((s) => `${s.user?.id}/${s.sessionId}/${s.user?.role}`);
+  const canManage = useAuthStore(
+    (s) => s.user?.role === "super_admin" || s.user?.role === "project_admin",
+  );
   const revision = useSessionRevision();
   return useQuery({
     queryKey: ["storage-connections", session, revision],
     queryFn: ({ signal }) => storageConnectionsApi.list(signal),
+    enabled: canManage,
   });
 }
 

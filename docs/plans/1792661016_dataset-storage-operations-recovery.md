@@ -478,7 +478,7 @@ Super administrator -> inventory POST -> AsyncJob + singleton checkpoint
 - `docs-site/api/guides/storage-locations.md`
 - `docs-site/dev/reference/storage-buckets.md`
 - `docs-site/user-guide/datasets/storage-connections.md`
-- `docs/plans/1792661016_dataset-storage-console-boundaries.md`
+- `docs/plans/archive/1792661016_dataset-storage-console-boundaries.md`
 - `docs/plans/1792661016_dataset-storage-operations-recovery.md`
 - `docs/plans/backlog/1792661016_dataset-storage-baseline.md`
 - `docs/plans/backlog/1792661016_dataset-storage-roadmap.md`

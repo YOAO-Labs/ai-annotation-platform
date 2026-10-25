@@ -28,6 +28,44 @@ function setup() {
     ),
   };
 }
+it.each([null, "employee", "annotator", "reviewer", "viewer"])(
+  "does not request configuration for the %s role",
+  async (role) => {
+    useAuthStore.setState({ user: role ? ({ id: "staff", role } as any) : null });
+    const { wrapper } = setup();
+    const hook = renderHook(() => useStorageConnections(), { wrapper });
+    await act(async () => {});
+    expect(api.list).not.toHaveBeenCalled();
+    expect(hook.result.current.data).toBeUndefined();
+    expect(hook.result.current.fetchStatus).toBe("idle");
+  },
+);
+it.each(["super_admin", "project_admin"])("loads configuration for %s", async (role) => {
+  useAuthStore.setState({ user: { id: "manager", role } as any });
+  api.list.mockResolvedValueOnce([{ id: "visible" }]);
+  const { wrapper } = setup();
+  const hook = renderHook(() => useStorageConnections(), { wrapper });
+  await waitFor(() => expect(hook.result.current.data).toEqual([{ id: "visible" }]));
+});
+it("retires a manager query on downgrade without exposing a late configuration response", async () => {
+  let resolve!: (value: unknown) => void;
+  api.list.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const { wrapper } = setup();
+  const hook = renderHook(() => useStorageConnections(), { wrapper });
+  await waitFor(() => expect(api.list).toHaveBeenCalledTimes(1));
+  const signal = api.list.mock.calls[0][0] as AbortSignal;
+  act(() => useAuthStore.setState({ user: { id: "manager", role: "employee" } as any }));
+  await waitFor(() => expect(signal.aborted).toBe(true));
+  await act(async () => resolve([{ id: "retired-private-config" }]));
+  expect(api.list).toHaveBeenCalledTimes(1);
+  expect(hook.result.current.data).toBeUndefined();
+  expect(hook.result.current.fetchStatus).toBe("idle");
+});
 it("aborts a retired connection query and never exposes its late list to a new login", async () => {
   let resolveOld!: (value: unknown) => void;
   api.list

@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-25
 ---
 
 # 存储连接器 API
@@ -15,20 +15,22 @@ last_reviewed: 2026-10-23
 
 ## 端点一览
 
-| 方法   | 路径                                          | 权限              | 说明                                         |
-| ------ | --------------------------------------------- | ----------------- | -------------------------------------------- |
-| GET    | `/storage-connections`                        | 登录用户          | 列表（超管看全部，普通用户看 global + 自建） |
-| POST   | `/storage-connections`                        | 项目管理员 / 超管 | 新建连接器                                   |
-| GET    | `/storage-connections/{id}`                   | 可见该连接器者    | 获取单个                                     |
-| PATCH  | `/storage-connections/{id}`                   | 创建者 / 超管     | 更新名称 / 配置 / 密钥                       |
-| DELETE | `/storage-connections/{id}`                   | 创建者 / 超管     | 删除（`204`）                                |
-| POST   | `/storage-connections/{id}/test`              | 可见该连接器者    | 测试连通性                                   |
-| GET    | `/storage-connections/allowlist`              | 仅超管            | 读主机白名单及来源                           |
-| PUT    | `/storage-connections/allowlist`              | 仅超管            | 保存数据库覆盖                               |
-| DELETE | `/storage-connections/allowlist`              | 仅超管            | 删除覆盖并恢复部署默认                       |
-| GET    | `/storage-connections/deployment-sftp-preset` | 仅超管            | 读取部署主机 SFTP 快捷预设                   |
+| 方法   | 路径                                          | 权限              | 说明                                           |
+| ------ | --------------------------------------------- | ----------------- | ---------------------------------------------- |
+| GET    | `/storage-connections`                        | 项目管理员 / 超管 | 配置列表（超管全部，项目管理员 global + 自建） |
+| POST   | `/storage-connections`                        | 项目管理员 / 超管 | 新建连接器                                     |
+| GET    | `/storage-connections/{id}`                   | 项目管理员 / 超管 | 获取可见连接器的配置                           |
+| PATCH  | `/storage-connections/{id}`                   | 创建者 / 超管     | 更新名称 / 配置 / 密钥                         |
+| DELETE | `/storage-connections/{id}`                   | 创建者 / 超管     | 删除（`204`）                                  |
+| POST   | `/storage-connections/{id}/test`              | 可见该连接器者    | 测试连通性                                     |
+| GET    | `/storage-connections/allowlist`              | 仅超管            | 读主机白名单及来源                             |
+| PUT    | `/storage-connections/allowlist`              | 仅超管            | 保存数据库覆盖                                 |
+| DELETE | `/storage-connections/allowlist`              | 仅超管            | 删除覆盖并恢复部署默认                         |
+| GET    | `/storage-connections/deployment-sftp-preset` | 仅超管            | 读取部署主机 SFTP 快捷预设                     |
 
 `global` 作用域的连接器仅超管可创建。
+
+配置列表和单项 GET 均要求管理角色，使用 API Key 时还需 `datasets:read`（或 `*`）。普通人员不能通过直接请求读取全局或先前自建的配置，返回403；项目管理员查询其他人的 owner 连接返回404。连接可被业务使用不代表使用者可以读取配置，密码和密钥始终不回显。
 
 ## 数据形态
 

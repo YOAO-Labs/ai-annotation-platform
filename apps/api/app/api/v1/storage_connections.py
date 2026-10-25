@@ -3,7 +3,8 @@
 权限：
   - global-scope 连接器、主机白名单：仅 super_admin。
   - owner-scope 连接器：project_admin 可建，创建者或 super_admin 可改/删。
-  - 查看/测试/导入：global、创建者本人或 super_admin 可用。
+  - 配置查看：仅 project_admin / super_admin，API Key 需 datasets:read。
+  - 测试/导入：沿各入口角色及连接使用范围校验。
 密钥永不回吐（Out 仅 secret_set:bool）。create/test/import 三处都过白名单 + SSRF。
 """
 
@@ -131,11 +132,17 @@ async def get_deployment_sftp_preset(
 # ---- 连接器 CRUD ----
 
 
-@router.get("", response_model=list[StorageConnectionOut])
+@router.get(
+    "",
+    response_model=list[StorageConnectionOut],
+    description="仅项目管理员或超级管理员可读配置；API Key 需 datasets:read。",
+)
 async def list_connections(
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles(*_MANAGERS)),
 ):
+    assert_request_scopes(request, "datasets:read")
     is_super = user.role == UserRole.SUPER_ADMIN
     conns = await StorageConnectionService.list_visible(
         db, all_scopes=is_super, user_id=user.id
@@ -186,12 +193,18 @@ async def create_connection(
     return to_out_dict(conn)
 
 
-@router.get("/{conn_id}", response_model=StorageConnectionOut)
+@router.get(
+    "/{conn_id}",
+    response_model=StorageConnectionOut,
+    description="仅项目管理员或超级管理员可读可见连接配置；API Key 需 datasets:read。",
+)
 async def get_connection(
     conn_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles(*_MANAGERS)),
 ):
+    assert_request_scopes(request, "datasets:read")
     conn = await StorageConnectionService.get(db, conn_id)
     if conn is None:
         raise HTTPException(status_code=404, detail="连接器不存在")
