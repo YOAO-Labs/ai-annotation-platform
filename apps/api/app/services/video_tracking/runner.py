@@ -24,7 +24,7 @@ from aap_preannotation_results.video_execution_planner import (
 from aap_preannotation_results.video_window_checkpoint import (
     make_video_window_checkpoint_payload,
 )
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect
 from sqlalchemy.exc import InvalidRequestError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.util import identity_key
@@ -58,7 +58,6 @@ from aap_labeling.video_control_contract import (
 )
 from app.services.annotation_evidence import record_annotation_actors_for_tasks
 from app.services.annotation_propagation import _new_track_id
-from app.services.labeling_core_read_relations import get_core_row, task_row
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
@@ -107,6 +106,7 @@ from app.services.labeling_core_read_relations import (
     annotation_row,
     get_core_row,
     lock_task_for_core_read,
+    task_row,
 )
 from app.services.video_tracking.control import (
     VideoControlRejected,
