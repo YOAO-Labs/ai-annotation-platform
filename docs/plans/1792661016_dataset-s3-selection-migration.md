@@ -1,6 +1,21 @@
 # EPIC-07：对象存储选型与 MinIO 退役迁移
 
-> 状态：源端清单、已保存定位目录及本地初次复制分项已验证；锁定双候选本地比较已完成并保留一项实际差异；完整选型、生产迁移、切换与退役仍待各自条件，完整E07活动，不分配发布版本。
+> 状态：源端清单、已保存定位目录及本地初次复制分项已验证；B3已补齐当前九用途的27类定位目录并通过0254真实只读DB验收。锁定双候选本地比较已完成并保留一项实际差异；完整选型、生产迁移、切换与退役仍待各自条件，完整E07活动，不分配发布版本。
+
+## 本轮定稿：E07-B3 当前九用途保存定位目录
+
+2026-10-25，基于`0832098bb`复核原始E07-S02／AC02、AC05及§6。九用途新分配切换已交付，但原迁移目录仍只有24家族，仅接受头像／报告附件schema2，忽略current／cache分支中的保存地址和Creation跨端点暂存。下一片补齐当前0254的真实保存责任目录，不把未知生产目标或全量历史接管增加为前置。
+
+完整范围为现有24家族加MaskFormatUpload、MaskFormatImport和ThumbnailOutput，共27家族；ManagedOriginalCreation的最终地址与staging_ref分别投影，Mask批次的staging_ref只提取地址字段。逐family按实际schema解释：Dataset／Auxiliary的新版定位仍为schema1，TaskOriginal及媒体缓存等按各自当前结构，不能全局放行schema2。prefix与key_prefix分开，单对象地址不得误报为前缀；当前原图缓存使用保存prefix下的payload，Thumbnail与inventory按已保存完整物理键记录，预标inventory相对键只拼接一次保存根。保留版本化回执、mutable null与未固定版本的区别，不从当前用途绑定补猜历史地址。
+
+SQL仍只读、可分页且不读密钥／完整业务文档。新增表按实际引入revision处理旧0244／0245兼容，旧NULL的可定位字段与未知原因原样分列；未知schema、失配字段和未展开冻结文档继续明确报告，不借新支持宣称migration_ready。源清单、目录schema及预复制checkpoint合同保持，目录交给已有copy plan后九用途处理选择与未知覆盖应保留，不新增复制／切换／退役命令。
+
+准确修改范围跨工具、验证与文档，超过8文件：`scripts/inventory_storage_references.py`、`scripts/storage_migration_references.py`、两份既有引用目录纯检查、新的当前schema真实验证脚本及必要复制合同回归；正式运维目录页、DEV、README、CHANGELOG、本计划和实施队列。修改代理在当前HEAD的独立工作树负责解析／纯检查，主树负责当前schema验证与文档、集成和交付。旧工具的原始实测证据保持为历史记录，不把0244／0245资格冒充0254，也不为本片重复旧提供商性能或业务消费者演练。
+
+先用纯检查复现各新结构遗漏，再验证27家族SQL投影、schema1／2、外部／旧端点、根与对象边界、精确版本／null／缺失、坏schema及敏感字段排除。真实检查只使用官方launcher核验且为空的test模式，在0254准备少量覆盖不同地址形式的合成行和对象，以独立只读数据库账号实际运行CLI；比较全部业务表、源对象版本／内容与输入清单指纹，验证写入和秘密读取均被拒绝、私有spill清理、目录可由现有copy plan读取。完成后撤销所属角色并销毁test数据库／Redis／九桶，保留3100／8100和Worker／Beat。Ruff、相关纯检查、文档检查／构建、正常提交钩子及diff检查通过后提交；不改应用、API、数据库schema、依赖、共享配置或镜像，不推送或发布。
+
+回退仅停用本片CLI及清理所属私有输出，没有业务或对象位置要撤销。E02停用影响尚未覆盖新保存target的独立缺口继续按其原始S05／AC08推进，不扩展Tracker、会话、审核、模型或规模测量；本片不代表历史搬迁、生产切换／回滚、供应商选择或整项E07完成。
+
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 已按 [backlog promotion gate](backlog/README.md#promotion-gate) 复核当前实现与源端分项；整套实施授权沿用当前目标。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -360,3 +375,15 @@ SeaweedFS 使用锁定变体，镜像默认 FoundationDB 配置显式覆盖为�
 开发试跑纠正了测试器的 Docker 缺失资源大小写判断、boto3 的 bytes→BytesIO 包装、可选镜像 Cmd 字段、重启随机映射端口、HTTP 头大小写与默认 FoundationDB 启动适配；准备不足的早期结果不计最终候选验收。恢复守卫拒绝空夹具或缺不可变版本，报告绑定两个测试器自身及实际 StorageService／签名／lock完整 SHA。34 个不同纯回归通过，含 lock／许可损坏、正文／元数据／分页、预算、敏感信息、owner／label／外部使用者、清理中断、原子写硬杀残留及真实签名的字面点路径合同。实际执行报告保留执行时的脚本 SHA；其后只补 manifest 读取入口的 nonce 格式守卫，覆盖所有资源已不存在时仍不得绕过 nonce 校验删除目录的分支，仅运行对应纯回归，不重跑提供方案例，也不把最终工具修订冒称原执行字节。
 
 Ruff／格式、正式文档 frontmatter／可读性／导航、完整标准文档构建与链接检查通过；正常提交钩子及最终 diff 检查随本次提交完成。每次退出按持久 manifest 核对精确 ID、checkout、镜像和 label，已确认全部所属容器、卷、网络与浏览器 session 结束，私有正文／凭据／原始日志和构建缓存清理，仅保留固定镜像、有界报告及所属核验摘要。人工 3100／8100、数据库／Redis／MinIO、Workers／Beat 与 C6 原句柄 27154 未操作。完整 E07、供应商选择及生产迁移继续活动，不增 Tracker、会话、审核、模型资格或其他前置。
+
+## Outcome — E07-B3 当前九用途保存定位目录
+
+2026-10-25，基于`0832098bb`补齐原始E07-S02／AC02、AC05及§6的当前保存定位目录。实现来源`875e55a54`、`fcbf75283`，最终集成与当前真实库验证脚本随本Outcome提交。正式命令和边界同步[迁移清单手册](../../docs-site/ops/deploy/storage-migration-inventory.md#已保存业务定位目录)、README、DEV及CHANGELOG Unreleased；不改应用、API、schema、依赖或部署配置，不分配版本。
+
+目录由24类扩至27类，新增Mask上传、Mask导入批次与Thumbnail责任，逐家族识别九用途实际保存结构。Dataset／Auxiliary的schema1、其他当前schema2、旧NULL及未知结构分开；Creation跨端点暂存沿独立staging_ref，不沿最终原件端点。原图缓存的payload、完整物理inventory键、预测相对键、保存版本及key_prefix受控根均按实际合同解释；非所属前缀内的inventory对象保持未知，现有copy plan不得将其升级为准确业务引用。报告格式及预复制checkpoint合同不变，migration_ready始终false。
+
+146项不同纯／CLI检查分两次新进程通过：本片目录／复制106项，原源清单40项；一次合并进程执行受既有SQLAlchemy模拟导入顺序影响出现两项失败，未冒称该次全绿或改动无关测试。旧0244／0245形状兼容由纯检查覆盖，历史实测记录保留；旧资格脚本不冒充当前head验证。Ruff、格式、正式文档frontmatter／导航／可读性、标准文档构建及diff检查通过，正常提交钩子随最终提交执行。
+
+当前0254实际验收仅使用主树所属空test：SQL枚举全部27家族，其中15家族有合成记录，检查17条预期定位，生成22条引用（准确版本10、未固定键6、前缀3、源外1、未定位2）。当前登记端点不同且位置停用时仍使用保存地址；跨端点暂存、未知历史及越界inventory保留各自事实。现有copy plan接受8条准确关联，越界项不成为准确声明。CLI前后172张表、15个源对象版本完整指纹和输入清单SHA保持；写入与秘密列读取分别实际拒绝，0600输出及私有spill清理通过，确切临时角色已撤销。该夹具只验证目录，不代表全部业务工作流或迁移切换。
+
+已按`1822b025369a33f4:test`销毁所属测试数据库、Redis和九桶，独立后端检查确认全部不存在，资源manifest及运行会话均移除；临时目录、源报告和复制计划由上下文清理，仅保留有界核验摘要。人工3100／8100与两个Worker／Beat保持原运行环境，无本片应用刷新或镜像重建。E02剩余的S05／AC08保存target维护影响独立推进；E07完整选型、实际迁移、停写／增量、业务切换、新写入回滚和退役仍未完成，不新增训练测量、Tracker或全库历史接管前置。

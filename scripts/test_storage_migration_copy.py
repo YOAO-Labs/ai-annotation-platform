@@ -1,14 +1,18 @@
 """Initial-copy evidence, crash windows and bounded resource ownership."""
 
 import hashlib
+import asyncio
 import io
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import storage_migration_copy as core
+import inventory_storage_references as reference_cli
+import storage_migration_references as references
 from storage_migration_inventory import PURPOSES, SCHEMA, _Writer
 from storage_migration_references import Writer, SCHEMA as REF_SCHEMA
 
@@ -258,6 +262,159 @@ class CopyTests(unittest.TestCase):
         result = self.run_copy()
         self.assertEqual(result["counts"], {"verified": 1})
         self.assertEqual(result["catalog"]["counts"]["unexpanded"], 1)
+
+    def test_current_catalog_physical_roots_feed_existing_copy_checkpoint(self):
+        prefix = "公司/%2F/_aap_managed/media-cache/thumbnails/objects/I/"
+        key = prefix + "thumbnail.webp"
+        source, catalog_path = inputs(
+            self.root, [{"key": key}, {"key": "without-current-reference"}]
+        )
+        catalog_path.unlink()
+        family = next(
+            item for item in reference_cli.FAMILIES if item.table == "thumbnail_outputs"
+        )
+        ref = {
+            "schema": 2,
+            "purpose": "media-cache",
+            "location_id": "saved-location",
+            "config_revision": 1,
+            "binding_generation": 2,
+            "endpoint_url": "http://source:9000",
+            "bucket": "source",
+            "prefix": prefix,
+            "key_prefix": "公司/%2F/_aap_managed/media-cache/",
+            "storage_identity": references.identity("http://source:9000", "source"),
+        }
+        record = next(
+            reference_cli.references(
+                family,
+                {
+                    "id": "I",
+                    "storage_ref": ref,
+                    "ref_present": True,
+                    "version_id": "v1",
+                    "sha256": SHA,
+                    "size_bytes": len(BODY),
+                },
+            )
+        )
+        spool = self.root / "spool.jsonl"
+        records = [
+            record,
+            {
+                **record,
+                "owner_id": ["other-endpoint"],
+                "endpoint_url": "http://other:9000",
+                "storage_identity": references.identity("http://other:9000", "source"),
+            },
+            {
+                **record,
+                "owner_id": ["prefix-only"],
+                "key": None,
+                "prefix": prefix,
+                "sha256": None,
+                "size_bytes": None,
+                "version_id": None,
+            },
+            {
+                **record,
+                "owner_id": ["unknown-schema"],
+                "unknown": "unknown_saved_schema",
+            },
+        ]
+        spool.write_bytes(b"".join(references.canonical(row) for row in records))
+        result = references.write_catalog(
+            catalog_path,
+            spool,
+            {"enumeration_complete": True, "families": [family.table]},
+            source,
+            self.root,
+            references.Budget(references.Limits()),
+        )
+        self.assertEqual(
+            result["matches"],
+            {
+                "exact_version": 1,
+                "outside_selected_source": 1,
+                "prefix_scope": 1,
+                "unlocated": 1,
+            },
+        )
+        result = core.plan(self.path, source, catalog_path, TARGET)
+        self.assertEqual(result["source"]["exact_catalog_matches"], 1)
+        self.assertEqual(result["catalog"]["counts"]["resolution_unknown"], 3)
+        self.assertFalse(result["migration_ready"])
+        self.assertEqual(self.run_copy()["counts"], {"verified": 2})
+        self.assertIn(key, {row["source"]["key"] for row in self.rows()})
+
+    def test_neighbor_inventory_is_unknown_in_source_join_and_copy_plan(self):
+        key = "公司/%2F/objects/I-neighbor/payload"
+        source, catalog_path = inputs(self.root, [{"key": key}])
+        catalog_path.unlink()
+        family = next(
+            item
+            for item in reference_cli.FAMILIES
+            if item.table == "image_pyramid_outputs"
+        )
+        ref = {
+            "schema": 2,
+            "purpose": "media-cache",
+            "location_id": "saved-location",
+            "config_revision": 1,
+            "binding_generation": 2,
+            "endpoint_url": "http://source:9000",
+            "bucket": "source",
+            "prefix": "公司/%2F/objects/I/",
+            "key_prefix": "公司/%2F/",
+            "storage_identity": references.identity("http://source:9000", "source"),
+        }
+        row = {
+            "id": "I",
+            "storage_ref": ref,
+            "inventory_key": key,
+            "object_sha256": SHA,
+            "object_size": len(BODY),
+            "object_version": "v1",
+            "object_state": "verified",
+        }
+
+        class Result:
+            def mappings(self):
+                return self
+
+            def all(self):
+                return [row]
+
+        engine = SimpleNamespace(execute=AsyncMock(return_value=Result()))
+        spool_path = self.root / "neighbor-spool.jsonl"
+        spool = reference_cli.Spool(spool_path, references.Budget(references.Limits()))
+        try:
+            asyncio.run(
+                reference_cli.expand_inventory(
+                    engine, family, spool, spool.budget, set()
+                )
+            )
+        finally:
+            spool.stream.close()
+        record = json.loads(spool_path.read_text())
+        self.assertEqual(record["unknown"], "inventory_key_outside_saved_prefix")
+        summary = references.write_catalog(
+            catalog_path,
+            spool_path,
+            {"enumeration_complete": True, "families": [family.table]},
+            source,
+            self.root,
+            references.Budget(references.Limits()),
+        )
+        self.assertEqual(summary["matches"], {"unlocated": 1})
+        self.assertEqual(summary["source_objects_without_exact_match"], 1)
+        result = core.plan(self.path, source, catalog_path, TARGET)
+        self.assertEqual(result["source"]["exact_catalog_matches"], 0)
+        self.assertEqual(result["catalog"]["counts"]["resolution_unknown"], 1)
+        self.assertFalse(result["catalog"]["resolution_complete"])
+        # Unknown business ownership still does not block a verified source pre-copy.
+        self.assertEqual(self.run_copy()["counts"], {"verified": 1})
+        self.assertFalse(self.run_copy()["migration_ready"])
 
     def test_shared_bucket_requires_consistent_reviewed_purposes(self):
         selections = dict.fromkeys(PURPOSES, "migrate")

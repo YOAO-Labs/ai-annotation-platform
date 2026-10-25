@@ -70,20 +70,21 @@ apps/api/.venv/bin/python scripts/inventory_storage_references.py \
 
 输出和临时目录的父目录应事先存在并限制访问。输出以 `0600` 独占创建；数据库快照、SQLite 关联索引位于自动清理的私有临时目录中。终端仅输出汇总和安全错误码。目录包含必要的逻辑 owner ID、物理端点、桶、原始键和保存修订，应按敏感运维资料保管；不含认证令牌、签名、加密凭据、授权证明或完整业务正文。头像的 `token` 列是公开头像对象的 32 位十六进制 owner ID，仅作为逻辑主键投影；此例外不适用于认证／API／授权令牌。
 
-数据库账号只需静态白名单列的 SELECT 权限，无需写入、迁移或对象权限。命令先在单个有界的 `REPEATABLE READ READ ONLY` 事务中读取，再关闭连接处理源报告。它实际探测可见列，兼容报告附件版本列缺省的 0244 和新增该列的 0245；不会将缺省值解释为当前版本。权限不足、表形状未知或预算耗尽会保留不完整状态。
+数据库账号只需静态白名单列的 SELECT 权限，无需写入、迁移或对象权限。命令先在单个有界的 `REPEATABLE READ READ ONLY` 事务中读取，再关闭连接处理源报告。它实际探测可见列，兼容报告附件版本列缺省的旧schema；新责任表在其引入前不适用，当前schema缺表或缺少必要字段则报告不完整。不会将缺省版本解释为当前版本。权限不足、表形状未知或预算耗尽会保留不完整状态。
 
-目录覆盖 24 类已登记记录的所有状态，包括 pending、ready、失败和 retired，不按当前用途绑定筛选：
+目录覆盖27类已登记记录的所有状态，包括pending、ready、失败和retired，不按当前用途绑定筛选。逐family识别当前保存结构；数据集原件的新定位仍为schema1，不将全部新地址统一当作schema2：
 
-| 保存记录                                                                           | 目录中的事实                                                                           |
-| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| 预测输入、金字塔、视频、导出媒体                                                   | 独立 owner 和已保存 `inventory.objects` 的有界展开；预测输入相对键只拼接自身保存前缀。 |
-| 训练版本、实验、预览、评估、选样                                                   | 保存对象或前缀、独立包对象；冻结业务文档只报告存在及未展开。                           |
-| 头像、报告／评论／指南附件、RLE、导出 ZIP、审计归档                                | 已保存的对象归属、内容回执和版本；RLE 的保存字节 SHA 与规范表示 SHA 分列。             |
-| 原件 Creation、Retirement                                                          | 历史声明和独立暂存声明，不据此重写当前地址。                                           |
-| DatasetAssetLocation、TaskOriginal、DatasetAuxiliaryOriginal、DatasetSourcePreview | 当前定位与当前位置配置的依据，保留缺失关联。                                           |
-| OriginalCacheEntry、TrainingStorageDeletion                                        | 保存身份对应的缓存键或删除前缀声明，不授予清理许可。                                   |
+| 保存记录                                                                           | 目录中的事实                                                                                                |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 预测输入、金字塔、视频、导出媒体                                                   | 独立 owner 和已保存 `inventory.objects` 的有界展开；预测输入相对键只拼接自身保存前缀。                      |
+| 训练版本、实验、预览、评估、选样                                                   | 保存对象或前缀、独立包对象；冻结业务文档只报告存在及未展开。                                                |
+| 头像、报告／评论／指南附件、RLE、导出 ZIP、审计归档                                | 已保存的对象归属、内容回执和版本；RLE 的保存字节 SHA 与规范表示 SHA 分列。                                  |
+| 原件 Creation、Retirement                                                          | 历史声明与独立暂存声明；Creation跨端点staging_ref沿自身保存地址，不沿最终原件端点。                         |
+| DatasetAssetLocation、TaskOriginal、DatasetAuxiliaryOriginal、DatasetSourcePreview | 优先使用已保存端点／桶／完整键；旧无保存引用的当前定位明确标记其登记位置依据。                              |
+| OriginalCacheEntry、ThumbnailOutput、TrainingStorageDeletion                       | 新原图缓存为保存prefix下的payload，缩略图为thumbnail.webp；旧NULL缓存仍用原无根键，删除前缀不授予清理许可。 |
+| MaskFormatUpload、MaskFormatImport                                                 | 上传及批次各自保存的import地址；完整键为保存前缀加逻辑文件名，批次字节摘要与计划摘要不混用。                |
 
-位置和用途绑定单列记录。保存端点优先；只有保存了 `storage_identity` 且与候选端点计算一致时，才可补充地址依据。没有保存身份的当前定位可明确采用当前登记位置，历史声明不能这样推断。缺 owner、未知 schema、地址冲突和未展开文档均有原因及计数，不要求先回填历史记录。
+位置和用途绑定单列记录。保存端点优先；仅在没有坏保存引用、并且保存的`storage_identity`与候选端点计算一致时，才可补充地址依据。没有保存身份的旧当前定位可明确采用当前登记位置，历史声明不能这样推断；未知schema或地址冲突不能靠今天的绑定／连接补全。对象引用中的key_prefix只是受控根，不额外生成前缀范围；真正prefix owner的prefix已含完整物理根，inventory完整键不重复拼根。缺owner、未知schema、地址冲突和未展开文档均有原因及计数，不要求先回填历史记录。
 
 关联按端点、桶、原始 S3 key 和版本比较。键是不可解释的字符串，`%2F`、`%2f`、`..`、重复斜线和字面 `%` 不做 URL 解码或文件系统规范化。前缀必须具有保存的 `/` 边界；前缀范围不等于其中所有对象的准确业务成员关系。
 
@@ -106,11 +107,13 @@ apps/api/.venv/bin/python scripts/inventory_storage_references.py \
 
 ```sh
 pnpm dev:worktree -- exec --mode test -- env DEBUG=false PYTHONDONTWRITEBYTECODE=1 \
-  apps/api/.venv/bin/python scripts/verify_storage_references.py \
+  apps/api/.venv/bin/python scripts/verify_storage_references_current.py \
   --report /private/reference-verification.json
 ```
 
-夹具拥有写权限，CLI 使用临时只读数据库角色，实际核对敏感列／写入拒绝、0244／0245、退休／孤立记录和源报告关联，比较 CLI 前后全部业务表与源对象指纹。只有该空旧事实窗口会往返迁移，结束恢复 head 并撤销临时角色；调用者随后销毁所属 test 数据库、Redis 和九桶。它不会启动应用、Worker 或浏览器，也不重复全链消费者／恢复资格。
+当前夹具在0254准备小型合成保存记录和源对象，CLI使用临时只读数据库角色实际核对27家族SQL投影、不同保存地址形式、跨端点暂存、当前配置不同于保存端点、版本和未知历史，并交给现有copy plan读取。比较CLI前后全部业务表、源对象版本／内容和输入清单指纹，验证写入及秘密列读取均被拒绝；结束撤销临时角色，调用者随后销毁所属test数据库、Redis和九桶。它不往返数据库迁移，不启动应用、Worker或浏览器，不代表完整业务消费者或生产迁移验证。
+
+旧`verify_storage_references.py`保留0244／0245历史复现夹具；当前工具的纯检查覆盖其旧表／列形状兼容，不把历史实测记录冒称当前head验证。
 
 ## 本地初次复制与可恢复核验
 
