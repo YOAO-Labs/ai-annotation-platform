@@ -46964,11 +46964,73 @@
         "title": "StorageLocationFieldChange",
         "type": "object"
       },
+      "StorageLocationHealth": {
+        "properties": {
+          "current_failure_count": {
+            "minimum": 0.0,
+            "title": "Current Failure Count",
+            "type": "integer"
+          },
+          "current_success_count": {
+            "minimum": 0.0,
+            "title": "Current Success Count",
+            "type": "integer"
+          },
+          "fresh_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fresh Until"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageProbeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "observed_node_count": {
+            "minimum": 0.0,
+            "title": "Observed Node Count",
+            "type": "integer"
+          },
+          "stale_node_count": {
+            "minimum": 0.0,
+            "title": "Stale Node Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "observed_node_count",
+          "current_success_count",
+          "current_failure_count",
+          "stale_node_count",
+          "latest",
+          "measured_at",
+          "fresh_until"
+        ],
+        "title": "StorageLocationHealth",
+        "type": "object"
+      },
       "StorageLocationList": {
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/StorageLocationOut"
+              "$ref": "#/components/schemas/StorageLocationListItem"
             },
             "title": "Items",
             "type": "array"
@@ -46983,6 +47045,151 @@
           "total"
         ],
         "title": "StorageLocationList",
+        "type": "object"
+      },
+      "StorageLocationListItem": {
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Actions",
+            "type": "array"
+          },
+          "cache_policy": {
+            "default": "preview",
+            "enum": [
+              "none",
+              "preview",
+              "on_demand"
+            ],
+            "title": "Cache Policy",
+            "type": "string"
+          },
+          "config_revision": {
+            "title": "Config Revision",
+            "type": "integer"
+          },
+          "connection_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
+          "declared_capabilities": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Declared Capabilities",
+            "type": "object"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "health": {
+            "$ref": "#/components/schemas/StorageLocationHealth"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "maintenance_revision": {
+            "default": 1,
+            "title": "Maintenance Revision",
+            "type": "integer"
+          },
+          "maintenance_state": {
+            "default": "active",
+            "enum": [
+              "active",
+              "draining",
+              "stopped"
+            ],
+            "title": "Maintenance State",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "original_cache_quota_bytes": {
+            "default": 0,
+            "title": "Original Cache Quota Bytes",
+            "type": "integer"
+          },
+          "original_cache_ttl_seconds": {
+            "default": 86400,
+            "title": "Original Cache Ttl Seconds",
+            "type": "integer"
+          },
+          "relative_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative Path"
+          },
+          "root_handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Handle"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "source_usage": {
+            "$ref": "#/components/schemas/StorageSourceUsage"
+          },
+          "use_user_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Use User Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "enabled",
+          "config_revision",
+          "declared_capabilities",
+          "health",
+          "source_usage"
+        ],
+        "title": "StorageLocationListItem",
         "type": "object"
       },
       "StorageLocationOut": {

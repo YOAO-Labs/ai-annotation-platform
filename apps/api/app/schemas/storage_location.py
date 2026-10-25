@@ -58,11 +58,6 @@ class StorageLocationOut(BaseModel):
     allowed_actions: list[str] = Field(default_factory=list)
 
 
-class StorageLocationList(BaseModel):
-    items: list[StorageLocationOut]
-    total: int
-
-
 class StorageMaintenanceCounts(BaseModel):
     sources: int
     enabled_sources: int
@@ -273,6 +268,26 @@ class StorageProbeOut(BaseModel):
     ok: bool
     code: str
     capabilities: dict[str, str]
+
+
+class StorageLocationHealth(BaseModel):
+    observed_node_count: int = Field(ge=0)
+    current_success_count: int = Field(ge=0)
+    current_failure_count: int = Field(ge=0)
+    stale_node_count: int = Field(ge=0)
+    latest: StorageProbeOut | None
+    measured_at: datetime
+    fresh_until: datetime | None
+
+
+class StorageLocationListItem(StorageLocationOut):
+    health: StorageLocationHealth
+    source_usage: StorageSourceUsage
+
+
+class StorageLocationList(BaseModel):
+    items: list[StorageLocationListItem]
+    total: int
 
 
 class StorageBindingOut(BaseModel):

@@ -654,7 +654,9 @@ async def list_locations(
             .offset(offset)
         )
     )
-    return {"items": [await svc.to_out(db, row, actor) for row in rows], "total": total}
+    from app.services.storage_location_list import list_items
+
+    return {"items": await list_items(db, rows, actor), "total": total}
 
 
 @router.post("", response_model=StorageLocationOut, status_code=201)
