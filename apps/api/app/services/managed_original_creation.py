@@ -45,7 +45,7 @@ _SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{0,79}")
 STAGING_PREFIX = "__aap_upload_staging__"
 TASK_ORIGINAL_PREFIX = "__aap_task_originals__"
 AUXILIARY_ORIGINAL_PREFIX = "__aap_auxiliary_originals__"
-ORIGINAL_STORAGE_PURPOSES = frozenset({"datasets", "annotations", "import"})
+ORIGINAL_STORAGE_PURPOSES = frozenset({"datasets", "annotations"})
 
 
 @dataclass(frozen=True)
@@ -241,9 +241,98 @@ async def _validate(db, row, *, lock=False):
     configuration = await _configuration(db, lock=lock)
     if _original_configuration(configuration) != _original_configuration(saved):
         reject("managed_original_configuration_changed")
+    if row["origin"] == "direct":
+        staging_owner(row)
     await storage_access.check(
         db, row["location_id"], expected_revision=row["maintenance_revision"], lock=lock
     )
+
+
+def staging_owner(row):
+    """Interpret old null locators only from their saved creation configuration."""
+    from app.services import import_storage
+
+    if row["origin"] != "direct":
+        reject("managed_original_creation_input_changed")
+    prefix = f"{STAGING_PREFIX}/{row['id']}/"
+    reference = row.get("staging_ref")
+    if reference is None:
+        saved = row["configuration"]
+        if (
+            _digest(saved) != row["input_fingerprint"]
+            or saved.get("buckets", {}).get("import") != row["staging_bucket"]
+        ):
+            reject("managed_original_configuration_changed")
+        reference = _import_call(
+            import_storage.legacy_ref,
+            prefix,
+            endpoint_url=saved.get("endpoint"),
+            bucket=row["staging_bucket"],
+        )
+    owner = _import_call(import_storage.resolve_ref, reference, expected_prefix=prefix)
+    if (
+        owner.bucket != row["staging_bucket"]
+        or owner.key("payload") != row["staging_key"]
+    ):
+        reject("managed_original_creation_input_changed")
+    return owner
+
+
+def _import_error(exc):
+    error = ContentError(exc.code, exc.status_code)
+    if getattr(exc, "storage_operation_unsettled", False):
+        storage_access.mark_unsettled(error)
+    return error
+
+
+def _import_call(call, *args, **kwargs):
+    from app.services import import_storage
+
+    try:
+        return call(*args, **kwargs)
+    except import_storage.ImportStorageError as exc:
+        raise _import_error(exc) from None
+
+
+async def _import_async(call, *args, **kwargs):
+    from app.services import import_storage
+
+    try:
+        return await call(*args, **kwargs)
+    except import_storage.ImportStorageError as exc:
+        raise _import_error(exc) from None
+
+
+async def validate_staging(db, row, *, lock=False, expected_revision=None):
+    from app.services import import_storage
+
+    owner = staging_owner(row)
+    await _import_async(import_storage.io_target, db, owner, lock=lock)
+    return await import_storage.check_location(
+        db, owner, expected_revision=expected_revision, lock=lock
+    )
+
+
+async def prepare_upload_url(db, allocation):
+    """Use the durable source owner before callers enter final authority locks."""
+    from app.services import import_storage
+
+    try:
+        return await _import_async(
+            import_storage.prepare_upload_url,
+            db,
+            staging_owner(allocation),
+            "payload",
+            content_type=allocation["content_type"],
+            expires_in=900,
+        )
+    except ContentError:
+        raise
+    except Exception as exc:
+        error = ContentError("managed_original_staging_unavailable", 503)
+        if getattr(exc, "storage_operation_unsettled", False):
+            storage_access.mark_unsettled(error)
+        raise error from None
 
 
 async def allocate(
@@ -382,6 +471,15 @@ async def _allocate(
     configuration = await _configuration(db)
     revision = await storage_access.check(db, LEGACY_LOCATION_ID)
     creation_id = uuid.uuid4()
+    staging_ref, staging_owner_value = None, None
+    if staging:
+        from app.services import import_storage
+
+        prefix = f"{STAGING_PREFIX}/{creation_id}/"
+        staging_ref = await _import_async(import_storage.allocate, db, prefix)
+        staging_owner_value = _import_call(
+            import_storage.resolve_ref, staging_ref, expected_prefix=prefix
+        )
     object_key = (
         f"{TASK_ORIGINAL_PREFIX}/{task_id}/{creation_id}/payload"
         if owner_kind == "task"
@@ -395,6 +493,13 @@ async def _allocate(
         len(object_key) > 1000
         or len(object_key.encode()) > 1024
         or len(binding.bucket.encode()) > 255
+        or (
+            staging_owner_value is not None
+            and (
+                len(staging_owner_value.key("payload")) > 1000
+                or len(staging_owner_value.key("payload").encode()) > 1024
+            )
+        )
     ):
         reject("managed_original_invalid_allocation", 422)
     values = {
@@ -419,8 +524,9 @@ async def _allocate(
         "configuration": configuration,
         "input_fingerprint": _digest(configuration),
         "maintenance_revision": revision,
-        "staging_bucket": storage_service.import_bucket if staging else None,
-        "staging_key": f"{STAGING_PREFIX}/{creation_id}/payload" if staging else None,
+        "staging_ref": staging_ref,
+        "staging_bucket": staging_owner_value.bucket if staging else None,
+        "staging_key": staging_owner_value.key("payload") if staging else None,
         "status": "allocated",
     }
     async with storage_access.engine(db).begin() as connection:
@@ -495,29 +601,33 @@ def _result(row, head_bytes=b""):
 
 async def _loaded(db, allocation):
     row = await _read(db, allocation["id"])
-    if row is None or any(
-        field not in allocation or row[field] != allocation[field]
-        for field in (
-            "owner_kind",
-            "dataset_id",
-            "project_id",
-            "task_id",
-            "location_id",
-            "storage_identity",
-            "bucket",
-            "object_key",
-            "logical_path",
-            "origin",
-            "max_bytes",
-            "timeout_seconds",
-            "content_type",
-            "requested_by",
-            "authority",
-            "configuration",
-            "input_fingerprint",
-            "maintenance_revision",
-            "staging_bucket",
-            "staging_key",
+    if (
+        row is None
+        or row.get("staging_ref") != allocation.get("staging_ref")
+        or any(
+            field not in allocation or row[field] != allocation[field]
+            for field in (
+                "owner_kind",
+                "dataset_id",
+                "project_id",
+                "task_id",
+                "location_id",
+                "storage_identity",
+                "bucket",
+                "object_key",
+                "logical_path",
+                "origin",
+                "max_bytes",
+                "timeout_seconds",
+                "content_type",
+                "requested_by",
+                "authority",
+                "configuration",
+                "input_fingerprint",
+                "maintenance_revision",
+                "staging_bucket",
+                "staging_key",
+            )
         )
     ):
         reject("managed_original_creation_not_found", 404)
@@ -566,10 +676,11 @@ class _Physical:
             return await _drain(future)
 
 
-async def _physical(db, row, stream):
+async def _physical(db, row, stream, *, source_target=None):
     from app.services import managed_original_writer as writer
 
-    client, prepared, completion_started = None, None, False
+    client, source_client, source_context = None, None, None
+    prepared, completion_started = None, False
     physical = _Physical()
     failure = None
     mutation = None
@@ -580,9 +691,13 @@ async def _physical(db, row, stream):
             create_client, timeout_seconds=row["timeout_seconds"]
         )
         if row["origin"] == "direct":
+            if source_target is None:
+                reject("managed_original_creation_input_changed")
+            source_context = source_target.client()
+            source_client = await physical.run(source_context.__enter__)
             source = await physical.run(
                 writer.inspect_staging,
-                client,
+                source_client,
                 row["staging_bucket"],
                 row["staging_key"],
                 max_bytes=row["max_bytes"],
@@ -609,6 +724,7 @@ async def _physical(db, row, stream):
                 source,
                 content_type=row["content_type"],
                 timeout_seconds=row["timeout_seconds"],
+                source_client=source_client,
             )
         else:
             prepared = await physical.run(
@@ -749,13 +865,24 @@ async def _physical(db, row, stream):
         raise
     finally:
         try:
-            if client is not None:
+            closing_failure = None
+            for resource, context in (
+                (source_client, source_context),
+                (client, None),
+            ):
+                if resource is None:
+                    continue
                 try:
-                    await physical.run(storage_access.close_registered, client)
+                    if context is not None:
+                        await physical.run(context.__exit__, None, None, None)
+                    else:
+                        await physical.run(storage_access.close_registered, resource)
                 except BaseException:
-                    raise storage_access.mark_unsettled(
+                    closing_failure = storage_access.mark_unsettled(
                         ContentError("managed_original_close_unknown", 503)
-                    ) from None
+                    )
+            if closing_failure is not None:
+                raise closing_failure from None
             settled = True
         finally:
             if mutation is not None:
@@ -806,7 +933,25 @@ async def _execute(db, allocation, stream):
             expected_revision=row["maintenance_revision"],
         ) as permit:
             await _change(db, row["id"], "preparing", operation_id=permit.id)
-            head_bytes = await _physical(db, row, stream)
+            if row["origin"] == "direct":
+                from app.services import import_storage
+
+                owner = staging_owner(row)
+                target = await _import_async(import_storage.io_target, db, owner)
+                async with await storage_access.acquire(
+                    db,
+                    owner.location_id,
+                    "managed_original_source_" + row["id"].hex,
+                ) as source_permit:
+                    await validate_staging(
+                        db, row, expected_revision=source_permit.revision
+                    )
+                    head_bytes = await _physical(db, row, stream, source_target=target)
+                    await validate_staging(
+                        db, row, expected_revision=source_permit.revision
+                    )
+            else:
+                head_bytes = await _physical(db, row, stream)
         await _validate(db, row)
         row = await _change(
             db,

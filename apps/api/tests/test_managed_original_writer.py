@@ -405,6 +405,73 @@ def test_copy_source_replaced_after_inspection_aborts_exact_mpu():
     assert ("owned", "final") not in client.objects
 
 
+@pytest.mark.parametrize("versioned", [False, True])
+@pytest.mark.parametrize("data", [b"", b"external original"])
+def test_separate_source_client_streams_to_owned_destination(versioned, data):
+    reader, destination = MemoryS3(), MemoryS3()
+    reader.versioned = versioned
+    reader.store("stage", "source", data)
+    source = writer.inspect_staging(reader, "stage", "source", max_bytes=len(data))
+    prepared = writer.prepare_copy(
+        destination,
+        "stage",
+        "source",
+        "owned",
+        "final",
+        source,
+        content_type="application/octet-stream",
+        source_client=reader,
+    )
+    receipt = writer.complete(
+        destination, "owned", "final", prepared, content_type="application/octet-stream"
+    )
+    verified = writer.verify(
+        destination,
+        "owned",
+        "final",
+        receipt,
+        sha256=source.sha256,
+        size_bytes=len(data),
+        max_bytes=len(data),
+    )
+    assert verified.sha256 == hashlib.sha256(data).hexdigest()
+    assert destination.objects["owned", "final"]["data"] == data
+    assert reader.objects["stage", "source"]["data"] == data
+    assert all(operation in {"head", "get"} for operation, _ in reader.calls)
+    assert not any(operation == "copy" for operation, _ in destination.calls)
+    assert not any(params.get("Bucket") == "stage" for _, params in destination.calls)
+    assert all(body.close_count == 1 for body in reader.bodies + destination.bodies)
+
+
+@pytest.mark.parametrize("change", ["replace_current", "corrupt_read", "close_failure"])
+def test_cross_client_failure_aborts_only_destination_mpu(change):
+    reader, destination = MemoryS3(), MemoryS3()
+    reader.versioned = True
+    reader.store("stage", "source", b"original")
+    source = writer.inspect_staging(reader, "stage", "source", max_bytes=8)
+    if change == "replace_current":
+        reader.store("stage", "source", b"replaced")
+    elif change == "corrupt_read":
+        reader.versions["stage", "source", source.version_id]["data"] = b"corrupt!"
+    else:
+        reader.body_hook = lambda body, chunk: setattr(body, "close_failure", True)
+    with pytest.raises(writer.WriterError):
+        writer.prepare_copy(
+            destination,
+            "stage",
+            "source",
+            "owned",
+            "final",
+            source,
+            content_type="application/octet-stream",
+            source_client=reader,
+        )
+    assert not destination.uploads and ("owned", "final") not in destination.objects
+    assert not reader.uploads
+    assert ("stage", "source") in reader.objects
+    assert all(operation in {"head", "get"} for operation, _ in reader.calls)
+
+
 def test_copy_pins_old_nonnull_source_version_after_current_replacement():
     client = MemoryS3()
     client.versioned = True

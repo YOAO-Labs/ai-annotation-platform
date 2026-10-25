@@ -549,6 +549,11 @@ async def upload_init(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    from app.services import comment_attachment_authority as credentials
+
+    current_user, upload_authority = await credentials.lock_authority(
+        db, current_user, request, allowed_roles=frozenset(UserRole)
+    )
     await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     ds = await svc.get(dataset_id)
@@ -589,15 +594,42 @@ async def upload_init(
         file_type=file_type,
         logical_path=relative_name,
     )
+    item_id = item.id
+    item_facts = (item.dataset_id, item.file_path, item.file_name, item.file_type)
     await db.commit()
 
-    upload_url = storage_service.generate_upload_url(
-        allocation["staging_key"],
-        data.content_type,
-        bucket=allocation["staging_bucket"],
-    )
+    try:
+        upload_url = await creations.prepare_upload_url(db, allocation)
+        await credentials.reauthorize(db, upload_authority)
+        await recheck_directory_write(request, db, dataset_id)
+        from app.db.models.dataset import DatasetItem
+
+        item = await db.scalar(
+            select(DatasetItem)
+            .where(DatasetItem.id == item_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+        if (
+            item is None
+            or (
+                item.dataset_id,
+                item.file_path,
+                item.file_name,
+                item.file_type,
+            )
+            != item_facts
+        ):
+            raise ContentError("managed_original_creation_input_changed")
+        await creations._validate(db, allocation, lock=True)
+        await creations.validate_staging(db, allocation, lock=True)
+        await credentials.reauthorize(db, upload_authority)
+        await db.commit()
+        credentials.check_clock(upload_authority)
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
     return DatasetUploadInitResponse(
-        item_id=item.id, upload_url=upload_url, expires_in=900
+        item_id=item_id, upload_url=upload_url, expires_in=900
     )
 
 
@@ -638,7 +670,41 @@ async def upload_complete(
         if allocation is not None:
             if allocation["origin"] != "direct":
                 raise HTTPException(409, detail={"code": "creation_origin_changed"})
+            from app.services import comment_attachment_authority as credentials
+
+            _, upload_authority = await credentials.lock_authority(
+                db, current_user, request, allowed_roles=frozenset(UserRole)
+            )
+            item_facts = (
+                item.dataset_id,
+                item.file_path,
+                item.file_name,
+                item.file_type,
+            )
+            # A durable Creation owns the source and destination while no
+            # business or credential lock spans client construction or I/O.
+            await db.commit()
+            credentials.check_clock(upload_authority)
             created = await creations.complete_direct(db, allocation)
+            await credentials.reauthorize(db, upload_authority)
+            await recheck_directory_write(request, db, dataset_id)
+            item = await db.scalar(
+                select(DatasetItem)
+                .where(DatasetItem.id == item_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if (
+                item is None
+                or (
+                    item.dataset_id,
+                    item.file_path,
+                    item.file_name,
+                    item.file_type,
+                )
+                != item_facts
+            ):
+                raise ContentError("managed_original_creation_input_changed")
             content_hash, sha256, size, etag = (
                 created.md5,
                 created.sha256,
