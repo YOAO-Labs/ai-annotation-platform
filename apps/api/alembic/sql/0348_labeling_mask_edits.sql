@@ -37,6 +37,10 @@ DECLARE
     v_changed jsonb := '[]'::jsonb;
     v_expected_id uuid;
     v_now timestamptz;
+    v_access jsonb;
+    v_segments jsonb := '[]'::jsonb;
+    v_upload_keys text[];
+    v_upload_rows jsonb;
 BEGIN
     IF jsonb_typeof(p_request) IS DISTINCT FROM 'object'
        OR p_request ->> 'schema' IS DISTINCT FROM 'aap-labeling-mask-edits/v1'
@@ -49,6 +53,13 @@ BEGIN
             v_expected_keys := ARRAY['schema','operation','task_id','actor_id','idempotency_key'];
         WHEN 'read_operation' THEN
             v_expected_keys := ARRAY['schema','operation','task_id','operation_id','lock'];
+        WHEN 'read_reserved_mask_uploads' THEN
+            v_expected_keys := ARRAY['schema','operation','task_id','object_keys'];
+        WHEN 'read_video_segments' THEN
+            v_expected_keys := ARRAY[
+                'schema','operation','task_id','project_id','actor_id',
+                'dataset_item_id','segment_id','lock'
+            ];
         WHEN 'apply_polygon_slice' THEN
             v_expected_keys := ARRAY[
                 'schema','operation','task_id','project_id','actor_id','expected_batch_id',
@@ -133,6 +144,83 @@ BEGIN
             'response_json', CASE WHEN FOUND THEN v_original.response_json END,
             'created_at', CASE WHEN FOUND THEN v_original.created_at END
         );
+    ELSIF v_operation = 'read_reserved_mask_uploads' THEN
+        IF jsonb_typeof(p_request -> 'task_id') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(p_request -> 'object_keys') IS DISTINCT FROM 'array'
+           OR jsonb_array_length(p_request -> 'object_keys') > 1000 THEN
+            RAISE EXCEPTION 'Invalid Mask upload-key read request' USING ERRCODE = '22023';
+        END IF;
+        v_task_id := (p_request ->> 'task_id')::uuid;
+        IF EXISTS (
+            SELECT 1 FROM jsonb_array_elements(p_request -> 'object_keys') AS item(value)
+            WHERE jsonb_typeof(item.value) IS DISTINCT FROM 'string'
+        ) THEN
+            RAISE EXCEPTION 'Invalid Mask upload-key list' USING ERRCODE = '22023';
+        END IF;
+        SELECT COALESCE(array_agg(value ORDER BY value),ARRAY[]::text[])
+        INTO v_upload_keys
+        FROM jsonb_array_elements_text(p_request -> 'object_keys') AS keys(value);
+        SELECT COALESCE(jsonb_agg(upload.object_key ORDER BY upload.object_key),'[]'::jsonb)
+        INTO v_upload_rows
+        FROM public.raster_mask_uploads AS upload
+        WHERE upload.task_id = v_task_id
+          AND upload.object_key = ANY(v_upload_keys);
+        v_data := jsonb_build_object('object_keys',v_upload_rows);
+    ELSIF v_operation = 'read_video_segments' THEN
+        IF jsonb_typeof(p_request -> 'task_id') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(p_request -> 'project_id') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(p_request -> 'actor_id') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(p_request -> 'dataset_item_id') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(p_request -> 'segment_id') NOT IN ('string','null')
+           OR jsonb_typeof(p_request -> 'lock') IS DISTINCT FROM 'boolean' THEN
+            RAISE EXCEPTION 'Invalid Mask video-segment read request' USING ERRCODE = '22023';
+        END IF;
+        v_task_id := (p_request ->> 'task_id')::uuid;
+        v_project_id := (p_request ->> 'project_id')::uuid;
+        v_actor_id := (p_request ->> 'actor_id')::uuid;
+        v_source_id := (p_request ->> 'dataset_item_id')::uuid;
+        SELECT task.id,task.project_id,task.dataset_item_id INTO v_task
+        FROM public.tasks AS task
+        WHERE task.id = v_task_id
+          AND task.project_id = v_project_id
+          AND task.dataset_item_id = v_source_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_mask_edit_error',
+                DETAIL = jsonb_build_object('status_code',404,'detail',jsonb_build_object('reason','task_not_found'))::text;
+        END IF;
+        v_access := aap_labeling_v1.read_media_task_access(
+            v_actor_id,v_task_id,v_source_id
+        );
+        IF v_access -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN
+            RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'aap_mask_edit_error',
+                DETAIL = jsonb_build_object('status_code',404,'detail',jsonb_build_object('reason','task_not_visible'))::text;
+        END IF;
+        IF (p_request ->> 'lock')::boolean THEN
+            SELECT COALESCE(jsonb_agg(to_jsonb(selected) ORDER BY selected.segment_index),'[]'::jsonb)
+            INTO v_segments
+            FROM (
+                SELECT segment.id,segment.segment_index,segment.start_frame,segment.end_frame,
+                       segment.locked_by,segment.lock_expires_at
+                FROM public.video_segments AS segment
+                WHERE segment.dataset_item_id = v_source_id
+                  AND ((p_request ->> 'segment_id') IS NULL
+                       OR segment.id = (p_request ->> 'segment_id')::uuid)
+                ORDER BY segment.segment_index FOR UPDATE
+            ) AS selected;
+        ELSE
+            SELECT COALESCE(jsonb_agg(to_jsonb(selected) ORDER BY selected.segment_index),'[]'::jsonb)
+            INTO v_segments
+            FROM (
+                SELECT segment.id,segment.segment_index,segment.start_frame,segment.end_frame,
+                       segment.locked_by,segment.lock_expires_at
+                FROM public.video_segments AS segment
+                WHERE segment.dataset_item_id = v_source_id
+                  AND ((p_request ->> 'segment_id') IS NULL
+                       OR segment.id = (p_request ->> 'segment_id')::uuid)
+                ORDER BY segment.segment_index
+            ) AS selected;
+        END IF;
+        v_data := jsonb_build_object('segments',v_segments);
     ELSE
         FOREACH v_field IN ARRAY ARRAY['task_id','project_id','actor_id','expected_status'] LOOP
             IF jsonb_typeof(p_request -> v_field) IS DISTINCT FROM 'string' THEN

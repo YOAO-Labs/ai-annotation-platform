@@ -8,9 +8,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from aap_protocol_v2 import native_mask_candidate_id
-from sqlalchemy import select
+from sqlalchemy import inspect
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.util import identity_key
 
 from aap_labeling.ai_mask_accept_contract import (
     AiMaskDecisionData,
@@ -32,6 +33,12 @@ from app.db.models.ml_backend_pool import MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.prediction import INTERACTIVE_ACCEPT_PREDICTION_SOURCE
 from app.db.models.task import Task
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    lock_annotation_rows_for_core_read,
+    lock_task_for_core_read,
+)
 from app.db.models.user import User
 from app.schemas.ai_mask import AiMaskAcceptRequest, AiMaskAcceptResponse
 from app.schemas.annotation import AnnotationOut
@@ -344,14 +351,14 @@ async def _load_source_for_update(
                 message="If-Match is only valid for refine targets",
             )
         return None
-    source = (
-        await db.execute(
-            select(Annotation)
-            .where(Annotation.id == data.target.source_annotation_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    rows = await lock_annotation_rows_for_core_read(
+        db,
+        [data.target.source_annotation_id],
+        lock_mode="update",
+        nowait=False,
+        populate_existing=True,
+    )
+    source = rows[0] if rows else None
     if source is None or not source.is_active or source.task_id != task_id:
         raise AiMaskAcceptError(
             status_code=404,
@@ -461,14 +468,9 @@ async def accept_ai_mask_candidate(
     rle = rle_model.model_dump(mode="json")
     mask_reference = build_rle_reference(rle)
     content_digest = str(mask_reference["sha256"])
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(
+        db, task_id, lock_mode="update", nowait=False, populate_existing=True
+    )
     if task is None:
         raise AiMaskAcceptError(
             status_code=404, reason="task_not_found", message="task was not found"
@@ -529,11 +531,25 @@ async def accept_ai_mask_candidate(
     )
     prediction_backend_id, prediction_pool_id = await _resolve_routing_lineage(db, data)
 
-    item = (
-        await db.get(DatasetItem, task.dataset_item_id)
-        if task.dataset_item_id
-        else None
-    )
+    item_id = task.dataset_item_id
+    item = None
+    if item_id is not None:
+        cached_item = db.sync_session.identity_map.get(
+            identity_key(DatasetItem, ident=item_id)
+        )
+        if (
+            cached_item is not None
+            and not inspect(cached_item).expired_attributes
+            and "file_type" not in inspect(cached_item).unloaded
+        ):
+            item = cached_item
+        else:
+            if db.autoflush:
+                await db.flush()
+            from app.services.labeling_scene import read_spatial_item_facts
+
+            item_facts, _ = await read_spatial_item_facts(db, [item_id])
+            item = item_facts.get(item_id)
     media_type = item.file_type if item is not None else None
     if media_type not in {"image", "video"}:
         raise AiMaskAcceptError(
@@ -772,7 +788,10 @@ async def accept_ai_mask_candidate(
         },
     )
     await db.flush()
-    await db.refresh(annotation)
+    annotation = await get_core_row(
+        db, annotation_row, annotation.id, populate_existing=True
+    )
+    assert annotation is not None
     response = AiMaskAcceptResponse(
         prediction=_prediction_out(
             prediction, prediction_request, inference_time_ms=inference_time_ms

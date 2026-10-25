@@ -21,6 +21,14 @@ from app.schemas.annotation_slice import (
     PolygonSliceCommitRequest,
 )
 from app.services import task_access
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    execute_core_read,
+    get_core_row,
+    lock_annotation_rows_for_core_read,
+    lock_task_for_core_read,
+    task_row,
+)
 from app.services.annotation import AnnotationService
 from app.services.annotation_evidence import record_annotation_actor
 from app.services.annotation_slice_contracts import (
@@ -82,11 +90,8 @@ class AnnotationSliceService:
         self, task_id: uuid.UUID, actor: User, *, access: Any = None
     ) -> tuple[Task, Any]:
 
-        task = await self.db.scalar(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
+        task = await lock_task_for_core_read(
+            self.db, task_id, lock_mode="update", nowait=False, populate_existing=True
         )
         if task is None:
             raise _AnnotationSliceError(404, "task_not_found", "任务不存在")
@@ -153,19 +158,13 @@ class AnnotationSliceService:
     async def _lock_annotations(
         self, task_id: uuid.UUID, ids: list[uuid.UUID]
     ) -> dict[str, Annotation]:
-        rows = list(
-            (
-                await self.db.scalars(
-                    select(Annotation)
-                    .where(
-                        Annotation.task_id == task_id,
-                        Annotation.id.in_(ids),
-                    )
-                    .order_by(Annotation.id)
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            ).all()
+        rows = await lock_annotation_rows_for_core_read(
+            self.db,
+            ids,
+            task_id=task_id,
+            lock_mode="update",
+            nowait=False,
+            populate_existing=True,
         )
         if len(rows) != len(ids):
             raise _AnnotationSliceError(
@@ -178,14 +177,17 @@ class AnnotationSliceService:
             raise _AnnotationSliceError(
                 409, "annotation_locked", "切割对象已锁定或不可编辑"
             )
-        child = await self.db.scalar(
-            select(Annotation.id)
-            .where(
-                Annotation.parent_annotation_id.in_(ids),
-                Annotation.is_active.is_(True),
+        child = (
+            await execute_core_read(
+                self.db,
+                select(annotation_row.id)
+                .where(
+                    annotation_row.parent_annotation_id.in_(ids),
+                    annotation_row.is_active.is_(True),
+                )
+                .limit(1),
             )
-            .limit(1)
-        )
+        ).scalar_one_or_none()
         if child:
             raise _AnnotationSliceError(
                 409, "active_children", "有活动子对象的标注不能切割或恢复"
@@ -416,7 +418,9 @@ class AnnotationSliceService:
                 **payload.model_dump(mode="json"),
             }
         )
-        preflight_task = await self.db.get(Task, task_id, populate_existing=True)
+        preflight_task = await get_core_row(
+            self.db, task_row, task_id, populate_existing=True
+        )
         if preflight_task is None:
             raise _AnnotationSliceError(404, "task_not_found", "任务不存在")
         source_binding = capture_task_source_binding(preflight_task)

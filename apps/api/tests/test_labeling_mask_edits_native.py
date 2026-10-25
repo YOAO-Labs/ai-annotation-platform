@@ -22,6 +22,8 @@ from aap_labeling.mask_edit_contract import (
     ApplyPolygonSlice,
     FindOperation,
     MaskEditDataClient,
+    ReadMaskUploadKeys,
+    ReadMaskVideoSegments,
     UpdateMaskAnnotation,
     WriteAnnotationOperation,
 )
@@ -36,8 +38,10 @@ from aap_owner_data.postgres import verify_function_only_role
 from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_operation import AnnotationOperation
+from app.db.models.dataset import Dataset, DatasetItem, VideoSegment
 from app.db.models.mask_annotation_revision import MaskAnnotationRevision
 from app.db.models.prediction import Prediction
+from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
 from app.services.annotation_slice_contracts import annotation_slice_digest
 from tests.factory import create_task
@@ -65,6 +69,9 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
 ):
     maker, world = await _seed(test_engine)
     task_id = None
+    video_task_id = None
+    dataset_id = None
+    item_id = None
     connection = None
     transaction = None
     polygon_id = uuid.uuid4()
@@ -86,6 +93,49 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
                 db, project_id=world["project_id"], status="in_progress"
             )
             task_id = task.id
+            dataset = Dataset(
+                display_id=f"MV-{uuid.uuid4().hex[:10]}",
+                name="Mask edit video segments",
+                data_type="video",
+                created_by=world["member_id"],
+            )
+            db.add(dataset)
+            await db.flush()
+            dataset_id = dataset.id
+            item = DatasetItem(
+                dataset_id=dataset.id,
+                file_name="mask-edit.mp4",
+                file_path="mask-edit/video.mp4",
+                file_type="video",
+            )
+            db.add(item)
+            await db.flush()
+            item_id = item.id
+            video_task = await create_task(
+                db, project_id=world["project_id"], status="in_progress"
+            )
+            video_task.file_type = "video"
+            video_task.dataset_item_id = item.id
+            video_task_id = video_task.id
+            db.add_all(
+                [
+                    VideoSegment(
+                        dataset_item_id=item.id,
+                        segment_index=1,
+                        start_frame=10,
+                        end_frame=19,
+                        status="open",
+                    ),
+                    VideoSegment(
+                        dataset_item_id=item.id,
+                        segment_index=0,
+                        start_frame=0,
+                        end_frame=9,
+                        status="open",
+                    ),
+                ]
+            )
+            await db.flush()
             polygon = Annotation(
                 id=polygon_id,
                 task_id=task.id,
@@ -121,6 +171,12 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
                 created_at=now,
             )
             db.add_all([polygon, mask, prediction])
+            db.add(
+                RasterMaskUpload(
+                    task_id=task.id,
+                    object_key="raster-masks/sha256/" + "d" * 64 + ".json",
+                )
+            )
             await db.flush()
             db.add(
                 MaskAnnotationRevision(
@@ -135,6 +191,12 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
                 )
             )
             await db.flush()
+            video_context = {
+                "task_id": video_task.id,
+                "project_id": video_task.project_id,
+                "actor_id": world["member_id"],
+                "dataset_item_id": item.id,
+            }
             context = {
                 "task_id": task.id,
                 "project_id": task.project_id,
@@ -170,6 +232,46 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
         )
         transaction = connection.transaction()
         await transaction.start()
+        owned_uploads = await edits.command(
+            ReadMaskUploadKeys(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="read_reserved_mask_uploads",
+                task_id=task_id,
+                object_keys=[
+                    "raster-masks/sha256/" + "d" * 64 + ".json",
+                    "raster-masks/missing",
+                ],
+            )
+        )
+        assert owned_uploads.object_keys == [
+            "raster-masks/sha256/" + "d" * 64 + ".json"
+        ]
+        all_segments = await edits.command(
+            ReadMaskVideoSegments(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="read_video_segments",
+                **video_context,
+                segment_id=None,
+                lock=False,
+            )
+        )
+        assert [row.segment_index for row in all_segments.segments] == [0, 1]
+        locked_segment = await edits.command(
+            ReadMaskVideoSegments(
+                schema=MASK_EDIT_PROTOCOL,
+                operation="read_video_segments",
+                **video_context,
+                segment_id=all_segments.segments[1].id,
+                lock=True,
+            )
+        )
+        assert [row.segment_index for row in locked_segment.segments] == [1]
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await connection.fetch(
+                "SELECT locked_at FROM public.video_segments LIMIT 1"
+            )
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await connection.fetch("SELECT id FROM public.raster_mask_uploads LIMIT 1")
         polygon_write = await edits.command(
             ApplyPolygonSlice(
                 schema=MASK_EDIT_PROTOCOL,
@@ -342,8 +444,8 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
             await transaction.rollback()
         if connection is not None:
             await connection.close()
-        if task_id is not None:
-            async with maker.begin() as db:
+        async with maker.begin() as db:
+            if task_id is not None:
                 await db.execute(
                     delete(Annotation).where(Annotation.task_id == task_id)
                 )
@@ -351,4 +453,13 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
                     delete(Prediction).where(Prediction.task_id == task_id)
                 )
                 await db.execute(delete(Task).where(Task.id == task_id))
+            if video_task_id is not None:
+                await db.execute(delete(Task).where(Task.id == video_task_id))
+            if item_id is not None:
+                await db.execute(
+                    delete(VideoSegment).where(VideoSegment.dataset_item_id == item_id)
+                )
+                await db.execute(delete(DatasetItem).where(DatasetItem.id == item_id))
+            if dataset_id is not None:
+                await db.execute(delete(Dataset).where(Dataset.id == dataset_id))
         await _cleanup(maker, world)

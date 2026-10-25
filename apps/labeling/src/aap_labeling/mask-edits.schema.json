@@ -797,6 +797,186 @@
       "title": "MaskAnnotationData",
       "type": "object"
     },
+    "MaskVideoSegmentRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "segment_index": {
+          "title": "Segment Index",
+          "type": "integer"
+        },
+        "start_frame": {
+          "title": "Start Frame",
+          "type": "integer"
+        },
+        "end_frame": {
+          "title": "End Frame",
+          "type": "integer"
+        },
+        "locked_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Locked By"
+        },
+        "lock_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lock Expires At"
+        }
+      },
+      "required": [
+        "id",
+        "segment_index",
+        "start_frame",
+        "end_frame",
+        "locked_by",
+        "lock_expires_at"
+      ],
+      "title": "MaskVideoSegmentRecord",
+      "type": "object"
+    },
+    "ReadMaskUploadKeys": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_reserved_mask_uploads",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "object_keys": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Object Keys",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "task_id", "object_keys"],
+      "title": "ReadMaskUploadKeys",
+      "type": "object"
+    },
+    "ReadMaskUploadKeysData": {
+      "additionalProperties": false,
+      "properties": {
+        "object_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Object Keys",
+          "type": "array"
+        }
+      },
+      "required": ["object_keys"],
+      "title": "ReadMaskUploadKeysData",
+      "type": "object"
+    },
+    "ReadMaskVideoSegments": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "read_video_segments",
+          "title": "Operation",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Segment Id"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "task_id",
+        "project_id",
+        "actor_id",
+        "dataset_item_id",
+        "segment_id",
+        "lock"
+      ],
+      "title": "ReadMaskVideoSegments",
+      "type": "object"
+    },
+    "ReadMaskVideoSegmentsData": {
+      "additionalProperties": false,
+      "properties": {
+        "segments": {
+          "items": {
+            "$ref": "#/$defs/MaskVideoSegmentRecord"
+          },
+          "title": "Segments",
+          "type": "array"
+        }
+      },
+      "required": ["segments"],
+      "title": "ReadMaskVideoSegmentsData",
+      "type": "object"
+    },
     "ReadOperation": {
       "additionalProperties": false,
       "properties": {
@@ -1124,6 +1304,8 @@
           "apply_slice_restore": "#/$defs/ApplySliceRestore",
           "find_operation": "#/$defs/FindOperation",
           "read_operation": "#/$defs/ReadOperation",
+          "read_reserved_mask_uploads": "#/$defs/ReadMaskUploadKeys",
+          "read_video_segments": "#/$defs/ReadMaskVideoSegments",
           "write_operation": "#/$defs/WriteAnnotationOperation"
         },
         "propertyName": "operation"
@@ -1134,6 +1316,12 @@
         },
         {
           "$ref": "#/$defs/ReadOperation"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskUploadKeys"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskVideoSegments"
         },
         {
           "$ref": "#/$defs/ApplyPolygonSlice"
@@ -1154,6 +1342,12 @@
       "anyOf": [
         {
           "$ref": "#/$defs/AnnotationOperationData"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskUploadKeysData"
+        },
+        {
+          "$ref": "#/$defs/ReadMaskVideoSegmentsData"
         },
         {
           "$ref": "#/$defs/ApplySliceData"

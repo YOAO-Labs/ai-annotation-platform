@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+from pydantic import ValidationError
 
 from aap_labeling.ai_mask_accept_contract import (
     AI_MASK_ACCEPT_PROTOCOL,
@@ -17,6 +18,10 @@ from aap_labeling.mask_edit_contract import (
     ApplyPolygonSlice,
     MaskAnnotationData,
     MaskEditUnavailable,
+    ReadMaskUploadKeys,
+    ReadMaskUploadKeysData,
+    ReadMaskVideoSegments,
+    ReadMaskVideoSegmentsData,
     decode_mask_edit_command,
     decode_mask_edit_reply,
     mask_edit_command_json,
@@ -147,3 +152,56 @@ def test_ai_mask_refinement_command_rejects_unfenced_requests():
         decode_ai_mask_accept_command(
             raw.replace('"expected_version":3', '"expected_version":0')
         )
+
+
+def test_mask_reads_have_fixed_closed_requests_and_typed_results():
+    task_id = uuid.uuid4()
+    read_segments = ReadMaskVideoSegments(
+        schema=MASK_EDIT_PROTOCOL,
+        operation="read_video_segments",
+        task_id=task_id,
+        project_id=uuid.uuid4(),
+        actor_id=uuid.uuid4(),
+        dataset_item_id=uuid.uuid4(),
+        segment_id=None,
+        lock=False,
+    )
+    assert (
+        decode_mask_edit_command(mask_edit_command_json(read_segments)) == read_segments
+    )
+    segment_data = ReadMaskVideoSegmentsData(segments=[])
+    segment_reply = {
+        "schema": MASK_EDIT_PROTOCOL,
+        "ok": True,
+        "request": read_segments.model_dump(mode="json", by_alias=True),
+        "data": segment_data.model_dump(mode="json"),
+    }
+    assert decode_mask_edit_reply(read_segments, segment_reply) == segment_data
+    segment_reply["data"]["segment_count"] = 0
+    with pytest.raises(MaskEditUnavailable):
+        decode_mask_edit_reply(read_segments, segment_reply)
+
+    read_uploads = ReadMaskUploadKeys(
+        schema=MASK_EDIT_PROTOCOL,
+        operation="read_reserved_mask_uploads",
+        task_id=task_id,
+        object_keys=["raster-masks/sha256/example"],
+    )
+    assert (
+        decode_mask_edit_command(mask_edit_command_json(read_uploads)) == read_uploads
+    )
+    with pytest.raises(ValidationError):
+        ReadMaskUploadKeys(
+            schema=MASK_EDIT_PROTOCOL,
+            operation="read_reserved_mask_uploads",
+            task_id=task_id,
+            object_keys=["key"] * 1001,
+        )
+    upload_data = ReadMaskUploadKeysData(object_keys=read_uploads.object_keys)
+    upload_reply = {
+        "schema": MASK_EDIT_PROTOCOL,
+        "ok": True,
+        "request": read_uploads.model_dump(mode="json", by_alias=True),
+        "data": upload_data.model_dump(mode="json"),
+    }
+    assert decode_mask_edit_reply(read_uploads, upload_reply) == upload_data

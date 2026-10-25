@@ -55,6 +55,22 @@ class ReadOperation(_Command):
     lock: StrictBool
 
 
+class ReadMaskUploadKeys(_Command):
+    operation: Literal["read_reserved_mask_uploads"]
+    task_id: uuid.UUID
+    object_keys: list[StrictStr] = Field(max_length=1000)
+
+
+class ReadMaskVideoSegments(_Command):
+    operation: Literal["read_video_segments"]
+    task_id: uuid.UUID
+    project_id: uuid.UUID
+    actor_id: uuid.UUID
+    dataset_item_id: uuid.UUID
+    segment_id: uuid.UUID | None
+    lock: StrictBool
+
+
 class ApplyPolygonSlice(_Command, MaskTaskFence):
     operation: Literal["apply_polygon_slice"]
     source_annotation_id: uuid.UUID
@@ -155,6 +171,8 @@ class WriteAnnotationOperation(_Command, MaskTaskFence):
 MaskEditCommand = Annotated[
     FindOperation
     | ReadOperation
+    | ReadMaskUploadKeys
+    | ReadMaskVideoSegments
     | ApplyPolygonSlice
     | ApplyMaskMutations
     | ApplySliceRestore
@@ -196,6 +214,23 @@ class MaskAnnotationData(_ClosedModel):
     updated_at: AwareDatetime
 
 
+class ReadMaskUploadKeysData(_ClosedModel):
+    object_keys: list[StrictStr]
+
+
+class MaskVideoSegmentRecord(_ClosedModel):
+    id: uuid.UUID
+    segment_index: StrictInt
+    start_frame: StrictInt
+    end_frame: StrictInt
+    locked_by: uuid.UUID | None
+    lock_expires_at: AwareDatetime | None
+
+
+class ReadMaskVideoSegmentsData(_ClosedModel):
+    segments: list[MaskVideoSegmentRecord]
+
+
 class ApplySliceData(_ClosedModel):
     source: MaskAnnotationData
     created: MaskAnnotationData
@@ -220,6 +255,8 @@ class _Reply(_ClosedModel):
     request: MaskEditCommand
     data: (
         AnnotationOperationData
+        | ReadMaskUploadKeysData
+        | ReadMaskVideoSegmentsData
         | ApplySliceData
         | ApplyMaskMutationsData
         | ApplyRestoreData
@@ -258,6 +295,8 @@ def decode_mask_edit_reply(request: MaskEditCommand, value: object):
     expected_data = {
         FindOperation: AnnotationOperationData,
         ReadOperation: AnnotationOperationData,
+        ReadMaskUploadKeys: ReadMaskUploadKeysData,
+        ReadMaskVideoSegments: ReadMaskVideoSegmentsData,
         ApplyPolygonSlice: ApplySliceData,
         ApplyMaskMutations: ApplyMaskMutationsData,
         ApplySliceRestore: ApplyRestoreData,
