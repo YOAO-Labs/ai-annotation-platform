@@ -3111,7 +3111,8 @@ def _verify_audit_maintenance_boundary(
                     statement=statement.format(relation=relation),
                 )
         ddl_statements = (
-            "SELECT pg_catalog.nextval('public.audit_logs_id_seq'::regclass)",
+            "SELECT pg_catalog.nextval(pg_catalog.pg_get_serial_sequence("
+            "'public.audit_logs','id')::pg_catalog.regclass)",
             "CREATE TABLE public.audit_maintenance_denied_probe(id integer)",
             "CREATE TABLE aap_audit_v1.audit_maintenance_denied_probe(id integer)",
             "ALTER TABLE public.audit_logs ADD COLUMN audit_maintenance_denied_probe integer",
