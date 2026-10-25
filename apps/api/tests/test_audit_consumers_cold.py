@@ -56,7 +56,9 @@ pytestmark = [
 
 
 @asynccontextmanager
-async def _consumers(test_engine, directory, *, database=None, signing_secret):
+async def _consumers(
+    test_engine, directory, *, database=None, signing_secret, record_property
+):
     image, image_id, artifact = cold._image_artifact()
     cold._verify_image(image, image_id, artifact)
     for name, digest in artifact["source_manifest"].items():
@@ -327,8 +329,10 @@ asyncio.run(main())
                         details["Config"]["Labels"][cold._ACCEPTANCE_ID_LABEL]
                         == identity
                     )
-                    (directory / (container[:12] + ".log")).write_text(
-                        cold._api_failure_logs(container, redacted)
+                    logs = cold._api_failure_logs(container, redacted)
+                    (directory / (container[:12] + ".log")).write_text(logs)
+                    record_property(
+                        f"audit_cold_{directory.name}_{container[:12]}", logs
                     )
                 finally:
                     _docker("rm", "--force", container)
@@ -491,7 +495,10 @@ async def test_current_cold_audit_api_worker_queries_exports_and_restore(
     probes = []
     try:
         async with _consumers(
-            test_engine, tmp_path / "original", signing_secret=signing_secret
+            test_engine,
+            tmp_path / "original",
+            signing_secret=signing_secret,
+            record_property=record_property,
         ) as stack:
             client = stack["client"]
             probes.append(stack["probes"])
@@ -635,12 +642,16 @@ async def test_current_cold_audit_api_worker_queries_exports_and_restore(
                     )
                 ).status_code == 422
                 async with asyncio.timeout(20):
-                    while not await control.scalar(
-                        text(
-                            "SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE l.locktype='advisory' AND NOT l.granted AND l.classid=:high AND l.objid=:low AND a.usename='audit_append_client'"
-                        ),
-                        {"high": lock >> 32, "low": lock & 0xFFFFFFFF},
-                    ):
+                    while True:
+                        # The worker connection starts after the first activity snapshot.
+                        await control.execute(text("SELECT pg_stat_clear_snapshot()"))
+                        if await control.scalar(
+                            text(
+                                "SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE l.locktype='advisory' AND NOT l.granted AND l.classid=:high AND l.objid=:low AND a.usename='audit_append_client'"
+                            ),
+                            {"high": lock >> 32, "low": lock & 0xFFFFFFFF},
+                        ):
+                            break
                         await asyncio.sleep(0.1)
                 assert await asyncio.to_thread(_broker_state, sender, "audit") == {
                     "queue_size": 0,
@@ -704,6 +715,7 @@ async def test_current_cold_audit_api_worker_queries_exports_and_restore(
                 tmp_path / "restored",
                 database=clone,
                 signing_secret=signing_secret,
+                record_property=record_property,
             ) as stack:
                 client = stack["client"]
                 probes.append(stack["probes"])
