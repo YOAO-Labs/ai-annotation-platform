@@ -1,0 +1,934 @@
+{
+  "$defs": {
+    "BatchControlState": {
+      "additionalProperties": false,
+      "properties": {
+        "admin_lock_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Admin Lock Reason"
+        },
+        "admin_locked": {
+          "title": "Admin Locked",
+          "type": "boolean"
+        },
+        "admin_locked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Admin Locked At"
+        },
+        "admin_locked_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Admin Locked By"
+        },
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotator Id"
+        },
+        "approved_tasks": {
+          "title": "Approved Tasks",
+          "type": "integer"
+        },
+        "assigned_user_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assigned User Ids",
+          "type": "array"
+        },
+        "completed_tasks": {
+          "title": "Completed Tasks",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
+        "dataset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dataset Id"
+        },
+        "deadline": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deadline"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "display_id": {
+          "title": "Display Id",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "priority": {
+          "title": "Priority",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "rejected_tasks": {
+          "title": "Rejected Tasks",
+          "type": "integer"
+        },
+        "review_feedback": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review Feedback"
+        },
+        "review_tasks": {
+          "title": "Review Tasks",
+          "type": "integer"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewed At"
+        },
+        "reviewed_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewed By"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "total_tasks": {
+          "title": "Total Tasks",
+          "type": "integer"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "dataset_id",
+        "display_id",
+        "name",
+        "description",
+        "status",
+        "priority",
+        "deadline",
+        "assigned_user_ids",
+        "total_tasks",
+        "completed_tasks",
+        "review_tasks",
+        "approved_tasks",
+        "rejected_tasks",
+        "created_by",
+        "created_at",
+        "updated_at",
+        "review_feedback",
+        "reviewed_at",
+        "reviewed_by",
+        "annotator_id",
+        "reviewer_id",
+        "admin_locked",
+        "admin_lock_reason",
+        "admin_locked_at",
+        "admin_locked_by"
+      ],
+      "title": "BatchControlState",
+      "type": "object"
+    },
+    "BatchCounterPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "completed_tasks": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completed Tasks"
+        },
+        "completed_tasks_set": {
+          "title": "Completed Tasks Set",
+          "type": "boolean"
+        },
+        "review_tasks": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Tasks"
+        },
+        "review_tasks_set": {
+          "title": "Review Tasks Set",
+          "type": "boolean"
+        },
+        "total_tasks": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tasks"
+        },
+        "total_tasks_set": {
+          "title": "Total Tasks Set",
+          "type": "boolean"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At"
+        },
+        "updated_at_set": {
+          "title": "Updated At Set",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "batch_id",
+        "total_tasks_set",
+        "completed_tasks_set",
+        "review_tasks_set",
+        "updated_at_set",
+        "updated_at"
+      ],
+      "title": "BatchCounterPatch",
+      "type": "object"
+    },
+    "BatchCounterSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "completed_tasks": {
+          "minimum": 0,
+          "title": "Completed Tasks",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "review_tasks": {
+          "minimum": 0,
+          "title": "Review Tasks",
+          "type": "integer"
+        },
+        "total_tasks": {
+          "minimum": 0,
+          "title": "Total Tasks",
+          "type": "integer"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "batch_id",
+        "project_id",
+        "total_tasks",
+        "completed_tasks",
+        "review_tasks",
+        "updated_at"
+      ],
+      "title": "BatchCounterSnapshot",
+      "type": "object"
+    },
+    "DeleteSourceLessChildren": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "delete_source_less_children",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "task_ids"],
+      "title": "DeleteSourceLessChildren",
+      "type": "object"
+    },
+    "DeleteSourceLessTaskRecords": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "delete_source_less_task_records",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "task_ids"],
+      "title": "DeleteSourceLessTaskRecords",
+      "type": "object"
+    },
+    "DeletedSourceLessChildren": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_count": {
+          "minimum": 0,
+          "title": "Annotation Count",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "delete_source_less_children",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["operation", "project_id", "task_ids", "annotation_count"],
+      "title": "DeletedSourceLessChildren",
+      "type": "object"
+    },
+    "DeletedSourceLessTaskRecords": {
+      "additionalProperties": false,
+      "properties": {
+        "deleted_count": {
+          "minimum": 0,
+          "title": "Deleted Count",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "delete_source_less_task_records",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["operation", "project_id", "task_ids", "deleted_count"],
+      "title": "DeletedSourceLessTaskRecords",
+      "type": "object"
+    },
+    "LockSourceLessTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "lock_source_less_tasks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "task_ids"],
+      "title": "LockSourceLessTasks",
+      "type": "object"
+    },
+    "ReadSourceLessBatchCounters": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Batch Ids",
+          "type": "array"
+        },
+        "operation": {
+          "const": "read_source_less_batch_counters",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "batch_ids"],
+      "title": "ReadSourceLessBatchCounters",
+      "type": "object"
+    },
+    "ReadSourceLessProjectBatches": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "read_source_less_project_batches",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id"],
+      "title": "ReadSourceLessProjectBatches",
+      "type": "object"
+    },
+    "ReadSourceLessProjectCounters": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "read_source_less_project_counters",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id"],
+      "title": "ReadSourceLessProjectCounters",
+      "type": "object"
+    },
+    "ReadSourceLessTaskCandidates": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "read_source_less_task_candidates",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id"],
+      "title": "ReadSourceLessTaskCandidates",
+      "type": "object"
+    },
+    "SourceLessBatchCounter": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "completed_tasks": {
+          "minimum": 0,
+          "title": "Completed Tasks",
+          "type": "integer"
+        },
+        "review_tasks": {
+          "minimum": 0,
+          "title": "Review Tasks",
+          "type": "integer"
+        },
+        "total_tasks": {
+          "minimum": 0,
+          "title": "Total Tasks",
+          "type": "integer"
+        }
+      },
+      "required": ["batch_id", "total_tasks", "completed_tasks", "review_tasks"],
+      "title": "SourceLessBatchCounter",
+      "type": "object"
+    },
+    "SourceLessBatchCounters": {
+      "additionalProperties": false,
+      "properties": {
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/SourceLessBatchCounter"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "operation": {
+          "const": "read_source_less_batch_counters",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation", "project_id", "batches"],
+      "title": "SourceLessBatchCounters",
+      "type": "object"
+    },
+    "SourceLessProjectBatches": {
+      "additionalProperties": false,
+      "properties": {
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/BatchControlState"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "operation": {
+          "const": "read_source_less_project_batches",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation", "project_id", "batches"],
+      "title": "SourceLessProjectBatches",
+      "type": "object"
+    },
+    "SourceLessProjectCounters": {
+      "additionalProperties": false,
+      "properties": {
+        "completed_tasks": {
+          "minimum": 0,
+          "title": "Completed Tasks",
+          "type": "integer"
+        },
+        "in_progress_tasks": {
+          "minimum": 0,
+          "title": "In Progress Tasks",
+          "type": "integer"
+        },
+        "operation": {
+          "const": "read_source_less_project_counters",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "review_tasks": {
+          "minimum": 0,
+          "title": "Review Tasks",
+          "type": "integer"
+        },
+        "total_tasks": {
+          "minimum": 0,
+          "title": "Total Tasks",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operation",
+        "project_id",
+        "total_tasks",
+        "completed_tasks",
+        "review_tasks",
+        "in_progress_tasks"
+      ],
+      "title": "SourceLessProjectCounters",
+      "type": "object"
+    },
+    "SourceLessTaskIds": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "enum": ["read_source_less_task_candidates", "lock_source_less_tasks"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["operation", "project_id", "task_ids"],
+      "title": "SourceLessTaskIds",
+      "type": "object"
+    },
+    "WriteSourceLessBatchCounters": {
+      "additionalProperties": false,
+      "properties": {
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/BatchCounterPatch"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "operation": {
+          "const": "write_source_less_batch_counters",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-labeling-task-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "batches"],
+      "title": "WriteSourceLessBatchCounters",
+      "type": "object"
+    },
+    "WrittenSourceLessBatchCounters": {
+      "additionalProperties": false,
+      "properties": {
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/BatchCounterSnapshot"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "operation": {
+          "const": "write_source_less_batch_counters",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation", "project_id", "batches"],
+      "title": "WrittenSourceLessBatchCounters",
+      "type": "object"
+    }
+  },
+  "$id": "aap-labeling-task-maintenance/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "discriminator": {
+        "mapping": {
+          "delete_source_less_children": "#/$defs/DeletedSourceLessChildren",
+          "delete_source_less_task_records": "#/$defs/DeletedSourceLessTaskRecords",
+          "lock_source_less_tasks": "#/$defs/SourceLessTaskIds",
+          "read_source_less_batch_counters": "#/$defs/SourceLessBatchCounters",
+          "read_source_less_project_batches": "#/$defs/SourceLessProjectBatches",
+          "read_source_less_project_counters": "#/$defs/SourceLessProjectCounters",
+          "read_source_less_task_candidates": "#/$defs/SourceLessTaskIds",
+          "write_source_less_batch_counters": "#/$defs/WrittenSourceLessBatchCounters"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SourceLessTaskIds"
+        },
+        {
+          "$ref": "#/$defs/DeletedSourceLessChildren"
+        },
+        {
+          "$ref": "#/$defs/DeletedSourceLessTaskRecords"
+        },
+        {
+          "$ref": "#/$defs/SourceLessProjectCounters"
+        },
+        {
+          "$ref": "#/$defs/SourceLessProjectBatches"
+        },
+        {
+          "$ref": "#/$defs/SourceLessBatchCounters"
+        },
+        {
+          "$ref": "#/$defs/WrittenSourceLessBatchCounters"
+        }
+      ],
+      "title": "Data"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "delete_source_less_children": "#/$defs/DeleteSourceLessChildren",
+          "delete_source_less_task_records": "#/$defs/DeleteSourceLessTaskRecords",
+          "lock_source_less_tasks": "#/$defs/LockSourceLessTasks",
+          "read_source_less_batch_counters": "#/$defs/ReadSourceLessBatchCounters",
+          "read_source_less_project_batches": "#/$defs/ReadSourceLessProjectBatches",
+          "read_source_less_project_counters": "#/$defs/ReadSourceLessProjectCounters",
+          "read_source_less_task_candidates": "#/$defs/ReadSourceLessTaskCandidates",
+          "write_source_less_batch_counters": "#/$defs/WriteSourceLessBatchCounters"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ReadSourceLessTaskCandidates"
+        },
+        {
+          "$ref": "#/$defs/LockSourceLessTasks"
+        },
+        {
+          "$ref": "#/$defs/DeleteSourceLessChildren"
+        },
+        {
+          "$ref": "#/$defs/DeleteSourceLessTaskRecords"
+        },
+        {
+          "$ref": "#/$defs/ReadSourceLessProjectCounters"
+        },
+        {
+          "$ref": "#/$defs/ReadSourceLessProjectBatches"
+        },
+        {
+          "$ref": "#/$defs/ReadSourceLessBatchCounters"
+        },
+        {
+          "$ref": "#/$defs/WriteSourceLessBatchCounters"
+        }
+      ],
+      "title": "Request"
+    },
+    "schema": {
+      "const": "aap-labeling-task-maintenance/v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": ["schema", "ok", "request", "data"],
+  "title": "_Reply",
+  "type": "object",
+  "x-postgresql-functions": ["aap_labeling_v1.task_maintenance_command(jsonb)"]
+}

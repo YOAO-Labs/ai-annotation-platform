@@ -316,3 +316,11 @@ def decode_task_maintenance_reply(
         if any(batch.project_id != request.project_id for batch in data.batches):
             raise TaskMaintenanceUnavailable()
     return data
+
+
+def task_maintenance_schema() -> dict[str, object]:
+    schema = _REPLY.json_schema()
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["$id"] = TASK_MAINTENANCE_PROTOCOL
+    schema["x-postgresql-functions"] = [TASK_MAINTENANCE_FUNCTION]
+    return schema
