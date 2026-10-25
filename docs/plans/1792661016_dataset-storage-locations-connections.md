@@ -10,6 +10,30 @@
 
 2026-10-25，按用户明确授权修复直接阻断本轮Mask导入发布的旧摘要错误，来源`74e2947e7`、主树合入`9e78c7882`。只统一计划生成时的规范化与摘要顺序，保留Worker防篡改校验；47项回归及真实A／B发布、切回A后按保存B续做、篡改拒绝通过，见[E09-B11补充修复](1792661016_dataset-storage-console-boundaries.md#e09-b11-补充修复mask-计划摘要与标注发布)。不恢复万条训练测量或扩张其他业务专项。
 
+## 本轮定稿：E02-B23 保存目标的位置维护影响
+
+2026-10-25，基于`95d4bca62`沿原始S05／AC08继续实施，沿用用户整套实施／提交授权。当前共享`storage_maintenance_impact.dependencies()`只统计来源关系和冻结来源血缘；来源A的冻结包或实验输出保存到B时，B的现有影响会漏报。最小修复是在原有单条只读SQL中增加保存目标责任与确认指纹，原只读盘点、位置配置确认及访问维护确认共同复用；不另建任务、盘点服务或许可系统。
+
+### 地址、关系与响应合同
+
+原`counts`、`frozen_coverage=recorded_location_lineage_only`与`input_coverage=current_task_links_only`继续表达原来源范围。新增平铺整数计数：`target_records`；九用途的`target_annotations`、`target_datasets`、`target_training`、`target_media_cache`、`target_audit_archive`、`target_import`、`target_export`、`target_avatars`、`target_bug_reports`；`target_related_datasets`、`target_related_projects`、`target_related_tasks`；`target_versions`、`target_runs`；`current_bindings`与`unlocated_targets`。前三组按选中物理位置统计保存责任，业务ID按可证明关系去重；`target_versions`／`target_runs`只计自身输出保存在此的版本／实验，不将Run.dataset_id误作业务Dataset。`current_bindings`只计当前映射项，`unlocated_targets`是全平台不能归因到任何位置的保留责任数，必须单独标明范围，不能据今日Binding归到A或B。
+
+复用现有27家族的数据库事实，而不把运维CLI注册表引入应用服务。按各家族`storage_ref`／`staging_ref.location_id`或明确保存的物理`location_id`定位，涵盖导入、输出、在途、失败、退休与删除责任。Creation最终原件和有`staging_key`的暂存是独立role，可分属不同位置和用途；无暂存不生成虚构role。DatasetAssetLocation仅将`managed_original`计作托管目标，外部引用仍由原来源范围表达。DatasetSourcePreview须有物理桶／键才是目标声明；只有错误状态而无地址不虚构文件。新缓存的`location_id`是物理目标，`scope_location_id`仍是来源配额范围。NULL保存定位保持未知；已保存非空位置不受今日端点、绑定或启用状态改写。
+
+责任计数不是文件数或字节数：同一文件可能同时有Creation、当前定位和退役等声明。业务关联沿直接保存ID及现有关系连接，包括Task原件、Dataset／辅助原件、Thumbnail、金字塔／视频、附件／导出及训练记录；失去关联时保留责任数，不从对象键反解业务ID或遍历完整私有业务文档。金字塔asset_id经ImagePyramidAsset关联，TrainingRun／Preview／Evaluation.dataset_id关联TrainingDatasetVersion；RasterMaskObject没有项目／任务字段，不能拼造关联。
+
+确认指纹在SQL中纳入选中位置责任的family／role、稳定主键、保存locator、业务关联ID和state／status，以及当前Binding的purpose／location／bucket／generation；同数量替换、跨位置新分配或状态变化需重新预览。显示共享项目关联时，ProjectGuideAsset等关系行也需进入指纹；Thumbnail的directory_preview指向DatasetSource，dataset_thumbnail指向DatasetItem，task_thumbnail指向Task。心跳、访问时间及仅重试时间不造成无意义失效；全局`unlocated_targets`仅为覆盖摘要，不进入选中位置的确认计数摘要或指纹，不让无关未知历史阻塞位置维护。不把该快照扩大为对所有写入方的静止或物理回收证明。仍复用既有五分钟确认、权限与修订复核，不新增切换门槛或历史接管要求。
+
+默认托管位置只新增已知legacy位置的GET只读影响和对应详情入口，使旧A也可查看；无连接的其他未知S3位置仍拒绝。默认位置原有配置改址／访问维护限制不因只读盘点放开。控制台在现有居中详情与确认框中区分“来源关系”“保存目标”和“当前用途绑定”；主摘要显示责任及可证明业务关联，九用途明细置于清楚命名的折叠区，未知历史单列，不挤占主动作或把数据量当清理许可。
+
+### 文件与验证
+
+范围超过8文件：后端`storage_maintenance_impact.py`、新私有helper `storage_maintenance_targets.py`、`schemas/storage_location.py`，两个确认调用者`storage_location_change.py`／`storage_maintenance.py`仅接入排除全局覆盖摘要的确认计数，及对应impact／targets／location-change／maintenance检查；前端现有`StorageMaintenanceImpact.tsx`及其测试，原FilesystemLocationsPanel／StorageOriginalCachePanel／StorageLocationChangeButton／StorageLocationMaintenance测试的影响夹具；OpenAPI snapshot和本树生成类型；README、CHANGELOG、API storage-locations指南、用户storage-connections指南、架构storage-connections说明、本计划及执行队列。三个后端调用者现有平铺整数提取保持兼容，不改其状态／权限流程；不新增DB迁移、依赖、配置、命令或服务，SDK该管理接口沿现有excluded分类，不虚报新覆盖。
+
+后端仅在核实owner的一次性test验证：源A／版本B分离、九用途全状态与不同locator、Creation跨位置暂存、旧NULL／孤儿责任、当前Binding独立计数、业务去重、legacy只读与原控制拒绝、零源I/O及有界结果；位置配置与维护两个确认路径均核对同数量责任替换失效、正常心跳不失效、权限／修订／过期与零副作用。采用既有有效夹具及真实数据库约束，不放松模型约束换取通过。Web验证新增摘要／折叠明细、刷新／错误／权限与默认位置入口；同步OpenAPI／本树类型并跑SDK合同。实际浏览器按项目agent-browser检查明暗、桌面／窄屏和两个现有确认控件，核对请求、控制台及横向溢出，不重复历史模型或训练资格。
+
+正式文档和标准文档构建、样式token检查、Ruff、正常提交钩子及diff通过后交付Outcome；按owner清理全部本片资源／截图／缓存，保留人工3100／8100、Worker／Beat与既有业务数据。API仅按实际热加载状态刷新，若无Worker消费者改动不重启Worker，不重建后端镜像。回退应用代码保留原数据库，停用本片新增显示即可，无业务或对象地址要迁回。整项E02再按原始矩阵收口，历史搬迁／物理退役、万条训练、Tracker、会话、审核和全库恢复不成为本片前置。
+
 ## 本轮定稿：E02-B21／E09-B14 标注文件新分配位置切换
 
 基于`c490aad54`沿原始S04／AC05、AC10推进annotations新分配，复用独立Task原件、RLE对象、评论附件和指南图片的现有责任及认证读取／清理。旧schema1／NULL与在途地址保持，Task新增nullable保存引用，普通标注geometry仍在数据库；training继续锁定。准确字段、逻辑键兼容、0253、控制面、文件范围与有界验收以[E09-B14合同](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b21e09-b14-标注文件新分配位置切换)为准，沿既有整套实施／提交授权approved；不展开Tracker、会话、审核或模型专项。人工继续0252／七用途，完整合同通过后再合入刷新。
