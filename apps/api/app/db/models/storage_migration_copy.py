@@ -8,8 +8,10 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     String,
+    UniqueConstraint,
     func,
     text,
 )
@@ -42,9 +44,26 @@ class StorageMigrationCopy(Base):
             "delta_bytes BETWEEN 0 AND 268435456 AND delta_sequence >= 0",
             name="ck_migration_copy_delta_budget",
         ),
+        CheckConstraint(
+            "(parent_copy_id IS NULL AND generation = 1 AND parent_evidence_sha256 IS NULL) "
+            "OR (parent_copy_id IS NOT NULL AND parent_copy_id <> id AND generation > 1 "
+            "AND parent_evidence_sha256 IS NOT NULL "
+            "AND parent_evidence_sha256 ~ '^[0-9a-f]{64}$')",
+            name="ck_migration_copy_generation",
+        ),
         Index("ix_migration_copy_history", "created_at", "id"),
+        UniqueConstraint("parent_copy_id", name="uq_migration_copy_parent"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    parent_copy_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "storage_migration_copies.id",
+            ondelete="RESTRICT",
+            name="fk_migration_copy_parent",
+        )
+    )
+    generation: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    parent_evidence_sha256: Mapped[str | None] = mapped_column(String(64))
     input_fingerprint: Mapped[str] = mapped_column(String(64), unique=True)
     source_inventory_job_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("async_jobs.id", ondelete="SET NULL")

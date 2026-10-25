@@ -29,6 +29,7 @@ from app.services.storage_migration_copy import (
     Limits,
     execute as copy_execute,
     plan,
+    plan_generation,
 )
 from app.services.storage_migration_reference_collector import Spool, collect
 from app.services.storage_migration_references import (
@@ -113,11 +114,7 @@ def native(
         write_catalog(
             catalog_path, root / "references.jsonl", metadata, source_path, root, budget
         )
-        result = plan(
-            path,
-            source_path,
-            catalog_path,
-            values["target"],
+        options = dict(
             handling=values["handling"],
             limits=Limits(**values["limits"]),
             checkpoint_hook=checkpoint,
@@ -125,6 +122,41 @@ def native(
             max_rows=ROW_LIMIT,
             strict_closure=True,
         )
+        with ExitStack() as stack:
+            if values["parent_copy_id"] is None:
+                result = plan(
+                    path, source_path, catalog_path, values["target"], **options
+                )
+            else:
+                parent_root = root / "parent"
+                parent_root.mkdir(mode=0o700)
+                parent_path = service.materialize(parent_root, values["parent"])
+                parent = stack.enter_context(
+                    storage_access.closing_registered(
+                        Checkpoint(
+                            parent_path, max_bytes=BASELINE_LIMIT, strict_closure=True
+                        )
+                    )
+                )
+                result = plan_generation(
+                    path,
+                    source_path,
+                    catalog_path,
+                    values["target"],
+                    parent=parent,
+                    parent_evidence_sha256=values["parent_evidence_sha256"],
+                    **options,
+                )
+            # Verify the generated checkpoint independently of the returned summary.
+            with storage_access.closing_registered(
+                Checkpoint(path, max_bytes=BASELINE_LIMIT, strict_closure=True)
+            ) as prepared:
+                if (
+                    prepared.meta.get("generation", 1) != values["generation"]
+                    or prepared.meta.get("parent_evidence_sha256")
+                    != values["parent_evidence_sha256"]
+                ):
+                    raise CopyStopped("copy_checkpoint_integrity")
         checkpoint()
         # The core closed both sealed outputs before bytes become publishable.
         with storage_access.closing_registered(path.open("rb")) as stream:

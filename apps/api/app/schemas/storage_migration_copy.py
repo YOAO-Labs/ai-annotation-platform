@@ -60,6 +60,22 @@ class StorageMigrationCopyAttemptRequest(BaseModel):
         return self
 
 
+class StorageMigrationCopyGenerationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inventory_job_id: uuid.UUID
+
+
+class StorageMigrationCopyGenerationSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reused_objects: int = Field(ge=0, strict=True)
+    new_objects: int = Field(ge=0, strict=True)
+    mutable_recopies: int = Field(ge=0, strict=True)
+    source_identity_conflicts: int = Field(ge=0, strict=True)
+    previous_only_objects: int = Field(ge=0, strict=True)
+    delete_markers: int = Field(ge=0, strict=True)
+    history_records: int = Field(ge=0, strict=True)
+
+
 class StorageMigrationCopyCounts(BaseModel):
     model_config = ConfigDict(extra="forbid")
     verified: int = Field(ge=0, strict=True)
@@ -79,6 +95,12 @@ class StorageMigrationCopyCatalogSummary(BaseModel):
 
 class StorageMigrationCopyItem(BaseModel):
     copy_id: uuid.UUID
+    parent_copy_id: uuid.UUID | None = None
+    generation: int = Field(1, ge=1)
+    successor_copy_id: uuid.UUID | None = None
+    parent_evidence_sha256: str | None = None
+    read_only: bool = False
+    generation_summary: StorageMigrationCopyGenerationSummary | None = None
     created_at: datetime
     updated_at: datetime
     source_inventory_job_id: uuid.UUID | None

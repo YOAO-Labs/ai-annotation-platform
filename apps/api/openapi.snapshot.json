@@ -48190,6 +48190,72 @@
         "title": "StorageMigrationCopyFailedObjects",
         "type": "object"
       },
+      "StorageMigrationCopyGenerationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "inventory_job_id": {
+            "format": "uuid",
+            "title": "Inventory Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inventory_job_id"
+        ],
+        "title": "StorageMigrationCopyGenerationRequest",
+        "type": "object"
+      },
+      "StorageMigrationCopyGenerationSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "delete_markers": {
+            "minimum": 0.0,
+            "title": "Delete Markers",
+            "type": "integer"
+          },
+          "history_records": {
+            "minimum": 0.0,
+            "title": "History Records",
+            "type": "integer"
+          },
+          "mutable_recopies": {
+            "minimum": 0.0,
+            "title": "Mutable Recopies",
+            "type": "integer"
+          },
+          "new_objects": {
+            "minimum": 0.0,
+            "title": "New Objects",
+            "type": "integer"
+          },
+          "previous_only_objects": {
+            "minimum": 0.0,
+            "title": "Previous Only Objects",
+            "type": "integer"
+          },
+          "reused_objects": {
+            "minimum": 0.0,
+            "title": "Reused Objects",
+            "type": "integer"
+          },
+          "source_identity_conflicts": {
+            "minimum": 0.0,
+            "title": "Source Identity Conflicts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reused_objects",
+          "new_objects",
+          "mutable_recopies",
+          "source_identity_conflicts",
+          "previous_only_objects",
+          "delete_markers",
+          "history_records"
+        ],
+        "title": "StorageMigrationCopyGenerationSummary",
+        "type": "object"
+      },
       "StorageMigrationCopyHistory": {
         "properties": {
           "items": {
@@ -48308,6 +48374,22 @@
             ],
             "title": "Error Code"
           },
+          "generation": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "generation_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageMigrationCopyGenerationSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "handling": {
             "additionalProperties": {
               "enum": [
@@ -48384,8 +48466,36 @@
             ],
             "title": "Operation"
           },
+          "parent_copy_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Copy Id"
+          },
+          "parent_evidence_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Evidence Sha256"
+          },
           "prepared": {
             "title": "Prepared",
+            "type": "boolean"
+          },
+          "read_only": {
+            "default": false,
+            "title": "Read Only",
             "type": "boolean"
           },
           "selected_count": {
@@ -48468,6 +48578,18 @@
               }
             ],
             "title": "Status"
+          },
+          "successor_copy_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Successor Copy Id"
           },
           "target_location_id": {
             "format": "uuid",
@@ -101520,6 +101642,64 @@
           }
         ],
         "summary": "Failed",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/migration-copies/{parent_id}/generations": {
+      "post": {
+        "operationId": "generation_api_v1_storage_migration_copies__parent_id__generations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "parent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Parent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageMigrationCopyGenerationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationCopyStart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Generation",
         "tags": [
           "storage"
         ]

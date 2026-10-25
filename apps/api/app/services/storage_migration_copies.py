@@ -26,6 +26,7 @@ from app.db.models.storage_migration_copy import (
 from app.db.models.storage_migration_inventory import StorageMigrationInventory
 from app.db.models.user import User
 from app.schemas.storage_migration_copy import (
+    StorageMigrationCopyGenerationSummary,
     StorageMigrationCopyItem,
     StorageMigrationCopyHistory,
 )
@@ -130,6 +131,15 @@ async def by_job(db, job_id, *, lock=False):
     return await db.scalar(q)
 
 
+async def successor(db, copy_id):
+    return await db.scalar(select(Copy.id).where(Copy.parent_copy_id == copy_id))
+
+
+async def writable(db, row):
+    if await successor(db, row.id) is not None:
+        reject("copy_read_only")
+
+
 async def item(db, row):
     a = await last(db, row)
     name = await db.scalar(
@@ -138,8 +148,15 @@ async def item(db, row):
         .where(StorageLocation.id == row.target_location_id)
     )
     summary, result = row.summary or {}, (a.result or {}) if a else {}
+    successor_id = await successor(db, row.id)
     return StorageMigrationCopyItem(
         copy_id=row.id,
+        parent_copy_id=row.parent_copy_id,
+        generation=row.generation,
+        successor_copy_id=successor_id,
+        parent_evidence_sha256=row.parent_evidence_sha256,
+        read_only=successor_id is not None,
+        generation_summary=summary.get("generation_summary"),
         created_at=row.created_at,
         updated_at=row.updated_at,
         source_inventory_job_id=row.source_inventory_job_id,
@@ -277,6 +294,7 @@ async def scope(db, row, *, lock=False):
 
 
 async def current(db, row, a, *, lock=False):
+    await writable(db, row)
     actor = await db.get(User, a.requested_by, populate_existing=True)
     if actor is None:
         reject("copy_authority_changed", 403)
@@ -309,6 +327,8 @@ def public_result(row, a, *, stage=None):
     summary = row.summary or {}
     return {
         "copy_id": str(row.id),
+        "parent_copy_id": str(row.parent_copy_id) if row.parent_copy_id else None,
+        "generation": row.generation,
         "operation": a.operation,
         "stage": stage or a.status,
         "prepared": row.baseline_sha256 is not None,
@@ -329,6 +349,7 @@ def public_result(row, a, *, stage=None):
 
 
 async def new_attempt(db, row, actor, proof, key_id, body, *, request=None):
+    await writable(db, row)
     attempt_scope, _ = await scope(db, row, lock=True)
     task_id = str(uuid.uuid4())
     job = await jobs.create_job(
@@ -446,6 +467,113 @@ async def start(db, actor, body, *, api_key_id=None, request=None):
     return row, job, False
 
 
+def evidence(values):
+    """Hash validated logical evidence, independently of SQLite page layout."""
+    with tempfile.TemporaryDirectory(prefix="aap-copy-parent-") as directory:
+        path = materialize(directory, values)
+        with Checkpoint(path, max_bytes=BASELINE_LIMIT, strict_closure=True) as state:
+            return state.evidence_digest()
+
+
+async def settled_parent(db, row):
+    attempts = list(
+        await db.scalars(
+            select(Attempt)
+            .where(Attempt.copy_id == row.id)
+            .order_by(Attempt.id)
+            .with_for_update()
+        )
+    )
+    if any(a.status in ACTIVE for a in attempts):
+        reject("copy_active_conflict")
+    ids = [
+        p for a in attempts for p in (a.source_operation_id, a.target_operation_id) if p
+    ]
+    if ids and await db.scalar(
+        select(StorageOperation.id)
+        .where(StorageOperation.id.in_(ids))
+        .with_for_update()
+        .limit(1)
+    ):
+        reject("copy_execution_unsettled")
+
+
+async def generation(db, parent_id, actor, body, *, api_key_id=None, request=None):
+    from app.schemas.storage_migration_copy import StorageMigrationCopyAttemptRequest
+
+    actor, proof = await authority(db, actor, api_key_id, lock=True)
+    await db.execute(text("SELECT pg_advisory_xact_lock(8592650718001)"))
+    raw, report_sha = await inventories.download(
+        db, body.inventory_job_id, actor, api_key_id=api_key_id
+    )
+    inventory = await db.get(StorageMigrationInventory, body.inventory_job_id)
+    initial = await owner(db, parent_id)
+    await scope(db, initial, lock=True)
+    parent = await owner(db, parent_id, lock=True, private=True)
+    child_id = await successor(db, parent.id)
+    if child_id is not None:
+        child = await owner(db, child_id, lock=True)
+        if child.source_report_sha256 != report_sha:
+            reject("copy_successor_exists")
+        a = await last(db, child, lock=True)
+        if a and a.status in ACTIVE and a.requested_by != actor.id:
+            reject("copy_active_conflict")
+        job = await jobs.lock_job(db, a.async_job_id) if a and a.async_job_id else None
+        return child, job, True
+    if parent.baseline_sha256 is None:
+        reject("copy_not_prepared")
+    if parent.source_report_sha256 == report_sha:
+        reject("copy_generation_unchanged")
+    if {k: inventory.source[k] for k in ("endpoint", "purpose_buckets")} != {
+        k: parent.source[k] for k in ("endpoint", "purpose_buckets")
+    }:
+        reject("copy_source_changed")
+    await settled_parent(db, parent)
+    values = await input_values(db, parent)
+    native = asyncio.create_task(asyncio.to_thread(evidence, values))
+    try:
+        parent_digest = await asyncio.shield(native)
+    except asyncio.CancelledError:
+        # Keep the row lock until the bounded native checkpoint really closes.
+        await storage_access.finish(native)
+        raise
+    except (CopyError, ValueError) as exc:
+        reject(safe_error(exc))
+    row = Copy(
+        id=uuid.uuid4(),
+        parent_copy_id=parent.id,
+        generation=parent.generation + 1,
+        parent_evidence_sha256=parent_digest,
+        input_fingerprint=inventories.digest(
+            ["generation", str(parent.id), parent_digest, report_sha]
+        ),
+        source_inventory_job_id=body.inventory_job_id,
+        source_report=raw,
+        source_report_sha256=report_sha,
+        source_complete=inventory.complete,
+        source=json.loads(json.dumps(parent.source)),
+        target_location_id=parent.target_location_id,
+        target=json.loads(json.dumps(parent.target)),
+        handling=json.loads(json.dumps(parent.handling)),
+        limits=json.loads(json.dumps(parent.limits)),
+        delta_sequence=0,
+        delta_bytes=0,
+    )
+    db.add(row)
+    await db.flush()
+    parent.updated_at = now()
+    _, job = await new_attempt(
+        db,
+        row,
+        actor,
+        proof,
+        api_key_id,
+        StorageMigrationCopyAttemptRequest(operation="prepare"),
+        request=request,
+    )
+    return row, job, False
+
+
 async def settle_dead(db, a):
     ids = [value for value in (a.source_operation_id, a.target_operation_id) if value]
     existing = (
@@ -493,6 +621,7 @@ async def attempt(db, copy_id, actor, body, *, api_key_id=None, request=None):
     # All authorization/connection/location locks precede owner/attempt/job locks.
     await scope(db, initial, lock=True)
     row = await owner(db, copy_id, lock=True)
+    await writable(db, row)
     a = await last(db, row, lock=True)
     recovering = body.operation == "recover"
     if recovering:
@@ -546,6 +675,7 @@ async def attempt(db, copy_id, actor, body, *, api_key_id=None, request=None):
 async def redispatch(db, copy_id, actor, *, api_key_id=None):
     await authority(db, actor, api_key_id, lock=True)
     row = await owner(db, copy_id, lock=True)
+    await writable(db, row)
     a = await last(db, row, lock=True)
     job = await jobs.lock_job(db, a.async_job_id) if a and a.async_job_id else None
     if not matches(row, a, job) or a.status != "pending":
@@ -602,6 +732,7 @@ async def cancel(db, job_id):
     if initial is None:
         raise HTTPException(404, "Copy attempt not found")
     row = await owner(db, initial.copy_id, lock=True)
+    await writable(db, row)
     a = await by_job(db, job_id, lock=True)
     job = await jobs.lock_job(db, job_id)
     if not matches(row, a, job):
@@ -631,6 +762,8 @@ async def claim(db, job_id, task_id):
     except (HTTPException, ValueError) as exc:
         failure = safe_error(exc)
     row = await owner(db, row.id, lock=True)
+    if await successor(db, row.id) is not None:
+        failure = "copy_read_only"
     a = await by_job(db, job_id, lock=True)
     job = await jobs.lock_job(db, job_id)
     if a.status != "pending" or a.task_id != task_id or not matches(row, a, job):
@@ -682,6 +815,7 @@ async def acquired(db, job_id, task_id, permits):
     row = await owner(db, a.copy_id)
     await current(db, row, a, lock=True)
     row = await owner(db, row.id, lock=True)
+    await writable(db, row)
     a = await by_job(db, job_id, lock=True)
     if (
         a.status != "running"
@@ -701,8 +835,7 @@ async def acquired(db, job_id, task_id, permits):
     await db.commit()
 
 
-async def inputs(db, copy_id):
-    row = await owner(db, copy_id, lock=True, private=True)
+async def input_values(db, row):
     deltas = list(
         await db.scalars(
             select(Delta).where(Delta.copy_id == row.id).order_by(Delta.sequence)
@@ -721,6 +854,9 @@ async def inputs(db, copy_id):
             "source",
             "limits",
             "handling",
+            "generation",
+            "parent_copy_id",
+            "parent_evidence_sha256",
         )
     }
     values["deltas"] = [(r.object_id, r.data, r.digest) for r in deltas]
@@ -730,12 +866,21 @@ async def inputs(db, copy_id):
             and sha(values[field]) != values[field + "_sha256"]
         ):
             reject("copy_checkpoint_integrity")
+    return values
+
+
+async def inputs(db, copy_id):
+    row = await owner(db, copy_id, lock=True, private=True)
+    values = await input_values(db, row)
+    if row.parent_copy_id is not None and row.baseline_sha256 is None:
+        parent = await owner(db, row.parent_copy_id, private=True)
+        values["parent"] = await input_values(db, parent)
     await db.rollback()
     return values
 
 
 def safe_summary(result):
-    return {
+    summary = {
         "counts": {state: result["counts"].get(state, 0) for state in STATES},
         "decisions": result["decisions"],
         "source_summary": {
@@ -752,6 +897,13 @@ def safe_summary(result):
         },
         "copy_subset_complete": result["copy_subset_complete"],
     }
+    if result.get("generation_summary") is not None:
+        summary["generation_summary"] = (
+            StorageMigrationCopyGenerationSummary.model_validate(
+                result["generation_summary"]
+            ).model_dump()
+        )
+    return summary
 
 
 async def save_delta(db, job_id, task_id, data, checksum):
@@ -872,6 +1024,12 @@ def materialize(directory, values):
     path.write_bytes(values["baseline"])
     path.chmod(0o600)
     with Checkpoint(path, max_bytes=BASELINE_LIMIT, strict_closure=True) as state:
+        if (
+            state.meta.get("generation", 1) != values["generation"]
+            or state.meta.get("parent_evidence_sha256")
+            != values["parent_evidence_sha256"]
+        ):
+            raise CopyError("copy_checkpoint_integrity")
         for object_id, data, checksum in values["deltas"]:
             if object_id != data.get("id") or row_digest(data) != checksum:
                 raise CopyError("copy_checkpoint_integrity")
@@ -882,10 +1040,10 @@ def materialize(directory, values):
                 raise CopyError("copy_checkpoint_integrity")
             original = state.decode(*saved)
             # Immutable plan identity survives every mutable row delta.
-            if any(
-                data.get(k) != original.get(k)
-                for k in ("source", "decision", "target_key", "size_bytes", "sha256")
-            ):
+            mutable = {"state", "nonce", "receipt", "error", "content"}
+            if {k: v for k, v in data.items() if k not in mutable} != {
+                k: v for k, v in original.items() if k not in mutable
+            } or (original.get("nonce") and data.get("nonce") != original["nonce"]):
                 raise CopyError("copy_checkpoint_integrity")
             state.save(data)
     return path

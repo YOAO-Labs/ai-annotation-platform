@@ -11,6 +11,7 @@ from app.deps import assert_request_scopes, get_db, require_roles
 from app.schemas.storage_migration_copy import (
     StorageMigrationCopyAttemptRequest,
     StorageMigrationCopyFailedObjects,
+    StorageMigrationCopyGenerationRequest,
     StorageMigrationCopyHistory,
     StorageMigrationCopyItem,
     StorageMigrationCopyRequest,
@@ -54,6 +55,29 @@ async def start(
 
     row, job, reused = await service.start(
         db, actor, body, api_key_id=key(request), request=request
+    )
+    value = StorageMigrationCopyStart(item=await service.item(db, row), reused=reused)
+    if not reused:
+        await dispatch(db, job)
+    return value
+
+
+@router.post(
+    "/migration-copies/{parent_id}/generations",
+    response_model=StorageMigrationCopyStart,
+    status_code=202,
+)
+async def generation(
+    parent_id: uuid.UUID,
+    body: StorageMigrationCopyGenerationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    from app.workers.storage_migration_copy import dispatch
+
+    row, job, reused = await service.generation(
+        db, parent_id, actor, body, api_key_id=key(request), request=request
     )
     value = StorageMigrationCopyStart(item=await service.item(db, row), reused=reused)
     if not reused:

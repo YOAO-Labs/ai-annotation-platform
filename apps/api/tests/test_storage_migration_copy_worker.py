@@ -23,7 +23,10 @@ from app.db.models.storage_migration_copy import (
     StorageMigrationCopyDelta as Delta,
 )
 from app.db.models.user import User
-from app.schemas.storage_migration_copy import StorageMigrationCopyAttemptRequest
+from app.schemas.storage_migration_copy import (
+    StorageMigrationCopyAttemptRequest,
+    StorageMigrationCopyGenerationRequest,
+)
 from app.services import storage_access, storage_migration_copies as service
 from app.services.storage_migration_copy import CopyStopped
 from app.workers import storage_migration_copy as worker
@@ -61,9 +64,16 @@ async def world(test_engine):
         )
     finally:
         async with maker() as db:
+            copy_ids = list(
+                await db.scalars(
+                    select(Copy.id)
+                    .where(Copy.target_location_id == location_id)
+                    .order_by(Copy.generation.desc())
+                )
+            )
             attempts = list(
                 await db.scalars(
-                    select(service.Attempt).where(service.Attempt.copy_id == copy_id)
+                    select(service.Attempt).where(service.Attempt.copy_id.in_(copy_ids))
                 )
             )
             ids = [
@@ -76,7 +86,8 @@ async def world(test_engine):
                 await db.execute(
                     delete(StorageOperation).where(StorageOperation.id.in_(ids))
                 )
-            await db.execute(delete(Copy).where(Copy.id == copy_id))
+            for owned_id in copy_ids:
+                await db.execute(delete(Copy).where(Copy.id == owned_id))
             await db.execute(
                 delete(Notification).where(Notification.user_id == actor_id)
             )
@@ -379,49 +390,363 @@ def clients(monkeypatch):
     return SimpleNamespace(source=source, target=target, module=module)
 
 
-async def add_objects(world, clients, count=2, complete=False):
+def object_report(inventory, count, complete):
     from app.services.storage_migration_inventory import _Writer, SCHEMA
     from app.workers.storage_migration_inventory import ReportSink
 
+    source = inventory.source
     sink = ReportSink()
     writer = _Writer(None, sink=sink)
-    async with world.maker() as db:
-        row = await service.owner(db, world.copy_id)
-        source = dict(row.source)
+    writer.emit(
+        {
+            "type": "header",
+            "schema": SCHEMA,
+            "source": {"endpoint": source["endpoint"]},
+            "purpose_buckets": source["purpose_buckets"],
+            "handling": {
+                purpose: inventory.handling.get(purpose, "unreviewed")
+                for purpose in service.inventories.PURPOSES
+            },
+            "limits": {
+                key: value
+                for key, value in inventory.limits.items()
+                if key != "max_seconds"
+            }
+            | {"chunk_bytes": 1024**2},
+        }
+    )
+    for index in range(count):
         writer.emit(
             {
-                "type": "header",
-                "schema": SCHEMA,
-                "source": {"endpoint": source["endpoint"]},
-                "purpose_buckets": source["purpose_buckets"],
-                "handling": row.handling,
+                "type": "object",
+                "bucket": source["purpose_buckets"]["datasets"],
+                "key": f"private/raw/%2F/../{index}.bin",
+                "version_id": f"v{index}",
+                "size_bytes": 3,
+                "etag": '"opaque"',
+                "verification": {"status": "verified", "sha256": service.sha(b"abc")},
             }
         )
-        bucket = source["purpose_buckets"]["datasets"]
-        for index in range(count):
-            writer.emit(
-                {
-                    "type": "object",
-                    "bucket": bucket,
-                    "key": f"private/raw/%2F/../{index}.bin",
-                    "version_id": f"v{index}",
-                    "size_bytes": 3,
-                    "etag": '"opaque"',
-                    "verification": {
-                        "status": "verified",
-                        "sha256": clients.module.SHA,
-                    },
-                }
-            )
-        writer.finish({"complete": complete, "migration_ready": False})
-        writer.stream.close()
+    writer.finish(
+        {
+            "complete": complete,
+            "migration_ready": False,
+            "counts": {
+                "buckets": 0,
+                "objects": count,
+                "delete_markers": 0,
+                "multipart": 0,
+                "verified_objects": count,
+                "verified_bytes": 3 * count,
+                "bytes_read": 3 * count,
+                "pages": 1,
+                "issues": int(not complete),
+                "entries": count,
+            },
+        }
+    )
+    writer.stream.close()
+    return sink.value
+
+
+async def add_objects(world, clients, count=2, complete=False):
+    async with world.maker() as db:
+        row = await service.owner(db, world.copy_id)
+        inventory = await db.get(
+            service.StorageMigrationInventory, row.source_inventory_job_id
+        )
+        raw = object_report(inventory, count, complete)
         row.source_report, row.source_report_sha256, row.source_complete = (
-            sink.value,
-            service.sha(sink.value),
+            raw,
+            service.sha(raw),
             complete,
         )
+        endpoint = row.source["endpoint"]
         await db.commit()
-    clients.source.meta = SimpleNamespace(endpoint_url=source["endpoint"])
+    clients.source.meta = SimpleNamespace(endpoint_url=endpoint)
+
+
+async def next_inventory(world, *, count=2, complete=False):
+    """Seal a distinct report without changing the frozen source scope."""
+    async with world.maker() as db:
+        actor = await db.get(User, world.actor_id)
+        inv, job, reused = await service.inventories.start(db, actor)
+        assert not reused
+        await service.inventories.claim(db, job.id, inv.task_id)
+        inv.operation_id = uuid.uuid4()
+        raw = object_report(inv, count, complete)
+        assert await service.inventories.publish(db, job.id, inv.task_id, report=raw)
+        assert inv.report_sha256 == service.sha(raw)
+        await db.commit()
+        return job.id
+
+
+async def derive(world, inventory_id, *, parent_id=None):
+    async with world.maker() as db:
+        row, job, reused = await service.generation(
+            db,
+            parent_id or world.copy_id,
+            await db.get(User, world.actor_id),
+            StorageMigrationCopyGenerationRequest(inventory_job_id=inventory_id),
+        )
+        await db.commit()
+        return (
+            row.id,
+            job.id if job else None,
+            job.celery_task_id if job else None,
+            reused,
+        )
+
+
+async def test_generation_prepares_pending_inheritance_and_rechecks_old_receipt(
+    world, clients, tmp_path
+):
+    await add_objects(world, clients, count=1, complete=False)
+    assert await execute(world)
+    await attempt(world, "run")
+    clients.target.fail_get = True
+    assert await execute(world)
+    assert clients.target.puts == 1
+    clients.target.fail_get = False
+    parent_id = world.copy_id
+    async with world.maker() as db:
+        parent = await service.owner(db, parent_id, private=True)
+        assert parent.summary["counts"]["failed"] == 1 and not parent.source_complete
+        frozen = parent.baseline_sha256, parent.delta_sequence, parent.delta_bytes
+        expected = await asyncio.to_thread(
+            service.evidence, await service.input_values(db, parent)
+        )
+    inventory_id = await next_inventory(world, count=2, complete=False)
+    child_id, world.job_id, world.task_id, reused = await derive(world, inventory_id)
+    assert not reused
+    async with world.maker() as db:
+        parent = await service.owner(db, parent_id)
+        child = await service.owner(db, child_id)
+        public = await service.item(db, child)
+        assert public.generation == 2 and public.parent_copy_id == parent_id
+        assert public.parent_evidence_sha256 == expected
+        assert public.operation == "prepare" and not public.prepared
+        assert child.target == parent.target and child.handling == parent.handling
+        assert child.limits == parent.limits and child.source == parent.source
+        assert (await service.item(db, parent)).read_only
+        assert (await service.item(db, parent)).successor_copy_id == child_id
+    assert await execute(world)
+    world.copy_id = child_id
+    async with world.maker() as db:
+        child = await service.owner(db, child_id)
+        value = await service.item(db, child)
+        assert value.counts.pending == 2 and value.counts.verified == 0
+        assert value.generation_summary.reused_objects == 1
+        assert value.generation_summary.new_objects == 1
+        assert value.status == "completed" and not value.copy_subset_complete
+        values = await service.inputs(db, child_id)
+        with service.Checkpoint(service.materialize(tmp_path, values)) as state:
+            inherited = next(r for r in state.rows() if r["receipt"])
+            identity = (
+                inherited["creation_plan_uuid"],
+                inherited["target_key"],
+                inherited["nonce"],
+            )
+        from app.services.storage_migration_copy import CopyError
+
+        tampered = dict(
+            inherited, creation_plan_uuid="00000000-0000-0000-0000-000000000000"
+        )
+        bad = {
+            **values,
+            "deltas": [(tampered["id"], tampered, service.row_digest(tampered))],
+        }
+        bad_path = tmp_path / "tampered"
+        bad_path.mkdir(mode=0o700)
+        with pytest.raises(CopyError, match="copy_checkpoint_integrity"):
+            service.materialize(bad_path, bad)
+        bad_path = tmp_path / "wrong-generation"
+        bad_path.mkdir(mode=0o700)
+        with pytest.raises(CopyError, match="copy_checkpoint_integrity"):
+            service.materialize(bad_path, {**values, "generation": 3})
+        actor = await db.get(User, world.actor_id)
+        parent = await service.owner(db, parent_id)
+        for call in (
+            lambda: service.attempt(
+                db,
+                parent_id,
+                actor,
+                StorageMigrationCopyAttemptRequest(operation="run"),
+            ),
+            lambda: service.redispatch(db, parent_id, actor),
+        ):
+            with pytest.raises(HTTPException) as caught:
+                await call()
+            assert caught.value.detail == {"code": "copy_read_only"}
+        raw, _ = await service.download(db, parent_id, actor)
+        assert raw.startswith(b"SQLite format 3")
+        parent = await service.owner(db, parent_id)
+        assert (
+            parent.baseline_sha256,
+            parent.delta_sequence,
+            parent.delta_bytes,
+        ) == frozen
+    clients.source.calls.clear()
+    await attempt(world, "run")
+    assert await execute(world) and clients.target.puts == 2
+    async with world.maker() as db:
+        value = await service.item(db, await service.owner(db, child_id))
+        assert value.counts.verified == 2 and value.status == "completed"
+        assert value.io["source_bytes"] == value.io["upload_bytes"] == 3
+        assert len(clients.source.calls) == 3  # HEAD+GET+HEAD only for the new object.
+        deltas = list(await db.scalars(select(Delta).where(Delta.copy_id == child_id)))
+        saved = next(
+            d.data for d in deltas if d.data["creation_plan_uuid"] == identity[0]
+        )
+        assert (
+            saved["creation_plan_uuid"],
+            saved["target_key"],
+            saved["nonce"],
+        ) == identity
+        # Original inventory/attempt Jobs can expire without erasing either plan.
+        await db.execute(delete(AsyncJob).where(AsyncJob.user_id == world.actor_id))
+        await db.commit()
+        parent = await service.owner(db, parent_id)
+        child = await service.owner(db, child_id)
+        assert parent.source_inventory_job_id is child.source_inventory_job_id is None
+        assert (await service.item(db, parent)).successor_copy_id == child_id
+        assert (await service.item(db, child)).parent_evidence_sha256 == expected
+    grand_inventory = await next_inventory(world, count=3)
+    grand_id, _, _, reused = await derive(world, grand_inventory)
+    assert not reused
+    async with world.maker() as db:
+        grand = await service.owner(db, grand_id)
+        assert grand.generation == 3 and grand.parent_copy_id == child_id
+        assert (await service.item(db, await service.owner(db, child_id))).read_only
+
+
+async def test_generation_atomic_single_successor_reuse_and_report_identity(
+    world, clients
+):
+    await add_objects(world, clients, count=1)
+    assert await execute(world)
+    inventory_id = await next_inventory(world, count=2)
+    other_id = await next_inventory(world, count=3)
+    first, second = await asyncio.gather(
+        derive(world, inventory_id), derive(world, inventory_id)
+    )
+    assert first[:3] == second[:3] and sorted([first[3], second[3]]) == [False, True]
+    with pytest.raises(HTTPException) as caught:
+        await derive(world, other_id)
+    assert caught.value.detail == {"code": "copy_successor_exists"}
+    async with world.maker() as db:
+        children = list(
+            await db.scalars(select(Copy).where(Copy.parent_copy_id == world.copy_id))
+        )
+        assert len(children) == 1
+        parent = await service.owner(db, world.copy_id)
+        # Even a stale pending worker delivery cannot claim a frozen parent.
+        a = await service.last(db, parent)
+        a.status = "pending"
+        job = await db.get(AsyncJob, a.async_job_id)
+        job.status = "pending"
+        await db.commit()
+        assert await service.claim(db, job.id, a.task_id) is None
+        await db.commit()
+        assert (await service.by_job(db, job.id)).error_code == "copy_read_only"
+
+
+async def test_generation_rejects_same_report_unprepared_and_unsettled_parent(
+    world, clients
+):
+    inventory_id = await next_inventory(world, count=2)
+    with pytest.raises(HTTPException) as caught:
+        await derive(world, inventory_id)
+    assert caught.value.detail == {"code": "copy_not_prepared"}
+    await add_objects(world, clients, count=1)
+    assert await execute(world)
+    same_id = await next_inventory(world, count=1)
+    with pytest.raises(HTTPException) as caught:
+        await derive(world, same_id)
+    assert caught.value.detail == {"code": "copy_generation_unchanged"}
+    await attempt(world, "run")
+    with pytest.raises(HTTPException) as caught:
+        await derive(world, inventory_id)
+    assert caught.value.detail == {"code": "copy_active_conflict"}
+    async with world.maker() as db:
+        a = await service.by_job(db, world.job_id)
+        row = await service.owner(db, world.copy_id)
+        permit = await storage_access.acquire(db, row.target_location_id, service.KIND)
+        a.target_operation_id = permit.id
+        a.status = "failed"
+        (await db.get(AsyncJob, a.async_job_id)).status = "failed"
+        await db.commit()
+    with pytest.raises(HTTPException) as caught:
+        await derive(world, inventory_id)
+    assert caught.value.detail == {"code": "copy_execution_unsettled"}
+
+
+async def test_generation_cannot_freeze_before_cancelled_native_thread_drains(
+    world, clients, monkeypatch
+):
+    await add_objects(world, clients, count=1)
+    assert await execute(world)
+    inventory_id = await next_inventory(world, count=2)
+    await attempt(world, "run")
+    entered, release, closed = threading.Event(), threading.Event(), threading.Event()
+
+    def native(*args):
+        entered.set()
+        try:
+            release.wait(10)
+            raise CopyStopped("copy_cancelled")
+        finally:
+            closed.set()
+
+    monkeypatch.setattr(worker, "native", native)
+    task = asyncio.create_task(execute(world))
+    assert await asyncio.to_thread(entered.wait, 5)
+    async with world.maker() as db:
+        assert await service.cancel(db, world.job_id) == "cancel_requested"
+        await db.commit()
+    try:
+        with pytest.raises(HTTPException) as caught:
+            await derive(world, inventory_id)
+        assert caught.value.detail == {"code": "copy_active_conflict"}
+        assert not closed.is_set()
+    finally:
+        release.set()
+        await task
+    assert closed.is_set()
+    assert not (await derive(world, inventory_id))[3]
+
+
+async def test_cancelled_generation_digest_drains_before_releasing_parent_lock(
+    world, clients, monkeypatch
+):
+    await add_objects(world, clients, count=1)
+    assert await execute(world)
+    inventory_id = await next_inventory(world, count=2)
+    entered, release, closed = threading.Event(), threading.Event(), threading.Event()
+    original = service.evidence
+
+    def evidence(values):
+        entered.set()
+        try:
+            release.wait(10)
+            return original(values)
+        finally:
+            closed.set()
+
+    monkeypatch.setattr(service, "evidence", evidence)
+    generating = asyncio.create_task(derive(world, inventory_id))
+    assert await asyncio.to_thread(entered.wait, 5)
+    competing = asyncio.create_task(attempt(world, "run"))
+    generating.cancel()
+    await asyncio.sleep(0.02)
+    assert not generating.done() and not competing.done() and not closed.is_set()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await generating
+    await competing
+    assert closed.is_set()
+    async with world.maker() as db:
+        assert not await service.successor(db, world.copy_id)
 
 
 async def test_two_failed_then_only_one_selected_retry_and_safe_history(world, clients):
@@ -709,6 +1034,6 @@ async def test_frozen_evidence_refuses_destructive_schema_downgrade(world, test_
         await asyncio.to_thread(command.downgrade, config, "0255")
     async with world.maker() as db:
         assert (
-            await db.scalar(text("SELECT version_num FROM alembic_version")) == "0256"
+            await db.scalar(text("SELECT version_num FROM alembic_version")) == "0257"
         )
         assert await service.owner(db, world.copy_id)

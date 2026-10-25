@@ -97,6 +97,12 @@ async def test_all_global_paths_and_shared_counts_require_current_admin(
         f"/api/v1/async-jobs?kind={service.KIND}", headers=headers
     )
     assert listing.json()["total"] == int(role == "super_admin")
+    response = await httpx_client.post(
+        f"{PATH}/{row.id}/generations",
+        json={"inventory_job_id": str(body.inventory_job_id)},
+        headers=headers,
+    )
+    assert response.status_code == (409 if role == "super_admin" else 403)
 
 
 @pytest.mark.parametrize("scopes", [[], ["datasets:read"], ["*"]])
@@ -129,6 +135,11 @@ async def test_key_scope_protects_every_private_entry(
         ),
         ("GET", f"/api/v1/async-jobs/{job.id}", None),
         ("POST", PATH, body.model_dump(mode="json")),
+        (
+            "POST",
+            f"{PATH}/{row.id}/generations",
+            {"inventory_job_id": str(body.inventory_job_id)},
+        ),
         ("POST", f"{PATH}/{row.id}/attempts", {"operation": "run"}),
         ("POST", f"{PATH}/{row.id}/dispatch", {}),
         ("POST", f"/api/v1/async-jobs/{job.id}/cancel", {}),
@@ -151,6 +162,24 @@ async def test_prepare_is_explicit_reused_and_public_projection_is_closed(
     )
     assert first.status_code == 202, first.text
     item = first.json()["item"]
+    assert {
+        k: item[k]
+        for k in (
+            "parent_copy_id",
+            "generation",
+            "successor_copy_id",
+            "parent_evidence_sha256",
+            "read_only",
+            "generation_summary",
+        )
+    } == {
+        "parent_copy_id": None,
+        "generation": 1,
+        "successor_copy_id": None,
+        "parent_evidence_sha256": None,
+        "read_only": False,
+        "generation_summary": None,
+    }
     assert (
         item["operation"] == "prepare"
         and item["prepared"] is False
@@ -175,6 +204,14 @@ async def test_prepare_is_explicit_reused_and_public_projection_is_closed(
     assert (
         await httpx_client.get(f"{PATH}/{item['copy_id']}/checkpoint", headers=headers)
     ).status_code == 409
+    for extra in ({"target_location_id": str(body.target_location_id)}, {"limits": {}}):
+        assert (
+            await httpx_client.post(
+                f"{PATH}/{item['copy_id']}/generations",
+                json={"inventory_job_id": str(body.inventory_job_id), **extra},
+                headers=headers,
+            )
+        ).status_code == 422
     assert (
         await httpx_client.post(
             f"/api/v1/async-jobs/{item['job_id']}/cancel", json={}, headers=headers

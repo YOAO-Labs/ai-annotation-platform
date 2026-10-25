@@ -741,6 +741,7 @@
 |---|---|
 | GET | `/migration-copy-targets` |
 | POST | `/migration-copies` |
+| POST | `/migration-copies/{parent_id}/generations` |
 | GET | `/migration-copies` |
 | GET | `/migration-copies/{copy_id}` |
 | POST | `/migration-copies/{copy_id}/attempts` |
@@ -1119,4 +1120,4 @@
 
 ---
 
-_共 100 模块 / 657 路由_
+_共 100 模块 / 658 路由_
