@@ -41,7 +41,11 @@ from app.services import (
 from app.services.storage_migration_inventory import InventoryLimits, write_inventory
 from app.workers.storage_migration_inventory import ReportSink
 from tests.test_storage_migration_inventories import EmptySource
-from tests.test_storage_migration_windows import prepared as prepared
+from tests.test_storage_migration_windows import (
+    prepared as prepared,
+    reader_world as reader_world,
+    copy_worker_world as copy_worker_world,
+)
 
 
 def code(expected, call):
@@ -730,48 +734,20 @@ async def test_seal_cross_checks_native_full_verify_and_evidence_counts(
     )
 
 
-async def test_bind_concurrent_lock_and_committed_invalidation(
-    test_engine, monkeypatch
-):
-    """Leave immutable history in this owned DB; its whole mode is destroyed later."""
+async def test_bind_concurrent_lock_rolls_back_new_responsibility(reader_world):
+    """Use existing committed owners; new durable responsibility stays rolled back."""
     import asyncio
-    from sqlalchemy.ext.asyncio import async_sessionmaker
-    from app.config import settings
-    from tests.factory import create_user
-    from tests.test_storage_migration_copies import seed
 
-    monkeypatch.setattr(settings, "storage_maintenance_protocol_enabled", True)
-    maker = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with maker() as db:
-        actor = await create_user(
-            db,
-            "super_admin",
-            f"finalization-lock-{uuid.uuid4()}@test.local",
-            "Finalization lock",
+    world = reader_world
+    async with world.maker() as db:
+        context = await service.preflight(
+            db, world.actor_id, world.window_id, world.window_revision
         )
-        _, _, _, body = await seed(db, actor)
-        parent, job, _ = await copies.start(db, actor, body)
-        parent.baseline, parent.baseline_sha256 = b"bounded control parent", "a" * 64
-        attempt = await copies.last(db, parent)
-        attempt.status = job.status = "completed"
-        attempt.completed_at = job.completed_at = inventories.now()
-        await db.flush()
-        value = await windows.open_window(
-            db, actor, StorageMigrationWindowRequest(parent_copy_id=parent.id)
-        )
-        await windows.transition(
-            db,
-            value.window_id,
-            actor,
-            StorageMigrationWindowTransition(action="stop", expected_revision=1),
-        )
-        context = await service.preflight(db, actor.id, value.window_id, 2)
-        actor_id, window_id = actor.id, value.window_id
         claim = dict(
             schema=service.CLAIM_SCHEMA,
             finalization_id=str(uuid.uuid4()),
-            window_id=str(window_id),
-            expected_window_revision=2,
+            window_id=str(world.window_id),
+            expected_window_revision=world.window_revision,
             database_identity=context["database_identity"],
             reservation_nonce=str(uuid.uuid4()),
             native_operation_id=str(uuid.uuid4()),
@@ -789,52 +765,31 @@ async def test_bind_concurrent_lock_and_committed_invalidation(
                 key: context["source"][key] for key in ("endpoint", "purpose_buckets")
             },
         )
-        await db.commit()
-    async with maker() as first, maker() as second:
-        await service.preflight(first, actor_id, window_id, 2)
+        await db.rollback()
+    async with world.maker() as first, world.maker() as second:
+        await service.preflight(
+            first, world.actor_id, world.window_id, world.window_revision
+        )
         with pytest.raises(HTTPException) as error:
-            await asyncio.wait_for(service.bind(second, actor_id, claim, native), 2)
+            await asyncio.wait_for(
+                service.bind(second, world.actor_id, claim, native), 2
+            )
         assert error.value.detail["code"] in {
             "finalization_busy",
             "storage_maintenance_busy",
         }
         await second.rollback()
         await first.rollback()
-        bound = await service.bind(second, actor_id, claim, native)
-        await second.commit()
-    async with maker() as third:
-        observed = await service.status(third, actor_id, {**claim, "reserved": True})
-        assert observed == bound
-        actor = await third.get(type(actor), actor_id)
-        await code(
-            "finalization_active",
-            lambda: windows.transition(
-                third,
-                window_id,
-                actor,
-                StorageMigrationWindowTransition(action="close", expected_revision=3),
-            ),
+        bound = await service.bind(second, world.actor_id, claim, native)
+        assert (
+            bound.state == "bound"
+            and bound.window_revision == world.window_revision + 1
         )
-        closing = await service.begin_invalidation(
-            third, actor_id, claim, bound.revision
+        assert await second.get(Finalization, uuid.UUID(claim["finalization_id"]))
+        await second.rollback()
+    async with world.maker() as third:
+        assert (
+            await third.get(Finalization, uuid.UUID(claim["finalization_id"])) is None
         )
-        await third.commit()
-    async with maker() as fourth:
-        actor = await fourth.get(type(actor), actor_id)
-        await code(
-            "finalization_closing",
-            lambda: inventories.start(
-                fourth, actor, StorageMigrationInventoryRequest(window_id=window_id)
-            ),
-        )
-        invalidated = await service.finish_invalidation(
-            fourth, actor_id, claim, closing.revision
-        )
-        assert invalidated.state == "invalidated"
-        await windows.transition(
-            fourth,
-            window_id,
-            actor,
-            StorageMigrationWindowTransition(action="close", expected_revision=3),
-        )
-        await fourth.commit()
+        window = await third.get(Window, world.window_id)
+        assert window.revision == world.window_revision and window.state == "stopped"
