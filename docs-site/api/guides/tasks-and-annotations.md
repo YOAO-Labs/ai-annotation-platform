@@ -35,6 +35,8 @@ pending → in_progress → completed → review
 
 已封存的独立图片Task可调用[严格图片读取接口](./verified-content.md#图片任务)。身份响应使用 `owner_kind=task_original` 与 `task_original_id`；读取沿用保存位置和完整摘要，仍按当前任务可见性授权，不要求读取者是上传发起者。此图片接口的64MiB及解码预算独立于上传的5GiB上限。
 
+独立任务原件、持久 RLE 对象、评论附件和指南图片的新分配使用 annotations 用途绑定，管理接口见[标注文件用途切换](./storage-locations.md#标注文件用途切换)。已有及在途对象继续按保存地址读取，当前绑定变化与正常密钥轮换不改写旧定位；公开逻辑键、内容引用、权限、发布状态和评论附件首次90天期限保持。普通几何仍在数据库，Mask 格式暂存与缩略图分别沿 import、media-cache 管理。
+
 ## 数据集筛选下的任务选择
 
 `GET /api/v1/tasks` 保留原查询参数，并可在 `dataset_id` 外提供 `dataset_filter`（最多2000字符的 JSON 对象），合同为数据集的 DatasetItemFilters。仅项目管理者使用此范围；API Key 还需 `datasets:read`。数据集必须关联当前项目，Scene/来源逐次校验归属与权限。无数据集、非法JSON、未知字段或不合法范围422，失效条件404；不忽略条件扩大选择。过滤在游标/offset分页和首页计数之前执行，与训练预检复用同一SQL。未传新参数保留原任务可见性和后续页 total=null 的合同。
