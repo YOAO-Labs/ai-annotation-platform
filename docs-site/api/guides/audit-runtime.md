@@ -84,7 +84,9 @@ SELECT，因此不能据此宣称全部私表读取已退出。
 
 独立维护 LOGIN 使用 `infra/docker/audit-maintenance-grants.sql`，仅开放一个函数。
 原追加、查询、读取专用授权继续保留。升级与回退须匹配代码和 owner 授权配置；不通过
-修改 Alembic revision 伪装迁移完成。维护 LOGIN、快照锁与回滚和夹具范围已通过定向验证；
-独立 CLI、归档凭据及中断／恢复组合仍按模块集中验收。
+修改 Alembic revision 伪装迁移完成。维护 LOGIN、快照锁与回滚和夹具范围已通过定向验证。
+独立维护 CLI 的 ARM64 镜像、分离归档凭据、上传后进程丢失与回滚、孤儿对象接管及
+PostgreSQL 完整恢复已通过本地组合验收，原 ASGI 管理员读取与普通用户拒绝也通过。
+归档桶在数据库恢复期间保留；对象存储灾难恢复、冷 API 镜像与整个 Audit 模块资格未包含。
 源码集成、主工作树采用、数据库升级及日常调度切换分别记录在
 [模块台账](/dev/concepts/module-deployment#剩余工作台账)。
