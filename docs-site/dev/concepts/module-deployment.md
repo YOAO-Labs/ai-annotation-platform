@@ -74,14 +74,14 @@ Audit 与 Labeling 未暂缓范围的实现和已知调用方收口阶段已交�
 | Jobs：普通运行删除权限                   | 测试库限定的固定项目清理能力保留 Workspace 退役守卫；LAN／worktree 在宽授权后撤销 DELETE                           | 原 E2E 删除位置迁移，命名空间、保存点、提交与 409 保持；不可用返回 503 停止清理                  | [删除权限](#jobs-delete-credentials)：20 项不同原生案例、62 项纯检查及 24 子检查通过；当前冷工件／完整恢复通过                                           | 私表 SELECT、其余 producer 与恢复仍未闭合；UPDATE 见下行，截图多领域夹具继续使用自有测试库 owner，不扩大暂缓领域                                                                                                                                                                                                                                                 |
 | Jobs：普通运行更新权限                   | LAN／worktree 清除表／列 UPDATE 并拒绝继承旁路，保留既有生命周期与 invoker 校验                                    | 两条筛选夹具通过固定测试能力迁移，原字段、空时间戳、缓存及事务保持                               | [更新权限](#jobs-update-credentials)：20 项原生案例、62 项纯检查及 24 子检查通过；当前冷工件／完整恢复通过                                               | 私表 SELECT、其余 producer／消息形状和领域恢复仍开放；不改暂缓的训练／资产实现                                                                                                                                                                                                                                                                                   |
 | Jobs：动作幂等锁读与点云作业读取         | 两项固定原生锁／查询及语言无关合同已实现；点云投影复用 read_job                                                    | 项目预标／导出共享 helper 与点云质量读取迁移，保留全部匹配行锁、autoflush 和缓存                 | [动作幂等](#jobs-action-idempotency)：11 项不同原生案例、66 项纯检查及 24 子检查通过；当前冷工件／带键请求／完整恢复通过                                 | 剩余七处训练／主动学习或格式导入关联读取继续暂缓；全局 SELECT、其他 producer／消息形状与领域恢复未闭合                                                                                                                                                                                                                                                           |
-| Audit：同事务业务事件追加 | 既有 typed owner 保留；通用追加独立包、版本化合同与固定 SQL 已实现 | AuditService 与普通追加构造器已迁移；保留 caller 提交／回滚、快照和 ORM 缓存，无追加后私表回读 | [追加 owner](#audit-append-owner)：既有 PG／纯检查、受限 LOGIN／Node 证据保留；本轮受限追加前置检查通过 | 默认 LAN／worktree 的私表写入、序列和树所有权已在源码收口；完整消费者冷装配仍待模块验收，Learning 父表 SELECT 保留 |
+| Audit：同事务业务事件追加 | 既有 typed owner 保留；通用追加独立包、版本化合同与固定 SQL 已实现 | AuditService 与普通追加构造器已迁移；保留 caller 提交／回滚、快照和 ORM 缓存，无追加后私表回读 | [追加 owner](#audit-append-owner)：既有 PG／纯检查、受限 LOGIN／Node 证据保留；本轮受限追加前置检查通过 | 默认 LAN／worktree 的私表写入、序列和树所有权已在源码收口；[当前 API／元数据 worker 冷组合](#audit-cold-consumers)通过，其他业务消费者与完整模块继续跟踪，Learning 父表 SELECT 保留 |
 | Audit：测试夹具清理 | 0366 在既有维护命令内提供固定共享／namespace 清理，保留测试库、精确路径及不可变性标记守卫 | 原 seed 清理通过同一事务／savepoint 的 typed owner 适配器调用，并经公开事件关系核对残留 | 0366 的真实受限角色、共享／namespace／回滚、非测试库拒绝及两条原 HTTP 清理路径均已定向通过 | 本操作实现与调用边界已收口；[维护冷验收](#audit-maintenance-cold-qualification)通过，不扩大 Labeling／Assets 范围 |
-| Audit：HTTP 请求元数据 | 响应后 Celery 与同步回退使用同一追加 owner；请求 ID 长度边界及原尽力投递语义保持 | 原 middleware／worker 绑定保持；孤儿 actor 回滚后匿名重试，不新增去重或可靠投递承诺 | [元数据边界](#audit-http-metadata)：真实 broker 拒绝、结果不明注入、受限追加 LOGIN、prefork 子进程 SIGKILL、重启重放及整库恢复通过 | 现有绑定的故障与恢复语义已验收；当前冷 API／worker 工件组合仍待验收，业务审计 request ID 的独立遗留边界未扩修 |
-| Audit：查询、筛选与导出                  | 全局列表／导出使用固定查询 owner；项目范围通过公开事件关系组合                                                     | super-admin 全局与 project-admin 范围已迁移，保留筛选、游标、总数和导出顺序                      | [全局查询](#audit-global-query-owner)资格保持；[读取组合](#support-read-relations)补充项目隔离及合法复合行键原生回归                                     | 剩余读取、冷进程真实消费及完整模块继续验收；不得提前撤销所有 Audit 私表 SELECT                                                                                                                                                                                                                                                                                   |
+| Audit：HTTP 请求元数据 | 响应后 Celery 与同步回退使用同一追加 owner；请求 ID 长度边界及原尽力投递语义保持 | 原 middleware／worker 绑定保持；孤儿 actor 回滚后匿名重试，不新增去重或可靠投递承诺 | [元数据边界](#audit-http-metadata)：真实 broker 拒绝、结果不明注入、受限追加 LOGIN、prefork 子进程 SIGKILL、重启重放及整库恢复通过 | 现有绑定及[当前冷 API／worker 组合](#audit-cold-consumers)的故障与恢复通过；业务审计 request ID 的独立遗留边界未扩修，日常独立拓扑未切换 |
+| Audit：查询、筛选与导出                  | 全局列表／导出使用固定查询 owner；项目范围通过公开事件关系组合                                                     | super-admin 全局与 project-admin 范围已迁移，保留筛选、游标、总数和导出顺序                      | [全局查询](#audit-global-query-owner)资格保持；[读取组合](#support-read-relations)补充项目隔离及合法复合行键原生回归                                     | [当前冷 API](#audit-cold-consumers)的真实查询、筛选、游标、项目隔离及 CSV／JSON 导出通过；本操作限定本地资格完成，暂缓 Learning 仍需父表 SELECT                                                                                                                                                                                                                                                                                   |
 | Audit：领域事实消费者                    | 公开事件关系保留 14 个原生字段及复合行键                                                                           | 历史、批次、看板、评审快照与项目绩效已迁移；主动学习仍走原路径                                   | [读取组合](#support-read-relations)资格保持；[分析读取](#support-delivery-and-analytics)补充 26 项真实 PostgreSQL／API 案例及受影响测试替身修复          | 未暂缓的生产读取已使用公开关系；Learning 的直接读取等待最新功能合并。不能提前撤销父表 SELECT；完整模块验收仍待完成                                                                                                                                                                                                                                               |
 | Audit／Insights：汇总与分析投影 | 日聚合公开关系与固定并发刷新已集成，MV 由 Audit owner 持有 | 月报已迁移；尾段保留公开事件关系，维护保留原提交边界 | [日聚合与 Jobs 事实](#support-daily-and-jobs-facts)的原生／Node 证据保留；本轮独立维护 CLI 实际刷新通过 | 独立维护刷新已通过限定冷验收；原 Celery 维护调度与整模块资格继续单列，Go 仅实验 |
 | Audit：分区、保留与冷归档 | 固定维护合同／Native 能力与调用方事务适配已实现，上传成功后以同事务快照锁退役分区 | 原 API／Celery 入口已迁移；独立 CLI 使用专用写凭据，管理员列表／读取使用独立只读凭据 | [维护冷验收](#audit-maintenance-cold-qualification)：真实 CLI、上传后 SIGKILL／回滚、孤儿接管、整库恢复、重复执行及原 ASGI HTTP 权限通过 | 本操作限定本地资格闭合；归档桶在 PostgreSQL 恢复期间保留，未验证对象存储灾难恢复；日常调度未切换 |
-| Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件资格完成；不是冷 API 或整个 Audit 模块资格，API／worker 消费者组合、Learning 暂缓读取与独立拓扑采用仍开放 |
+| Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件及[当前 API／元数据 worker 冷组合](#audit-cold-consumers)通过；既有维护调度消费者、Learning 暂缓读取、业务 request ID 遗留边界与独立拓扑采用仍开放 |
 | Notifications：完整 Python 模块 | 固定数据合同、独立 publisher／socket、共享准入及兼容绑定已实现并冻结 | 既有 SQL 操作、API 即时发布与原 WS 地址已迁移；候选保留主线 Jobs 读取 | [候选整模块资格](#notifications-primary-adoption-candidate)：源码 913d3fc5c 的四镜像、真实 REST／Node／WS 组合、最终凭据及 0325 完整恢复通过；224／48／50 项未变组件证据复用 | 本地 Python 模块与采用候选资格完成；源码已合回当前分支且日常库已升级；独立拓扑仍未切换。日常库已含 0313，后续暂缓的训练／资产功能合并仍须复核兼容；完整替代语言 owner 与生产容量未验证 |
 | Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用                                                                          | 主 API 仍承担过渡装配；旧绑定继续工作                                                            | 各切片冷镜像证据单独保存                                                                                                                                 | 逐模块完成入口、凭据、启动／健康、全局迁移升级／回退及独立恢复；[宿主机转发诊断](#runtime-host-forwarding)已完成本机抓包，35／65 秒复用对照高度吻合活跃 gVisor 的 TIME_WAIT 转发缺陷；尚无已验收的修复构建，旧路径仍未修复；历史三类业务 503 的逐次归因仍未证实，保持已验收的私网数据库路径                                                                      |
 
@@ -150,14 +150,34 @@ broker 已确认且没有自动重投；新 worker 的正常写入作为对照�
 失败及最小对照保留：SQLAlchemy 驱动选择、Celery 环境变量覆盖故障地址，以及 solo 执行中
 无法推进 broker 确认均属于夹具问题。原生最小 PG 的追加基线通过；独占 Redis 下 solo／prefork
 分别观测到一条／零条未确认消息，最终使用生产一致的 prefork 模型。没有以这些失败扩大模块实现。
-结果不明的故障注入不等于 TCP 响应丢失实测；本轮仍限宿主进程与最小 ASGI 路由，冷消费者
-工件组合、业务 request ID 遗留边界和暂缓 Learning 读取继续按唯一台账跟踪。
+结果不明的故障注入不等于 TCP 响应丢失实测；这一批仍限宿主进程与最小 ASGI 路由。当前
+冷消费者工件组合见下节；业务 request ID 遗留边界和暂缓 Learning 读取继续按唯一台账跟踪。
 
-当前冷消费者批次入口为 `tests/test_audit_consumers_cold.py`：复用生产 API 镜像，分别以普通
-API 与只允许追加的 worker LOGIN 启动，覆盖真实 HTTP 查询／项目隔离／游标、CSV／JSON
-导出提交顺序、原队列消费、prefork 子进程丢失与显式重放、API 重启及完整 PostgreSQL 恢复。
-资源全部由既有边界验收器创建；仅在该隔离库撤销 API 的私表 SELECT，保留暂缓 Learning
-兼容权限。冷工件与运行收据通过后才更新台账，不重复维护工具及宿主元数据的已通过批次。
+## Audit API 与元数据 worker 冷组合 {#audit-cold-consumers}
+
+`tests/test_audit_consumers_cold.py` 已在当前主工作树通过集中验收。复用生产 API 镜像，以普通
+`identity_api_consumer` 和单函数 `audit_append_client` 分别启动 API 与 prefork worker，
+使用独占 PostgreSQL／Redis、隔离桶和受限 S3 凭据；两者均以非 root、只读根文件系统运行，
+没有源码挂载。安装的 779 份包文件和 1,605 份应用／迁移／入口文件与源码逐项匹配；
+2,448 项镜像运行输入及 4,872 项集中验收输入核对通过，后者在运行前后没有变化。
+
+真实 HTTP 已覆盖全局／项目范围、伪造范围拒绝、筛选、有符号 int64／同时间戳游标、原生
+JSON、IPv6、CSV／JSON 导出及导出审计先提交再返回流。原 POST 422 响应仍通过原队列追加
+元数据；专用追加身份在真实数据库阻塞点被终止后没有自动补行，显式重放才完成追加。API
+重启后重新核验实际端口并继续读取；完整 PostgreSQL 恢复后以同一镜像继续查询、导出和
+孤儿 actor 匿名追加。隔离库中的 API 无 Audit 私表 SELECT／INSERT，worker 同样被拒绝；
+暂缓 Learning 所需的 `legacy_runtime` 父表 SELECT 在原库与恢复库均保持。
+
+规范收据 `.worktree/audit-consumers-cold-qualification.json` 的 SHA-256 为
+`fbf1276a1d5e652f03ec82c1fde47badd089db8652be888c93a53e34b2a96c88`，绑定 25 项证据。
+资格源码为 `8ad44c295`，镜像源码为 `2149bbd25`；其间只有验收夹具变化，运行输入相同。
+0366→0189→0366、冻结 SQL 回滚、最终授权和全部自有资源清理通过。缺少锁定 Node 依赖、
+活动统计快照及 Docker 随机端口变化的原失败与最小复现均保留；这些夹具修正没有扩展业务
+实现，也没有修复台账中的 gVisor 转发问题。维护 CLI、宿主元数据及 Labeling 既有资格复用。
+
+本操作限定本地资格完成；完整 Audit 仍需既有 Celery 分区／归档及日聚合刷新消费者的独立
+组合验收，并保留暂缓 Learning 读取与业务 request ID 遗留边界。源码在当前分支，日常独立
+拓扑与生产容量未验收；训练、资产及 Go 范围保持。
 
 ## Audit 全局查询 owner {#audit-global-query-owner}
 

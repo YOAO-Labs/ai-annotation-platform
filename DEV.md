@@ -484,9 +484,11 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 迁移 `0315` 与 `apps/audit` 发布 `aap-audit-append/v1`，固定函数为 `aap_audit_v1.append_events(jsonb)`。`AuditService.log`／`log_many`、HTTP 同步回退、原 Celery 持久化任务及筛选夹具的追加复用该能力。原始 actor／request 快照和开放 action 保留；业务追加先在原事务视图中写入，再合并干净 ORM 对象并执行原 full flush，不额外读取 Audit 私表。数据库仍分配 ID 和事务时间，业务调用方保留提交／回滚权。HTTP 元数据继续 best-effort；不存在的 actor 仍回滚后以匿名重试，没有增加 exactly-once 语义。
 
-先安装当前迁移和 module-data owner grants。`infra/docker/audit-append-grants.sql` 仅向明确的 API 角色及独立函数客户端授予追加能力，撤销现有 Audit 父表／分区的 INSERT 和对应序列写权限，保留其他尚未迁移操作需要的权限。它会拒绝 API 拥有分区树或未来默认授权不安全的配置，不修改整个 public schema 的默认权限。现有 LAN 脚本仍把分区树交给 API，因此完整严格配置须等待维护所有权和未来分区权限收口；新增的固定函数授权只保证既有绑定可调用新代码。**排空旧 API／worker 并部署新工件后才撤销直接写权限**。
+先安装当前迁移和 module-data owner grants。`infra/docker/audit-append-grants.sql` 仅向明确的 API 角色及独立函数客户端授予追加能力，撤销现有 Audit 父表／分区的 INSERT 和对应序列写权限，保留其他尚未迁移操作需要的权限。它会拒绝 API 拥有分区树或未来默认授权不安全的配置，不修改整个 public schema 的默认权限。当前 LAN／worktree 配置由 Audit owner 持有父表、序列与分区树，固定维护能力负责后续分区；暂缓 Learning 仍需父表 SELECT，不提前统一撤销。**排空旧 API／worker 并部署新工件后才撤销直接写权限**。
 
-模块 Node peer 的锁定依赖按 `apps/audit/conformance/node/README.md` 安装到该目录，验收器在创建资源前检查三项 Node peer。组合冷验收复用同一 API 镜像执行真实 Audit task，覆盖相同载荷的两次投递和孤儿 actor 的匿名保存；该三次真实投递已通过组合验收；它只证明功能路径，冷 worker 的旧 Audit 分区所有权尚未收口。查询／领域事实、分析投影、分区归档及整模块资格按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)分别跟踪。
+模块 Node peer 的锁定依赖按 `apps/audit/conformance/node/README.md` 与 `apps/notifications/conformance/node/README.md` 安装到各自目录，验收器在创建资源前执行自检，不向根 Node 目录补装依赖。
+
+当前 API／元数据 worker 冷组合入口是 `tests/test_audit_consumers_cold.py`，使用 `scripts/verify_module_data_boundary.py --output <owned-receipt.json> --test-file tests/test_audit_consumers_cold.py`。显式设置 `AAP_AUDIT_COLD_CONSUMER_ACCEPTANCE=1`，并用既有 `AAP_LABELING_COLD_API_IMAGE_REF`、`AAP_LABELING_COLD_API_IMAGE_ID`、`AAP_LABELING_COLD_API_IMAGE_ARTIFACT` 三个工件选择器绑定已核对的当前 API 镜像；这些只用于验收，不是日常配置。该批已验证受限身份、真实 HTTP 查询／导出、原队列追加、子进程丢失后显式重放、API 重启及完整 PostgreSQL 恢复。Docker 随机发布端口可能在重启后改变，须重新 inspect 并核验绑定。详细证据与剩余维护调度、Learning 读取边界按[唯一台账](docs-site/dev/concepts/module-deployment.md#audit-cold-consumers)跟踪。
 
 ### Audit 全局查询能力
 
