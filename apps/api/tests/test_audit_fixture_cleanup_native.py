@@ -140,7 +140,7 @@ async def test_filtering_fixture_cleanup_is_scoped_and_rollback_safe(db_session)
     )
     savepoint = await db_session.begin_nested()
     assert await data.cleanup_filtering_fixture_events(None) == shared_rows_before
-    assert await visible_ids() == {ids["neighbor"], ids["wrong_path"]}
+    assert await visible_ids() == {ids["wrong_path"]}
     await savepoint.rollback()
     assert await visible_ids() == {
         ids["neighbor"],
