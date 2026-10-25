@@ -14,6 +14,8 @@ import { ListPagination } from "@/components/ui/ListPagination";
 import { cacheBytes } from "@/utils/cachePolicy";
 import { ManagedOriginalRetentionPanel } from "./ManagedOriginalRetentionPanel";
 import { ManagedOriginalVerificationPanel } from "./ManagedOriginalVerificationPanel";
+import { ManagedOriginalReclaimPanel } from "./ManagedOriginalReclaimPanel";
+import { ManagedOriginalReferenceAuditPanel } from "./ManagedOriginalReferenceAuditPanel";
 
 const statusLabels = { retained: "保留中", protected: "仍有保护要求", blocked: "资格待核实" };
 const identityLabels = {
@@ -98,6 +100,7 @@ function ReclamationOwner() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(20);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [actionDenied, setActionDenied] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const query = useQuery({
     queryKey: ["storage-managed-original-reclamation", session, revision, pageSize, page],
@@ -106,7 +109,7 @@ function ReclamationOwner() {
     staleTime: 0,
     refetchOnWindowFocus: false,
   });
-  const denied = storageAccessDenied(query.error);
+  const denied = actionDenied || storageAccessDenied(query.error);
   const valid = query.data && validPreview(query.data);
   const data = denied || !valid ? undefined : query.data;
   const selected = data?.items.find((item) => item.id === selectedId);
@@ -128,14 +131,15 @@ function ReclamationOwner() {
           </Button>
         </div>
         <p className="rounded-md border border-border bg-muted p-3 text-xs leading-relaxed text-muted-foreground">
-          预演不会删除文件或提交回收任务。独占所有权、现场副本、备份恢复点和迁移保留尚未完成资格核验，当前没有物理删除许可。
+          此处只观测数据库中的保留关系，不提供物理删除许可。可在原件详情中展开“受控回收”，单独核对该记录绑定的准确版本是否满足执行条件。
         </p>
+        {!denied && <ManagedOriginalReferenceAuditPanel onDenied={() => setActionDenied(true)} />}
         {query.isPending && (
           <p role="status" className="text-xs text-muted-foreground">
             正在核对保留记录…
           </p>
         )}
-        {(query.error || (query.data && !valid)) && (
+        {(denied || query.error || (query.data && !valid)) && (
           <p role="alert" className="text-xs leading-relaxed text-status-danger">
             {denied
               ? "当前权限已失效，已隐藏保留记录。"
@@ -254,7 +258,10 @@ function ReclamationOwner() {
             item={selected}
             measuredAt={data.measured_at}
             onChanged={() => query.refetch()}
-            onDenied={() => setSelectedId(null)}
+            onDenied={() => {
+              setSelectedId(null);
+              setActionDenied(true);
+            }}
           />
         )}
       </Modal>
@@ -334,6 +341,11 @@ function ReclamationDetails({
         onDenied={onDenied}
       />
       <ManagedOriginalVerificationPanel retirementId={item.id} onDenied={onDenied} />
+      <ManagedOriginalReclaimPanel
+        retirementId={item.id}
+        policyRevision={item.policy_revision}
+        onDenied={onDenied}
+      />
       <p className="text-xs leading-relaxed text-muted-foreground">
         观测于 {date(measuredAt)}。{scope} 当前预演不提供物理删除许可。
       </p>

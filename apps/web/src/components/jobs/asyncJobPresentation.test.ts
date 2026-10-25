@@ -5,6 +5,7 @@ import {
   jobProgressText,
   jobNotificationVerb,
   jobStage,
+  JOB_KIND_LABEL,
 } from "./asyncJobPresentation";
 
 it("迁移清单只报告清单完整性，通知和阶段不承诺复制完成", () => {
@@ -24,6 +25,32 @@ it("迁移清单只报告清单完整性，通知和阶段不承诺复制完成"
   );
   expect(jobProgressText({ ...job, status: "completed" })).toContain("未执行复制或切换");
   expect(jobNotificationVerb("job.completed", job.kind)).toBe("配置源迁移清单完成");
+});
+
+it("准确版本回收的取消请求不冒充已停止或未删除", () => {
+  const job = {
+    kind: "managed_original_reclaim",
+    status: "running",
+    progress_pct: 99,
+    result: { cancel_requested: true },
+  } satisfies Parameters<typeof jobProgressText>[0];
+  expect(JOB_KIND_LABEL[job.kind]).toBe("托管原件准确版本回收");
+  expect(jobProgressText(job)).toBe("已请求取消，等待实际对象操作与资源收尾；可能已经发出删除");
+  expect(jobProgressText({ ...job, status: "cancelled" })).toBe(
+    "仅处理绑定的准确版本 · 删除结果与物理收尾以回收历史为准",
+  );
+});
+
+it("引用核对任务明确不执行自动物理回收", () => {
+  expect(JOB_KIND_LABEL.managed_reference_reconciliation).toBe("托管原件引用核对");
+  expect(
+    jobProgressText({
+      kind: "managed_reference_reconciliation",
+      status: "completed",
+      progress_pct: 100,
+      result: {},
+    }),
+  ).toBe("只核对数据库引用与保留关系 · 不删除对象或自动回收");
 });
 
 it("初次复制区分准备、整体结果和选定子集，不将零对象或部分成功写成迁移完成", () => {

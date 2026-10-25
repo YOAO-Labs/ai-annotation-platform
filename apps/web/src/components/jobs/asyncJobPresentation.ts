@@ -22,6 +22,8 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   storage_migration_inventory: "配置源迁移清单",
   storage_migration_copy: "存储迁移复制",
   managed_original_verification: "托管原件核验",
+  managed_original_reclaim: "托管原件准确版本回收",
+  managed_reference_reconciliation: "托管原件引用核对",
   dataset_quality_review: "质量批量复核",
   dataset_quality: "数据集图片质检",
   dataset_registration: "目录预检与登记",
@@ -268,6 +270,13 @@ export function jobProgressText(
       ? "已请求取消，等待底层读取收尾"
       : "核验单条原件 · 完整读取结束后给出结果";
   }
+  if (job.kind === "managed_original_reclaim") {
+    return job.result?.cancel_requested === true && ["pending", "running"].includes(job.status)
+      ? "已请求取消，等待实际对象操作与资源收尾；可能已经发出删除"
+      : "仅处理绑定的准确版本 · 删除结果与物理收尾以回收历史为准";
+  }
+  if (job.kind === "managed_reference_reconciliation")
+    return "只核对数据库引用与保留关系 · 不删除对象或自动回收";
   if (job.kind === "storage_usage" && ["pending", "running"].includes(job.status)) {
     const done =
       (jobNumber(job.result, "success_count") ?? 0) + (jobNumber(job.result, "failed_count") ?? 0);

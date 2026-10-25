@@ -12,7 +12,10 @@ vi.mock("@/api/client", async (original) => ({
   ...(await original<typeof import("@/api/client")>()),
   apiClient: api,
 }));
-vi.mock("@/hooks/useSessionGuard", () => ({ useSessionRevision: () => auth.revision }));
+vi.mock("@/hooks/useSessionGuard", () => ({
+  useSessionRevision: () => auth.revision,
+  useSessionGuard: () => () => () => true,
+}));
 vi.mock("@/components/jobs/AsyncJobDetailModal", () => ({ AsyncJobDetailModal: () => null }));
 vi.mock("@/stores/authStore", () => ({
   useAuthStore: (select: (state: unknown) => unknown) =>
@@ -123,7 +126,7 @@ it("loads only after disclosure and uses read-only paginated HTTP parameters", a
   expect(api.get.mock.calls[0][0]).toBe("/storage/managed-original-reclamation?limit=20&offset=0");
   expect(api.get.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   expect(screen.getByText(/大小会重复累计，不代表可释放容量/)).toBeInTheDocument();
-  expect(screen.getByText(/当前没有物理删除许可/)).toBeInTheDocument();
+  expect(screen.getByText(/单独核对该记录绑定的准确版本是否满足执行条件/)).toBeInTheDocument();
   expect(screen.getByText(/历史未登记或已丢失的位置不在覆盖内/)).toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: /确认.*回收|删除文件|提交回收/ }),
@@ -265,5 +268,20 @@ it("retires the old session, including a late response", async () => {
   view.refresh();
   expect(screen.getByText("托管原件保留与回收预演").closest("details")).not.toHaveAttribute("open");
   await act(async () => resolve(result()));
+  expect(screen.queryByText("原件记录 11111111")).not.toBeInTheDocument();
+});
+
+it("hides the original list and centered details when the new reclaim scope is denied", async () => {
+  mount();
+  expand();
+  await loaded();
+  fireEvent.click(screen.getByRole("button", { name: "查看原件记录 11111111 详情" }));
+  api.get.mockRejectedValueOnce(new ApiError(403, "revoked"));
+  fireEvent.click(screen.getByText("受控回收", { selector: "summary" }));
+  expect(await screen.findByText("当前权限已失效，已隐藏保留记录。")).toHaveAttribute(
+    "role",
+    "alert",
+  );
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(screen.queryByText("原件记录 11111111")).not.toBeInTheDocument();
 });
