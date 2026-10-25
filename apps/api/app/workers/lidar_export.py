@@ -124,14 +124,16 @@ async def _io(db, receipt, call, *, guard, published=False, expected_revision=No
                 await bundles.check_claim(owned, receipt)
             if revision is not None:
                 await storage_access.check(
-                    owned, media_storage.LEGACY_LOCATION_ID, expected_revision=revision
+                    owned,
+                    uuid.UUID(receipt.storage_ref["location_id"]),
+                    expected_revision=revision,
                 )
 
     await transfer._async(fresh())
     permit = await transfer._acquire(
         db,
         receipt,
-        media_storage.LEGACY_LOCATION_ID,
+        uuid.UUID(receipt.storage_ref["location_id"]),
         expected_revision=expected_revision,
     )
     failure, result = None, None
@@ -264,11 +266,18 @@ async def _lookup(db, receipt, key, *, guard):
         for binding in references:
             await adapter.inputs.check_source(owned, binding)
 
+    zip_target = await export_storage.io_target(db, candidate)
+    media_target = await media_storage.io_target(db, record)
+    await db.commit()
     try:
         present, zip_revision = await _io(
             db,
             previous,
-            lambda: export_storage.verify(candidate, missing_ok=True),
+            lambda: export_storage.verify(
+                candidate,
+                missing_ok=True,
+                **({"target": zip_target} if zip_target is not None else {}),
+            ),
             guard=source_guard,
             published=True,
         )
@@ -283,13 +292,18 @@ async def _lookup(db, receipt, key, *, guard):
                 await source_guard(owned, references)
 
             def verify():
-                with media_storage.open_storage(record) as client:
+                with media_storage.open_storage(
+                    record,
+                    **({"target": media_target} if media_target is not None else {}),
+                ) as client:
                     return media_storage.verify_object(client, record, relative)
 
             await _io(db, previous, verify, guard=exact_guard, published=True)
 
         def inventory():
-            with media_storage.open_storage(record) as client:
+            with media_storage.open_storage(
+                record, **({"target": media_target} if media_target is not None else {})
+            ) as client:
                 listed = media_storage.list_objects(client, record)
                 if listed != {
                     key: facts["size_bytes"]
@@ -333,6 +347,9 @@ async def _finish_cache(db, receipt, hit, previous, *, task_id, name):
         _publish_export_notification,
     )
 
+    prepared = await export_outputs.prepare_download(
+        db, hit.output, download_name=name, expected_revision=hit.gate_revision
+    )
     await _guard(db, receipt, task_id)
     await for_snapshot(receipt._input_snapshot).inputs.check(
         db, receipt._input_snapshot, lock=True
@@ -347,6 +364,7 @@ async def _finish_cache(db, receipt, hit, previous, *, task_id, name):
         project_id=receipt.project_id,
         download_name=name,
         before_sign=lambda: output_authority.validate(db, job, lock=True),
+        **({"prepared": prepared} if prepared is not None else {}),
     )
     result = dict(
         download_url=url,
@@ -647,8 +665,20 @@ async def run_owned(
             ):
                 reject(adapter.error("output_changed"))
 
+        zip_target = await export_storage.io_target(db, candidate)
+        await db.commit()
         _, revision = await _io(
-            db, receipt, lambda: export_storage.write(candidate, path), guard=zip_guard
+            db,
+            receipt,
+            lambda: export_storage.write(
+                candidate,
+                path,
+                **({"target": zip_target} if zip_target is not None else {}),
+            ),
+            guard=zip_guard,
+        )
+        prepared = await export_outputs.prepare_download(
+            db, candidate, download_name=name
         )
         await _guard(db, receipt, celery_task_id)
         if reference_media is not None:
@@ -664,7 +694,11 @@ async def run_owned(
                 batch_id=uuid.UUID(batch_id) if batch_id else None,
             )
         url = await _sign_export_output(
-            db, await db.get(AsyncJob, receipt.job_id), candidate, name
+            db,
+            await db.get(AsyncJob, receipt.job_id),
+            candidate,
+            name,
+            **({"prepared": prepared} if prepared is not None else {}),
         )
         result = dict(
             download_url=url,

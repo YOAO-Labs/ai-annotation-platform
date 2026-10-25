@@ -253,12 +253,15 @@ async def create(
         # Allocation happened with the HTTP Job. The reserved ZIP must use the
         # same saved owner as its media, even if today's purpose defaults move.
         saved = deepcopy(bundle.storage_ref)
-        saved.pop("key_prefix")
-        saved["object_key"] = export_storage.key_for(
+        root = saved.pop("key_prefix")[
+            : -len(export_media_storage.prefix_for(bundle.id))
+        ]
+        saved["object_key"] = root + export_storage.key_for(
             media, project_id, job_id, identifier
         )
         row.storage_ref = export_storage.resolve_ref(
-            saved, expected_key=saved["object_key"]
+            saved,
+            expected_key=export_storage.key_for(media, project_id, job_id, identifier),
         ).ref
     _creation_valid(bundle, **facts)
     db.add(row)
@@ -272,6 +275,7 @@ async def create(
 async def write(db, receipt, path):
     """Drain the actual upload/readback thread before releasing the ZIP path."""
     owner = export_storage.resolve(receipt)
+    target = await export_storage.io_target(db, receipt)
     revision = None
 
     async def acquired(permit):
@@ -291,6 +295,7 @@ async def write(db, receipt, path):
         export_storage.write,
         receipt,
         path,
+        **({"target": target} if target is not None else {}),
         on_acquired=acquired,
     )
     return revision
@@ -389,6 +394,7 @@ async def verify_cache(db, artifact):
     if row.expires_at <= now():
         return None
     owner = export_storage.resolve(receipt)
+    target = await export_storage.io_target(db, receipt)
     revision = None
 
     async def acquired(permit):
@@ -411,6 +417,7 @@ async def verify_cache(db, artifact):
             export_storage.verify,
             receipt,
             missing_ok=True,
+            **({"target": target} if target is not None else {}),
             on_acquired=acquired,
         )
     except export_storage.ExportStorageError as exc:
@@ -430,7 +437,62 @@ async def verify_cache(db, artifact):
     return CacheHit(artifact_id, cache_key, batch_id, receipt, revision)
 
 
-async def sign_cached(db, hit, *, project_id, download_name, before_sign=None):
+@dataclass(frozen=True)
+class PreparedDownload:
+    output: OutputSnapshot
+    download_name: str
+    url: str = field(repr=False)
+    gate_revision: int
+
+
+async def prepare_download(db, receipt, *, download_name, expected_revision=None):
+    """Construct, sign and close an external client before final business locks."""
+    if receipt.storage_ref["schema"] == 1:
+        return None
+    target = await export_storage.io_target(db, receipt)
+    revision = None
+
+    async def acquired(permit):
+        nonlocal revision
+        revision = permit.revision
+
+    url = await storage_access.run(
+        db,
+        target.location_id,
+        read_purpose(receipt.id),
+        export_storage.sign,
+        receipt,
+        download_name=download_name,
+        target=target,
+        expected_revision=expected_revision,
+        on_acquired=acquired,
+    )
+    return PreparedDownload(receipt, download_name, url, revision)
+
+
+async def prepared_download(db, receipt, *, download_name, prepared):
+    """Final publication uses only a URL prepared for these exact saved facts."""
+    if receipt.storage_ref["schema"] == 1:
+        return export_storage.sign(receipt, download_name=download_name)
+    if (
+        not isinstance(prepared, PreparedDownload)
+        or prepared.download_name != download_name
+        or not same(receipt, prepared.output)
+        or receipt.expires_at <= now()
+    ):
+        reject("export_storage_invalid_receipt")
+    await storage_access.check(
+        db,
+        uuid.UUID(receipt.storage_ref["location_id"]),
+        expected_revision=prepared.gate_revision,
+        lock=True,
+    )
+    return prepared.url
+
+
+async def sign_cached(
+    db, hit, *, project_id, download_name, before_sign=None, prepared=None
+):
     """Lock the same verified candidate and fence maintenance until publication."""
     if hit.project_id != project_id:
         reject("export_cache_output_mismatch")
@@ -462,7 +524,9 @@ async def sign_cached(db, hit, *, project_id, download_name, before_sign=None):
     )
     if before_sign is not None:
         await before_sign()
-    return export_storage.sign(hit.output, download_name=download_name)
+    return await prepared_download(
+        db, hit.output, download_name=download_name, prepared=prepared
+    )
 
 
 async def _has_read(db, receipt):
@@ -574,6 +638,11 @@ async def _cleanup_one(db, identifier, counters):
             "export_delete_" + receipt.id.hex,
             export_storage.delete,
             receipt,
+            **(
+                {"target": await export_storage.io_target(db, receipt)}
+                if receipt.storage_ref["schema"] == 2
+                else {}
+            ),
         )
     current, current_bundle = await _cleanup_locked(db, identifier)
     linked_ended = (

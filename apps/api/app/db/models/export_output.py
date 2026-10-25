@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -21,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 EXPORT_STORAGE_REF_CHECK = """
-COALESCE((
+(COALESCE((
     jsonb_typeof(storage_ref) = 'object'
     AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
         'binding_generation','endpoint_url','bucket','object_key','storage_identity']
@@ -43,7 +44,40 @@ COALESCE((
         || job_id::text || '/' || id::text || '.zip'
     AND jsonb_typeof(storage_ref->'storage_identity') = 'string'
     AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
-), false)
+), false)) OR (COALESCE((
+    jsonb_typeof(storage_ref) = 'object'
+    AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','object_key','storage_identity']
+    AND storage_ref - ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','object_key','storage_identity']::text[] = '{}'::jsonb
+    AND storage_ref->'schema' = '2'::jsonb AND storage_ref->>'schema' = '2'
+    AND storage_ref->>'purpose' = 'export'
+    AND jsonb_typeof(storage_ref->'location_id') = 'string' AND storage_ref->>'location_id' ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+    AND jsonb_typeof(storage_ref->'config_revision') = 'number' AND storage_ref->>'config_revision' ~ '^[1-9][0-9]*$'
+    AND jsonb_typeof(storage_ref->'binding_generation') = 'number' AND storage_ref->>'binding_generation' ~ '^[1-9][0-9]*$' AND (storage_ref->>'binding_generation')::numeric >= 2
+    AND jsonb_typeof(storage_ref->'endpoint_url') = 'string'
+    AND storage_ref->>'endpoint_url' ~ '^https?://[^[:space:]/?#@]+$'
+    AND position(chr(92) in (storage_ref->>'endpoint_url')) = 0
+    AND jsonb_typeof(storage_ref->'bucket') = 'string'
+    AND length(storage_ref->>'bucket') BETWEEN 1 AND 255
+    AND storage_ref->>'bucket' !~ '[[:space:]/?#@]'
+    AND position(chr(92) in (storage_ref->>'bucket')) = 0
+    AND jsonb_typeof(storage_ref->'object_key') = 'string'
+    AND octet_length((storage_ref->>'object_key')) <= 1024
+    AND (
+      (storage_ref->>'location_id' = '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
+       AND storage_ref->>'config_revision' = '1' AND (storage_ref->>'object_key') = media || '/' || project_id::text || '/' || job_id::text || '/' || id::text || '.zip')
+      OR (storage_ref->>'location_id' <> '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
+       AND right((storage_ref->>'object_key'), length(media || '/' || project_id::text || '/' || job_id::text || '/' || id::text || '.zip')) = media || '/' || project_id::text || '/' || job_id::text || '/' || id::text || '.zip'
+       AND left((storage_ref->>'object_key'), length((storage_ref->>'object_key')) - length(media || '/' || project_id::text || '/' || job_id::text || '/' || id::text || '.zip')) ~ '^([^/]+/)*_aap_managed/export/$'
+       AND octet_length(left((storage_ref->>'object_key'), length((storage_ref->>'object_key')) - length(media || '/' || project_id::text || '/' || job_id::text || '/' || id::text || '.zip'))) <= 904
+       AND (storage_ref->>'object_key') !~ '[[:cntrl:]]'
+       AND position(chr(92) in (storage_ref->>'object_key')) = 0
+       AND (storage_ref->>'object_key') !~ '(^|/)[.][.]?(/|$)|//')
+    )
+    AND jsonb_typeof(storage_ref->'storage_identity') = 'string'
+    AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
+), false))
 """
 
 
@@ -73,6 +107,7 @@ class ExportOutput(Base):
             name="ck_export_output_retirement",
         ),
         CheckConstraint(EXPORT_STORAGE_REF_CHECK, name="ck_export_output_storage_ref"),
+        Index("ix_export_output_location", text("(storage_ref->>'location_id')")),
         Index("ix_export_output_cleanup", "state", "last_attempted_at", "id"),
         Index("ix_export_output_job", "job_id"),
     )

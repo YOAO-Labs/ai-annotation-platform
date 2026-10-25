@@ -28,7 +28,7 @@ from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
 from app.services import async_job as async_job_svc
-from app.services import export_outputs, export_storage
+from app.services import export_outputs
 from app.services.exporting import cache as export_cache
 from app.services.exporting import output_authority
 from app.services.exporting.packaging import build_export_zip
@@ -69,9 +69,11 @@ async def _update_export_progress(db, job_uuid, pct):
     await async_job_svc.update_progress(db, job_uuid, pct)
 
 
-async def _sign_export_output(db, job, candidate, download_name):
+async def _sign_export_output(db, job, candidate, download_name, *, prepared=None):
     await output_authority.validate(db, job, lock=True)
-    return export_storage.sign(candidate, download_name=download_name)
+    return await export_outputs.prepared_download(
+        db, candidate, download_name=download_name, prepared=prepared
+    )
 
 
 async def _complete_from_cache(
@@ -89,6 +91,9 @@ async def _complete_from_cache(
     # the canonical selected-task scope immediately before the cache-hit URL.
     # ``_assert_export_task_scope`` inside the guard compares these same worker
     # arguments against the stored job scope and fails closed on mismatch.
+    prepared = await export_outputs.prepare_download(
+        db, hit.output, download_name=download_name, expected_revision=hit.gate_revision
+    )
     await check_cancelled(db, job_uuid, lock=True)
     await _reauthorize_export_final_write(db, job_uuid, task_ids, batch_id=batch_id)
     current_job = await db.get(AsyncJob, job_uuid)
@@ -100,6 +105,7 @@ async def _complete_from_cache(
         project_id=current_job.project_id,
         download_name=download_name,
         before_sign=lambda: output_authority.validate(db, current_job, lock=True),
+        **({"prepared": prepared} if prepared is not None else {}),
     )
     result = {
         "download_url": download_url,
@@ -900,6 +906,10 @@ async def _run_export(
                 await _update_export_progress(db, job_uuid, 90)
                 await db.commit()
 
+                prepared = await export_outputs.prepare_download(
+                    db, candidate, download_name=download_name
+                )
+
                 # Serialize cancellation, authority revocation and publication.
                 await check_cancelled(db, job_uuid, lock=True)
                 await _reauthorize_export_final_write(
@@ -917,7 +927,11 @@ async def _run_export(
                 # Shared row locks prevent credential edits, but time can pass
                 # while the output/cache locks wait. Recheck expiry at signing.
                 download_url = await _sign_export_output(
-                    db, job_row, candidate, download_name
+                    db,
+                    job_row,
+                    candidate,
+                    download_name,
+                    **({"prepared": prepared} if prepared is not None else {}),
                 )
                 object_key = export_outputs.object_key(candidate)
                 expires_at = candidate.expires_at

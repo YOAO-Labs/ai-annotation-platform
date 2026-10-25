@@ -7,6 +7,7 @@ Credentials remain owned by StorageService; legacy references are never guessed.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -22,7 +23,8 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.services import storage_access
+from app.db.models.storage_connection import StorageConnection
+from app.services import storage_access, storage_presigning
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
@@ -169,29 +171,69 @@ def resolve_ref(ref, *, expected_key=None) -> Owner:
         not isinstance(ref, dict)
         or set(ref) != _FIELDS
         or type(ref["schema"]) is not int
-        or ref["schema"] != 1
+        or ref["schema"] not in {1, 2}
         or ref["purpose"] != "export"
-        or ref["location_id"] != str(LEGACY_LOCATION_ID)
         or type(ref["config_revision"]) is not int
-        or ref["config_revision"] != 1
+        or ref["config_revision"] < 1
         or type(ref["binding_generation"]) is not int
-        or ref["binding_generation"] != 1
+        or ref["binding_generation"] < 1
         or not _plain(ref["bucket"], 255)
         or any(char in ref["bucket"] for char in "/\\?#@")
-        or not isinstance(ref["object_key"], str)
-        or _KEY.fullmatch(ref["object_key"]) is None
-        or (expected_key is not None and ref["object_key"] != expected_key)
         or not isinstance(ref["storage_identity"], str)
         or _SHA256.fullmatch(ref["storage_identity"]) is None
     ):
         _reject()
-    endpoint = _endpoint(ref["endpoint_url"])
-    if endpoint != _runtime_endpoint() or ref[
-        "storage_identity"
-    ] != managed_storage_identity(endpoint, ref["bucket"]):
+    identifier = _canonical_uuid(ref["location_id"])
+    key = ref["object_key"]
+    match = (
+        re.search(
+            r"(?:image|video)/"
+            + _UUID_PART
+            + r"/"
+            + _UUID_PART
+            + r"/"
+            + _UUID_PART
+            + r"\.zip$",
+            key,
+        )
+        if isinstance(key, str)
+        else None
+    )
+    if match is None or (expected_key is not None and match[0] != expected_key):
         _reject()
-    value = deepcopy(ref)
-    return Owner(value["bucket"], value["object_key"], value)
+    logical = match[0]
+    if ref["schema"] == 1:
+        if (
+            identifier != str(LEGACY_LOCATION_ID)
+            or ref["config_revision"] != 1
+            or ref["binding_generation"] != 1
+            or key != logical
+        ):
+            _reject()
+    else:
+        if ref["binding_generation"] < 2 or len(key.encode("utf-8")) > 1024:
+            _reject()
+        if identifier == str(LEGACY_LOCATION_ID):
+            if ref["config_revision"] != 1 or key != logical:
+                _reject()
+        else:
+            from app.services.export_storage_target import (
+                MANAGED_NAMESPACE,
+                managed_prefix,
+            )
+
+            prefix = key[: -len(logical)]
+            if (
+                not prefix.endswith(MANAGED_NAMESPACE)
+                or managed_prefix(prefix[: -len(MANAGED_NAMESPACE)]) != prefix
+            ):
+                _reject("export_storage_invalid_key")
+    endpoint = _endpoint(ref["endpoint_url"])
+    if (
+        identifier == str(LEGACY_LOCATION_ID) and endpoint != _runtime_endpoint()
+    ) or ref["storage_identity"] != managed_storage_identity(endpoint, ref["bucket"]):
+        _reject()
+    return Owner(ref["bucket"], key, deepcopy(ref))
 
 
 def _instant(value):
@@ -234,52 +276,119 @@ def resolve(record) -> Owner:
     return resolve_ref(getattr(record, "storage_ref", None), expected_key=key)
 
 
-async def allocate(db, output) -> dict:
-    """Create-only allocation; the caller persists the independent candidate."""
-    key = key_for(output.media, output.project_id, output.job_id, output.id)
+async def allocate(db, row) -> dict:
+    """Create-only allocation; the caller persists the independent upload row."""
+    key = key_for(row.media, row.project_id, row.job_id, row.id)
     try:
         await ensure_legacy_bindings(db)
     except ValueError:
         _reject("export_storage_binding_unproven")
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
-    binding = await db.scalar(
+    initial = await db.scalar(
         select(StorageBinding)
         .where(StorageBinding.purpose == "export")
         .execution_options(populate_existing=True)
     )
+    if initial is None:
+        _reject("export_storage_binding_unproven")
+    binding_facts = initial.location_id, initial.bucket, initial.generation
+    initial_location = await db.get(
+        StorageLocation, initial.location_id, populate_existing=True
+    )
+    if initial_location is None:
+        _reject("export_storage_binding_unproven")
+    connection_id = getattr(initial_location, "connection_id", None)
+    if connection_id is not None:
+        await db.scalar(
+            select(StorageConnection)
+            .where(StorageConnection.id == connection_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+    location = await db.scalar(
+        select(StorageLocation)
+        .where(StorageLocation.id == binding_facts[0])
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    binding = await db.scalar(
+        select(StorageBinding)
+        .where(StorageBinding.purpose == "export")
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
     if (
         location is None
-        or location.id != LEGACY_LOCATION_ID
-        or location.kind != "s3"
-        or type(location.config_revision) is not int
-        or location.config_revision != 1
-        or location.enabled is not True
-        or not isinstance(location.config, dict)
-        or type(location.config.get("use_ssl")) is not bool
-        or location.config
-        != {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
+        or location.id != binding_facts[0]
+        or getattr(location, "connection_id", None) != connection_id
         or binding is None
-        or binding.location_id != LEGACY_LOCATION_ID
-        or type(binding.generation) is not int
-        or binding.generation != 1
-        or binding.bucket != storage_service.export_bucket
+        or (binding.location_id, binding.bucket, binding.generation) != binding_facts
     ):
         _reject("export_storage_binding_unproven")
-    endpoint = _runtime_endpoint()
+    from app.services.export_storage_target import target_for
+
+    target = await target_for(db, location)
+    if (
+        type(binding.generation) is not int
+        or binding.generation < 1
+        or binding.bucket != target.bucket
+        or (binding.generation == 1 and location.id != LEGACY_LOCATION_ID)
+    ):
+        _reject("export_storage_binding_unproven")
+    endpoint = target.endpoint_url
     return resolve_ref(
         {
-            "schema": 1,
+            "schema": 1 if binding.generation == 1 else 2,
             "purpose": "export",
             "location_id": str(location.id),
             "config_revision": location.config_revision,
             "binding_generation": binding.generation,
             "endpoint_url": endpoint,
             "bucket": binding.bucket,
-            "object_key": key,
+            "object_key": target.key_prefix + key,
             "storage_identity": managed_storage_identity(endpoint, binding.bucket),
         },
         expected_key=key,
     ).ref
+
+
+async def io_target(db, row):
+    """Capture current credentials while keeping the saved physical address fixed."""
+    owner = resolve(row)
+    if owner.ref["schema"] == 1:
+        return None
+    from app.services.export_storage_target import target_for
+
+    identifier = uuid.UUID(owner.ref["location_id"])
+    location = await db.get(StorageLocation, identifier, populate_existing=True)
+    target = await target_for(db, location)
+    if (
+        target.endpoint_url != owner.ref["endpoint_url"]
+        or target.bucket != owner.bucket
+        or target.key_prefix + key_for(row.media, row.project_id, row.job_id, row.id)
+        != owner.object_key
+    ):
+        _reject()
+    return target
+
+
+@contextmanager
+def client_context(row, target):
+    owner = resolve(row)
+    if target is None:
+        if owner.ref["schema"] != 1:
+            _reject("export_storage_binding_unproven")
+        yield storage_service.client
+        return
+    if (
+        str(target.location_id) != owner.ref["location_id"]
+        or target.endpoint_url != owner.ref["endpoint_url"]
+        or target.bucket != owner.bucket
+        or target.key_prefix + key_for(row.media, row.project_id, row.job_id, row.id)
+        != owner.object_key
+    ):
+        _reject()
+    with target.client() as client:
+        yield client
 
 
 def _budget(deadline):
@@ -319,13 +428,18 @@ def file_receipt(path) -> tuple[str, int]:
     return checksum.hexdigest(), size
 
 
-def verify(output, *, missing_ok=False) -> bool:
+def verify(output, *, missing_ok=False, target=None) -> bool:
     """Conditionally read and hash the exact saved object, then close it."""
     owner = resolve(output)
+    with client_context(output, target) as client:
+        return _verify(client, output, owner, missing_ok=missing_ok)
+
+
+def _verify(client, output, owner, *, missing_ok=False):
     deadline = time.monotonic() + VERIFY_SECONDS
     params = {"Bucket": owner.bucket, "Key": owner.object_key}
     try:
-        head = storage_service.client.head_object(**params)
+        head = client.head_object(**params)
         _budget(deadline)
         etag = head.get("ETag")
         if (
@@ -335,7 +449,7 @@ def verify(output, *, missing_ok=False) -> bool:
             or not 0 < len(etag) <= 1024
         ):
             _reject("export_storage_integrity_mismatch")
-        response = storage_service.client.get_object(**params, IfMatch=etag)
+        response = client.get_object(**params, IfMatch=etag)
         with storage_access.closing_registered(response["Body"]) as body:
             if (
                 response.get("ETag") != etag
@@ -356,7 +470,7 @@ def verify(output, *, missing_ok=False) -> bool:
             if size != output.size_bytes or checksum.hexdigest() != output.sha256:
                 _reject("export_storage_integrity_mismatch")
         _budget(deadline)
-        after = storage_service.client.head_object(**params)
+        after = client.head_object(**params)
         if (
             after.get("ETag") != etag
             or type(after.get("ContentLength")) is not int
@@ -384,33 +498,46 @@ def verify(output, *, missing_ok=False) -> bool:
     return True
 
 
-def write(output, path) -> None:
+def write(output, path, *, target=None) -> None:
     """Upload one independent candidate; no failure authorizes deletion."""
     owner = resolve(output)
     if file_receipt(path) != (output.sha256, output.size_bytes):
         _reject("export_storage_integrity_mismatch")
     try:
-        storage_service.upload_file(
-            str(path),
-            owner.object_key,
-            bucket=owner.bucket,
-            content_type="application/zip",
-        )
+        with client_context(output, target) as client:
+            if target is None:
+                storage_service.upload_file(
+                    str(path),
+                    owner.object_key,
+                    bucket=owner.bucket,
+                    content_type="application/zip",
+                )
+            else:
+                client.upload_file(
+                    str(path),
+                    owner.bucket,
+                    owner.object_key,
+                    ExtraArgs={"ContentType": "application/zip"},
+                )
+            _verify(client, output, owner)
     except Exception as exc:
         raise _unavailable(exc) from None
-    verify(output)
 
 
-def delete(output) -> None:
+def delete(output, *, target=None) -> None:
     """Delete only the precise object of a caller's committed retirement."""
     owner = resolve(output)
     try:
-        storage_service.delete_object(owner.object_key, bucket=owner.bucket)
+        with client_context(output, target) as client:
+            if target is None:
+                storage_service.delete_object(owner.object_key, bucket=owner.bucket)
+            else:
+                client.delete_object(Bucket=owner.bucket, Key=owner.object_key)
     except Exception as exc:
         raise _unavailable(exc) from None
 
 
-def sign(output, *, download_name, now=None) -> str:
+def sign(output, *, download_name, now=None, target=None) -> str:
     """Issue only the remaining immutable retention window, without alignment."""
     owner = resolve(output)
     current = _instant(datetime.now(timezone.utc) if now is None else now)
@@ -420,12 +547,25 @@ def sign(output, *, download_name, now=None) -> str:
     if seconds <= 0:
         _reject("export_storage_expired")
     try:
-        return storage_service.generate_download_url(
-            owner.object_key,
-            expires_in=seconds,
-            bucket=owner.bucket,
-            download_name=download_name,
-            align=False,
-        )
+        with client_context(output, target) as client:
+            if owner.ref["location_id"] == str(LEGACY_LOCATION_ID):
+                return storage_service.generate_download_url(
+                    owner.object_key,
+                    expires_in=seconds,
+                    bucket=owner.bucket,
+                    download_name=download_name,
+                    align=False,
+                )
+            return storage_presigning.generate_url(
+                client,
+                "get_object",
+                params={
+                    "Bucket": owner.bucket,
+                    "Key": owner.object_key,
+                    "ResponseContentDisposition": f'attachment; filename="{download_name}"',
+                },
+                expires_in=seconds,
+                audience="internal",
+            )
     except Exception as exc:
         raise _unavailable(exc) from None

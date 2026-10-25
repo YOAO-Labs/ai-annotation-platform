@@ -17,9 +17,10 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 
-from app.config import settings
+from types import SimpleNamespace
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
 from app.services import export_media_storage as physical
+from app.services import export_storage
 from app.services.content_snapshot import ContentError
 from app.services.exporting.lidar_sources import canonical_identity
 from app.services.reference_keys import is_reference, parse_reference
@@ -760,10 +761,22 @@ async def allocate(
     sources, required = _sources(input_snapshot, project_id)
     _logical_sources(logical_sources, required)
     identifier, output_id, started = uuid.uuid4(), uuid.uuid4(), now()
-    owner_ref = physical.make_ref(identifier, bucket=settings.minio_export_bucket)
+    zip_ref = await export_storage.allocate(
+        db,
+        SimpleNamespace(
+            id=output_id, media="image", project_id=project_id, job_id=job_id
+        ),
+    )
+    logical_zip = export_storage.key_for("image", project_id, job_id, output_id)
+    root = zip_ref["object_key"][: -len(logical_zip)]
+    owner_ref = {key: value for key, value in zip_ref.items() if key != "object_key"}
+    owner_ref["key_prefix"] = root + physical.prefix_for(identifier)
+    owner_ref = physical.resolve_ref(
+        owner_ref, expected_prefix=physical.prefix_for(identifier)
+    ).ref
     keys, objects = {}, {}
     for source_key in sorted(sources):
-        key = physical.prefix_for(identifier) + str(uuid.uuid4()) + ".bin"
+        key = owner_ref["key_prefix"] + str(uuid.uuid4()) + ".bin"
         if key in objects:
             reject("invalid")
         keys[source_key] = key

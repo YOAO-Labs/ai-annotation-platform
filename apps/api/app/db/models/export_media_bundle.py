@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, column_property, mapped_column
@@ -19,8 +20,8 @@ from sqlalchemy.orm import Mapped, column_property, mapped_column
 from app.db.base import Base
 
 
-EXPORT_MEDIA_STORAGE_REF_CHECK = r"""
-COALESCE((
+EXPORT_MEDIA_STORAGE_REF_CHECK = """
+(COALESCE((
     jsonb_typeof(storage_ref) = 'object'
     AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
         'binding_generation','endpoint_url','bucket','key_prefix','storage_identity']
@@ -41,9 +42,41 @@ COALESCE((
     AND storage_ref->>'key_prefix' = 'lidar-export-media/objects/' || id::text || '/'
     AND jsonb_typeof(storage_ref->'storage_identity') = 'string'
     AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
-), false)
+), false)) OR (COALESCE((
+    jsonb_typeof(storage_ref) = 'object'
+    AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','key_prefix','storage_identity']
+    AND storage_ref - ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','key_prefix','storage_identity']::text[] = '{}'::jsonb
+    AND storage_ref->'schema' = '2'::jsonb AND storage_ref->>'schema' = '2'
+    AND storage_ref->>'purpose' = 'export'
+    AND jsonb_typeof(storage_ref->'location_id') = 'string' AND storage_ref->>'location_id' ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
+    AND jsonb_typeof(storage_ref->'config_revision') = 'number' AND storage_ref->>'config_revision' ~ '^[1-9][0-9]*$'
+    AND jsonb_typeof(storage_ref->'binding_generation') = 'number' AND storage_ref->>'binding_generation' ~ '^[1-9][0-9]*$' AND (storage_ref->>'binding_generation')::numeric >= 2
+    AND jsonb_typeof(storage_ref->'endpoint_url') = 'string'
+    AND storage_ref->>'endpoint_url' ~ '^https?://[^[:space:]/?#@]+$'
+    AND position(chr(92) in (storage_ref->>'endpoint_url')) = 0
+    AND jsonb_typeof(storage_ref->'bucket') = 'string'
+    AND length(storage_ref->>'bucket') BETWEEN 1 AND 255
+    AND storage_ref->>'bucket' !~ '[[:space:]/?#@]'
+    AND position(chr(92) in (storage_ref->>'bucket')) = 0
+    AND jsonb_typeof(storage_ref->'key_prefix') = 'string'
+    AND octet_length((storage_ref->>'key_prefix')) <= 984
+    AND (
+      (storage_ref->>'location_id' = '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
+       AND storage_ref->>'config_revision' = '1' AND (storage_ref->>'key_prefix') = 'lidar-export-media/objects/' || id::text || '/')
+      OR (storage_ref->>'location_id' <> '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
+       AND right((storage_ref->>'key_prefix'), length('lidar-export-media/objects/' || id::text || '/')) = 'lidar-export-media/objects/' || id::text || '/'
+       AND left((storage_ref->>'key_prefix'), length((storage_ref->>'key_prefix')) - length('lidar-export-media/objects/' || id::text || '/')) ~ '^([^/]+/)*_aap_managed/export/$'
+       AND octet_length(left((storage_ref->>'key_prefix'), length((storage_ref->>'key_prefix')) - length('lidar-export-media/objects/' || id::text || '/'))) <= 904
+       AND (storage_ref->>'key_prefix') !~ '[[:cntrl:]]'
+       AND position(chr(92) in (storage_ref->>'key_prefix')) = 0
+       AND (storage_ref->>'key_prefix') !~ '(^|/)[.][.]?(/|$)|//')
+    )
+    AND jsonb_typeof(storage_ref->'storage_identity') = 'string'
+    AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
+), false))
 """
-
 EXPORT_MEDIA_DOCUMENTS_CHECK = """
 COALESCE((jsonb_typeof(input_snapshot) = 'object'
     AND jsonb_typeof(logical_paths) = 'object'
@@ -124,6 +157,7 @@ class ExportMediaBundle(Base):
             "AND (retired_at IS NULL OR retired_at >= created_at)",
             name="ck_export_media_retirement",
         ),
+        Index("ix_export_media_location", text("(storage_ref->>'location_id')")),
         Index("ix_export_media_bundle_cleanup", "state", "last_attempted_at", "id"),
         Index("ix_export_media_bundle_job", "job_id"),
     )

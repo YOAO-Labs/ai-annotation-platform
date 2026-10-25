@@ -300,7 +300,8 @@ async def remap_storage(
         except ValueError:
             raise WorktreeError("导出候选含未知归属或内容回执") from None
         if (
-            owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
+            owner.ref["schema"] != 1
+            or owner.ref["endpoint_url"] != endpoint_url.rstrip("/")
             or owner.bucket != source["MINIO_EXPORT_BUCKET"]
         ):
             raise WorktreeError("导出候选归属与备份源不一致")
@@ -328,7 +329,8 @@ async def remap_storage(
             raise WorktreeError("导出媒体副本含未知归属、冻结输入或内容清单") from None
         ref = frozen.storage_ref
         if (
-            ref["endpoint_url"] != endpoint_url.rstrip("/")
+            ref["schema"] != 1
+            or ref["endpoint_url"] != endpoint_url.rstrip("/")
             or ref["bucket"] != source["MINIO_EXPORT_BUCKET"]
         ):
             raise WorktreeError("导出媒体副本归属与备份export用途不一致")

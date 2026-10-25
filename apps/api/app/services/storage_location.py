@@ -75,6 +75,8 @@ async def register_connection(db, connection):
 
 async def location_is_referenced(db, location_id):
     from app.db.models.audit_archive_output import AuditArchiveOutput
+    from app.db.models.export_output import ExportOutput
+    from app.db.models.export_media_bundle import ExportMediaBundle
     from app.db.models.avatar_upload import AvatarUpload
     from app.db.models.bug_attachment_upload import BugAttachmentUpload
     from app.db.models.dataset_source import DatasetSource
@@ -107,6 +109,18 @@ async def location_is_referenced(db, location_id):
             select(AuditArchiveOutput.id)
             .where(
                 AuditArchiveOutput.storage_ref["location_id"].astext == str(location_id)
+            )
+            .limit(1)
+        )
+        or await db.scalar(
+            select(ExportOutput.id)
+            .where(ExportOutput.storage_ref["location_id"].astext == str(location_id))
+            .limit(1)
+        )
+        or await db.scalar(
+            select(ExportMediaBundle.id)
+            .where(
+                ExportMediaBundle.storage_ref["location_id"].astext == str(location_id)
             )
             .limit(1)
         )
@@ -654,7 +668,7 @@ async def binding_rows(db):
                 else ("mismatch" if mismatch else "configured"),
                 "read_policy": "consumer_owned_compatibility",
                 "write_policy": "current_binding"
-                if purpose in {"avatars", "bug-reports", "audit-archive"}
+                if purpose in {"avatars", "bug-reports", "audit-archive", "export"}
                 else "deployment_mapping",
                 "change_policy": "reviewed_avatar_switch"
                 if purpose == "avatars"
@@ -663,6 +677,8 @@ async def binding_rows(db):
                     if purpose == "bug-reports"
                     else "reviewed_audit_archive_switch"
                     if purpose == "audit-archive"
+                    else "reviewed_export_switch"
+                    if purpose == "export"
                     else "legacy_mapping_locked"
                 ),
             }

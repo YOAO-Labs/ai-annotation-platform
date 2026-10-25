@@ -13,6 +13,7 @@ from functools import partial
 import hashlib
 import math
 import re
+import sys
 import tempfile
 import threading
 import time
@@ -229,6 +230,7 @@ def _capture(
     *,
     transport_timeout_seconds=None,
     retain_on_close_error=False,
+    client_context=None,
 ):
     temporary, transferred, unsettled = None, False, False
 
@@ -239,16 +241,20 @@ def _capture(
     try:
         check()
         temporary = tempfile.TemporaryFile(mode="w+b", prefix="aap-original-")
-        client = None
+        client, context = None, None
         try:
             try:
-                client = create_client(
-                    timeout_seconds=(
-                        timeout_seconds
-                        if transport_timeout_seconds is None
-                        else transport_timeout_seconds
+                if client_context is not None:
+                    context = client_context()
+                    client = context.__enter__()
+                else:
+                    client = create_client(
+                        timeout_seconds=(
+                            timeout_seconds
+                            if transport_timeout_seconds is None
+                            else transport_timeout_seconds
+                        )
                     )
-                )
             except BaseException as exc:
                 raise mark_unsettled(_failure(exc)) from None
             if client is None:
@@ -306,7 +312,10 @@ def _capture(
             check()
         finally:
             if client is not None:
-                close_registered(client)
+                if context is not None:
+                    context.__exit__(*sys.exc_info())
+                else:
+                    close_registered(client)
         check()
         temporary.seek(0)
         stage = BinaryStage(

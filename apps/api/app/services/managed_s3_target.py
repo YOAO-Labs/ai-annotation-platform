@@ -13,7 +13,7 @@ from app.services import connector_guard, storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.sources.s3_reference import S3Access
 
-PURPOSES = {"avatars", "bug-reports", "audit-archive"}
+PURPOSES = {"avatars", "bug-reports", "audit-archive", "export"}
 
 
 def owner_module(purpose):
@@ -29,6 +29,10 @@ def owner_module(purpose):
         from app.services import audit_archive_storage
 
         return audit_archive_storage
+    if purpose == "export":
+        from app.services import export_storage
+
+        return export_storage
     raise ValueError("Unsupported managed S3 purpose")
 
 
@@ -40,6 +44,8 @@ def error(purpose, suffix):
         else (owners.BugAttachmentStorageError, "bug_attachment_storage_")
         if purpose == "bug-reports"
         else (owners.AuditArchiveStorageError, "audit_archive_storage_")
+        if purpose == "audit-archive"
+        else (owners.ExportStorageError, "export_storage_")
     )
     return cls(prefix + suffix)
 
@@ -57,7 +63,9 @@ def managed_prefix(base, *, purpose="avatars"):
     ):
         raise error(purpose, "binding_unproven")
     result = (base + "/" if base else "") + f"_aap_managed/{purpose}/"
-    if len(result.encode("utf-8")) > (980 if purpose == "avatars" else 920):
+    if len(result.encode("utf-8")) > (
+        980 if purpose == "avatars" else 904 if purpose == "export" else 920
+    ):
         raise error(purpose, "binding_unproven")
     return result
 
@@ -111,7 +119,7 @@ async def target_for(db, location, *, purpose, require_enabled=True):
         if (
             location.config_revision != 1
             or (
-                purpose in {"bug-reports", "audit-archive"}
+                purpose in {"bug-reports", "audit-archive", "export"}
                 and type(location.config.get("use_ssl")) is not bool
             )
             or location.config
@@ -130,6 +138,7 @@ async def target_for(db, location, *, purpose, require_enabled=True):
                     "avatars": "avatars_bucket",
                     "bug-reports": "bug_reports_bucket",
                     "audit-archive": "audit_archive_bucket",
+                    "export": "export_bucket",
                 }[purpose],
             ),
             "",

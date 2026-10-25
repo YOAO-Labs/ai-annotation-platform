@@ -213,7 +213,15 @@ def _object_record(snapshot, relative):
 
 
 async def _fresh(
-    db, snapshot, binding, resolve_source, guard, *, expected=None, output_revision=None
+    db,
+    snapshot,
+    binding,
+    resolve_source,
+    guard,
+    *,
+    expected=None,
+    output_revision=None,
+    output_location_id=None,
 ):
     async with _session(db) as owned:
         await guard(owned)
@@ -227,9 +235,18 @@ async def _fresh(
         )
         if output_revision is not None:
             await storage_access.check(
-                owned, physical.LEGACY_LOCATION_ID, expected_revision=output_revision
+                owned,
+                output_location_id or uuid.UUID(snapshot.storage_ref["location_id"]),
+                expected_revision=output_revision,
             )
         return current
+
+
+async def _io_target(db, record):
+    if physical.resolve(record).ref["schema"] == 1:
+        return None
+    async with _session(db) as owned:
+        return await physical.io_target(owned, record)
 
 
 async def _settle(permit):
@@ -249,7 +266,9 @@ async def _acquire(db, snapshot, location_id, *, expected_revision=None):
     return await _async(acquire(), late=_settle)
 
 
-async def _capture(source, admission, *, maximum=physical.MAX_OBJECT_BYTES):
+async def _capture(
+    source, admission, *, maximum=physical.MAX_OBJECT_BYTES, client_context=None
+):
     stop = threading.Event()
     pending = _submit(
         reader._capture,
@@ -261,6 +280,7 @@ async def _capture(source, admission, *, maximum=physical.MAX_OBJECT_BYTES):
         admission.release,
         transport_timeout_seconds=30,
         retain_on_close_error=True,
+        **({"client_context": client_context} if client_context is not None else {}),
     )
     try:
         return await asyncio.shield(pending)
@@ -330,11 +350,16 @@ async def copy_source(
                 guard,
                 expected=source,
                 output_revision=revision,
+                output_location_id=uuid.UUID(owner.ref["location_id"]),
             )
         )
 
+        target = await _async(_io_target(db, record))
+
         def write():
-            with physical.open_storage(record) as client:
+            with physical.open_storage(
+                record, **({"target": target} if target is not None else {})
+            ) as client:
                 physical.write_object(client, record, relative, stage.file.fileno())
                 return physical.signed_url(client, record, relative)
 
@@ -348,6 +373,7 @@ async def copy_source(
                 guard,
                 expected=source,
                 output_revision=revision,
+                output_location_id=uuid.UUID(owner.ref["location_id"]),
             )
         )
         result = TransferReceipt(
@@ -375,6 +401,7 @@ async def copy_source(
                         guard,
                         expected=source,
                         output_revision=result.gate_revision,
+                        output_location_id=uuid.UUID(owner.ref["location_id"]),
                     )
                 )
             except BaseException as exc:
@@ -404,7 +431,9 @@ async def _fresh_copy(db, snapshot, guard, revision=None):
         await bundles.check_claim(owned, snapshot)
         if revision is not None:
             await storage_access.check(
-                owned, physical.LEGACY_LOCATION_ID, expected_revision=revision
+                owned,
+                uuid.UUID(snapshot.storage_ref["location_id"]),
+                expected_revision=revision,
             )
 
 
@@ -428,7 +457,18 @@ async def read_copy(db, snapshot, *, relative, guard, read):
             maintenance_revision=permit.revision,
         )
         admission = Admission()
-        stage = await _capture(source, admission, maximum=physical.object_limit(record))
+        target = await _async(_io_target(db, record))
+        context = (
+            (lambda: physical.open_storage(record, target=target))
+            if target is not None
+            else None
+        )
+        stage = await _capture(
+            source,
+            admission,
+            maximum=physical.object_limit(record),
+            **({"client_context": context} if context is not None else {}),
+        )
         if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
             reject()
         await _async(_fresh_copy(db, snapshot, guard, permit.revision))

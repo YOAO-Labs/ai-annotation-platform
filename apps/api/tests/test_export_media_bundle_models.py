@@ -188,7 +188,9 @@ async def _reject_update(db, row, **values):
 def test_models_and_frozen_migration_use_the_same_checks():
     module = _migration(None)
     assert module.revision == "0234" and module.down_revision == "0233"
-    assert module._REF_CHECK.strip() == EXPORT_MEDIA_STORAGE_REF_CHECK.strip()
+    latest = _migration(None, "0248_export_location_bindings")
+    assert module._REF_CHECK.strip() == latest._OLD_1.strip()
+    assert latest._NEW_1.strip() == EXPORT_MEDIA_STORAGE_REF_CHECK.strip()
     assert module._DOCUMENTS_CHECK.strip() == EXPORT_MEDIA_DOCUMENTS_CHECK.strip()
     assert not Bundle.__table__.foreign_keys
     foreign_key = next(iter(ExportOutput.__table__.c.media_bundle_id.foreign_keys))
