@@ -175,6 +175,48 @@ REVOKE ALL ON FUNCTION
     aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)
 FROM PUBLIC;
 -- aap-statement-break
+CREATE FUNCTION aap_labeling_v1.lock_batch_task_rows_for_core_read(
+    p_task_ids uuid[],
+    p_project_id uuid,
+    p_batch_id uuid
+)
+RETURNS SETOF aap_labeling_v1.task_rows
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+AS $function$
+BEGIN
+    RETURN QUERY
+    SELECT
+        task.id, task.project_id, task.dataset_item_id, task.display_id,
+        task.file_name, task.file_path, task.file_type,
+        task.media_source_generation, task.media_object_identity,
+        task.media_source_drifted, task.tags, task.status, task.assignee_id,
+        task.assignee_is_override, task.assigned_at, task.is_labeled,
+        task.overlap, task.total_annotations, task.total_predictions,
+        task.precomputed_agreement, task.sequence_order, task.thumbnail_path,
+        task.blurhash, task.batch_id, task.version, task.submitted_at,
+        task.reviewer_id, task.reviewer_is_override, task.reviewer_claimed_at,
+        task.review_round_id, task.first_review_eligible, task.first_reviewed_at,
+        task.first_review_result, task.first_review_contributor_ids,
+        task.annotation_contributor_ids, task.review_contributor_ids,
+        task.review_submitter_id, task.reviewed_at, task.reject_reason,
+        task.reject_reason_type, task.skip_reason, task.skipped_at,
+        task.reopened_count, task.last_reopened_at, task.created_at, task.updated_at
+    FROM public.tasks AS task
+    WHERE task.id = ANY(p_task_ids)
+      AND task.project_id = p_project_id
+      AND task.batch_id = p_batch_id
+    ORDER BY task.id
+    FOR UPDATE NOWAIT;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION
+    aap_labeling_v1.lock_batch_task_rows_for_core_read(uuid[],uuid,uuid)
+FROM PUBLIC;
+-- aap-statement-break
 CREATE FUNCTION aap_labeling_v1.lock_video_segment_for_core_read(
     p_segment_id uuid,
     p_dataset_item_id uuid

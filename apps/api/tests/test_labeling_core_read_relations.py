@@ -31,6 +31,7 @@ from app.services.labeling_core_read_relations import (
     video_segment_row,
     video_tracker_job_row,
     lock_annotation_rows_for_core_read,
+    lock_batch_task_rows_for_core_read,
     lock_batch_rows_for_core_read,
     lock_task_for_core_read,
     lock_video_segment_for_core_read,
@@ -187,12 +188,41 @@ async def test_row_locks_use_only_fixed_owner_lock_functions():
         session, [row_id], task_id=row_id, project_id=row_id, nowait=True
     )
     await lock_video_segment_for_core_read(session, row_id, row_id)
+    await lock_batch_task_rows_for_core_read(
+        session, [row_id], project_id=row_id, batch_id=row_id
+    )
 
     assert "aap_labeling_v1.lock_task_for_core_read" in session.sql[0]
     assert "aap_labeling_v1.lock_batch_rows_for_core_read" in session.sql[1]
     assert "aap_labeling_v1.lock_annotation_rows_for_core_read" in session.sql[2]
     assert "aap_labeling_v1.lock_video_segment_for_core_read" in session.sql[3]
+    assert "aap_labeling_v1.lock_batch_task_rows_for_core_read" in session.sql[4]
     assert all("FOR UPDATE" not in statement for statement in session.sql)
+
+
+@pytest.mark.asyncio
+async def test_batch_task_lock_keeps_select_autoflush_for_empty_ids():
+    class AutoflushSession(_ReadSession):
+        autoflush = True
+
+        def __init__(self):
+            super().__init__()
+            self.flush_count = 0
+
+        async def flush(self):
+            self.flush_count += 1
+
+    session = AutoflushSession()
+    scope_id = uuid.UUID("00000000-0000-0000-0000-000000000004")
+
+    assert (
+        await lock_batch_task_rows_for_core_read(
+            session, [], project_id=scope_id, batch_id=scope_id
+        )
+        == []
+    )
+    assert session.flush_count == 1
+    assert "aap_labeling_v1.lock_batch_task_rows_for_core_read" in session.sql[0]
 
 
 @pytest.mark.asyncio

@@ -268,6 +268,7 @@ CORE_READ_COLUMNS = {
 
 CORE_READ_LOCK_FUNCTIONS = (
     "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)",
+    "aap_labeling_v1.lock_batch_task_rows_for_core_read(uuid[],uuid,uuid)",
     "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)",
     "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)",
     "aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)",

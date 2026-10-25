@@ -126,6 +126,29 @@ async def lock_batch_rows_for_core_read(
     return (await execute_core_read(db, statement)).scalars().all()
 
 
+async def lock_batch_task_rows_for_core_read(
+    db: AsyncSession,
+    task_ids: list[uuid.UUID],
+    *,
+    project_id: uuid.UUID,
+    batch_id: uuid.UUID,
+    populate_existing: bool = False,
+):
+    locked = func.aap_labeling_v1.lock_batch_task_rows_for_core_read(
+        task_ids, project_id, batch_id
+    ).table_valued(
+        *(
+            column(name, Task.__table__.c[name].type)
+            for name in CORE_READ_COLUMNS["task_rows"]
+        )
+    )
+    row = aliased(Task, locked, adapt_on_names=True)
+    statement = select(row).order_by(row.id)
+    if populate_existing:
+        statement = statement.execution_options(populate_existing=True)
+    return (await execute_core_read(db, statement)).scalars().all()
+
+
 async def lock_annotation_rows_for_core_read(
     db: AsyncSession,
     annotation_ids: list[uuid.UUID],
@@ -182,6 +205,7 @@ __all__ = [
     "task_dataset_item_link_row",
     "get_core_row",
     "lock_batch_rows_for_core_read",
+    "lock_batch_task_rows_for_core_read",
     "lock_annotation_rows_for_core_read",
     "lock_task_for_core_read",
     "prediction_meta_row",
