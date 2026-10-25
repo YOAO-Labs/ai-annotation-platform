@@ -413,3 +413,28 @@ async def test_media_inventory_prefix_is_literal_even_when_it_contains_regex(
         async with db.begin_nested():
             db.add(ExportMediaBundle(**values))
             await db.flush()
+
+
+async def test_prepared_download_rechecks_first_deadline_after_gate_wait(monkeypatch):
+    now = datetime.now(timezone.utc)
+    row = record(
+        storage_ref=external_reference(),
+        created_at=now - timedelta(days=1),
+        expires_at=now + timedelta(seconds=1),
+    )
+    receipt = export_outputs.snapshot(row)
+    prepared = export_outputs.PreparedDownload(
+        receipt, "export.zip", "https://private.invalid/signed", 3
+    )
+    current = [now]
+
+    async def gate(*args, **kwargs):
+        current[0] = receipt.expires_at
+
+    monkeypatch.setattr(export_outputs.storage_access, "check", gate)
+    monkeypatch.setattr(export_outputs, "now", lambda: current[0])
+    with pytest.raises(storage.ExportStorageError) as caught:
+        await export_outputs.prepared_download(
+            object(), receipt, download_name="export.zip", prepared=prepared
+        )
+    assert caught.value.code == "export_storage_expired"

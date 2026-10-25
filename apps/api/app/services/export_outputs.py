@@ -478,7 +478,6 @@ async def prepared_download(db, receipt, *, download_name, prepared):
         not isinstance(prepared, PreparedDownload)
         or prepared.download_name != download_name
         or not same(receipt, prepared.output)
-        or receipt.expires_at <= now()
     ):
         reject("export_storage_invalid_receipt")
     await storage_access.check(
@@ -487,6 +486,8 @@ async def prepared_download(db, receipt, *, download_name, prepared):
         expected_revision=prepared.gate_revision,
         lock=True,
     )
+    if receipt.expires_at <= now():
+        reject("export_storage_expired")
     return prepared.url
 
 
@@ -522,11 +523,18 @@ async def sign_cached(
         expected_revision=hit.gate_revision,
         lock=True,
     )
-    if before_sign is not None:
-        await before_sign()
-    return await prepared_download(
+    if hit.output.storage_ref["schema"] == 1:
+        if before_sign is not None:
+            await before_sign()
+        return export_storage.sign(hit.output, download_name=download_name)
+    url = await prepared_download(
         db, hit.output, download_name=download_name, prepared=prepared
     )
+    if before_sign is not None:
+        await before_sign()
+    if hit.output.expires_at <= now():
+        reject("export_storage_expired")
+    return url
 
 
 async def _has_read(db, receipt):

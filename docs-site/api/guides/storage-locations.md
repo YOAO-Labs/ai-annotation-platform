@@ -340,7 +340,7 @@ GET接受`limit=20`（1至100）及`offset=0`（0至1000000），返回`retireme
 
 ## 导出用途切换
 
-仅当前有效超级管理员和 `datasets:write` 凭据可修改。入口为 `GET /bindings/export/candidates`、`POST /bindings/export/change-preview` 和 `PATCH /bindings/export`；候选分页与其他用途一致。预览请求包含 `expected_generation`、`target_location_id`、`target_config_revision`，确认再附五分钟有效的 `impact_token`。令牌绑定此用途、当前操作者／Key、两端位置与连接修订、维护状态及影响数量，不能跨用途使用。
+仅当前有效超级管理员和 `datasets:write` 凭据可修改。入口为 `GET /bindings/export/candidates`、`POST /bindings/export/change-preview` 和 `PATCH /bindings/export`；候选分页与其他用途一致。预览请求包含 `expected_generation`、`target_location_id`、`target_config_revision`，确认再附五分钟有效的 `impact_token`。令牌绑定此用途、当前操作者／Key、当前用途代次、目标位置／连接修订、维护状态及影响数量，不能跨用途使用。
 
 `history` 分别返回 ZIP 的 `zip_pending / zip_ready / zip_retired`，媒体包的 `media_building / media_ready / media_retiring / media_deleted`。真实探针返回 `conditional_write / full_read / delete / list / list_versions`。失败或未知收尾不切换；竞争变化返回冲突并要求重新预览。用途映射使用 `change_policy=reviewed_export_switch`。
 

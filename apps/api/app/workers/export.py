@@ -8,7 +8,7 @@ import os
 import re
 import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
 from sqlalchemy import func, select
@@ -28,7 +28,7 @@ from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
 from app.services import async_job as async_job_svc
-from app.services import export_outputs
+from app.services import export_outputs, export_storage
 from app.services.exporting import cache as export_cache
 from app.services.exporting import output_authority
 from app.services.exporting.packaging import build_export_zip
@@ -70,10 +70,16 @@ async def _update_export_progress(db, job_uuid, pct):
 
 
 async def _sign_export_output(db, job, candidate, download_name, *, prepared=None):
-    await output_authority.validate(db, job, lock=True)
-    return await export_outputs.prepared_download(
+    if candidate.storage_ref["schema"] == 1:
+        await output_authority.validate(db, job, lock=True)
+        return export_storage.sign(candidate, download_name=download_name)
+    url = await export_outputs.prepared_download(
         db, candidate, download_name=download_name, prepared=prepared
     )
+    await output_authority.validate(db, job, lock=True)
+    if candidate.expires_at <= datetime.now(timezone.utc):
+        export_outputs.reject("export_storage_expired")
+    return url
 
 
 async def _complete_from_cache(
