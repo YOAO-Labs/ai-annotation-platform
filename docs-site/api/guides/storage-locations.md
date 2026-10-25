@@ -44,6 +44,14 @@ last_reviewed: 2026-10-25
 
 ## 本地来源故障关联
 
+`GET /api/v1/storage-locations/{location_id}/faults`读取持久故障状态，要求当前超级管理员／项目管理员及`datasets:read`。位置与来源均按当前权限裁剪；项目管理员不能查询其他人可管理范围或孤立来源。GET不探源、不派任务，也不修改故障状态。
+
+查询参数：`state=active|recovered|all`（默认`active`）、`limit`（1–100，默认20）、`offset`（默认0）。响应为`items / total / counts / observation_only`；`counts.active`与`counts.recovered`按相同可见范围统计，不受状态筛选和分页影响，`observation_only`始终为true。条目包含安全关联UUID、来源名、类别、操作、首次／最近失败、恢复时间、已接收失败次数与默认处理角色；`responsible_user_id=null`表示尚未指定个人。不返回内部故障键、路径、对象键或提供方错误原文。
+
+`scope_status=current|historical|unknown`仅表示已保存的配置／内容范围能否匹配，不是在线健康检查。新状态仅由本次接入的实际操作产生，不从旧审计补造。持续失败合并计数；首次发生与再次发生记录`storage.fault`，恢复记录`storage.fault.recovered`，明细带`fault_id`及`transition=opened|reopened|recovered`，可用`detail_key=fault_id`查询转换历史。
+
+恢复需要同一范围的实际成功及既有权限、配置、内容和发布复核。缓存命中原图、邻目标、变更后的期望内容或一般连接探针都不能清除故障。较旧或重复观测不覆盖已接受的新结果；成功不为从未发生故障的文件建状态行。首次失败尚未落库时的并发成功可能没有行可更新，随后晚到的首次失败保守保持active，待下一次同范围成功恢复。
+
 已授权的数据集来源核验读取、引用图片读取、扫描失败与预览生成可产生 `storage.fault` 审计，`target_type=storage_location`、`target_id` 为实际位置 UUID。沿既有 `GET /api/v1/audit-logs?action=storage.fault&target_type=storage_location&target_id=<location_id>` 查询，或用 `detail_key=source_id&detail_value=<source_id>` 按来源过滤；审计权限沿原接口，不赋予普通来源用户全局日志权限。
 
 明细的 `category` 为 `root_unavailable / access_denied / source_changed / preview_failed`，`code`为受控错误码，`operation`为`scan / scan_content / reference_read / preview_generate`。其余关联 UUID 只在真实解析后提供；HTTP request_id在安全长度与格式内原样保留，后台无请求上下文时不提供。无路径、对象键、签名 URL、凭据或异常原文。该观测不改变读取响应、不触发源 I/O，也不构成实时位置健康或全部消费者／站点覆盖证明。

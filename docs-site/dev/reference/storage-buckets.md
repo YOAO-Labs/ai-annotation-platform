@@ -79,6 +79,16 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 
 独立Task新上传的最终原件位于annotations用途的 `__aap_task_originals__/<Task UUID>/<Creation UUID>/payload`。浏览器只写import暂存区，完整核验封存后保存独立TaskOriginal；删除业务Task或测试fixture不会按前缀删除该原件。历史未知Task不补造归属，全部原件读取者的固定位置接入仍须独立完成。
 
+## 来源故障状态
+
+`storage_fault_states`是独立于对象占用、业务许可和保留账本的稀疏观测表。现有来源扫描、核验／原件读取和预览生成在实际I/O前取得数据库观测序号；稳定范围包含已授权的来源、目标／内容摘要、节点与实际配置依赖。故障去重、次数和水位更新与转换审计同事务，成功仅更新已有匹配状态，不为所有健康文件建行。
+
+恢复必须位于现有最终验证／业务提交之后；原图缓存命中不证明源在线，预览ready的未提交内存状态不证明发布。重复与较旧结果不覆盖较新的故障或恢复，已恢复行保留水位。无行的首次晚到失败保守待复核，不将先前没有行解释为已证明健康。
+
+观测通过当前调用者Engine的独立有界连接执行，不提交调用者业务、不持有父Location／Source锁、不触发物理重试；失败不能改变原业务结果。状态表没有对父业务行的强制锁或删除授权，历史审计不补造状态。迁移0249保留既有内容，应用回退保留观测事实，破坏性降级只允许新增表为空。
+
+公开查询按位置和当前可管理来源裁剪，配置／内容范围状态只由数据库保存的事实比对，不访问物理来源。此链覆盖四类已接入来源故障，不提供完整消费者／站点健康、容量阈值、自动消警或外部通知服务。
+
 ## 平台对象占用快照
 
 `GET /api/v1/storage/buckets` 与 ML 集成 overview 读取 PostgreSQL `storage_usage_snapshots`，不执行 S3 HEAD/LIST。仅显式 `POST /api/v1/storage/usage-inventory` 开始盘点；当前有效超级管理员与全权 API Key 可读/启动/取消。九用途复用 `PURPOSE_BUCKET_ATTRIBUTES`，执行前和每页提交前核验现有 `StorageBinding` 部署映射。按 endpoint、TLS 和桶名固定统计身份，共用桶合并 `roles`，不将占用分摊为九份。

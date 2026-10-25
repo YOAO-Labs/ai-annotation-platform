@@ -12,6 +12,7 @@ import { SourceDiagnostics, evidenceDate, sourceHref } from "./StorageSourceDiag
 import { JOB_STATUS_LABEL } from "@/components/jobs/asyncJobPresentation";
 import { verifiedContentError } from "@/hooks/useVerifiedImage";
 import { StorageSourceUsage } from "./StorageSourceUsage";
+import { StorageFaultsPanel } from "./StorageFaultsPanel";
 import { ExternalProtectionSummary } from "@/components/datasets/DirectorySourceProtection";
 
 function Pagination({
@@ -187,6 +188,9 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
             <p role="status" className="text-muted-foreground">
               正在读取来源诊断…
             </p>
+          )}
+          {!denied && (
+            <StorageFaultsPanel locationId={locationId} returnTo={returnTo} onJob={openJob} />
           )}
           {sourceData && (
             <>
