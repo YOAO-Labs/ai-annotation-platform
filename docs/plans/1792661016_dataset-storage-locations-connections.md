@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12与B13各切片至B3-M1 completed locally；Tracker M2未启动。B14头像、B15报告附件、B16审计归档、B17导出、B18导入暂存、B19数据集原件已交付；B20媒体缓存新分配切换已完成隔离验收、主树集成与人工0252刷新。B21标注文件新分配切换已通过主树集成与人工0253刷新，现开放八用途；Mask旧摘要问题已窄修并验证实际发布，training仍锁定，完整E02继续执行，不分配发布版本。
+> 状态：E02-A、B1–B12与B13各切片至B3-M1 completed locally；Tracker M2未启动。B14–B22九用途新分配位置受控切换均已交付，最新training已通过主树集成、人工0254刷新和所属资源清理；历史与在途对象继续使用保存地址，不代表已有对象已迁移。完整E02继续按原始故事／验收矩阵核对，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -17,6 +17,10 @@
 ## 本轮定稿：E02-B22／E09-B15 训练文件新分配位置切换
 
 当前`c59846ea0`上八用途已交付，下一片沿原始S04／AC05、AC10仅补training五组既有owner及删除意图的保存目标／当前凭据接线，详细合同见[E09-B15](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b22e09-b15-训练文件新分配位置切换)。本片迁移0254接0253；不增加模型执行、万条训练或全恢复资格。历史NULL显式核验、schema1及来源证据保持，人工继续0253／八用途，实施与验收待完成。
+
+## E02-B22 Outcome：训练文件新分配位置切换
+
+已通过`0f2b77399`合入并刷新人工0254、原3100／8100、两个73任务Worker和绑定Beat，九用途均可受控切换新分配。集中765项检查中763通过、2项条件跳过，57项恢复、85项Web和4项SDK合同通过；真实十五owner的A／B／回切、旧NULL显式核验、轮换撤销、维护、保存B物化／准确删除及明暗／窄屏UI通过。173表9,230行、24条对象版本／删除标记和12个源文件完整指纹保持，五所属mode／45桶、独立B及四棵隔离树清理。准确证据、正式文档、旧Executor及外部部署限制统一见[E09-B15交付结果](1792661016_dataset-storage-console-boundaries.md#e09-b15-outcome主树交付与人工环境刷新)。完整E02／E09仍活动，不扩展模型、Tracker或规模测量。
 
 ## 本轮定稿：E02-B20／E09-B13 媒体缓存新分配位置切换
 
