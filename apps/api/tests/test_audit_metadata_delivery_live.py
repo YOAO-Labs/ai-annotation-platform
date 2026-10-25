@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 import hashlib
 import json
 import os
 from pathlib import Path
 import secrets
+import signal
 import socket
 import subprocess
 import sys
@@ -91,7 +92,7 @@ celery_app.worker_main(sys.argv[2:])
             program,
             str(proof),
             "worker",
-            "--pool=solo",
+            "--pool=prefork",
             "--concurrency=1",
             "--queues=audit",
             f"--hostname={hostname}",
@@ -103,6 +104,7 @@ celery_app.worker_main(sys.argv[2:])
             env=environment,
             stdout=log,
             stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
         try:
             async with asyncio.timeout(35):
@@ -123,15 +125,16 @@ celery_app.worker_main(sys.argv[2:])
                     (ROOT / "apps/api/app/workers/audit.py").read_bytes()
                 ).hexdigest(),
             }
-            yield SimpleNamespace(process=worker, proof=evidence)
+            yield SimpleNamespace(process=worker, proof=evidence, node_name=hostname)
         finally:
-            if worker.returncode is None:
-                worker.terminate()
-                try:
+            try:
+                if worker.returncode is None:
+                    worker.terminate()
                     await asyncio.wait_for(worker.wait(), 15)
-                except TimeoutError:
-                    worker.kill()
-                    await worker.wait()
+            finally:
+                with suppress(ProcessLookupError):
+                    os.killpg(worker.pid, signal.SIGKILL)
+                await worker.wait()
 
 
 async def _rows(engine, request_id):
@@ -342,8 +345,20 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
                         "queue_size": 0,
                         "unacknowledged": 0,
                     }
-                    worker.process.kill()
-                    assert await worker.process.wait() != 0
+                    inspector = sender.control.inspect(
+                        destination=[worker.node_name], timeout=2
+                    )
+                    active = await asyncio.to_thread(inspector.active)
+                    running = [
+                        task
+                        for task in active[worker.node_name]
+                        if task["id"] == lost.id
+                    ]
+                    assert len(running) == 1
+                    child_pid = running[0]["worker_pid"]
+                    assert child_pid != worker.process.pid
+                    assert os.getpgid(child_pid) == worker.process.pid
+                    os.kill(child_pid, signal.SIGKILL)
                     await control.rollback()
                 # The first committed row survives; the interrupted second insert rolls back.
                 assert len(await _rows(test_engine, payload["request_id"])) == 1
@@ -414,6 +429,7 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
                     "publish_reply_loss_duplicates": True,
                     "commit_reply_loss_injected_after_real_commit": True,
                     "early_ack_process_loss_not_redelivered": True,
+                    "prefork_child_sigkill": True,
                     "explicit_replay_after_restart": True,
                     "full_database_restore_and_writer_resume": True,
                     "stale_actor_anonymous_retry": True,
