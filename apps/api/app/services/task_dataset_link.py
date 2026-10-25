@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.services.labeling_core_read_relations import task_dataset_item_link_row
+from app.services.labeling_core_read_relations import get_core_row, task_row
+from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
 
 
 def _validate_role(role: str) -> None:
@@ -32,6 +32,9 @@ async def link_items(
     items 每项为 (dataset_item_id, role, sensor_name)。逐项校验 role 后
     创建 link 行，flush 后返回。
     """
+    if not items:
+        await session.flush()
+        return []
     links: list[TaskDatasetItemLink] = []
     for dataset_item_id, role, sensor_name in items:
         _validate_role(role)
@@ -41,10 +44,15 @@ async def link_items(
             role=role,
             sensor_name=sensor_name,
         )
-        session.add(link)
         links.append(link)
-    await session.flush()
-    return links
+    task = await get_core_row(session, task_row, task_id)
+    if task is None:
+        raise ValueError("task not found")
+    return await LabelingE2EFixtureWrites(session).insert_task_dataset_item_links(
+        project_id=task.project_id,
+        task_id=task_id,
+        rows=links,
+    )
 
 
 async def get_linked_items(
@@ -52,9 +60,17 @@ async def get_linked_items(
     task_id: uuid.UUID,
 ) -> list[TaskDatasetItemLink]:
     """返回某 task 的全部关联 link 行。"""
-    result = await session.execute(
+    from sqlalchemy import select
+
+    from app.services.labeling_core_read_relations import (
+        execute_core_read,
+        task_dataset_item_link_row,
+    )
+
+    result = await execute_core_read(
+        session,
         select(task_dataset_item_link_row).where(
             task_dataset_item_link_row.task_id == task_id
-        )
+        ),
     )
     return list(result.scalars().all())

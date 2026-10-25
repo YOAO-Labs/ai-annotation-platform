@@ -1,0 +1,1668 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-e2e-fixtures/v1",
+  "$defs": {
+    "AnnotationFixtureRow": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Id"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "maxLength": 20,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "annotation_type": {
+          "anyOf": [
+            {
+              "maxLength": 30,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Annotation Type"
+        },
+        "tool_unit_id": {
+          "anyOf": [
+            {
+              "maxLength": 30,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Unit Id"
+        },
+        "class_name": {
+          "maxLength": 100,
+          "title": "Class Name",
+          "type": "string"
+        },
+        "geometry": {
+          "additionalProperties": true,
+          "title": "Geometry",
+          "type": "object"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "parent_prediction_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Prediction Id"
+        },
+        "parent_annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Annotation Id"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        },
+        "scene_track_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scene Track Id"
+        },
+        "temporal_role": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temporal Role"
+        },
+        "lead_time": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lead Time"
+        },
+        "was_cancelled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Was Cancelled"
+        },
+        "ground_truth": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ground Truth"
+        },
+        "is_active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Active"
+        },
+        "attributes": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attributes"
+        },
+        "is_locked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Locked"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created At"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        }
+      },
+      "required": ["id", "task_id", "project_id", "class_name", "geometry"],
+      "title": "AnnotationFixtureRow",
+      "type": "object"
+    },
+    "InsertFixtureAnnotations": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-e2e-fixtures/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "insert_annotations",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/AnnotationFixtureRow"
+          },
+          "maxItems": 512,
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "rows"],
+      "title": "InsertFixtureAnnotations",
+      "type": "object"
+    },
+    "InsertFixtureBatches": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-e2e-fixtures/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "insert_batches",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TaskBatchFixtureRow"
+          },
+          "maxItems": 512,
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "rows"],
+      "title": "InsertFixtureBatches",
+      "type": "object"
+    },
+    "InsertFixtureTaskDatasetItemLinks": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-e2e-fixtures/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "insert_task_dataset_item_links",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TaskDatasetItemLinkFixtureRow"
+          },
+          "maxItems": 512,
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "task_id", "rows"],
+      "title": "InsertFixtureTaskDatasetItemLinks",
+      "type": "object"
+    },
+    "InsertFixtureTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-e2e-fixtures/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "insert_tasks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TaskFixtureRow"
+          },
+          "maxItems": 512,
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "rows"],
+      "title": "InsertFixtureTasks",
+      "type": "object"
+    },
+    "InsertFixtureVideoTrackerJobs": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-e2e-fixtures/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "insert_video_tracker_jobs",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/VideoTrackerJobFixtureRow"
+          },
+          "maxItems": 512,
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "rows"],
+      "title": "InsertFixtureVideoTrackerJobs",
+      "type": "object"
+    },
+    "PatchFixtureBatches": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-e2e-fixtures/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "patch_batches",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TaskBatchFixturePatch"
+          },
+          "maxItems": 512,
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "rows"],
+      "title": "PatchFixtureBatches",
+      "type": "object"
+    },
+    "PatchFixtureFeedbackAnchor": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-e2e-fixtures/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "patch_feedback_anchor",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "feedback_id": {
+          "format": "uuid",
+          "title": "Feedback Id",
+          "type": "string"
+        },
+        "anchor_position": {
+          "additionalProperties": true,
+          "title": "Anchor Position",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "project_id",
+        "task_id",
+        "feedback_id",
+        "anchor_position"
+      ],
+      "title": "PatchFixtureFeedbackAnchor",
+      "type": "object"
+    },
+    "PatchFixtureTasks": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-e2e-fixtures/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "patch_tasks",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TaskFixturePatch"
+          },
+          "maxItems": 512,
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "operation", "project_id", "rows"],
+      "title": "PatchFixtureTasks",
+      "type": "object"
+    },
+    "TaskBatchFixturePatch": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "total_tasks": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tasks"
+        }
+      },
+      "required": ["id", "project_id"],
+      "title": "TaskBatchFixturePatch",
+      "type": "object"
+    },
+    "TaskBatchFixtureRow": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "display_id": {
+          "maxLength": 30,
+          "minLength": 1,
+          "title": "Display Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": ["draft", "annotating"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "assigned_user_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigned User Ids"
+        },
+        "total_tasks": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tasks"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created By"
+        },
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Annotator Id"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewer Id"
+        }
+      },
+      "required": ["id", "project_id", "display_id", "name"],
+      "title": "TaskBatchFixtureRow",
+      "type": "object"
+    },
+    "TaskDatasetItemLinkFixtureRow": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "role": {
+          "maxLength": 50,
+          "minLength": 1,
+          "pattern": "^(primary_lidar|camera_.*)$",
+          "title": "Role",
+          "type": "string"
+        },
+        "sensor_name": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sensor Name"
+        }
+      },
+      "required": ["id", "task_id", "dataset_item_id", "role"],
+      "title": "TaskDatasetItemLinkFixtureRow",
+      "type": "object"
+    },
+    "TaskFixturePatch": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Id"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "file_name": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Name"
+        },
+        "file_path": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Path"
+        },
+        "file_type": {
+          "anyOf": [
+            {
+              "enum": ["image", "video", "point_cloud"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Type"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": ["pending", "annotating", "submitted", "review", "completed", "rejected"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "sequence_order": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sequence Order"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created At"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        },
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assignee Id"
+        },
+        "assigned_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigned At"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewer Id"
+        },
+        "reviewer_claimed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewer Claimed At"
+        },
+        "submitted_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Submitted At"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewed At"
+        },
+        "review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Round Id"
+        },
+        "annotation_contributor_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Annotation Contributor Ids"
+        },
+        "is_labeled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Labeled"
+        },
+        "total_annotations": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Annotations"
+        },
+        "total_predictions": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Predictions"
+        },
+        "reject_reason": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reject Reason"
+        },
+        "reject_reason_type": {
+          "anyOf": [
+            {
+              "maxLength": 20,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reject Reason Type"
+        },
+        "skip_reason": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Skip Reason"
+        },
+        "skipped_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Skipped At"
+        }
+      },
+      "required": ["id", "project_id"],
+      "title": "TaskFixturePatch",
+      "type": "object"
+    },
+    "TaskFixtureRow": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "display_id": {
+          "maxLength": 30,
+          "minLength": 1,
+          "title": "Display Id",
+          "type": "string"
+        },
+        "file_name": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "File Path",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Id"
+        },
+        "file_type": {
+          "anyOf": [
+            {
+              "enum": ["image", "video", "point_cloud"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Type"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": ["pending", "annotating", "submitted", "review", "completed", "rejected"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "sequence_order": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sequence Order"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created At"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        },
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assignee Id"
+        },
+        "assigned_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigned At"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewer Id"
+        },
+        "reviewer_claimed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewer Claimed At"
+        },
+        "submitted_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Submitted At"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewed At"
+        },
+        "review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Round Id"
+        },
+        "annotation_contributor_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Annotation Contributor Ids"
+        },
+        "is_labeled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Labeled"
+        },
+        "total_annotations": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Annotations"
+        },
+        "total_predictions": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Predictions"
+        },
+        "reject_reason": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reject Reason"
+        },
+        "reject_reason_type": {
+          "anyOf": [
+            {
+              "maxLength": 20,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reject Reason Type"
+        },
+        "skip_reason": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Skip Reason"
+        },
+        "skipped_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Skipped At"
+        }
+      },
+      "required": ["id", "project_id", "display_id", "file_name", "file_path"],
+      "title": "TaskFixtureRow",
+      "type": "object"
+    },
+    "VideoTrackerJobFixtureRow": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "annotation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Annotation Id"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Id"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created By"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "const": "pending_review",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "job_kind": {
+          "anyOf": [
+            {
+              "const": "tracking",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Job Kind"
+        },
+        "model_key": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Model Key",
+          "type": "string"
+        },
+        "direction": {
+          "enum": ["forward", "backward", "bidirectional"],
+          "title": "Direction",
+          "type": "string"
+        },
+        "from_frame": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "From Frame",
+          "type": "integer"
+        },
+        "to_frame": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "To Frame",
+          "type": "integer"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
+        },
+        "staged_result": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Staged Result"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "event_channel": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Event Channel",
+          "type": "string"
+        },
+        "celery_task_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Celery Task Id"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completed At"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Message"
+        }
+      },
+      "required": [
+        "id",
+        "task_id",
+        "dataset_item_id",
+        "model_key",
+        "direction",
+        "from_frame",
+        "to_frame",
+        "event_channel"
+      ],
+      "title": "VideoTrackerJobFixtureRow",
+      "type": "object"
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/InsertFixtureBatches"
+    },
+    {
+      "$ref": "#/$defs/InsertFixtureTasks"
+    },
+    {
+      "$ref": "#/$defs/PatchFixtureTasks"
+    },
+    {
+      "$ref": "#/$defs/PatchFixtureBatches"
+    },
+    {
+      "$ref": "#/$defs/InsertFixtureAnnotations"
+    },
+    {
+      "$ref": "#/$defs/InsertFixtureVideoTrackerJobs"
+    },
+    {
+      "$ref": "#/$defs/InsertFixtureTaskDatasetItemLinks"
+    },
+    {
+      "$ref": "#/$defs/PatchFixtureFeedbackAnchor"
+    }
+  ],
+  "discriminator": {
+    "mapping": {
+      "insert_annotations": "#/$defs/InsertFixtureAnnotations",
+      "insert_batches": "#/$defs/InsertFixtureBatches",
+      "insert_task_dataset_item_links": "#/$defs/InsertFixtureTaskDatasetItemLinks",
+      "insert_tasks": "#/$defs/InsertFixtureTasks",
+      "insert_video_tracker_jobs": "#/$defs/InsertFixtureVideoTrackerJobs",
+      "patch_batches": "#/$defs/PatchFixtureBatches",
+      "patch_feedback_anchor": "#/$defs/PatchFixtureFeedbackAnchor",
+      "patch_tasks": "#/$defs/PatchFixtureTasks"
+    },
+    "propertyName": "operation"
+  },
+  "x-postgresql-functions": {
+    "aap_labeling_v1.e2e_fixture_command": {
+      "arguments": "jsonb",
+      "request": "oneOf",
+      "returns": "jsonb",
+      "reply": "aap-labeling-e2e-fixtures/v1",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    }
+  },
+  "x-security": {
+    "database": "actual database name must end in _test or _e2e",
+    "owner": "Labeling definer; runtime execution is test-database only",
+    "search_path": "pg_catalog,pg_temp"
+  },
+  "x-transactions": {
+    "commit": false,
+    "rollback": false,
+    "caller": "the original E2E seed Session and outer transaction"
+  }
+}

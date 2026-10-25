@@ -18,12 +18,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
+from aap_labeling.e2e_fixture_contract import TaskBatchFixturePatch, TaskFixturePatch
 
 from app.services.workspace_e2e_fixtures import (
     create_fixture_project as _create_project,
     create_fixture_templates,
 )
 from app.services.seed_membership_data import SeedMembershipWrites
+from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
 from app.services.workspace_seed_data import register_seed_project_projection
 
 
@@ -399,9 +401,7 @@ async def _create_batch(
         ],
         created_by=created_by,
     )
-    db.add(batch)
-    await db.flush()
-    return batch
+    return (await LabelingE2EFixtureWrites(db).insert_batches([batch]))[0]
 
 
 async def _create_item(
@@ -463,9 +463,7 @@ async def _create_task(
         created_at=_now(sequence_order),
         updated_at=_now(sequence_order),
     )
-    db.add(task)
-    await db.flush()
-    return task
+    return (await LabelingE2EFixtureWrites(db).insert_tasks([task]))[0]
 
 
 def _bbox_annotation(
@@ -628,6 +626,7 @@ async def _seed_image_semantics(
         ),
     }
     tasks: dict[str, Any] = {}
+    task_patches: list[TaskFixturePatch] = []
     objects: dict[str, list[str]] = {}
     for index, (key, (display_id, batch, specs)) in enumerate(task_specs.items()):
         item = await _create_item(
@@ -680,15 +679,31 @@ async def _seed_image_semantics(
                     ),
                 ]
             )
-        db.add_all(rows)
-        await db.flush()
-        task.total_annotations = sum(
-            1 for row in rows if row.is_active and not row.was_cancelled
+        rows = await LabelingE2EFixtureWrites(db).insert_annotations(rows)
+        task_patches.append(
+            TaskFixturePatch(
+                id=task.id,
+                project_id=project.id,
+                total_annotations=sum(
+                    1 for row in rows if row.is_active and not row.was_cancelled
+                ),
+            )
         )
         objects[key] = [str(row.id) for row in rows]
-    visible_batch.total_tasks = len(tasks) - 1
-    hidden_batch.total_tasks = 1
-    await db.flush()
+    fixture_writes = LabelingE2EFixtureWrites(db)
+    await fixture_writes.patch_tasks(task_patches)
+    await fixture_writes.patch_batches(
+        [
+            TaskBatchFixturePatch(
+                id=visible_batch.id,
+                project_id=project.id,
+                total_tasks=len(tasks) - 1,
+            ),
+            TaskBatchFixturePatch(
+                id=hidden_batch.id, project_id=project.id, total_tasks=1
+            ),
+        ]
+    )
 
     root_or = ProjectTaskView(
         project_id=project.id,
@@ -918,7 +933,8 @@ async def _seed_video_review(
             file_type="video",
             sequence_order=index,
         )
-    batch.total_tasks = 4
+    fixture_writes = LabelingE2EFixtureWrites(db)
+    await fixture_writes.patch_batch(batch, total_tasks=4)
     # ponytail: metric-only candidate payloads omit render geometry; Workbench coverage
     # imports valid framed shapes through the product API when geometry is required.
     predictions: dict[str, Any] = {}
@@ -969,7 +985,7 @@ async def _seed_video_review(
         parent_prediction_id=predictions["accepted"].id,
         attributes={"_shape_index": 0},
     )
-    db.add(accepted)
+    accepted = (await fixture_writes.insert_annotations([accepted]))[0]
     jobs: dict[str, Any] = {}
     for name in ("tracker_only", "both"):
         task = tasks[name]
@@ -1002,14 +1018,21 @@ async def _seed_video_review(
             },
             event_channel="filtering",
         )
-    db.add_all(jobs.values())
-    await db.flush()
-    for task_name, task in tasks.items():
-        task.total_predictions = sum(
-            prediction.task_id == task.id for prediction in predictions.values()
-        )
-        task.total_annotations = int(task_name == "neither")
-    await db.flush()
+    jobs_rows = await fixture_writes.insert_video_tracker_jobs(list(jobs.values()))
+    jobs = {name: row for name, row in zip(jobs, jobs_rows, strict=True)}
+    await fixture_writes.patch_tasks(
+        [
+            TaskFixturePatch(
+                id=task.id,
+                project_id=project.id,
+                total_predictions=sum(
+                    prediction.task_id == task.id for prediction in predictions.values()
+                ),
+                total_annotations=int(task_name == "neither"),
+            )
+            for task_name, task in tasks.items()
+        ]
+    )
     return FilteringVideoManifest(
         project_id=str(project.id),
         task_ids={key: str(task.id) for key, task in tasks.items()},
@@ -1108,12 +1131,11 @@ async def _seed_paging(
         row.created_at = base + timedelta(microseconds=101 - index)
         row.updated_at = base + timedelta(microseconds=101 - index)
         rows.append(row)
-    db.add_all(rows)
-    await db.flush()
-    task.total_annotations = 101
-    task.is_labeled = True
-    batch.total_tasks = 1
-    await db.flush()
+    rows = await LabelingE2EFixtureWrites(db).insert_annotations(rows)
+    await LabelingE2EFixtureWrites(db).patch_task(
+        task, total_annotations=101, is_labeled=True
+    )
+    await LabelingE2EFixtureWrites(db).patch_batch(batch, total_tasks=1)
     ids = [str(row.id) for row in rows]
     return FilteringPagingManifest(
         project_id=str(project.id),
@@ -1136,8 +1158,8 @@ async def _seed_lidar(
     )
     from aap_assets_catalog.spatial_values import FramePose
     from app.services.assets_spatial import AssetsSpatialGateway
+    from app.services.task_dataset_link import link_items
     from app.db.models.project_task_view import ProjectTaskView
-    from app.db.models.task_dataset_item_link import TaskDatasetItemLink
     from app.services.scene_track_domain import ensure_scene_track
     from app.services.storage import storage_service
 
@@ -1268,18 +1290,13 @@ async def _seed_lidar(
             file_type="point_cloud",
             sequence_order=frame_index,
         )
-        db.add_all(
+        await link_items(
+            db,
+            task.id,
             [
-                TaskDatasetItemLink(
-                    task_id=task.id, dataset_item_id=item.id, role="primary_lidar"
-                ),
-                TaskDatasetItemLink(
-                    task_id=task.id,
-                    dataset_item_id=camera_item.id,
-                    role="camera_front",
-                    sensor_name="front",
-                ),
-            ]
+                (item.id, "primary_lidar", None),
+                (camera_item.id, "camera_front", "front"),
+            ],
         )
         tasks.append(task)
         pose_facts.append(
@@ -1320,6 +1337,8 @@ async def _seed_lidar(
         ),
         same_session_native=True,
     )
+    fixture_writes = LabelingE2EFixtureWrites(db)
+    annotation_rows = []
     track_refs = [f"filter-track-{index + 1:03d}" for index in range(101)]
     for track_ref in track_refs:
         track = await ensure_scene_track(
@@ -1333,7 +1352,7 @@ async def _seed_lidar(
             interval_source="imported",
         )
         for frame_index, task in enumerate(tasks[:2]):
-            db.add(
+            annotation_rows.append(
                 _bbox_annotation(
                     task_id=task.id,
                     project_id=project.id,
@@ -1358,7 +1377,7 @@ async def _seed_lidar(
         actor_id=annotator.id,
         interval_source="imported",
     )
-    db.add(
+    annotation_rows.append(
         _bbox_annotation(
             task_id=tasks[2].id,
             project_id=project.id,
@@ -1372,9 +1391,17 @@ async def _seed_lidar(
             scene_track_id=hidden_track.id,
         )
     )
-    visible_batch.total_tasks = 2
-    hidden_batch.total_tasks = 1
-    await db.flush()
+    await fixture_writes.insert_annotations(annotation_rows)
+    await fixture_writes.patch_batches(
+        [
+            TaskBatchFixturePatch(
+                id=visible_batch.id, project_id=project.id, total_tasks=2
+            ),
+            TaskBatchFixturePatch(
+                id=hidden_batch.id, project_id=project.id, total_tasks=1
+            ),
+        ]
+    )
     track_view = ProjectTaskView(
         project_id=project.id,
         owner_id=admin.id,

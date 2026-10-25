@@ -2601,6 +2601,11 @@ INSERT／UPDATE／DELETE，但 Task／Batch 的 UPDATE 锁和反馈 Task／Annot
 仍依赖底表更新权限；在迁移这些锁之前不能全局撤销 UPDATE，也不能把 UPDATE(id) 称为
 纯读取权限。训练、资产数据集／存储业务及 Go 实验范围保持。
 
+0362 为受隔离数据库保护的 E2E seed 增加固定 fixture owner 协议，覆盖 Batch、Task、Annotation、
+VideoTrackerJob、TaskDatasetItemLink 写入和反馈锚点更新；`_test_seed` 与筛选 seed 消费该协议，
+普通生产数据库不会授予执行权。`task_dataset_link.link_items` 复用同一 owner，公开 Task/link
+关系仍提供会话内干净 ORM 实体；命令不提交事务，seed 路由维持既有 UOW 边界。
+
 源码候选 `a5c6e02f4` 的一次集中检查执行 50 项：49 项通过，1 项失败，无错误或跳过。
 通过范围含实际上传 API 的权限／目标变化／准入回滚、分段 owner 严格双函数凭据、
 租约／提交／审核证据、只读准备、六类 taskless 操作、四连接并发建段、任务绑定拒绝、

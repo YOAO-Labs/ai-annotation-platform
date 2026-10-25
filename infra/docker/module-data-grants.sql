@@ -613,6 +613,13 @@ GRANT INSERT (annotation_id, annotation_version, class_name, code, dedupe_key, e
 GRANT UPDATE (annotation_id, annotation_version, class_name, evidence, last_seen_run_id, locator, metric, related_annotation_ids, resolution_reason, resolved_at, resolved_by_id, review_note, review_verdict, reviewed_at, reviewed_by_id, run_id, scene_track_id, severity, severity_rank, source_versions, status, suggested_command, task_id, threshold, track_revision, updated_at) ON public.point_cloud_quality_issues TO :"labeling_owner";
 GRANT INSERT (async_job_id, config_digest, config_revision, config_snapshot, id, progress_pct, project_id, requested_by_id, scope_json, singleflight_key, source_snapshot, source_snapshot_digest, status, summary) ON public.point_cloud_quality_runs TO :"labeling_owner";
 GRANT UPDATE (completed_at, error_message, progress_pct, started_at, status, summary, updated_at) ON public.point_cloud_quality_runs TO :"labeling_owner";
+GRANT INSERT (sequence_order, created_at, updated_at, assignee_id, assigned_at, reviewer_id, reviewer_claimed_at, submitted_at, reviewed_at, review_round_id, reject_reason, reject_reason_type, skip_reason, skipped_at) ON public.tasks TO :"labeling_owner";
+GRANT UPDATE (dataset_item_id, file_name, file_path, file_type, created_at) ON public.tasks TO :"labeling_owner";
+GRANT INSERT (total_tasks) ON public.task_batches TO :"labeling_owner";
+GRANT INSERT (created_at, updated_at) ON public.annotations TO :"labeling_owner";
+GRANT INSERT (staged_result, celery_task_id, started_at, completed_at, error_message, created_at, updated_at) ON public.video_tracker_jobs TO :"labeling_owner";
+GRANT INSERT (created_at) ON public.task_dataset_item_links TO :"labeling_owner";
+GRANT UPDATE (anchor_position) ON public.annotation_feedbacks TO :"labeling_owner";
 GRANT INSERT (dataset_item_id, end_frame, id, segment_index, start_frame, status) ON public.video_segments TO :"labeling_owner";
 GRANT UPDATE (assignee_id, lock_expires_at, locked_at, locked_by, status, updated_at) ON public.video_segments TO :"labeling_owner";
 GRANT DELETE ON public.video_track_quality_issues TO :"labeling_owner";
@@ -2876,6 +2883,8 @@ ALTER FUNCTION aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,
 ALTER FUNCTION aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.task_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.batch_rows OWNER TO :"labeling_owner";
