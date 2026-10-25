@@ -6,9 +6,11 @@ import json
 import os
 import stat
 import uuid
+from pathlib import Path
 
 import asyncpg
 import pytest
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -41,7 +43,6 @@ pytestmark = [
     ),
 ]
 
-_CURRENT_HEAD = "0356"
 _LABELING_SCHEMA = "aap_labeling_v1"
 _ANNOTATION_WRITE_ROLE = "labeling_annotation_write_client"
 _CORE_READ_ROLE = "labeling_core_read_client"
@@ -310,8 +311,12 @@ async def test_current_labeling_module_state_survives_owned_restore(
     test_engine, tmp_path
 ):
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
+    current_head = ScriptDirectory(
+        str(Path(__file__).resolve().parents[1] / "alembic")
+    ).get_current_head()
+    assert current_head
     await assert_owned_test_database(test_engine)
-    assert await _database_head(test_engine) == _CURRENT_HEAD
+    assert await _database_head(test_engine) == current_head
 
     source_database = f"aap_labeling_source_{uuid.uuid4().hex[:8]}_test"
     restored_database = f"aap_labeling_restore_{uuid.uuid4().hex[:8]}_test"
@@ -367,7 +372,7 @@ async def test_current_labeling_module_state_survives_owned_restore(
         await _assert_owned_database(source_engine, source_database, source_marker)
         migration = _alembic(source_engine.url, "upgrade", "head")
         assert migration.returncode == 0
-        assert await _database_head(source_engine) == _CURRENT_HEAD
+        assert await _database_head(source_engine) == current_head
 
         maker, world = await _seed(source_engine)
         async with maker.begin() as db:
@@ -451,7 +456,7 @@ async def test_current_labeling_module_state_survives_owned_restore(
         await _assert_owned_database(
             restored_engine, restored_database, restored_marker
         )
-        assert await _database_head(restored_engine) == _CURRENT_HEAD
+        assert await _database_head(restored_engine) == current_head
 
         # Compare native metadata and the seeded Task, Annotation, and receipt
         # before any grant script or owner operation can alter the restored clone.
