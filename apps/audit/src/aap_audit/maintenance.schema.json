@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aap-audit-maintenance/v1",
-  "title": "Audit partition maintenance commands",
-  "$comment": "Partition names encode their first-day UTC month and next-month upper bound. Ensure accepts only first-day dates; archive keys must match the partition month. Commands remain in the caller transaction. Snapshot locks the identified partition ACCESS EXCLUSIVE; drop requires that lock in the same transaction. The archive object is written before drop.",
+  "title": "Audit maintenance commands",
+  "$comment": "Partition names encode their first-day UTC month and next-month upper bound. Ensure accepts only first-day dates; archive keys must match the partition month. Commands remain in the caller transaction. Snapshot locks the identified partition ACCESS EXCLUSIVE; drop requires that lock in the same transaction. The archive object is written before drop. Filtering-fixture cleanup is limited to its fixed audit markers and isolated _test/_e2e databases.",
   "$defs": {
     "AuditPartition": {
       "additionalProperties": false,
@@ -64,6 +64,36 @@
       },
       "required": ["schema", "operation", "partition", "row_count", "object_key"],
       "title": "_ArchiveEventRequest",
+      "type": "object"
+    },
+    "_CleanupFilteringFixtureEventsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-audit-maintenance/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "cleanup_filtering_fixture_events",
+          "title": "Operation",
+          "type": "string"
+        },
+        "namespace": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9]{4,12}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Namespace"
+        }
+      },
+      "required": ["schema", "operation", "namespace"],
+      "title": "_CleanupFilteringFixtureEventsRequest",
       "type": "object"
     },
     "_DropPartitionRequest": {
@@ -216,6 +246,20 @@
       "title": "_EnsureData",
       "type": "object"
     },
+    "_FilteringFixtureCleanupData": {
+      "additionalProperties": false,
+      "properties": {
+        "deleted_rows": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Deleted Rows",
+          "type": "integer"
+        }
+      },
+      "required": ["deleted_rows"],
+      "title": "_FilteringFixtureCleanupData",
+      "type": "object"
+    },
     "_PartitionsData": {
       "additionalProperties": false,
       "properties": {
@@ -268,6 +312,9 @@
     },
     {
       "$ref": "#/$defs/_RefreshDailyRequest"
+    },
+    {
+      "$ref": "#/$defs/_CleanupFilteringFixtureEventsRequest"
     }
   ],
   "x-aap-replies": {
@@ -295,6 +342,9 @@
             "$ref": "#/$defs/_SnapshotData"
           },
           {
+            "$ref": "#/$defs/_FilteringFixtureCleanupData"
+          },
+          {
             "$ref": "#/$defs/_EmptyData"
           }
         ],
@@ -314,7 +364,19 @@
       "fixed_targets": ["public.audit_logs monthly partitions", "public.mv_audit_bi_daily"],
       "caller_transaction_required": true,
       "snapshot_lock": "ACCESS EXCLUSIVE",
-      "drop_requires_same_transaction_lock": true
+      "drop_requires_same_transaction_lock": true,
+      "operation_constraints": {
+        "cleanup_filtering_fixture_events": {
+          "fixed_targets": ["public.audit_logs filtering E2E fixture rows"],
+          "fixed_predicates": [
+            "path=/api/v1/__test/seed/filtering",
+            "namespace=null: detail_json.fixture=filtering",
+            "namespace=set: detail_json.namespace=namespace"
+          ],
+          "test_database_suffixes": ["_e2e", "_test"],
+          "required_transaction_setting": "app.allow_audit_update=true"
+        }
+      }
     }
   }
 }

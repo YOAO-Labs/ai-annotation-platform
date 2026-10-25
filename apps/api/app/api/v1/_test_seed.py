@@ -34,6 +34,7 @@ from aap_workspace.e2e_fixture_contract import (
     WorkspaceE2EFixtureUnavailable,
     decode_fixture_count,
 )
+from aap_audit.maintenance_postgres import AuditMaintenancePostgresData
 
 from app.config import settings
 from app.core.security import create_access_token
@@ -64,6 +65,7 @@ router = APIRouter(dependencies=[Depends(_require_e2e_seed_database)])
 _LABELING_FIXTURE_DELETE_SQL = (
     "SELECT aap_labeling_v1.delete_fixture_project_rows(CAST(:pids AS uuid[]))"
 )
+_AUDIT_FILTERING_FIXTURE_CLEANUP = "audit_filtering_fixture_cleanup"
 
 
 # ---------------------------------------------------------------------------
@@ -390,20 +392,30 @@ def _is_transaction_abort(exc: BaseException) -> bool:
     return False
 
 
-async def _try_fixture_delete(db, sql: str, params: dict | None = None) -> None:
+async def _try_fixture_delete(db, operation: str, params: dict | None = None) -> None:
     import logging
 
     log = logging.getLogger("anno-api.seed_cleanup")
     jobs_fixture_delete = (
-        sql == "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))"
+        operation
+        == "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))"
     )
-    labeling_fixture_delete = sql == _LABELING_FIXTURE_DELETE_SQL
-    owner_fixture_delete = jobs_fixture_delete or labeling_fixture_delete
+    labeling_fixture_delete = operation == _LABELING_FIXTURE_DELETE_SQL
+    audit_fixture_delete = operation == _AUDIT_FILTERING_FIXTURE_CLEANUP
+    owner_fixture_delete = (
+        jobs_fixture_delete or labeling_fixture_delete or audit_fixture_delete
+    )
     try:
         async with db.begin_nested():
-            result = await db.execute(text(sql), params or {})
-            if (
-                sql.startswith("SELECT aap_workspace_fixture_v1.")
+            if audit_fixture_delete:
+                deleted_rows = await AuditMaintenancePostgresData(
+                    db
+                ).cleanup_filtering_fixture_events((params or {}).get("namespace"))
+                decode_fixture_count(deleted_rows)
+            else:
+                result = await db.execute(text(operation), params or {})
+            if not audit_fixture_delete and (
+                operation.startswith("SELECT aap_workspace_fixture_v1.")
                 or owner_fixture_delete
             ):
                 decode_fixture_count(result.scalar_one())
@@ -412,7 +424,10 @@ async def _try_fixture_delete(db, sql: str, params: dict | None = None) -> None:
             status_code=503, detail="项目测试清理服务暂不可用"
         ) from None
     except Exception as exc:
-        if sql.startswith("SELECT aap_workspace_fixture_v1.") or owner_fixture_delete:
+        if (
+            operation.startswith("SELECT aap_workspace_fixture_v1.")
+            or owner_fixture_delete
+        ):
             original = getattr(exc, "orig", exc)
             state = getattr(original, "sqlstate", None) or getattr(
                 original, "pgcode", None
@@ -430,13 +445,13 @@ async def _try_fixture_delete(db, sql: str, params: dict | None = None) -> None:
                     status_code=409, detail={"reason": "project_busy"}
                 ) from exc
         if _is_transaction_abort(exc):
-            log.warning("seed_cleanup abort · %s · %s", sql, exc)
+            log.warning("seed_cleanup abort · %s · %s", operation, exc)
             raise
         if owner_fixture_delete:
             raise HTTPException(
                 status_code=503, detail="项目测试清理服务暂不可用"
             ) from exc
-        log.warning("seed_cleanup skip · %s · %s", sql, exc)
+        log.warning("seed_cleanup skip · %s · %s", operation, exc)
 
 
 async def _cleanup_e2e_fixtures(
@@ -503,8 +518,8 @@ async def _cleanup_e2e_fixtures(
     #    SAVEPOINT 回滚，try/except 单纯吞异常不够。让异常穿过 begin_nested 的
     #    `async with` 自动 ROLLBACK TO SAVEPOINT,外层再 catch——双 rollback 会让
     #    SA 在 __aexit__ 试图 RELEASE 已经手动 rollback 的 SP,事务进入怪状态致 500。
-    async def _try_delete(sql: str, params: dict | None = None) -> None:
-        await _try_fixture_delete(db, sql, params)
+    async def _try_delete(operation: str, params: dict | None = None) -> None:
+        await _try_fixture_delete(db, operation, params)
 
     fixture_annotation_ids: list = []
     if fixture_project_ids:
@@ -614,12 +629,10 @@ async def _cleanup_e2e_fixtures(
             "SELECT aap_workspace_fixture_v1.delete_templates(true, ARRAY[]::text[])",
         )
 
-        # Direct fixture audit rows must disappear before the actor users.  The
-        # production audit trigger still protects ordinary writes; this is only a
-        # fixture-scoped cleanup predicate.
+        # The Audit owner accepts this fixed marker only in isolated test databases.
         await _try_delete(
-            "DELETE FROM audit_logs WHERE detail_json ->> 'fixture' = 'filtering' "
-            "AND path = '/api/v1/__test/seed/filtering'",
+            _AUDIT_FILTERING_FIXTURE_CLEANUP,
+            {"namespace": None},
         )
     else:
         await _try_delete(
@@ -627,12 +640,10 @@ async def _cleanup_e2e_fixtures(
             {"owned_template_display_ids": owned.filter_template_display_ids},
         )
 
-        # Owned filtering audit rows carry their namespace in detail_json, so
-        # this predicate never touches another namespace's audit trail.
+        # The Audit owner scopes deletion to this exact namespace and seed path.
         await _try_delete(
-            "DELETE FROM audit_logs WHERE detail_json ->> 'namespace' = :owned_ns "
-            "AND path = '/api/v1/__test/seed/filtering'",
-            {"owned_ns": owned.namespace},
+            _AUDIT_FILTERING_FIXTURE_CLEANUP,
+            {"namespace": owned.namespace},
         )
 
     if fixture_user_ids:
@@ -736,6 +747,9 @@ async def _cleanup_e2e_fixtures(
             "    OR display_id LIKE 'P-E2E-%') AS projects, "
             "(SELECT count(*) FROM aap_workspace_fixture_v1.templates "
             " WHERE display_id LIKE 'TPL-E2E-FILTER-%') AS templates, "
+            "(SELECT count(*) FROM aap_audit_v1.audit_events "
+            " WHERE detail_json ->> 'fixture' = 'filtering' "
+            "   AND path = '/api/v1/__test/seed/filtering') AS audit_rows, "
             "(SELECT count(*) FROM ml_backend_registry "
             " WHERE url IN ('http://mock-sam.e2e:9999', 'http://second-toolbar.e2e:9999')) AS ml_backends"
         )
@@ -750,6 +764,9 @@ async def _cleanup_e2e_fixtures(
             " OR display_id = ANY(:owned_project_display_ids)) AS projects, "
             "(SELECT count(*) FROM aap_workspace_fixture_v1.templates "
             " WHERE display_id = ANY(:owned_template_display_ids)) AS templates, "
+            "(SELECT count(*) FROM aap_audit_v1.audit_events "
+            " WHERE detail_json ->> 'namespace' = :owned_ns "
+            "   AND path = '/api/v1/__test/seed/filtering') AS audit_rows, "
             "(SELECT count(*) FROM ml_backend_registry "
             " WHERE url = :owned_registry_url) AS ml_backends"
         )
@@ -758,6 +775,7 @@ async def _cleanup_e2e_fixtures(
             "owned_project_names": owned.all_project_names,
             "owned_project_display_ids": owned.all_project_display_ids,
             "owned_template_display_ids": owned.filter_template_display_ids,
+            "owned_ns": owned.namespace,
             "owned_registry_url": owned.registry_url,
         }
     residual_row = (
@@ -765,7 +783,7 @@ async def _cleanup_e2e_fixtures(
     )
     residuals = {
         key: int(residual_row[key])
-        for key in ("users", "projects", "templates", "ml_backends")
+        for key in ("users", "projects", "templates", "audit_rows", "ml_backends")
     }
     if any(residuals.values()):
         raise HTTPException(

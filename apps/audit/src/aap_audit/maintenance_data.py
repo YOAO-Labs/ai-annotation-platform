@@ -11,10 +11,12 @@ from .maintenance_contract import (
     AuditPartition,
     MAINTENANCE_PROTOCOL,
     _ArchiveEventRequest,
+    _CleanupFilteringFixtureEventsRequest,
     _DropPartitionRequest,
     _EmptyData,
     _EnsureData,
     _EnsurePartitionRequest,
+    _FilteringFixtureCleanupData,
     _ListPartitionsRequest,
     _PartitionsData,
     _RefreshDailyRequest,
@@ -97,3 +99,14 @@ class AuditMaintenanceData:
             ),
             _EmptyData,
         )
+
+    async def cleanup_filtering_fixture_events(self, namespace: str | None) -> int:
+        data = await self._invoke(
+            _CleanupFilteringFixtureEventsRequest(
+                schema=MAINTENANCE_PROTOCOL,
+                operation="cleanup_filtering_fixture_events",
+                namespace=namespace,
+            ),
+            _FilteringFixtureCleanupData,
+        )
+        return data.deleted_rows

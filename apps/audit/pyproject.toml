@@ -34,6 +34,7 @@ packages = ["src/aap_audit"]
 "src/aap_audit/sql/0320_audit_read_relations.sql" = "aap_audit/sql/0320_audit_read_relations.sql"
 "src/aap_audit/sql/0322_audit_daily_projection.sql" = "aap_audit/sql/0322_audit_daily_projection.sql"
 "src/aap_audit/sql/0333_audit_maintenance.sql" = "aap_audit/sql/0333_audit_maintenance.sql"
+"src/aap_audit/sql/0366_audit_fixture_cleanup.sql" = "aap_audit/sql/0366_audit_fixture_cleanup.sql"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

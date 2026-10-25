@@ -156,6 +156,11 @@ class _RefreshDailyRequest(_Command):
     operation: Literal["refresh_daily"]
 
 
+class _CleanupFilteringFixtureEventsRequest(_Command):
+    operation: Literal["cleanup_filtering_fixture_events"]
+    namespace: StrictStr | None = Field(pattern=r"^[a-z0-9]{4,12}$")
+
+
 _MaintenanceRequest = Annotated[
     Union[
         _ListPartitionsRequest,
@@ -164,6 +169,7 @@ _MaintenanceRequest = Annotated[
         _DropPartitionRequest,
         _ArchiveEventRequest,
         _RefreshDailyRequest,
+        _CleanupFilteringFixtureEventsRequest,
     ],
     Field(discriminator="operation"),
 ]
@@ -204,10 +210,20 @@ class _EmptyData(_ClosedModel):
     pass
 
 
+class _FilteringFixtureCleanupData(_ClosedModel):
+    deleted_rows: StrictInt = Field(ge=0, le=_MAX_POSTGRES_BIGINT)
+
+
 class _MaintenanceReply(_ClosedModel):
     protocol: Literal[MAINTENANCE_PROTOCOL] = Field(alias="schema")
     ok: Literal[True]
-    data: Union[_PartitionsData, _EnsureData, _SnapshotData, _EmptyData]
+    data: Union[
+        _PartitionsData,
+        _EnsureData,
+        _SnapshotData,
+        _FilteringFixtureCleanupData,
+        _EmptyData,
+    ]
 
 
 class AuditMaintenanceUnavailable(RuntimeError):
@@ -238,14 +254,15 @@ def audit_maintenance_schema() -> dict[str, Any]:
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": MAINTENANCE_PROTOCOL,
-        "title": "Audit partition maintenance commands",
+        "title": "Audit maintenance commands",
         "$comment": (
             "Partition names encode their first-day UTC month and next-month upper "
             "bound. Ensure accepts only first-day dates; archive keys must match "
             "the partition month. Commands remain in the caller transaction. "
             "Snapshot locks the identified partition ACCESS EXCLUSIVE; drop "
             "requires that lock in the same transaction. The archive object is "
-            "written before drop."
+            "written before drop. Filtering-fixture cleanup is limited to its "
+            "fixed audit markers and isolated _test/_e2e databases."
         ),
         "$defs": definitions,
         "oneOf": request_schema["oneOf"],
@@ -263,6 +280,20 @@ def audit_maintenance_schema() -> dict[str, Any]:
                 "caller_transaction_required": True,
                 "snapshot_lock": "ACCESS EXCLUSIVE",
                 "drop_requires_same_transaction_lock": True,
+                "operation_constraints": {
+                    "cleanup_filtering_fixture_events": {
+                        "fixed_targets": [
+                            "public.audit_logs filtering E2E fixture rows"
+                        ],
+                        "fixed_predicates": [
+                            "path=/api/v1/__test/seed/filtering",
+                            "namespace=null: detail_json.fixture=filtering",
+                            "namespace=set: detail_json.namespace=namespace",
+                        ],
+                        "test_database_suffixes": ["_e2e", "_test"],
+                        "required_transaction_setting": "app.allow_audit_update=true",
+                    }
+                },
             }
         },
     }
