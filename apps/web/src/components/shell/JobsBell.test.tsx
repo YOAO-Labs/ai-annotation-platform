@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import type { MeResponse } from "@/api/auth";
 import { useAuthStore } from "@/stores/authStore";
+import { ApiError } from "@/api/client";
 
 const mockList = vi.fn();
 const mockCancel = vi.fn();
@@ -19,6 +20,7 @@ vi.mock("@/api/asyncJobs", () => ({
     "mask_qc",
     "mask_repair",
     "mask_format_import",
+    "storage_migration_inventory",
   ]),
   asyncJobsApi: {
     list: (params: unknown, init?: RequestInit) => mockList(params, init),
@@ -33,13 +35,14 @@ function renderBell() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchInterval: false } },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
         <JobsBell />
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...view, client: qc };
 }
 
 const baseRow = {
@@ -67,6 +70,121 @@ describe("JobsBell", () => {
     mockCancel.mockReset();
     mockGet.mockReset();
     mockCancel.mockResolvedValue({ status: "cancel_requested", id: "j1" });
+  });
+
+  it("迁移清单显示未知总量并接入共享取消", async () => {
+    useAuthStore
+      .getState()
+      .setAuth("migration-token", { id: "u1", role: "super_admin" } as MeResponse);
+    mockList.mockResolvedValue({
+      items: [{ ...baseRow, kind: "storage_migration_inventory", project_id: null }],
+      total: 1,
+    });
+    renderBell();
+    fireEvent.click(await screen.findByTestId("jobs-bell-trigger"));
+    expect(await screen.findByText("配置源迁移清单")).toBeInTheDocument();
+    expect(screen.getByText(/清单总量未知/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("job-cancel-j1"));
+    await waitFor(() => expect(mockCancel).toHaveBeenCalledWith("j1"));
+  });
+
+  it("同账号降权立即清除迁移任务行、计数与已选详情", async () => {
+    useAuthStore
+      .getState()
+      .setAuth("migration-token", { id: "u1", role: "super_admin" } as MeResponse);
+    const row = { ...baseRow, kind: "storage_migration_inventory", project_id: null };
+    mockList.mockResolvedValue({ items: [row], total: 1 });
+    mockGet.mockResolvedValue(row);
+    renderBell();
+    fireEvent.click(await screen.findByTestId("jobs-bell-trigger"));
+    fireEvent.click(await screen.findByRole("button", { name: "查看配置源迁移清单详情" }));
+    await screen.findByRole("dialog", { name: "后台任务详情" });
+    mockList.mockResolvedValue({ items: [], total: 0 });
+    act(() => useAuthStore.getState().setUser({ id: "u1", role: "project_admin" } as MeResponse));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("job-row-j1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("jobs-bell-badge")).not.toBeInTheDocument();
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+  });
+
+  it.each(["role", "session"])("%s 变更后旧迁移列表晚返回不能重现", async (change) => {
+    useAuthStore
+      .getState()
+      .setAuth("migration-token", { id: "u1", role: "super_admin" } as MeResponse);
+    let resolve!: (value: unknown) => void;
+    let signal!: AbortSignal;
+    mockList
+      .mockImplementationOnce((_params: unknown, init?: RequestInit) => {
+        signal = init?.signal as AbortSignal;
+        return new Promise((done) => {
+          resolve = done;
+        });
+      })
+      .mockResolvedValue({ items: [], total: 0 });
+    renderBell();
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
+    act(() => {
+      if (change === "role")
+        useAuthStore.getState().setUser({ id: "u1", role: "project_admin" } as MeResponse);
+      else {
+        useAuthStore.getState().logout();
+        useAuthStore
+          .getState()
+          .setAuth("migration-token", { id: "u1", role: "super_admin" } as MeResponse);
+      }
+    });
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+    expect(signal.aborted).toBe(true);
+    await act(async () =>
+      resolve({ items: [{ ...baseRow, kind: "storage_migration_inventory" }], total: 1 }),
+    );
+    fireEvent.click(screen.getByTestId("jobs-bell-trigger"));
+    expect(screen.queryByTestId("job-row-j1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("jobs-bell-badge")).not.toBeInTheDocument();
+  });
+
+  it("同账号降权后的迟到取消响应不刷新新权限列表", async () => {
+    useAuthStore
+      .getState()
+      .setAuth("migration-token", { id: "u1", role: "super_admin" } as MeResponse);
+    let resolve!: (value: unknown) => void;
+    mockList.mockResolvedValue({
+      items: [{ ...baseRow, kind: "storage_migration_inventory" }],
+      total: 1,
+    });
+    mockCancel.mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    renderBell();
+    fireEvent.click(await screen.findByTestId("jobs-bell-trigger"));
+    fireEvent.click(await screen.findByTestId("job-cancel-j1"));
+    mockList.mockResolvedValue({ items: [], total: 0 });
+    act(() => useAuthStore.getState().setUser({ id: "u1", role: "project_admin" } as MeResponse));
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+    await act(async () => resolve({ status: "cancelled", id: "j1" }));
+    expect(mockList).toHaveBeenCalledTimes(2);
+  });
+
+  it("服务端撤权清空旧任务，后续网络错误不恢复私密行", async () => {
+    mockList.mockResolvedValue({
+      items: [{ ...baseRow, kind: "storage_migration_inventory" }],
+      total: 1,
+    });
+    const { client } = renderBell();
+    fireEvent.click(await screen.findByTestId("jobs-bell-trigger"));
+    await screen.findByTestId("job-row-j1");
+    mockList.mockRejectedValueOnce(new ApiError(403, "denied"));
+    await act(() => client.invalidateQueries({ queryKey: ["async-jobs"] }));
+    await waitFor(() => expect(screen.queryByTestId("job-row-j1")).not.toBeInTheDocument());
+    mockList.mockRejectedValue(new Error("network"));
+    const calls = mockList.mock.calls.length;
+    await act(() => client.invalidateQueries({ queryKey: ["async-jobs"] }));
+    expect(mockList).toHaveBeenCalledTimes(calls);
+    expect(screen.queryByTestId("job-row-j1")).not.toBeInTheDocument();
+    client.clear();
   });
 
   it("空列表 → 不显示 badge，drawer 打开显示空态", async () => {

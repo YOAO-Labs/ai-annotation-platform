@@ -19,6 +19,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   dataset_import: "数据集导入",
   dataset_scan: "目录观测扫描",
   storage_usage: "存储对象盘点",
+  storage_migration_inventory: "配置源迁移清单",
   managed_original_verification: "托管原件核验",
   dataset_quality_review: "质量批量复核",
   dataset_quality: "数据集图片质检",
@@ -72,6 +73,20 @@ export function jobNumber(record: Record<string, unknown>, key: string): number 
 
 export function jobResultSummary(job: Pick<AsyncJob, "kind" | "result">): string | null {
   const result = job.result ?? {};
+  if (job.kind === "storage_migration_inventory") {
+    const counts =
+      result.counts && typeof result.counts === "object"
+        ? (result.counts as Record<string, unknown>)
+        : {};
+    const objects = jobNumber(counts, "objects");
+    const issues = jobNumber(counts, "issues");
+    const parts = [
+      result.complete === true ? "清单完整" : result.complete === false ? "清单不完整" : null,
+      objects === null ? null : `对象版本 ${objects}`,
+      issues === null ? null : `问题 ${issues}`,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" / ") : null;
+  }
   if (job.kind === "managed_original_verification") {
     const labels: Record<string, string> = {
       matched: "本次内容与历史摘要相符",
@@ -116,10 +131,17 @@ export function jobResultSummary(job: Pick<AsyncJob, "kind" | "result">): string
   return parts.length ? parts.join(" / ") : null;
 }
 
-export function jobStage(job: AsyncJob): string {
+export function jobStage(job: Pick<AsyncJob, "kind" | "status" | "result" | "payload">): string {
   if (["completed", "failed", "cancelled"].includes(job.status))
     return JOB_STATUS_LABEL[job.status];
   const phase = jobString(job.result, "stage") ?? jobString(job.payload, "stage");
+  if (job.kind === "storage_migration_inventory") {
+    return phase === "dispatch_pending"
+      ? "派发尚未确认"
+      : job.status === "running"
+        ? "读取配置源并核验内容"
+        : "等待执行";
+  }
   const labels: Record<string, string> = {
     queued: "等待执行",
     dispatch_pending: "派发尚未确认",
@@ -164,6 +186,13 @@ export function exportDownloadState(result: Record<string, unknown>, now = Date.
 export function jobProgressText(
   job: Pick<AsyncJob, "kind" | "status" | "progress_pct" | "result">,
 ): string {
+  if (job.kind === "storage_migration_inventory") {
+    return job.result.cancel_requested === true && ["pending", "running"].includes(job.status)
+      ? "已请求取消，等待底层读取收尾"
+      : ["pending", "running"].includes(job.status)
+        ? "清单总量未知 · 读取结束后确认完整性"
+        : "本次清单任务已结束 · 未执行复制或切换";
+  }
   if (job.kind === "video_asset_retry" && ["pending", "running"].includes(job.status)) {
     return job.result?.stage === "dispatch_pending"
       ? "派发尚未确认，可回到视频资产失败列表重试"

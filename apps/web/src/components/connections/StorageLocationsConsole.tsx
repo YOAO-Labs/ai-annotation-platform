@@ -23,6 +23,7 @@ import { StorageMaintenanceImpact } from "./StorageMaintenanceImpact";
 import { StorageLocationMaintenance } from "./StorageLocationMaintenance";
 import { StorageBindingChangeButton } from "./StorageBindingChangeButton";
 import { LocationHealthSummary, LocationSourceScale } from "./StorageLocationListSummary";
+import { MigrationInventoryPanel } from "./MigrationInventoryPanel";
 import { safeDatasetReturn } from "@/components/datasets/storageNavigation";
 
 const PURPOSES = [
@@ -77,7 +78,12 @@ function ConsoleOwner() {
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
   const allowed = role === "super_admin" || role === "project_admin";
-  const tab = params.get("tab") === "bindings" ? "bindings" : "locations";
+  const tab =
+    params.get("tab") === "migration"
+      ? "migration"
+      : params.get("tab") === "bindings"
+        ? "bindings"
+        : "locations";
   const rawId = params.get("location") ?? "";
   const locationId = UUID.test(rawId) ? rawId : "";
   const pageValue = Number(params.get("page") ?? 1);
@@ -157,7 +163,7 @@ function ConsoleOwner() {
   return (
     <>
       {returnLink}
-      <nav aria-label="存储管理视图" className="mb-4 flex gap-2">
+      <nav aria-label="存储管理视图" className="mb-4 flex flex-wrap gap-2">
         <Button
           aria-pressed={tab === "locations"}
           variant={tab === "locations" ? "primary" : "default"}
@@ -172,8 +178,17 @@ function ConsoleOwner() {
         >
           用途映射
         </Button>
+        <Button
+          aria-pressed={tab === "migration"}
+          variant={tab === "migration" ? "primary" : "default"}
+          onClick={() => patch({ tab: "migration" })}
+        >
+          迁移准备
+        </Button>
       </nav>
-      {tab === "bindings" ? (
+      {tab === "migration" ? (
+        <MigrationInventoryPanel />
+      ) : tab === "bindings" ? (
         <Card>
           <div className="p-4">
             <h2 className="mb-1 text-sm font-semibold">平台用途映射</h2>

@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { exportDownloadState, jobResultSummary, jobProgressText } from "./asyncJobPresentation";
+import {
+  exportDownloadState,
+  jobResultSummary,
+  jobProgressText,
+  jobNotificationVerb,
+  jobStage,
+} from "./asyncJobPresentation";
+
+it("迁移清单只报告清单完整性，通知和阶段不承诺复制完成", () => {
+  const job = {
+    kind: "storage_migration_inventory",
+    status: "running",
+    progress_pct: 75,
+    result: { counts: { objects: 0, issues: 0 }, complete: false },
+    payload: {},
+  } satisfies Parameters<typeof jobStage>[0] & { progress_pct: number };
+  expect(jobResultSummary(job)).toBe("清单不完整 / 对象版本 0 / 问题 0");
+  expect(jobResultSummary({ ...job, result: {} })).toBeNull();
+  expect(jobProgressText(job)).toBe("清单总量未知 · 读取结束后确认完整性");
+  expect(jobStage(job)).toBe("读取配置源并核验内容");
+  expect(jobProgressText({ ...job, result: { cancel_requested: true } })).toContain(
+    "等待底层读取收尾",
+  );
+  expect(jobProgressText({ ...job, status: "completed" })).toContain("未执行复制或切换");
+  expect(jobNotificationVerb("job.completed", job.kind)).toBe("配置源迁移清单完成");
+});
 
 describe("后台任务结果", () => {
   it("视频资产处理不展示虚构百分比，并解释派发未确认", () => {
