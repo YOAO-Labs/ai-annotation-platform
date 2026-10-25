@@ -119,6 +119,8 @@ async def operations(db, row):
 
 
 async def item(db, row):
+    from app.services.storage_migration_finalizations import public_for_window
+
     count = await operations(db, row)
     return StorageMigrationWindowItem(
         window_id=row.id,
@@ -133,6 +135,7 @@ async def item(db, row):
         created_by=row.created_by,
         registered_operations=count,
         registered_access_drained=row.state in {"stopped", "closing"} and count == 0,
+        finalization=await public_for_window(db, row.id),
     )
 
 
@@ -279,6 +282,9 @@ async def transition(db, window_id, actor, body, *, api_key_id=None, request=Non
         reject("migration_window_state_invalid")
     current = await gate(db, row, exclusive=True)
     if body.action == "close":
+        from app.services.storage_migration_finalizations import require_window_open
+
+        await require_window_open(db, row.id, closing=True)
         from app.services.managed_original_reclaim_fence import require_resumable
 
         await require_resumable(db, row.source_location_id)
@@ -334,6 +340,9 @@ async def _source_state(db, window_id, source, *, lock=False, window_revision=No
     row = await owner(db, window_id, lock=lock)
     if row.state != "stopped":
         reject("migration_window_state_invalid")
+    from app.services.storage_migration_finalizations import require_window_open
+
+    await require_window_open(db, row.id)
     if window_revision is not None and row.revision != window_revision:
         reject("migration_window_changed")
     if (

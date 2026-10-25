@@ -26,6 +26,7 @@ from app.db.models.original_cache import OriginalCacheEntry, OriginalCacheReadLe
 from app.db.models.managed_original_verification import ManagedOriginalVerification
 from app.db.models.storage_migration_inventory import StorageMigrationInventory
 from app.db.models.storage_migration_window import StorageMigrationWindow
+from app.db.models.storage_migration_finalization import StorageMigrationFinalization
 from app.db.models.storage_migration_copy import (
     StorageMigrationCopy,
     StorageMigrationCopyAttempt,
@@ -375,6 +376,8 @@ __all__ += ["GuideAssetUpload", "ProjectGuideAsset"]
 
 __all__ += ["StorageFaultState"]
 __all__ += ["StorageObservationBucket"]
+
+__all__ += ["StorageMigrationFinalization"]
 
 __all__ += ["MaskFormatUpload"]
 

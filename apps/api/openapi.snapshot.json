@@ -49517,6 +49517,146 @@
         "title": "StorageMigrationCopyTargets",
         "type": "object"
       },
+      "StorageMigrationFinalizationItem": {
+        "additionalProperties": false,
+        "properties": {
+          "copy_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Copy Id"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counts"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finalization_id": {
+            "format": "uuid",
+            "title": "Finalization Id",
+            "type": "string"
+          },
+          "invalidated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalidated At"
+          },
+          "inventory_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inventory Job Id"
+          },
+          "migration_ready": {
+            "const": false,
+            "default": false,
+            "title": "Migration Ready",
+            "type": "boolean"
+          },
+          "native_observed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Observed At"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "sealed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sealed At"
+          },
+          "state": {
+            "enum": [
+              "bound",
+              "sealing",
+              "sealed",
+              "invalidating",
+              "invalidated"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "window_revision": {
+            "title": "Window Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "finalization_id",
+          "revision",
+          "state",
+          "window_revision",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "StorageMigrationFinalizationItem",
+        "type": "object"
+      },
       "StorageMigrationInventoryCounts": {
         "additionalProperties": false,
         "properties": {
@@ -49986,6 +50126,16 @@
               }
             ],
             "title": "Created By"
+          },
+          "finalization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageMigrationFinalizationItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "migration_ready": {
             "const": false,

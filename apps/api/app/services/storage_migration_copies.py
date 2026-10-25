@@ -139,11 +139,15 @@ async def successor(db, copy_id):
 
 
 async def writable(db, row):
-    if await successor(db, row.id) is not None:
+    from app.services.storage_migration_finalizations import frozen_copy
+
+    if await successor(db, row.id) is not None or await frozen_copy(db, row.id):
         reject("copy_read_only")
 
 
 async def item(db, row):
+    from app.services.storage_migration_finalizations import frozen_copy
+
     a = await last(db, row)
     name = await db.scalar(
         select(StorageConnection.name)
@@ -160,7 +164,7 @@ async def item(db, row):
         generation=row.generation,
         successor_copy_id=successor_id,
         parent_evidence_sha256=row.parent_evidence_sha256,
-        read_only=successor_id is not None,
+        read_only=successor_id is not None or await frozen_copy(db, row.id),
         generation_summary=summary.get("generation_summary"),
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -550,6 +554,10 @@ async def generation(db, parent_id, actor, body, *, api_key_id=None, request=Non
     )
     inventory = await db.get(StorageMigrationInventory, body.inventory_job_id)
     initial = await owner(db, parent_id)
+    from app.services.storage_migration_finalizations import frozen_copy
+
+    if await frozen_copy(db, initial.id):
+        reject("copy_read_only")
     bound = (
         SimpleNamespace(
             parent_copy_id=initial.id,
@@ -564,6 +572,8 @@ async def generation(db, parent_id, actor, body, *, api_key_id=None, request=Non
     )
     await scope(db, bound, lock=True)
     parent = await owner(db, parent_id, lock=True, private=True)
+    if await frozen_copy(db, parent.id):
+        reject("copy_read_only")
     child_id = await successor(db, parent.id)
     if child_id is not None:
         child = await owner(db, child_id, lock=True)
@@ -1047,6 +1057,9 @@ async def save_delta(db, job_id, task_id, data, checksum):
         except Exception:
             # A telemetry failure must not discard already persisted physical truth.
             log.warning("Copy progress observation failed: job=%s", job_id)
+    from app.services.storage_migration_finalizations import changed_checkpoint
+
+    await changed_checkpoint(db, row.id)
     await db.commit()
 
 
