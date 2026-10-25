@@ -30,6 +30,7 @@ class World:
             source_container="1" * 64,
             gateway_container="2" * 64,
             network_id="3" * 64,
+            gateway_frontend_network_id="4" * 64,
             source_volume_name="owned-source-data",
             gateway_config_directory=str(directory),
             public_endpoint="http://127.0.0.1:19234",
@@ -59,6 +60,11 @@ class World:
             dict(Type="bind", Source=str(directory), Destination="/etc/nginx", RW=False)
         ]
         self.gateway["Config"].update(Entrypoint=["nginx"], Cmd=["-g", "daemon off;"])
+        self.gateway["HostConfig"]["Sysctls"] = {"net.ipv4.ip_forward": "0"}
+        self.gateway["NetworkSettings"]["Networks"]["owned-frontend"] = {
+            "NetworkID": self.config["gateway_frontend_network_id"],
+            "IPAddress": "172.31.20.2",
+        }
         self.gateway["NetworkSettings"]["Ports"] = {
             "80/tcp": [{"HostIp": "127.0.0.1", "HostPort": "19234"}]
         }
@@ -76,6 +82,13 @@ class World:
             Driver="local",
             Options=None,
             Labels=self.labels("data"),
+        )
+        self.frontend = dict(
+            Id=self.config["gateway_frontend_network_id"],
+            Driver="bridge",
+            Internal=False,
+            Labels=self.labels("frontend"),
+            Containers={self.config["gateway_container"]: {}},
         )
         self.images = {
             native._MINIO_ID: dict(
@@ -140,7 +153,11 @@ class World:
                     else self.gateway
                 )
             elif kind == "network":
-                value = self.network
+                value = (
+                    self.network
+                    if identity == self.config["network_id"]
+                    else self.frontend
+                )
             elif kind == "volume":
                 value = self.volume
             else:
@@ -323,6 +340,63 @@ class NativeTests(unittest.TestCase):
             lambda: self.world.source["HostConfig"].update(
                 PortBindings={"9000/tcp": [{"HostPort": "9000"}]}
             ),
+        ]
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                saved = copy.deepcopy(self.world.__dict__)
+                mutate()
+                with self.assertRaises(FenceError):
+                    self.adapter.readonly()
+                self.assertFalse(
+                    any(
+                        call[0] in {"restart", "stop", "start"}
+                        for call in self.world.calls
+                    )
+                )
+                self.world.__dict__ = saved
+
+    def test_frontend_descriptor_is_required_and_cannot_alias_private_network(self):
+        missing = dict(self.world.config)
+        missing.pop("gateway_frontend_network_id")
+        self.code("native_config_invalid", lambda: native.DockerAdapter(missing))
+        self.code(
+            "native_config_invalid",
+            lambda: native.DockerAdapter(
+                {
+                    **self.world.config,
+                    "gateway_frontend_network_id": self.world.config["network_id"],
+                }
+            ),
+        )
+
+    def test_two_network_gateway_never_grants_source_or_routing_bypass(self):
+        mutations = [
+            lambda: self.world.frontend.update(Internal=True),
+            lambda: self.world.frontend.update(Driver="overlay"),
+            lambda: self.world.frontend.update(Id="5" * 64),
+            lambda: self.world.frontend["Labels"].update(
+                {native.ROLE_LABEL: "network"}
+            ),
+            lambda: self.world.frontend["Labels"].update(
+                {native.OWNER_LABEL: "b" * 32}
+            ),
+            lambda: self.world.frontend["Containers"].update(
+                {self.world.config["source_container"]: {}}
+            ),
+            lambda: self.world.gateway["NetworkSettings"]["Networks"].pop(
+                "owned-frontend"
+            ),
+            lambda: self.world.source["NetworkSettings"]["Networks"].update(
+                {
+                    "owned-frontend": {
+                        "NetworkID": self.world.config["gateway_frontend_network_id"]
+                    }
+                }
+            ),
+            lambda: self.world.gateway["HostConfig"].update(
+                Sysctls={"net.ipv4.ip_forward": "1"}
+            ),
+            lambda: self.world.gateway["HostConfig"].pop("Sysctls"),
         ]
         for mutate in mutations:
             with self.subTest(mutation=mutate):

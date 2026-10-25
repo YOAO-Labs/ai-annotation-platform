@@ -41,6 +41,7 @@ _FIELDS = {
     "source_container",
     "gateway_container",
     "network_id",
+    "gateway_frontend_network_id",
     "source_volume_name",
     "gateway_config_directory",
     "public_endpoint",
@@ -227,6 +228,7 @@ class DockerAdapter:
             ("source_container", 64),
             ("gateway_container", 64),
             ("network_id", 64),
+            ("gateway_frontend_network_id", 64),
         ):
             _require(
                 isinstance(config.get(name), str)
@@ -235,6 +237,10 @@ class DockerAdapter:
             )
         _require(
             config["source_container"] != config["gateway_container"],
+            "native_config_invalid",
+        )
+        _require(
+            config["network_id"] != config["gateway_frontend_network_id"],
             "native_config_invalid",
         )
         _require(
@@ -361,6 +367,7 @@ class DockerAdapter:
         source = self._inspect("container", self.config["source_container"])
         gateway = self._inspect("container", self.config["gateway_container"])
         network = self._inspect("network", self.config["network_id"])
+        frontend = self._inspect("network", self.config["gateway_frontend_network_id"])
         volume = self._inspect("volume", self.config["source_volume_name"])
         for value, field, role in (
             (source, "source_container", "source"),
@@ -376,10 +383,17 @@ class DockerAdapter:
                 "native_topology_changed",
             )
             nets = value.get("NetworkSettings", {}).get("Networks", {})
+            expected_networks = {self.config["network_id"]}
+            if role == "gateway":
+                expected_networks.add(self.config["gateway_frontend_network_id"])
+                _require(
+                    (host.get("Sysctls") or {}).get("net.ipv4.ip_forward") == "0",
+                    "native_topology_changed",
+                )
             _require(
-                len(nets) == 1
-                and next(iter(nets.values())).get("NetworkID")
-                == self.config["network_id"],
+                len(nets) == len(expected_networks)
+                and {net.get("NetworkID") for net in nets.values()}
+                == expected_networks,
                 "native_topology_changed",
             )
         self._image(source, _MINIO_ID, MINIO_IMAGE)
@@ -409,6 +423,15 @@ class DockerAdapter:
             "native_topology_changed",
         )
         self._labels({"Config": {"Labels": network.get("Labels")}}, "network")
+        _require(
+            frontend.get("Id") == self.config["gateway_frontend_network_id"]
+            and frontend.get("Driver") == "bridge"
+            and frontend.get("Internal") is False
+            and set(frontend.get("Containers", {}))
+            == {self.config["gateway_container"]},
+            "native_topology_changed",
+        )
+        self._labels({"Config": {"Labels": frontend.get("Labels")}}, "frontend")
         self._labels(volume, "data", volume=True)
         _require(
             volume.get("Name") == self.config["source_volume_name"]
