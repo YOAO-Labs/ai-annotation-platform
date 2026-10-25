@@ -99,7 +99,11 @@ BEGIN
         'aap_workspace_v1.guard_scale_seed_cleanup(text)',
         'aap_workspace_v1.delete_scale_seed_projects(text,uuid[])',
         'aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)',
-        'aap_labeling_v1.write_project_counter_projection(uuid,jsonb)'
+        'aap_labeling_v1.write_project_counter_projection(uuid,jsonb)',
+        'aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])',
+        'aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)',
+        'aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)',
+        'aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)'
     ] LOOP
         IF NOT EXISTS (
             SELECT 1
@@ -129,7 +133,13 @@ GRANT EXECUTE ON FUNCTION
     aap_workspace_v1.guard_scale_seed_cleanup(text),
     aap_workspace_v1.delete_scale_seed_projects(text,uuid[]),
     aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean),
-    aap_labeling_v1.write_project_counter_projection(uuid,jsonb)
+    aap_labeling_v1.write_project_counter_projection(uuid,jsonb),
+    aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[]),
+    aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid),
+    aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid),
+    aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)
     TO :"consumer_role";
+GRANT SELECT (id, project_id, display_id)
+    ON aap_labeling_v1.batch_rows TO :"consumer_role";
 
 COMMIT;

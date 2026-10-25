@@ -176,7 +176,11 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text),
     aap_labeling_v1.mask_repair_command(jsonb),
     aap_labeling_v1.raster_mask_retention_query(jsonb),
     aap_labeling_v1.spatial_quality_command(jsonb),
-    aap_labeling_v1.task_maintenance_command(jsonb)
+    aap_labeling_v1.task_maintenance_command(jsonb),
+    aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[]),
+    aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid),
+    aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid),
+    aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)
     TO :"application_role";
 GRANT SELECT ON aap_labeling_v1.task_rows,
     aap_labeling_v1.batch_rows,

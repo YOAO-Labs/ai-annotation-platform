@@ -666,7 +666,8 @@ GRANT SELECT (
 GRANT SELECT (id, sensor_name, created_at) ON public.task_dataset_item_links TO :"labeling_owner";
 GRANT SELECT (id, dataset_item_id, title, start_frame, end_frame) ON public.video_chapters TO :"assets_owner";
 GRANT SELECT ON aap_assets_v1.video_chapter_facts,
-    aap_assets_v1.labeling_dataset_item_facts TO :"labeling_owner";
+    aap_assets_v1.labeling_dataset_item_facts,
+    aap_assets_v1.scale_seed_dataset_item_facts TO :"labeling_owner";
 GRANT SELECT ON aap_labeling_v1.annotation_draft_rows TO :"labeling_owner";
 
 -- Labeling owns task creation, lifecycle/evidence, edit locks and counters.
@@ -965,7 +966,8 @@ GRANT INSERT (
     id, project_id, dataset_item_id, display_id, file_name, file_path, file_type,
     tags, status, assignee_is_override, is_labeled, overlap, total_annotations,
     total_predictions, reviewer_is_override, first_review_eligible,
-    annotation_contributor_ids, reopened_count, batch_id, version
+    annotation_contributor_ids, reopened_count, batch_id, version, created_at,
+    sequence_order
 ) ON public.tasks TO :"labeling_owner";
 GRANT SELECT (
     id, total_tasks, completed_tasks, review_tasks, in_progress_tasks, batch_summary
@@ -1434,6 +1436,8 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid)
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_project_row(uuid)
     TO :"labeling_owner";
 GRANT SELECT (project_id, user_id, role) ON aap_workspace_v1.project_member_facts
+    TO :"labeling_owner";
+GRANT SELECT (id, name) ON aap_workspace_v1.project_facts
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
     TO :"inference_owner";
@@ -2476,6 +2480,7 @@ ALTER FUNCTION aap_assets_v1.workspace_configuration_existing_item_ids(uuid[])
     OWNER TO :"assets_owner";
 ALTER VIEW aap_assets_v1.video_chapter_facts OWNER TO :"assets_owner";
 ALTER VIEW aap_assets_v1.labeling_dataset_item_facts OWNER TO :"assets_owner";
+ALTER VIEW aap_assets_v1.scale_seed_dataset_item_facts OWNER TO :"assets_owner";
 ALTER VIEW aap_assets_v1.project_dataset_item_sources OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_dataset_reference(uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_current_association(uuid, uuid) OWNER TO :"assets_owner";
@@ -2814,6 +2819,14 @@ ALTER FUNCTION aap_labeling_v1._raster_mask_reference_keys()
 ALTER FUNCTION aap_labeling_v1.spatial_quality_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.task_maintenance_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)
     OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.task_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.batch_rows OWNER TO :"labeling_owner";

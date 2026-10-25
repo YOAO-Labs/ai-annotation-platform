@@ -19,6 +19,10 @@ from .class_queries import (
     LabelingClassQueryTransaction,
     materialize_labeling_class_query_data,
 )
+from .scale_seed_operations_contract import (
+    LABELING_SCALE_SEED_PROTOCOL,
+    labeling_scale_seed_operations_schema,
+)
 
 __all__ = [
     "LABELING_CLASS_QUERY_PROTOCOL",
@@ -30,10 +34,12 @@ __all__ = [
     "LabelingClassQueryRequest",
     "LabelingClassQueryTransaction",
     "LabelingClassQueryUnavailable",
+    "LABELING_SCALE_SEED_PROTOCOL",
     "decode_labeling_class_query_policy",
     "decode_labeling_class_query_reply",
     "decode_labeling_class_query_request",
     "labeling_class_query_request",
     "labeling_class_query_schema",
+    "labeling_scale_seed_operations_schema",
     "materialize_labeling_class_query_data",
 ]

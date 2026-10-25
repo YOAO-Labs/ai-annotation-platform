@@ -30,6 +30,33 @@ def test_frozen_sql_install_uses_upgrade_dependency_order():
     )
 
 
+def test_scale_seed_capabilities_are_registered_as_fixed_labeling_functions():
+    signatures = (
+        "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])",
+        "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)",
+        "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)",
+        "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)",
+    )
+    artifact = "0364_labeling_scale_seed_operations"
+    assert artifact + ".sql" in verifier.SQL_ARTIFACTS
+    assert artifact + ".schema.json" in verifier.SCHEMA_ARTIFACTS
+    assert all(
+        verifier.FUNCTION_BODY_ARTIFACTS.get(signature) == artifact + ".sql"
+        for signature in signatures
+    )
+    assert verifier.READ_RELATION_SPECS[
+        "aap_assets_v1.scale_seed_dataset_item_facts"
+    ] == {
+        "sql": artifact + ".sql",
+        "owner": "assets_code",
+        "columns": [
+            ("id", "uuid"),
+            ("dataset_id", "uuid"),
+            ("file_name", "character varying(500)"),
+        ],
+    }
+
+
 @pytest.mark.parametrize("suffix", ["sql", "schema.json"])
 def test_pool_reference_resources_match_migration_artifacts(suffix):
     name = f"0356_inference_pool_reference.{suffix}"

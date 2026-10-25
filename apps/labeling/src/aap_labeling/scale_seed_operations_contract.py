@@ -1,0 +1,99 @@
+"""Fixed PostgreSQL capabilities for the local scale-seed workflow."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+
+LABELING_SCALE_SEED_PROTOCOL = "aap-labeling-scale-seed/v1"
+
+_FUNCTIONS = (
+    {
+        "signature": "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])",
+        "owner_domain": "Labeling",
+        "arguments": [
+            {"name": "p_marker", "postgres_type": "text"},
+            {"name": "p_project_ids", "postgres_type": "uuid[]"},
+        ],
+        "result_postgres_type": "void",
+        "transaction_semantics": (
+            "Delete Annotations, Tasks, then Batches for only the captured Workspace "
+            "scale-seed Project IDs. The caller keeps the original Workspace and "
+            "Assets retention guards, owns rollback, and commits after source and "
+            "Project cleanup."
+        ),
+    },
+    {
+        "signature": "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)",
+        "owner_domain": "Labeling",
+        "arguments": [
+            {"name": "p_marker", "postgres_type": "text"},
+            {"name": "p_project_id", "postgres_type": "uuid"},
+            {"name": "p_dataset_id", "postgres_type": "uuid"},
+            {"name": "p_batch_count", "postgres_type": "integer"},
+            {"name": "p_annotator_id", "postgres_type": "uuid"},
+        ],
+        "result_postgres_type": "bigint",
+        "transaction_semantics": (
+            "Bulk insert the original B-prefixed batches from generate_series. The "
+            "caller commits this stage before task creation."
+        ),
+    },
+    {
+        "signature": "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)",
+        "owner_domain": "Labeling",
+        "arguments": [
+            {"name": "p_marker", "postgres_type": "text"},
+            {"name": "p_project_id", "postgres_type": "uuid"},
+            {"name": "p_dataset_id", "postgres_type": "uuid"},
+        ],
+        "result_postgres_type": "bigint",
+        "transaction_semantics": (
+            "Read the ordered id, dataset_id, and file_name snapshot through the "
+            "narrow Assets projection and bulk insert Tasks in that same statement. "
+            "The caller commits this stage before annotation creation."
+        ),
+    },
+    {
+        "signature": "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)",
+        "owner_domain": "Labeling",
+        "arguments": [
+            {"name": "p_marker", "postgres_type": "text"},
+            {"name": "p_project_id", "postgres_type": "uuid"},
+            {"name": "p_annotator_id", "postgres_type": "uuid"},
+            {"name": "p_annotation_count", "postgres_type": "integer"},
+        ],
+        "result_postgres_type": "bigint",
+        "transaction_semantics": (
+            "Bulk insert the original active seed annotations ordered by sequence_order. "
+            "The caller owns the final annotation-stage commit."
+        ),
+    },
+)
+
+_RELATIONS = (
+    {
+        "relation": "aap_labeling_v1.batch_rows",
+        "owner_domain": "Labeling",
+        "columns": ["id", "project_id", "display_id"],
+    },
+    {
+        "relation": "aap_assets_v1.scale_seed_dataset_item_facts",
+        "owner_domain": "Assets",
+        "columns": ["id", "dataset_id", "file_name"],
+    },
+)
+
+
+def labeling_scale_seed_operations_schema() -> dict[str, Any]:
+    """Export the fixed typed PostgreSQL function and relation surface."""
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": LABELING_SCALE_SEED_PROTOCOL,
+        "$comment": (
+            "Fixed local scale-seed operations. PostgreSQL types are the wire ABI; "
+            "the caller owns every transaction boundary."
+        ),
+        "x-postgresql-functions": deepcopy(list(_FUNCTIONS)),
+        "x-postgresql-relations": deepcopy(list(_RELATIONS)),
+    }

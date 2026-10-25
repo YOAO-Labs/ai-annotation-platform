@@ -178,9 +178,12 @@ async def test_scale_seed_original_raw_defaults_and_commit_stages(
             yield db
 
     def fail_stage(connection, cursor, statement, parameters, context, executemany):
-        if (case == "tasks_fail" and statement.startswith("WITH b AS")) or (
+        if (
+            case == "tasks_fail"
+            and "aap_labeling_v1.create_scale_seed_tasks" in statement
+        ) or (
             case == "annotations_fail"
-            and statement.startswith("INSERT INTO annotations")
+            and "aap_labeling_v1.create_scale_seed_annotations" in statement
         ):
             raise RuntimeError("controlled scale stage failure")
 
@@ -497,6 +500,55 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
         assert result.returncode == 0, result.stderr
         async with consumer() as db:
             await _assert_closed(db)
+            for signature in (
+                "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])",
+                "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)",
+                "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)",
+                "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)",
+            ):
+                assert await db.scalar(
+                    text(
+                        "SELECT has_function_privilege(current_user,:signature,'EXECUTE')"
+                    ),
+                    {"signature": signature},
+                )
+            for relation in (
+                "public.tasks",
+                "public.task_batches",
+                "public.annotations",
+            ):
+                assert not await db.scalar(
+                    text(
+                        "SELECT pg_catalog.has_table_privilege(current_user,:relation,"
+                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
+                        "pg_catalog.has_any_column_privilege(current_user,:relation,"
+                        "'SELECT,INSERT,UPDATE,REFERENCES')"
+                    ),
+                    {"relation": relation},
+                )
+            for sequence in (
+                "public.display_seq_tasks",
+                "public.display_seq_batches",
+            ):
+                assert not await db.scalar(
+                    text(
+                        "SELECT pg_catalog.has_sequence_privilege(current_user,"
+                        ":sequence,'USAGE,SELECT,UPDATE')"
+                    ),
+                    {"sequence": sequence},
+                )
+            assert await db.scalar(
+                text(
+                    "SELECT pg_catalog.has_any_column_privilege(current_user,"
+                    "'aap_labeling_v1.batch_rows','SELECT')"
+                )
+            )
+            await db.execute(
+                text(
+                    "SELECT id FROM aap_labeling_v1.batch_rows "
+                    "WHERE project_id IS NULL ORDER BY display_id LIMIT 1"
+                )
+            )
             assert await db.scalar(
                 text(
                     "SELECT has_function_privilege(current_user,'aap_workspace_v1.read_project_row(uuid)','EXECUTE')"

@@ -3079,8 +3079,9 @@ Identity／Workspace 围栏；设置 `AAP_IDENTITY_E2E_FIXTURE_LIVE=1` 及匹配
 
 应用当前迁移和 owner grants 后，可信操作账号先应用普通 Workspace consumer
 围栏，再组合 `identity-scale-seed-grants.sql` 和 `workspace-scale-seed-grants.sql`。
-后者追加四项 Workspace 能力、一项 Assets 来源 guard 和既有 Labeling 计数 writer，
-保留其他领域的既有权限；普通 API 不得到这些规模操作能力。
+后者追加四项 Workspace 能力、一项 Assets 来源 guard、Labeling 计数 writer、四项
+固定 Labeling 规模种子操作和仅 `id/project_id/display_id` 的公开批次读取投影。
+API 通过固定函数执行 Labeling 写入，仍不直接访问 Labeling 私表或任务/批次序列。
 
 ```bash
 apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \

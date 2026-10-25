@@ -88,6 +88,10 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])": "0364_labeling_scale_seed_operations.sql",
+    "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)": "0364_labeling_scale_seed_operations.sql",
+    "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)": "0364_labeling_scale_seed_operations.sql",
+    "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)": "0364_labeling_scale_seed_operations.sql",
     "aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])": "0361_labeling_compatibility_reads.sql",
     "aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])": "0361_labeling_compatibility_reads.sql",
     "aap_labeling_v1.next_batch_display_id()": "0361_labeling_compatibility_reads.sql",
@@ -501,6 +505,15 @@ READ_RELATION_SPECS = {
             ("content_hash", "character varying(64)"),
             ("width", "integer"),
             ("height", "integer"),
+        ],
+    },
+    "aap_assets_v1.scale_seed_dataset_item_facts": {
+        "sql": "0364_labeling_scale_seed_operations.sql",
+        "owner": "assets_code",
+        "columns": [
+            ("id", "uuid"),
+            ("dataset_id", "uuid"),
+            ("file_name", "character varying(500)"),
         ],
     },
     "aap_assets_v1.video_chapter_facts": {
@@ -958,8 +971,10 @@ SQL_ARTIFACTS = (
     "0359_labeling_upload_tasks.sql",
     "0360_labeling_video_segment_lifecycle.sql",
     "0361_labeling_compatibility_reads.sql",
+    "0364_labeling_scale_seed_operations.sql",
 )
 SCHEMA_ARTIFACTS = (
+    "0364_labeling_scale_seed_operations.schema.json",
     "0360_labeling_video_segment_lifecycle.schema.json",
     "0359_labeling_upload_tasks.schema.json",
     "0358_labeling_fixture_cleanup.schema.json",
@@ -1144,6 +1159,7 @@ TEST_FILES = (
     "tests/test_labeling_mask_quality_native.py",
     "tests/test_labeling_spatial_quality_native.py",
     "tests/test_labeling_task_maintenance_native.py",
+    "tests/test_labeling_scale_seed_operations.py",
     "tests/test_scale_seed_workspace_native.py",
     "tests/test_workspace_e2e_native.py",
     "tests/test_gpu_registry_delete_noop_native.py",
