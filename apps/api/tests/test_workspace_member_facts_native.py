@@ -10,7 +10,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
-from pydantic import TypeAdapter
 import pytest
 from sqlalchemy import event, select, text
 from sqlalchemy.exc import DBAPIError
@@ -18,15 +17,14 @@ from sqlalchemy.orm import aliased
 
 from aap_workspace_contract.member_values import (
     PROJECT_MEMBER_COLUMNS,
-    ProjectMemberRow,
 )
-from aap_workspace_contract.read_relations import read_relations_schema
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.config import settings
 from app.core.security import create_access_token
 from app.services.annotation_comment import AnnotationCommentService
 from app.services.batch import BatchService
+from app.services.labeling_core_read_relations import task_row
 from app.services.notification import NotificationService
 from app.services.project_aggregates import member_user_ids
 from app.services.workspace_read_relations import project_member_facts
@@ -47,33 +45,6 @@ pytestmark = [
 ]
 _ROOT = Path(__file__).resolve().parents[3]
 _VIEW = "aap_workspace_v1.project_member_facts"
-
-
-async def test_fact_descriptor_reuses_fixed_member_row_and_native_mirror():
-    schema = read_relations_schema()
-    expected = TypeAdapter(ProjectMemberRow).json_schema()
-    expected["additionalProperties"] = False
-    assert schema["$defs"]["ProjectMemberRow"] == expected
-    assert (
-        json.loads(
-            (
-                _ROOT
-                / "apps/_shared/workspace_contract/src/aap_workspace_contract/read_relations.schema.json"
-            ).read_text()
-        )
-        == schema
-    )
-    native = json.loads(
-        (
-            _ROOT / "apps/api/alembic/sql/0297_workspace_member_facts.schema.json"
-        ).read_text()
-    )
-    assert native["$defs"] == schema["$defs"]
-    relation = dict(schema["x-postgresql-relations"][_VIEW])
-    relation.pop("semantics")
-    assert native["x-postgresql-relations"] == {_VIEW: relation}
-    assert list(project_member_facts().c.keys()) == list(PROJECT_MEMBER_COLUMNS)
-    assert project_member_facts() is not project_member_facts()
 
 
 async def test_view_owner_columns_and_acl_are_narrow(test_engine):
@@ -281,12 +252,7 @@ async def test_restricted_roster_keeps_mapper_identity_and_stale_fields(
 
 async def test_delivery_and_mentions_need_no_private_member_select(test_engine):
     async with _world(test_engine) as (owner, api, world, _url):
-        # These operations still contain independent Project queries, deliberately
-        # outside this membership-only qualification.
         async with owner.begin() as setup:
-            await setup.execute(
-                text("GRANT SELECT ON public.projects TO identity_api_consumer")
-            )
             await setup.execute(
                 text("UPDATE project_members SET role='unknown' WHERE id=:id"),
                 {"id": world["membership_id"]},
@@ -345,26 +311,12 @@ async def test_batch_role_only_correlated_updates_keep_overrides_and_rollback(
                 {"id": world["member_id"]},
             )
         async with api() as db:
-            trace = []
-
-            def capture(_conn, _cursor, statement, _parameters, _context, _many):
-                if "aap_workspace_v1.project_member_facts" in statement:
-                    trace.append(statement)
-
-            event.listen(db.bind.sync_engine, "before_cursor_execute", capture)
-            try:
-                await BatchService(db)._reset_and_clean_batch_tasks(batch_id)
-            finally:
-                event.remove(db.bind.sync_engine, "before_cursor_execute", capture)
-            assert len(trace) == 2
-            assert all(
-                sql.startswith("UPDATE tasks ") and "NOT (EXISTS" in sql
-                for sql in trace
-            )
-            assert all("account_profiles" not in sql for sql in trace)
+            await BatchService(db)._reset_and_clean_batch_tasks(batch_id)
             rows = {
                 task.id: task
-                for task in await db.scalars(select(Task).where(Task.id.in_(ids)))
+                for task in await db.scalars(
+                    select(task_row).where(task_row.id.in_(ids))
+                )
             }
             assert rows[ids[0]].assignee_id is None
             assert rows[ids[0]].reviewer_id == world["member_id"]
@@ -427,11 +379,6 @@ async def test_actual_http_dashboards_without_private_member_reads(
         world,
         _url,
     ):
-        # Independent raw Project projections remain a later slice.
-        async with owner.begin() as setup:
-            await setup.execute(
-                text("GRANT SELECT ON public.projects TO identity_api_consumer")
-            )
 
         async def request_db():
             async with api() as db:

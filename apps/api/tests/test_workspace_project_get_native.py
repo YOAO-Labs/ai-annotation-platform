@@ -14,6 +14,7 @@ from sqlalchemy import delete, event, inspect, text
 
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.services.labeling_core_read_relations import get_core_row, task_row
 from tests.test_workspace_project_authority_locking import _world
 from tests.test_workspace_project_authority_locking import _assert_private_denied
 
@@ -211,7 +212,7 @@ async def test_restricted_api_task_access_uses_read_only_owner_snapshots(test_en
                 before = (
                     await db.execute(text("SELECT pg_backend_pid(),txid_current()"))
                 ).one()
-                task = await db.get(Task, task_id)
+                task = await get_core_row(db, task_row, task_id)
                 access = await resolve_task_access(
                     db, task=task, actor_id=world["member_id"]
                 )

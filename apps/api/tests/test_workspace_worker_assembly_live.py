@@ -343,10 +343,6 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
 ):
     assert test_engine.url.database and test_engine.url.database.endswith("_test")
     _verify_postgres(test_engine.url)
-    async with test_engine.connect() as db:
-        assert await db.scalar(text("SELECT count(*) FROM public.users")) == 0
-        assert await db.scalar(text("SELECT count(*) FROM public.projects")) == 0
-
     backend_token = secrets.token_urlsafe(32)
     worlds = []
     worker = None

@@ -20,6 +20,7 @@ from app.application.async_job_read import SqlAsyncJobReadAdapter
 from app.config import settings
 from app.core.security import create_access_token
 from app.db.models.async_job import AsyncJob
+from app.db.models.dataset import Dataset
 from app.db.models.notification import Notification
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
@@ -180,14 +181,11 @@ async def test_standalone_membership_select_preserves_autoflush(test_engine, aut
         async with api() as db:
             db.autoflush = autoflush
             task_id = uuid.uuid4()
-            pending = Task(
+            pending = Dataset(
                 id=task_id,
-                project_id=world["project_id"],
-                display_id="SCOPE-AF-" + task_id.hex[:12],
-                file_name="pending.png",
-                file_path=f"scope/{task_id}.png",
-                file_type="image",
-                status="pending",
+                display_id="DS-" + task_id.hex[:16],
+                name="Pending membership caller work",
+                created_by=world["owner_id"],
             )
             db.add(pending)
             actor = SimpleNamespace(id=world["member_id"])
@@ -206,14 +204,11 @@ async def test_standalone_owned_project_select_preserves_autoflush(
         async with api() as db:
             db.autoflush = autoflush
             task_id = uuid.uuid4()
-            pending = Task(
+            pending = Dataset(
                 id=task_id,
-                project_id=world["project_id"],
-                display_id="SCOPE-AF-" + task_id.hex[:12],
-                file_name="pending.png",
-                file_path=f"scope/{task_id}.png",
-                file_type="image",
-                status="pending",
+                display_id="DS-" + task_id.hex[:16],
+                name="Pending owner-scope caller work",
+                created_by=world["owner_id"],
             )
             db.add(pending)
             actor = SimpleNamespace(

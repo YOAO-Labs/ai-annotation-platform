@@ -12,7 +12,9 @@ import uuid
 import pytest
 from sqlalchemy import delete, event, func, select, text
 
+from app.db.models.dataset import Dataset
 from app.db.models.task import Task
+from app.services.labeling_core_read_relations import task_row
 from app.services.project_aggregates import (
     managed_project_scope_clause,
     membership_project_ids,
@@ -167,6 +169,7 @@ async def _check_scope_case(
         try:
             observed = {}
             maker = owner if binding == "owner" else api
+            row_model = Task if binding == "owner" else task_row
             for autoflush in (False, True):
                 async with maker() as db:
                     if binding == "api":
@@ -186,25 +189,35 @@ async def _check_scope_case(
                         id=world["member_id"], role=caller_role, is_active=caller_active
                     )
                     if operation == "membership":
-                        clause = Task.project_id.in_(
+                        clause = row_model.project_id.in_(
                             membership_project_ids(actor, *roles)
                         )
                     elif operation == "project":
                         clause = project_scope_clause(
-                            actor, Task.project_id, project_roles=roles
+                            actor, row_model.project_id, project_roles=roles
                         )
                     else:
-                        clause = managed_project_scope_clause(actor, Task.project_id)
+                        clause = managed_project_scope_clause(
+                            actor, row_model.project_id
+                        )
                     task_id = uuid.uuid4()
-                    pending = Task(
-                        id=task_id,
-                        project_id=projects["annotator"],
-                        display_id=f"SCOPE-P-{task_id.hex[:18]}",
-                        file_name="annotator:pending",
-                        file_path=f"scope/{task_id}.png",
-                        file_type="image",
-                        status="pending",
-                    )
+                    if binding == "api":
+                        pending = Dataset(
+                            id=task_id,
+                            display_id="DS-" + task_id.hex[:16],
+                            name="Pending caller work",
+                            created_by=world["owner_id"],
+                        )
+                    else:
+                        pending = Task(
+                            id=task_id,
+                            project_id=projects["annotator"],
+                            display_id=f"SCOPE-P-{task_id.hex[:18]}",
+                            file_name="annotator:pending",
+                            file_path=f"scope/{task_id}.png",
+                            file_type="image",
+                            status="pending",
+                        )
                     db.add(pending)
                     flushes = []
 
@@ -222,25 +235,29 @@ async def _check_scope_case(
                                 )
                             ).one()
                         )
-                        statement = select(Task.file_name).where(
-                            Task.project_id.in_(list(projects.values()))
+                        statement = select(row_model.file_name).where(
+                            row_model.project_id.in_(list(projects.values()))
                         )
                         count = (
                             select(func.count())
-                            .select_from(Task)
-                            .where(Task.project_id.in_(list(projects.values())))
+                            .select_from(row_model)
+                            .where(row_model.project_id.in_(list(projects.values())))
                         )
                         if clause is not None:
                             statement = statement.where(clause)
                             count = count.where(clause)
                         rows = list(
-                            (await db.scalars(statement.order_by(Task.file_name))).all()
+                            (
+                                await db.scalars(
+                                    statement.order_by(row_model.file_name)
+                                )
+                            ).all()
                         )
                         total = await db.scalar(count)
                         page = list(
                             (
                                 await db.scalars(
-                                    statement.order_by(Task.file_name)
+                                    statement.order_by(row_model.file_name)
                                     .offset(1)
                                     .limit(3)
                                 )
@@ -266,7 +283,18 @@ async def _check_scope_case(
                     finally:
                         event.remove(db.sync_session, "before_flush", mark_flush)
                         await db.rollback()
-            _capture(f"{actor_case}:{operation}:{','.join(roles)}", observed)
+            key = f"{actor_case}:{operation}:{','.join(roles)}"
+            if binding == "owner":
+                _capture(key, observed)
+            else:
+                # Freeze scope results independently of retired raw Task writes.
+                expected = json.loads(_GOLDEN.read_text())["cases"][key]["False"]
+                fields = ("rows", "count", "page")
+                for autoflush, state in observed.items():
+                    assert {field: state[field] for field in fields} == {
+                        field: expected[field] for field in fields
+                    }
+                    assert state["pending"] is (autoflush == "False")
         finally:
             async with owner.begin() as db:
                 await db.execute(

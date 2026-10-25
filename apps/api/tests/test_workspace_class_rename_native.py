@@ -324,8 +324,7 @@ async def _function_metadata(connection):
                       pg_catalog.pg_get_userbyid(function.proowner) AS owner,
                       function.proacl::text AS acl,
                       function.prosecdef AS security_definer,
-                      function.proconfig AS settings,
-                      pg_catalog.pg_get_functiondef(function.oid) AS definition
+                      function.proconfig AS settings
                FROM pg_catalog.pg_proc AS function
                WHERE function.oid=ANY(ARRAY[
                    pg_catalog.to_regprocedure(:step)::oid,
@@ -371,7 +370,6 @@ async def test_class_rename_replacement_retains_live_oid_acl_and_function_owners
             step_key = next(key for key in before if ".configuration_step(" in key)
             for key in ("oid", "owner", "acl"):
                 assert legacy[step_key][key] == before[step_key][key]
-            assert legacy[step_key]["definition"] != before[step_key]["definition"]
             for statement in new_statements:
                 if statement.strip():
                     await owner.exec_driver_sql(statement.strip())

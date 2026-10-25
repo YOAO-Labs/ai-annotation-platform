@@ -465,11 +465,19 @@ Identity account-lock boundary 用三项 typed SQL functions（SHARE／UPDATE／
 历史角色审计入口盘点；没有发现需要再拆一个普通 Workspace 业务服务的缺口。
 Project 与目录契约反向加载值编解码器的两处函数内导入环已移除，响应 decoder 及所有
 调用方直接使用现有编解码器入口；契约／schema 定义保持单向依赖。Workspace owner
-与共享契约图通过，547项便携包／共享契约检查通过，两份 schema 摘要不变。
+与共享契约图通过；源码与独立非 editable 安装各通过547项便携包／共享契约检查，
+两份 schema 摘要不变。本轮626项不同 Native 行为案例分批通过；原始失败全部保留，
+不是一次全绿组合。另移除一项只比较 schema 复制与对象身份的断言，不再计入行为资格。
 
 现有验证器增加显式 strict／default 选择，复用同一九进程业务／整库恢复和实际
 worker 场景，但不把默认凭据在验收前悄悄改成32函数配置。当前冷工件和这两种
 profile 的运行结果尚未在本审计中宣称通过；旧资格保留原源码和范围。
+
+组合夹具按验证器归属与独立 UUID 隔离，不假设全库没有已有探针用户，也不在退出时
+给普通账号回授 Project／成员私表权限。跨域夹具读现有 owner 的公开行；通用待写工作
+使用当前 LOGIN 支持的模型，不再把已撤销的 Tasks／Batch 原始 ORM 写入当作
+Workspace 调用前提。冻结 scope 的行、计数、分页结果与 caller autoflush／回滚分别检查，
+不把 SQL 次数、旧函数体文本或触发器写入轨迹作为新的功能契约。
 
 本轮图检查还记录 API 的 `annotation_cleanup ↔ batch` 环，不属于 Workspace 包；
 该失败保持，不通过收窄或关闭已有 API 图守卫掩盖，也不扩大 Labeling 实施。

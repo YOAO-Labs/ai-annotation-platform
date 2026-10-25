@@ -83,24 +83,17 @@ async def _world(test_engine, *, retain_audited=False):
                         {"role": role, "function": _FUNCTION},
                     )
                 ) is expected
-            await db.execute(
-                text(
-                    "REVOKE SELECT ON public.projects,public.project_members "
-                    "FROM identity_api_consumer"
+            for table in _PRIVATE:
+                assert not await db.scalar(
+                    text("SELECT has_any_column_privilege(:role,:table,'SELECT')"),
+                    {"role": _ROLE, "table": "public." + table},
                 )
-            )
         yield owner, async_sessionmaker(engine, expire_on_commit=False), world, url
     finally:
         await engine.dispose()
         try:
             if before is not None:
                 async with test_engine.begin() as db:
-                    await db.execute(
-                        text(
-                            "GRANT SELECT ON public.projects,public.project_members "
-                            "TO identity_api_consumer"
-                        )
-                    )
                     after = (
                         await db.execute(
                             text(

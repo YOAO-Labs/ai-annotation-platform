@@ -16,6 +16,7 @@ from sqlalchemy import delete, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.db.models.dataset import Dataset
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
@@ -49,8 +50,11 @@ async def _restricted(test_engine, *, counters=False):
                     "SELECT relacl::text FROM pg_class WHERE oid='public.projects'::regclass"
                 )
             )
-            await db.execute(
-                text("REVOKE UPDATE ON public.projects FROM identity_api_consumer")
+            assert not await db.scalar(
+                text(
+                    "SELECT has_any_column_privilege(:role,'public.projects','UPDATE')"
+                ),
+                {"role": _ROLE},
             )
         try:
             batch_ids = await _seed_counters(owner, world) if counters else []
@@ -62,9 +66,6 @@ async def _restricted(test_engine, *, counters=False):
                 )
                 await db.execute(
                     delete(TaskBatch).where(TaskBatch.project_id == world["project_id"])
-                )
-                await db.execute(
-                    text("GRANT UPDATE ON public.projects TO identity_api_consumer")
                 )
                 assert (
                     await db.scalar(
@@ -209,8 +210,15 @@ async def test_batch_project_set_contention_preserves_409_and_full_rollback(
                 text("SELECT id FROM public.projects WHERE id=:id FOR UPDATE"),
                 {"id": world["project_id"]},
             )
-            batch = await db.get(TaskBatch, batches[0])
-            batch.name = "must roll back"
+            pending_id = uuid.uuid4()
+            db.add(
+                Dataset(
+                    id=pending_id,
+                    display_id="DS-" + pending_id.hex[:16],
+                    name="Must roll back after Project contention",
+                    created_by=world["owner_id"],
+                )
+            )
             with pytest.raises(HTTPException) as rejected:
                 await BatchService(db)._lock_decision_scope(
                     actor_id=world["owner_id"], batch_ids=batches
@@ -220,6 +228,7 @@ async def test_batch_project_set_contention_preserves_409_and_full_rollback(
             assert not db.in_transaction()
             await holder.rollback()
         async with owner() as db:
+            assert await db.get(Dataset, pending_id) is None
             assert (
                 await db.scalar(
                     text("SELECT name FROM public.task_batches WHERE id=:id"),
@@ -271,8 +280,8 @@ async def test_counter_consumers_work_without_project_select_or_update(
                         text(
                             "SELECT b.total_tasks,b.completed_tasks,b.review_tasks,count(t.id),"
                             "count(t.id) FILTER (WHERE t.status='completed'),count(t.id) FILTER (WHERE t.status='review') "
-                            "FROM public.task_batches b LEFT JOIN public.tasks t ON t.batch_id=b.id "
-                            "WHERE b.project_id=:id GROUP BY b.id"
+                            "FROM aap_labeling_v1.batch_rows b LEFT JOIN aap_labeling_v1.task_rows t ON t.batch_id=b.id "
+                            "WHERE b.project_id=:id GROUP BY b.id,b.total_tasks,b.completed_tasks,b.review_tasks"
                         ),
                         {"id": world["project_id"]},
                     )

@@ -450,9 +450,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
 ):
     assert test_engine.url.database and test_engine.url.database.endswith("_test")
     _verify_postgres(test_engine.url)
-    async with test_engine.connect() as db:
-        assert await db.scalar(text("SELECT count(*) FROM public.users")) == 0
-        assert await db.scalar(text("SELECT count(*) FROM public.projects")) == 0
     resources, guide_bucket, owner_s3 = await assert_workspace_identity(test_engine)
     await _assert_restricted_api_consumer(test_engine)
     maker, actors = await _seed_users(test_engine)

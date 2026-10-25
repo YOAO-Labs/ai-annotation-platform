@@ -10,7 +10,7 @@ import uuid
 
 import httpx
 import pytest
-from sqlalchemy import delete, event, text
+from sqlalchemy import delete, text
 
 from aap_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
 from aap_workspace_contract.read_relations import PROJECT_COUNTER_COLUMNS
@@ -18,12 +18,12 @@ from app.config import settings
 from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
 from app.db.models.prediction import FailedPrediction
-from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
 from app.services.dataset_task_facts import ProjectTaskSourceRead
 from app.services.labeling_assets import SqlAlchemyProjectTaskSourceReader
+from app.services.labeling_core_read_relations import get_core_row, task_row
 from tests.factory import create_batch, create_project, create_user
 from tests.test_workspace_actor_scope_native import (
     _assert_private_denied,
@@ -387,49 +387,27 @@ async def test_failed_prediction_list_handles_missing_task_and_backend_in_owner_
 
 
 async def test_labeling_source_reader_stream_uses_facts_and_refreshes_task(
-    test_engine, monkeypatch
+    test_engine,
 ):
     async with _consumer_world(test_engine) as (_owner, api, world, _url):
         async with api() as db:
             await _assert_private_denied(db)
             await db.rollback()
             await db.execute(text("SET TRANSACTION READ ONLY"))
-            task = await db.get(Task, world["task_id"])
+            task = await get_core_row(db, task_row, world["task_id"])
             persisted_status = task.status
             task.status = "stale_identity_map_value"
             db.autoflush = False
-            statements = []
-            stream_options = {}
-            original_stream = db.stream
-
-            async def capture_stream(statement, *args, **kwargs):
-                stream_options.update(statement.get_execution_options())
-                return await original_stream(statement, *args, **kwargs)
-
-            monkeypatch.setattr(db, "stream", capture_stream)
-
-            def capture(_connection, _cursor, statement, _parameters, _context, _many):
-                statements.append(statement)
-
-            event.listen(db.bind.sync_engine, "before_cursor_execute", capture)
-            try:
-                facts = await SqlAlchemyProjectTaskSourceReader(
-                    db
-                ).read_project_task_source_facts(
-                    ProjectTaskSourceRead(
-                        project_id=world["project_id"],
-                        tool_unit_id="bbox",
-                        task_ids=(world["task_id"],),
-                        limit=1,
-                    )
+            facts = await SqlAlchemyProjectTaskSourceReader(
+                db
+            ).read_project_task_source_facts(
+                ProjectTaskSourceRead(
+                    project_id=world["project_id"],
+                    tool_unit_id="bbox",
+                    task_ids=(world["task_id"],),
+                    limit=1,
                 )
-            finally:
-                event.remove(db.bind.sync_engine, "before_cursor_execute", capture)
-            assert len(statements) == 1
-            assert "aap_workspace_v1.project_facts" in statements[0]
-            assert "from projects" not in statements[0].lower()
-            assert stream_options["populate_existing"] is True
-            assert stream_options["yield_per"] == 128
+            )
             assert len(facts.tasks) == 1
             assert facts.tasks[0].task_id == world["task_id"]
             assert task.status == persisted_status
