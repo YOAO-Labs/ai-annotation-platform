@@ -45532,6 +45532,280 @@
         "title": "StorageDirectoryPage",
         "type": "object"
       },
+      "StorageFaultCounts": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "integer"
+          },
+          "recovered": {
+            "title": "Recovered",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "active",
+          "recovered"
+        ],
+        "title": "StorageFaultCounts",
+        "type": "object"
+      },
+      "StorageFaultList": {
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/StorageFaultCounts"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StorageFaultOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "observation_only": {
+            "const": true,
+            "default": true,
+            "title": "Observation Only",
+            "type": "boolean"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "counts"
+        ],
+        "title": "StorageFaultList",
+        "type": "object"
+      },
+      "StorageFaultOut": {
+        "properties": {
+          "asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Id"
+          },
+          "category": {
+            "enum": [
+              "root_unavailable",
+              "access_denied",
+              "source_changed",
+              "preview_failed"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "failure_count": {
+            "title": "Failure Count",
+            "type": "integer"
+          },
+          "first_failed_at": {
+            "format": "date-time",
+            "title": "First Failed At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "last_failed_at": {
+            "format": "date-time",
+            "title": "Last Failed At",
+            "type": "string"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "scan",
+              "scan_content",
+              "reference_read",
+              "preview_generate"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "recovered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovered At"
+          },
+          "registration_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registration Id"
+          },
+          "responsible_role": {
+            "enum": [
+              "platform_admin",
+              "dataset_admin"
+            ],
+            "title": "Responsible Role",
+            "type": "string"
+          },
+          "responsible_user_id": {
+            "title": "Responsible User Id",
+            "type": "null"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "scope_status": {
+            "enum": [
+              "current",
+              "historical",
+              "unknown"
+            ],
+            "title": "Scope Status",
+            "type": "string"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Name"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "recovered"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "id",
+          "location_id",
+          "source_id",
+          "dataset_id",
+          "item_id",
+          "asset_id",
+          "task_id",
+          "run_id",
+          "job_id",
+          "registration_id",
+          "source_name",
+          "node_id",
+          "operation",
+          "category",
+          "state",
+          "first_failed_at",
+          "last_failed_at",
+          "recovered_at",
+          "failure_count",
+          "scope_status",
+          "responsible_role"
+        ],
+        "title": "StorageFaultOut",
+        "type": "object"
+      },
       "StorageLocationApply": {
         "additionalProperties": false,
         "properties": {
@@ -96398,6 +96672,92 @@
           }
         ],
         "summary": "Directories",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
+    "/api/v1/storage-locations/{location_id}/faults": {
+      "get": {
+        "operationId": "source_faults_api_v1_storage_locations__location_id__faults_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Location Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "active",
+              "enum": [
+                "active",
+                "recovered",
+                "all"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageFaultList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Source Faults",
         "tags": [
           "storage-locations"
         ]

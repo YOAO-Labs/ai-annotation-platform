@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from app.db.models.dataset_source import DatasetSourcePreview, DatasetSourceItem
 from app.db.models.dataset_asset import DatasetAsset, StorageBinding
 from app.services import directory_policy as policy
+from app.services import storage_fault_events, storage_location
 from app.services.content_snapshot import ContentError, capture
 from app.services.dataset_content import key_authority, stored_content
 from app.services.storage import storage_service
@@ -87,9 +88,50 @@ async def generate(
     run_id=None,
     job_id=None,
     registration_id=None,
+    fault_node_id=None,
+    fault_anchor=None,
+    fault_maintenance_revision=1,
+    fault_validate=None,
 ):
     if not policy.permits_preview(policy.effective_cache_policy(source, location)):
         return None
+
+    async def observe(binding=None):
+        dependencies = None
+        if binding is not None:
+            from app.services.storage_fault_state import digest
+
+            dependencies = {
+                "source_policy_revision": source.policy_revision,
+                "source_policy": source.cache_policy,
+                "location_policy": location.config.get("cache_policy", "preview"),
+                "binding": [
+                    str(binding.location_id),
+                    binding.generation,
+                    digest(binding.bucket),
+                ],
+            }
+        return await storage_fault_events.prepare(
+            db,
+            location=location,
+            source=source,
+            operation="preview_generate",
+            actor_id=actor_id,
+            node_id=fault_node_id or storage_location.api_node_id(),
+            anchor=fault_anchor,
+            maintenance_revision=fault_maintenance_revision,
+            path_digest=mapping.path_digest,
+            expected=snapshot.sha256,
+            asset_id=mapping.asset_id,
+            preview_spec=SPEC,
+            preview_dependencies=dependencies,
+            item_id=mapping.dataset_item_id,
+            run_id=run_id,
+            job_id=job_id,
+            registration_id=registration_id,
+        )
+
+    observation = None
     row = await db.get(DatasetSourcePreview, (source.id, mapping.path_digest))
     if (
         row
@@ -99,7 +141,9 @@ async def generate(
         and row.spec == SPEC
     ):
         try:
+            observation = await observe()
             if await finish_io(cached_bytes_match, row):
+                row._fault_observation = observation
                 return row
         except Exception:
             pass
@@ -119,8 +163,9 @@ async def generate(
     row.measured_at = datetime.now(timezone.utc)
     row.state, row.error_code = "failed", "preview_generation_failed"
     try:
-        body = await encode(snapshot)
         binding = await db.get(StorageBinding, "media-cache", populate_existing=True)
+        observation = await observe(binding)
+        body = await encode(snapshot)
         key = f"directory-previews/{source.id}/{uuid.uuid4()}.webp"
         # Register ownership before I/O, including a partially successful PUT.
         uploaded.append((binding.bucket, key))
@@ -148,12 +193,16 @@ async def generate(
         # A derivative failure does not roll back an already verified original.
         if uploaded and uploaded[-1][1].startswith(f"directory-previews/{source.id}/"):
             await delete_owned([uploaded.pop()])
-        from app.services import storage_fault_events
-
+        if fault_validate is not None:
+            try:
+                await fault_validate()
+            except Exception:
+                return row
         await storage_fault_events.report(
             db,
             None,
             operation="preview_generate",
+            observation=observation,
             preview=True,
             actor_id=actor_id,
             location_id=location.id,
@@ -165,6 +214,7 @@ async def generate(
             job_id=job_id,
             registration_id=registration_id,
         )
+    row._fault_observation = observation
     return row
 
 
