@@ -253,8 +253,7 @@ celery_app.worker_main(sys.argv[1:])
         containers.append(worker)
         for container in containers:
             _docker("start", container)
-        origin = cold._verify_api_container(
-            api,
+        api_binding = dict(
             image_id=image_id,
             network_name=network,
             network_id=network_id,
@@ -268,6 +267,7 @@ celery_app.worker_main(sys.argv[1:])
             minio_access_key=key,
             minio_secret_key=secret,
         )
+        origin = cold._verify_api_container(api, **api_binding)
         await cold._wait_for_api(origin, api, secrets_to_redact=redacted)
         details = _inspect_docker(worker)
         assert (
@@ -315,6 +315,7 @@ asyncio.run(main())
                 "worker": worker,
                 "node_name": node_name,
                 "origin": origin,
+                "api_binding": api_binding,
                 "image_id": image_id,
                 "probes": probes,
                 "redacted": redacted,
@@ -693,9 +694,15 @@ async def test_current_cold_audit_api_worker_queries_exports_and_restore(
             assert await asyncio.to_thread(delivery.get, timeout=15) is None
             await _wait_event(test_engine, lost_id)
             _docker("restart", stack["api"])
-            await cold._wait_for_api(
-                stack["origin"], stack["api"], secrets_to_redact=stack["redacted"]
+            origin = cold._verify_api_container(stack["api"], **stack["api_binding"])
+            record_property(
+                "audit_cold_api_restart_binding",
+                json.dumps({"original": stack["origin"], "restarted": origin}),
             )
+            await cold._wait_for_api(
+                origin, stack["api"], secrets_to_redact=stack["redacted"]
+            )
+            client.base_url = origin
             assert (
                 await client.get(
                     "/api/v1/audit-logs", params=filters, headers=tokens["admin"]
