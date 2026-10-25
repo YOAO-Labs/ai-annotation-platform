@@ -78,6 +78,13 @@ from app.services.workspace_member_locks import (
     lock_project_members,
     prime_expired_dirty_project_members,
 )
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    get_core_row,
+    lock_batch_rows_for_core_read,
+    task_row,
+)
 
 # v0.16.x 拆分：角色权限守卫已抽到 batch_permissions.py，此处冗余别名 re-export，
 # 保持 `from app.services.batch import assert_can_transition/REVERSE_TRANSITIONS/...` 旧入口不变。
@@ -564,25 +571,25 @@ class BatchService:
         project_id: uuid.UUID,
         status: str | None = None,
     ) -> list[TaskBatch]:
-        q = select(TaskBatch).where(TaskBatch.project_id == project_id)
+        q = select(batch_row).where(batch_row.project_id == project_id)
         if status:
             # issue #124 · 允许逗号分隔多状态（如 "active,draft"），让调用方只取
             # 需要的批次而不是全量历史；单状态（"active"）行为不变。
             statuses = [s.strip() for s in status.split(",") if s.strip()]
             if statuses:
-                q = q.where(TaskBatch.status.in_(statuses))
-        q = q.order_by(TaskBatch.priority.desc(), TaskBatch.created_at)
+                q = q.where(batch_row.status.in_(statuses))
+        q = q.order_by(batch_row.priority.desc(), batch_row.created_at)
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
     async def get(self, batch_id: uuid.UUID) -> TaskBatch | None:
-        return await self.db.get(TaskBatch, batch_id)
+        return await get_core_row(self.db, batch_row, batch_id)
 
     async def get_default_batch(self, project_id: uuid.UUID) -> TaskBatch | None:
         result = await self.db.execute(
-            select(TaskBatch).where(
-                TaskBatch.project_id == project_id,
-                TaskBatch.display_id == "B-DEFAULT",
+            select(batch_row).where(
+                batch_row.project_id == project_id,
+                batch_row.display_id == "B-DEFAULT",
             )
         )
         return result.scalar_one_or_none()
@@ -594,15 +601,15 @@ class BatchService:
     ) -> list[uuid.UUID]:
         # v0.6.8 B-14：可被 split 的「未归类任务」= batch_id IS NULL ∪ 老项目残留 B-DEFAULT 中的任务。
         # v0.6.7 后新项目不再有 B-DEFAULT；删完批次后任务回退为 batch_id=NULL，仍能被 split。
-        conds = [Task.batch_id.is_(None)]
+        conds = [task_row.batch_id.is_(None)]
         if default is not None:
-            conds.append(Task.batch_id == default.id)
+            conds.append(task_row.batch_id == default.id)
         # v0.11.22：按创建顺序返回，使「顺序切分（不打乱）」结果稳定可预期。
         result = await self.db.execute(
-            select(Task.id)
-            .where(Task.project_id == project_id)
+            select(task_row.id)
+            .where(task_row.project_id == project_id)
             .where(or_(*conds))
-            .order_by(Task.created_at, Task.id)
+            .order_by(task_row.created_at, task_row.id)
         )
         return [row[0] for row in result.fetchall()]
 
@@ -639,7 +646,7 @@ class BatchService:
             ),
         )
         await self.db.flush()
-        batch = await self.db.get(TaskBatch, batch_id, populate_existing=True)
+        batch = await get_core_row(self.db, batch_row, batch_id, populate_existing=True)
         if batch is None:
             raise HTTPException(503, detail={"reason": "batch_control_unavailable"})
         return batch
@@ -686,24 +693,22 @@ class BatchService:
             assignment_targets.append(("reviewer", data.reviewer_id))
         if assignment_targets:
             if project_id is None:
-                probe = await self.db.get(TaskBatch, batch_id)
+                probe = await get_core_row(self.db, batch_row, batch_id)
                 if probe is None:
                     raise HTTPException(status_code=404, detail="Batch not found")
                 project_id = probe.project_id
             await self.lock_and_validate_assignment_targets(
                 project_id, assignment_targets
             )
-            stmt = (
-                select(TaskBatch)
-                .where(TaskBatch.id == batch_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
+            rows = await lock_batch_rows_for_core_read(
+                self.db,
+                [batch_id],
+                project_id=project_id,
+                populate_existing=True,
             )
-            if project_id is not None:
-                stmt = stmt.where(TaskBatch.project_id == project_id)
-            batch = (await self.db.execute(stmt)).scalar_one_or_none()
+            batch = rows[0] if rows else None
         else:
-            batch = await self.db.get(TaskBatch, batch_id)
+            batch = await get_core_row(self.db, batch_row, batch_id)
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
         annotator_changed = "annotator_id" in fields
@@ -750,7 +755,7 @@ class BatchService:
             locked = await self._lock_decision_scope(actor_id, [batch_id])
             batch = locked.get(batch_id)
         else:
-            batch = await self.db.get(TaskBatch, batch_id)
+            batch = await get_core_row(self.db, batch_row, batch_id)
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
 
@@ -766,8 +771,8 @@ class BatchService:
             count = (
                 await self.db.execute(
                     select(func.count())
-                    .select_from(Task)
-                    .where(Task.batch_id == batch_id)
+                    .select_from(task_row)
+                    .where(task_row.batch_id == batch_id)
                 )
             ).scalar() or 0
             if count == 0:
@@ -814,12 +819,23 @@ class BatchService:
         row = (
             await self.db.execute(
                 select(
-                    func.count().filter(Task.status != "pending").label("non_pending"),
-                    func.count().filter(Task.total_predictions > 0).label("predicted"),
                     func.count()
-                    .filter(or_(Task.status != "pending", Task.total_predictions > 0))
+                    .filter(task_row.status != "pending")
+                    .label("non_pending"),
+                    func.count()
+                    .filter(task_row.total_predictions > 0)
+                    .label("predicted"),
+                    func.count()
+                    .filter(
+                        or_(
+                            task_row.status != "pending",
+                            task_row.total_predictions > 0,
+                        )
+                    )
                     .label("affected"),
-                ).where(Task.batch_id == batch_id)
+                )
+                .select_from(task_row)
+                .where(task_row.batch_id == batch_id)
             )
         ).one()
         return int(row.non_pending), int(row.predicted), int(row.affected)
@@ -831,7 +847,7 @@ class BatchService:
         force: bool = False,
         actor_id: uuid.UUID | None = None,
     ) -> bool:
-        batch = await self.db.get(TaskBatch, batch_id)
+        batch = await get_core_row(self.db, batch_row, batch_id)
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
         if batch.display_id == "B-DEFAULT":
@@ -1007,14 +1023,14 @@ class BatchService:
 
         default = await self.get_default_batch(project_id)
         # v0.6.8 B-14：metadata 过滤同样作用于「未归类 ∪ B-DEFAULT」任务集合
-        conds = [Task.batch_id.is_(None)]
+        conds = [task_row.batch_id.is_(None)]
         if default is not None:
-            conds.append(Task.batch_id == default.id)
+            conds.append(task_row.batch_id == default.id)
         result = await self.db.execute(
-            select(Task.id)
-            .join(DatasetItem, Task.dataset_item_id == DatasetItem.id)
+            select(task_row.id)
+            .join(DatasetItem, task_row.dataset_item_id == DatasetItem.id)
             .where(
-                Task.project_id == project_id,
+                task_row.project_id == project_id,
                 or_(*conds),
                 DatasetItem.metadata_[data.metadata_key].astext == data.metadata_value,
             )
@@ -1054,14 +1070,14 @@ class BatchService:
 
         default = await self.get_default_batch(project_id)
         # v0.6.8 B-14：id_range 同样作用于「未归类 ∪ B-DEFAULT」任务集合
-        conds = [Task.batch_id.is_(None)]
+        conds = [task_row.batch_id.is_(None)]
         if default is not None:
-            conds.append(Task.batch_id == default.id)
+            conds.append(task_row.batch_id == default.id)
         result = await self.db.execute(
-            select(Task.id).where(
-                Task.project_id == project_id,
+            select(task_row.id).where(
+                task_row.project_id == project_id,
                 or_(*conds),
-                Task.dataset_item_id.in_(data.item_ids),
+                task_row.dataset_item_id.in_(data.item_ids),
             )
         )
         task_ids = [row[0] for row in result.fetchall()]
@@ -1333,10 +1349,12 @@ class BatchService:
         result = await self.db.execute(
             select(
                 func.count().label("total"),
-                func.count().filter(Task.status == "completed").label("completed"),
-                func.count().filter(Task.status == "review").label("review"),
-                func.count().filter(Task.status == "in_progress").label("in_progress"),
-            ).where(Task.project_id == project_id)
+                func.count().filter(task_row.status == "completed").label("completed"),
+                func.count().filter(task_row.status == "review").label("review"),
+                func.count()
+                .filter(task_row.status == "in_progress")
+                .label("in_progress"),
+            ).where(task_row.project_id == project_id)
         )
         row = result.one()
         register_project_counter_projection(self.db, project_id)
@@ -1351,12 +1369,12 @@ class BatchService:
                 select(
                     func.count().label("total"),
                     func.count()
-                    .filter(TaskBatch.annotator_id.is_not(None))
+                    .filter(batch_row.annotator_id.is_not(None))
                     .label("assigned"),
                     func.count()
-                    .filter(TaskBatch.status == "reviewing")
+                    .filter(batch_row.status == "reviewing")
                     .label("in_review"),
-                ).where(TaskBatch.project_id == project_id)
+                ).where(batch_row.project_id == project_id)
             )
         ).one()
         register_project_counter_projection(self.db, project_id)
@@ -1409,7 +1427,7 @@ class BatchService:
         # 6 个调用点见 tasks.py (acquire_next_task / save_annotation / complete_task etc.).
         if not batch_id:
             return
-        batch = await self.db.get(TaskBatch, batch_id)
+        batch = await get_core_row(self.db, batch_row, batch_id)
         if not batch:
             logger.info("check_auto_transitions: batch_id=%s not found", batch_id)
             return
@@ -1489,11 +1507,11 @@ class BatchService:
             raise HTTPException(status_code=401, detail="账号已停用")
 
         project_ids_stmt = (
-            select(TaskBatch.project_id).where(TaskBatch.id.in_(batch_ids)).distinct()
+            select(batch_row.project_id).where(batch_row.id.in_(batch_ids)).distinct()
         )
         if project_id is not None:
             project_ids_stmt = project_ids_stmt.where(
-                TaskBatch.project_id == project_id
+                batch_row.project_id == project_id
             )
         project_ids = sorted((await self.db.execute(project_ids_stmt)).scalars().all())
         if project_ids:
@@ -1528,20 +1546,13 @@ class BatchService:
                     detail={"reason": "review_capability_required"},
                 )
 
-        batch_stmt = select(TaskBatch).where(TaskBatch.id.in_(batch_ids))
-        if project_id is not None:
-            batch_stmt = batch_stmt.where(TaskBatch.project_id == project_id)
         try:
-            rows = (
-                (
-                    await self.db.execute(
-                        batch_stmt.order_by(TaskBatch.id)
-                        .with_for_update(nowait=True)
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
+            rows = await lock_batch_rows_for_core_read(
+                self.db,
+                batch_ids,
+                project_id=project_id,
+                nowait=True,
+                populate_existing=True,
             )
         except DBAPIError as exc:
             if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
@@ -1555,12 +1566,12 @@ class BatchService:
         task_ids = list(
             (
                 await self.db.execute(
-                    select(Task.id)
+                    select(task_row.id)
                     .where(
-                        Task.batch_id.in_(locked_ids),
-                        Task.status.in_(list(statuses)),
+                        task_row.batch_id.in_(locked_ids),
+                        task_row.status.in_(list(statuses)),
                     )
-                    .order_by(Task.id)
+                    .order_by(task_row.id)
                 )
             ).scalars()
         )
@@ -1581,9 +1592,12 @@ class BatchService:
         rows = (
             (
                 await self.db.execute(
-                    select(Task)
-                    .where(Task.batch_id == batch.id, Task.status.in_(list(statuses)))
-                    .order_by(Task.id)
+                    select(task_row)
+                    .where(
+                        task_row.batch_id == batch.id,
+                        task_row.status.in_(list(statuses)),
+                    )
+                    .order_by(task_row.id)
                     .execution_options(populate_existing=True)
                 )
             )
@@ -1673,7 +1687,7 @@ class BatchService:
             cascade_counts = {"predictions": N, "failed_predictions": N,
                               "prediction_jobs": N, "ai_annotations_deactivated": N}
         """
-        batch = await self.db.get(TaskBatch, batch_id)
+        batch = await get_core_row(self.db, batch_row, batch_id)
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
 
@@ -1777,7 +1791,6 @@ class BatchService:
 
         Returns: {"predictions": N, "failed_predictions": N, "ai_annotations_deactivated": N}
         """
-        from app.db.models.annotation import Annotation
         from app.services.annotation_cleanup import (
             deactivate_prediction_annotations_for_tasks,
             detach_prediction_parents_for_tasks,
@@ -1805,11 +1818,11 @@ class BatchService:
         ai_affected_task_ids = list(
             (
                 await self.db.execute(
-                    select(Annotation.task_id)
+                    select(annotation_row.task_id)
                     .where(
-                        Annotation.task_id.in_(task_ids),
-                        Annotation.source == "prediction_based",
-                        Annotation.is_active.is_(True),
+                        annotation_row.task_id.in_(task_ids),
+                        annotation_row.source == "prediction_based",
+                        annotation_row.is_active.is_(True),
                     )
                     .distinct()
                 )
@@ -1869,18 +1882,21 @@ class BatchService:
     ) -> dict[uuid.UUID, TaskBatch]:
         if not batch_ids:
             return {}
-        stmt = (
-            select(TaskBatch)
-            .where(
-                TaskBatch.project_id == project_id,
-                TaskBatch.id.in_(batch_ids),
-            )
-            .order_by(TaskBatch.id)
-        )
         if for_update:
-            stmt = stmt.with_for_update()
-        result = await self.db.execute(stmt)
-        return {b.id: b for b in result.scalars().all()}
+            rows = await lock_batch_rows_for_core_read(
+                self.db, batch_ids, project_id=project_id
+            )
+        else:
+            result = await self.db.execute(
+                select(batch_row)
+                .where(
+                    batch_row.project_id == project_id,
+                    batch_row.id.in_(batch_ids),
+                )
+                .order_by(batch_row.id)
+            )
+            rows = result.scalars().all()
+        return {b.id: b for b in rows}
 
     async def bulk_archive(
         self,
@@ -2107,7 +2123,9 @@ class BatchService:
                 continue
             count = (
                 await self.db.execute(
-                    select(func.count()).select_from(Task).where(Task.batch_id == bid)
+                    select(func.count())
+                    .select_from(task_row)
+                    .where(task_row.batch_id == bid)
                 )
             ).scalar() or 0
             if count == 0:
@@ -2138,7 +2156,7 @@ class BatchService:
         reason: str,
         locked_by: uuid.UUID,
     ) -> TaskBatch:
-        batch = await self.db.get(TaskBatch, batch_id)
+        batch = await get_core_row(self.db, batch_row, batch_id)
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
         if batch.admin_locked:
@@ -2159,7 +2177,7 @@ class BatchService:
         return batch
 
     async def admin_unlock(self, batch_id: uuid.UUID) -> TaskBatch:
-        batch = await self.db.get(TaskBatch, batch_id)
+        batch = await get_core_row(self.db, batch_row, batch_id)
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
         if not batch.admin_locked:

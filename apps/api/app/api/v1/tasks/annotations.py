@@ -14,7 +14,6 @@ from app.deps import (
     require_scopes,
 )
 from app.db.models.annotation import Annotation
-from app.db.models.task import Task
 from app.schemas.annotation import (
     AnnotationCreate,
     AnnotationListPage,
@@ -104,6 +103,11 @@ from app.api.v1.tasks._shared import (
 from aap_workspace_contract.access import ProjectAccess
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    lock_task_for_core_read,
+)
 
 router = APIRouter()
 
@@ -410,14 +414,7 @@ async def create_annotation(
     access = await task_access.resolve_task_access(
         db, task, current_user.id, lock_membership=True
     )
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
@@ -492,7 +489,7 @@ async def secondary_inference(
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
     task_access.assert_task_editable(task, current_user.id, access=access)
 
-    annotation = await db.get(Annotation, annotation_id)
+    annotation = await get_core_row(db, annotation_row, annotation_id)
     if annotation is None or annotation.task_id != task_id or not annotation.is_active:
         raise HTTPException(status_code=404, detail="annotation not found")
     await assert_video_annotation_write_scope(
@@ -755,8 +752,8 @@ async def update_annotation(
     geometry = data.model_dump(exclude_unset=True).get("geometry")
     if isinstance(geometry, dict):
         preflight_annotation = await db.scalar(
-            select(Annotation)
-            .where(Annotation.id == annotation_id)
+            select(annotation_row)
+            .where(annotation_row.id == annotation_id)
             .execution_options(populate_existing=True)
         )
         validate_annotation_update_preconditions(
@@ -776,14 +773,7 @@ async def update_annotation(
     access = await task_access.resolve_task_access(
         db, _task, current_user.id, lock_membership=True
     )
-    _task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    _task = await lock_task_for_core_read(db, task_id, populate_existing=True)
     if _task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, _task, current_user.id, access=access)
@@ -843,7 +833,7 @@ async def compose_video_tracks(
 
     annotations: list[Annotation] = []
     for annotation_id in data.annotation_ids:
-        ann = await db.get(Annotation, annotation_id)
+        ann = await get_core_row(db, annotation_row, annotation_id)
         if ann is None or not ann.is_active:
             raise HTTPException(status_code=404, detail="Annotation not found")
         if ann.task_id != task_id:
@@ -924,7 +914,7 @@ async def convert_video_track_to_bboxes(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
     task_access.assert_task_editable(task, current_user.id, access=access)
-    annotation = await db.get(Annotation, annotation_id)
+    annotation = await get_core_row(db, annotation_row, annotation_id)
     if annotation is None or not annotation.is_active:
         raise HTTPException(status_code=404, detail="Annotation not found")
     if annotation.task_id != task_id:
@@ -1018,14 +1008,7 @@ async def delete_annotation(
     # Keep the same Task -> Annotation lock order as task-scoped atomic Mask
     # mutations. Otherwise DELETE can hold Annotation while waiting for Task,
     # forming a deadlock cycle with a concurrent atomic mutation.
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id, access=access)

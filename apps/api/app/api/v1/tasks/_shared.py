@@ -34,6 +34,7 @@ from app.services.assets_media_summary_contract import TaskMediaSummary
 from app.services.assets_media import browser_media_url, media_gateway
 from app.services.image_source_references import image_source_references
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import get_core_row, task_row
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ _REVIEWERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN, UserRole.REVIEWER)
 
 
 async def _load_task_or_404(db: AsyncSession, task_id: uuid.UUID) -> Task:
-    task = await db.get(Task, task_id)
+    task = await get_core_row(db, task_row, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task

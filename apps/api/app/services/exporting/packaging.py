@@ -115,6 +115,10 @@ from app.config import settings
 from app.utils.raster_mask_rle import coco_rle_bbox_norm
 from app.services.video_context import derive_sampled_frames, derive_step
 from app.services.video_tracks import derive_track_number
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    task_dataset_item_link_row,
+)
 
 VIDEO_EXPORT_FORMATS = {
     "video_json",
@@ -984,9 +988,9 @@ async def _load_lidar_link_items(
     if not task_ids:
         return {}
     result = await svc.db.execute(
-        select(TaskDatasetItemLink)
-        .where(TaskDatasetItemLink.task_id.in_(task_ids))
-        .order_by(TaskDatasetItemLink.role)
+        select(task_dataset_item_link_row)
+        .where(task_dataset_item_link_row.task_id.in_(task_ids))
+        .order_by(task_dataset_item_link_row.role)
     )
     links = list(result.scalars())
     item_facts, _ = await read_spatial_item_facts(
@@ -1203,13 +1207,15 @@ async def _build_lidar_export_zip(
                 camera_members = list(
                     (
                         await svc.db.execute(
-                            select(Annotation)
-                            .where(Annotation.task_id.in_(task_ids))
-                            .where(Annotation.sensor_role.is_not(None))
-                            .where(Annotation.geometry["type"].as_string() == "bbox")
-                            .where(Annotation.is_active.is_(True))
-                            .where(Annotation.was_cancelled.is_(False))
-                            .order_by(Annotation.task_id, Annotation.id)
+                            select(annotation_row)
+                            .where(annotation_row.task_id.in_(task_ids))
+                            .where(annotation_row.sensor_role.is_not(None))
+                            .where(
+                                annotation_row.geometry["type"].as_string() == "bbox"
+                            )
+                            .where(annotation_row.is_active.is_(True))
+                            .where(annotation_row.was_cancelled.is_(False))
+                            .order_by(annotation_row.task_id, annotation_row.id)
                         )
                     ).scalars()
                 )

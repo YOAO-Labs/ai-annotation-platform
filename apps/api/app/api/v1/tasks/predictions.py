@@ -12,7 +12,6 @@ from app.deps import (
 )
 from app.db.models.prediction import (
     INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
-    Prediction,
 )
 from app.schemas.annotation import (
     AnnotationOut,
@@ -45,6 +44,10 @@ from app.api.v1.tasks._shared import (
 )
 from aap_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import (
+    prediction_meta_row,
+    prediction_row,
+)
 
 router = APIRouter()
 
@@ -76,14 +79,12 @@ async def get_predictions(
     pred_ids = [p.id for p in predictions]
     meta_map: dict[uuid.UUID, tuple[int | None, float | None]] = {}
     if pred_ids:
-        from app.db.models.prediction import PredictionMeta
-
         meta_rows = await db.execute(
             select(
-                PredictionMeta.prediction_id,
-                PredictionMeta.inference_time_ms,
-                PredictionMeta.total_cost,
-            ).where(PredictionMeta.prediction_id.in_(pred_ids))
+                prediction_meta_row.prediction_id,
+                prediction_meta_row.inference_time_ms,
+                prediction_meta_row.total_cost,
+            ).where(prediction_meta_row.prediction_id.in_(pred_ids))
         )
         for pred_id, ms, cost in meta_rows:
             if pred_id is not None:
@@ -174,7 +175,9 @@ async def get_prediction_mask_content_frame(
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
     prediction = (
-        await db.execute(select(Prediction).where(Prediction.id == prediction_id))
+        await db.execute(
+            select(prediction_row).where(prediction_row.id == prediction_id)
+        )
     ).scalar_one_or_none()
     if prediction is None or prediction.task_id != task_id:
         raise HTTPException(status_code=404, detail="Prediction not found")

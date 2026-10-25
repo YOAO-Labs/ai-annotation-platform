@@ -78,6 +78,13 @@ from app.utils.raster_mask_rle import (
     coco_rle_bbox_norm,
     validate_coco_rle,
 )
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    get_core_row,
+    prediction_row,
+    task_row,
+)
 
 
 def _sanitize_export_geometry(
@@ -119,7 +126,7 @@ def _export_annotation_copy(
 ) -> Annotation:
     data = {
         column.name: getattr(ann, column.name)
-        for column in Annotation.__table__.columns
+        for column in annotation_row.__table__.columns
     }
     data["attributes"] = sanitize_annotation_attributes(
         ann.attributes,
@@ -329,14 +336,16 @@ class ExportService:
         if not project:
             return None, [], []
 
-        task_q = select(Task).where(Task.project_id == project_id)
+        task_q = select(task_row).where(task_row.project_id == project_id)
         if batch_id:
-            task_q = task_q.where(Task.batch_id == batch_id)
+            task_q = task_q.where(task_row.batch_id == batch_id)
         if self.task_ids is not None:
-            task_q = task_q.where(Task.id.in_(self.task_ids))
+            task_q = task_q.where(task_row.id.in_(self.task_ids))
         if video_scope is not None:
-            task_q = task_q.where(Task.id == video_scope.task_id)
-        task_q = task_q.order_by(Task.sequence_order, Task.created_at, Task.id)
+            task_q = task_q.where(task_row.id == video_scope.task_id)
+        task_q = task_q.order_by(
+            task_row.sequence_order, task_row.created_at, task_row.id
+        )
         tasks_result = await self.db.execute(task_q)
         tasks = list(tasks_result.scalars().all())
 
@@ -344,13 +353,13 @@ class ExportService:
         if not task_ids:
             return project, [], []
 
-        ann_q = select(Annotation).where(
-            Annotation.project_id == project_id,
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
+        ann_q = select(annotation_row).where(
+            annotation_row.project_id == project_id,
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
         )
-        ann_q = ann_q.where(Annotation.task_id.in_(task_ids))
-        ann_q = ann_q.order_by(Annotation.created_at, Annotation.id)
+        ann_q = ann_q.where(annotation_row.task_id.in_(task_ids))
+        ann_q = ann_q.order_by(annotation_row.created_at, annotation_row.id)
         annotations_result = await self.db.execute(ann_q)
         annotations = list(annotations_result.scalars().all())
         class_names = set(derive_classes_list(project.tool_bindings))
@@ -409,12 +418,12 @@ class ExportService:
         if not task_ids:
             return []
         pred_q = (
-            select(Prediction)
+            select(prediction_row)
             .where(
-                Prediction.project_id == project_id,
-                Prediction.task_id.in_(task_ids),
+                prediction_row.project_id == project_id,
+                prediction_row.task_id.in_(task_ids),
             )
-            .order_by(Prediction.created_at, Prediction.id)
+            .order_by(prediction_row.created_at, prediction_row.id)
         )
         result = await self.db.execute(pred_q)
         return list(result.scalars().all())
@@ -476,14 +485,14 @@ class ExportService:
         class_names = set(derive_classes_list(project.tool_bindings))
         attribute_keys = derive_attribute_keys(project.tool_bindings)
 
-        id_q = select(Task.id).where(Task.project_id == project_id)
+        id_q = select(task_row.id).where(task_row.project_id == project_id)
         if batch_id:
-            id_q = id_q.where(Task.batch_id == batch_id)
+            id_q = id_q.where(task_row.batch_id == batch_id)
         if self.task_ids is not None:
-            id_q = id_q.where(Task.id.in_(self.task_ids))
+            id_q = id_q.where(task_row.id.in_(self.task_ids))
         if video_scope is not None:
-            id_q = id_q.where(Task.id == video_scope.task_id)
-        id_q = id_q.order_by(Task.sequence_order, Task.created_at, Task.id)
+            id_q = id_q.where(task_row.id == video_scope.task_id)
+        id_q = id_q.order_by(task_row.sequence_order, task_row.created_at, task_row.id)
         all_ids = [row[0] for row in (await self.db.execute(id_q)).all()]
 
         for start in range(0, len(all_ids), chunk_size):
@@ -491,9 +500,11 @@ class ExportService:
             task_rows = (
                 (
                     await self.db.execute(
-                        select(Task)
-                        .where(Task.id.in_(chunk_ids))
-                        .order_by(Task.sequence_order, Task.created_at, Task.id)
+                        select(task_row)
+                        .where(task_row.id.in_(chunk_ids))
+                        .order_by(
+                            task_row.sequence_order, task_row.created_at, task_row.id
+                        )
                     )
                 )
                 .scalars()
@@ -504,14 +515,14 @@ class ExportService:
             ann_by_task: dict[uuid.UUID, list[Annotation]] = {}
             if with_annotations:
                 ann_q = (
-                    select(Annotation)
+                    select(annotation_row)
                     .where(
-                        Annotation.project_id == project_id,
-                        Annotation.is_active.is_(True),
-                        Annotation.was_cancelled.is_(False),
-                        Annotation.task_id.in_(chunk_ids),
+                        annotation_row.project_id == project_id,
+                        annotation_row.is_active.is_(True),
+                        annotation_row.was_cancelled.is_(False),
+                        annotation_row.task_id.in_(chunk_ids),
                     )
-                    .order_by(Annotation.created_at, Annotation.id)
+                    .order_by(annotation_row.created_at, annotation_row.id)
                 )
                 for ann in (await self.db.execute(ann_q)).scalars().all():
                     if ann.class_name not in class_names:
@@ -1184,9 +1195,7 @@ class ExportService:
         # batch display_id (项目级导出时为 None)
         batch_display_id: str | None = None
         if batch_id:
-            from app.db.models.task_batch import TaskBatch  # 懒导入避免循环
-
-            batch = await self.db.get(TaskBatch, batch_id)
+            batch = await get_core_row(self.db, batch_row, batch_id)
             batch_display_id = batch.display_id if batch else None
 
         task_blocks: list[AAPTaskBlock] = []

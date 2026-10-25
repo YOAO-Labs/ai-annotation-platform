@@ -37,6 +37,7 @@ from app.services.labeling_scene import (
 )
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.project_access import get_workspace_project
+from app.services.labeling_core_read_relations import task_row
 
 
 router = APIRouter()
@@ -120,7 +121,9 @@ async def _create_job(
     ]
     task_rows = list(
         (
-            await db.execute(select(Task).where(Task.id.in_(candidate_task_ids)))
+            await db.execute(
+                select(task_row).where(task_row.id.in_(candidate_task_ids))
+            )
         ).scalars()
     )
     tasks_by_id = {

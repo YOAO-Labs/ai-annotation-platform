@@ -24,7 +24,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import aliased
 
-from app.db.models.annotation import Annotation
 from app.db.models.prediction import (
     INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
     Prediction,
@@ -35,13 +34,14 @@ from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.project_access import is_privileged_for_project
+from app.services.labeling_core_read_relations import annotation_row, task_row
 
 LOW_CONFIDENCE_THRESHOLD = 0.5
 
 
 def pending_prediction_shapes_expr():
     pending = _pending_prediction_shape_rows(
-        lambda prediction: prediction.task_id == Task.id,
+        lambda prediction: prediction.task_id == task_row.id,
         alias_name="dm_task_pending_count",
     ).correlate(Task)
     return (
@@ -89,13 +89,14 @@ def _pending_prediction_shape_rows(
         else_=literal([], type_=JSONB),
     )
     accepted = (
-        select(Annotation.id)
+        select(annotation_row.id)
         .where(
-            Annotation.parent_prediction_id == prediction.id,
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
-            Annotation.attributes.has_key("_shape_index"),  # noqa: W601
-            cast(Annotation.attributes["_shape_index"].astext, Integer) == shape_index,
+            annotation_row.parent_prediction_id == prediction.id,
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
+            annotation_row.attributes.has_key("_shape_index"),  # noqa: W601
+            cast(annotation_row.attributes["_shape_index"].astext, Integer)
+            == shape_index,
         )
         .correlate(prediction, shape)
         .exists()
@@ -124,7 +125,7 @@ def _pending_prediction_shape_rows(
 
 def low_confidence_pending_prediction_shapes_expr():
     pending = _pending_prediction_shape_rows(
-        lambda prediction: prediction.task_id == Task.id,
+        lambda prediction: prediction.task_id == task_row.id,
         alias_name="dm_task_pending",
     ).correlate(Task)
     pending_rows = pending.subquery("dm_task_pending_rows")
@@ -140,7 +141,7 @@ def low_confidence_pending_prediction_shapes_expr():
 def pending_tracker_jobs_expr(user: User | IdentityActorFacts | None, project: Project):
     results = VideoTrackerJob.staged_result["results"]
     reviewable = and_(
-        VideoTrackerJob.task_id == Task.id,
+        VideoTrackerJob.task_id == task_row.id,
         VideoTrackerJob.status.in_(
             [
                 VideoTrackerJobStatus.PENDING_REVIEW.value,

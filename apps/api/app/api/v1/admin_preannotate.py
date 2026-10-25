@@ -23,10 +23,7 @@ from sqlalchemy.orm import aliased
 from app.db.enums import BatchStatus, UserRole
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
-from app.db.models.prediction import FailedPrediction, Prediction
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.deps import get_current_user_id, get_db, require_roles
 from app.application.bulk_clear_preannotate import (
     bulk_clear_preannotate as run_bulk_clear_preannotate,
@@ -35,6 +32,12 @@ from app.services.audit import audit_origin_from_request
 from app.services.batch_permissions import bulk_preannotation_eligible_condition
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_read_relations import project_facts, project_rows
+from app.services.labeling_core_read_relations import (
+    batch_row,
+    failed_prediction_row,
+    prediction_row,
+    task_row,
+)
 
 router = APIRouter()
 
@@ -70,15 +73,15 @@ async def list_preannotate_queue(
     含 prediction / failed 计数 + 项目元数据, 供 AIPreAnnotatePage 历史表渲染.
     """
     # 1. 拉所有 pre_annotated 批次 (limit 前)
-    stmt = select(TaskBatch).where(TaskBatch.status == BatchStatus.PRE_ANNOTATED)
+    stmt = select(batch_row).where(batch_row.status == BatchStatus.PRE_ANNOTATED)
     if admin.role != UserRole.SUPER_ADMIN:
         owner_facts = project_facts()
         stmt = stmt.where(
-            TaskBatch.project_id.in_(
+            batch_row.project_id.in_(
                 select(owner_facts.c.id).where(owner_facts.c.owner_id == admin.id)
             )
         )
-    bres = await db.execute(stmt.order_by(TaskBatch.updated_at.desc()).limit(limit))
+    bres = await db.execute(stmt.order_by(batch_row.updated_at.desc()).limit(limit))
     batches = list(bres.scalars().all())
     if not batches:
         return PreannotateQueueResponse(items=[])
@@ -93,23 +96,23 @@ async def list_preannotate_queue(
 
     # 3. 每 batch 的 task count
     task_count_q = await db.execute(
-        select(Task.batch_id, func.count(Task.id))
-        .where(Task.batch_id.in_(batch_ids))
-        .group_by(Task.batch_id)
+        select(task_row.batch_id, func.count(task_row.id))
+        .where(task_row.batch_id.in_(batch_ids))
+        .group_by(task_row.batch_id)
     )
     task_counts = {bid: cnt for bid, cnt in task_count_q.all()}
 
     # 4. 每 batch 的 prediction count + max created_at (从 predictions JOIN tasks)
     pred_q = await db.execute(
         select(
-            Task.batch_id,
-            func.count(Prediction.id),
-            func.max(Prediction.created_at),
+            task_row.batch_id,
+            func.count(prediction_row.id),
+            func.max(prediction_row.created_at),
         )
-        .select_from(Prediction)
-        .join(Task, Task.id == Prediction.task_id)
-        .where(Task.batch_id.in_(batch_ids))
-        .group_by(Task.batch_id)
+        .select_from(prediction_row)
+        .join(task_row, task_row.id == prediction_row.task_id)
+        .where(task_row.batch_id.in_(batch_ids))
+        .group_by(task_row.batch_id)
     )
     pred_counts: dict[uuid.UUID, tuple[int, datetime | None]] = {
         bid: (int(cnt), last) for bid, cnt, last in pred_q.all()
@@ -117,14 +120,14 @@ async def list_preannotate_queue(
 
     # 5. 每 batch 的 failed count (排除 dismissed)
     fail_q = await db.execute(
-        select(Task.batch_id, func.count(FailedPrediction.id))
-        .select_from(FailedPrediction)
-        .join(Task, Task.id == FailedPrediction.task_id)
+        select(task_row.batch_id, func.count(failed_prediction_row.id))
+        .select_from(failed_prediction_row)
+        .join(task_row, task_row.id == failed_prediction_row.task_id)
         .where(
-            Task.batch_id.in_(batch_ids),
-            FailedPrediction.dismissed_at.is_(None),
+            task_row.batch_id.in_(batch_ids),
+            failed_prediction_row.dismissed_at.is_(None),
         )
-        .group_by(Task.batch_id)
+        .group_by(task_row.batch_id)
     )
     fail_counts = {bid: int(cnt) for bid, cnt in fail_q.all()}
 
@@ -261,9 +264,9 @@ async def list_preannotate_project_summary(
     project_ids = [p.id for p in projects]
 
     bres = await db.execute(
-        select(TaskBatch.project_id, TaskBatch.status, func.count(TaskBatch.id))
-        .where(TaskBatch.project_id.in_(project_ids))
-        .group_by(TaskBatch.project_id, TaskBatch.status)
+        select(batch_row.project_id, batch_row.status, func.count(batch_row.id))
+        .where(batch_row.project_id.in_(project_ids))
+        .group_by(batch_row.project_id, batch_row.status)
     )
     batch_counts: dict[tuple[uuid.UUID, str], int] = {
         (pid, status): cnt for pid, status, cnt in bres.all()
@@ -272,12 +275,12 @@ async def list_preannotate_project_summary(
     # issue #124 · 卡片「可预标」= active + 未分派人员的 draft，与
     # allows_bulk_preannotation 同源；否则卡片可能显示 0 而详情页仍列有草稿。
     eligible_res = await db.execute(
-        select(TaskBatch.project_id, func.count(TaskBatch.id))
+        select(batch_row.project_id, func.count(batch_row.id))
         .where(
-            TaskBatch.project_id.in_(project_ids),
-            bulk_preannotation_eligible_condition(),
+            batch_row.project_id.in_(project_ids),
+            bulk_preannotation_eligible_condition(batch_row),
         )
-        .group_by(TaskBatch.project_id)
+        .group_by(batch_row.project_id)
     )
     eligible_counts = {pid: int(cnt) for pid, cnt in eligible_res.all()}
 
@@ -290,12 +293,12 @@ async def list_preannotate_project_summary(
     last_jobs = {pid: ts for pid, ts in job_rows}
 
     fail_q = await db.execute(
-        select(FailedPrediction.project_id, func.count(FailedPrediction.id))
+        select(failed_prediction_row.project_id, func.count(failed_prediction_row.id))
         .where(
-            FailedPrediction.project_id.in_(project_ids),
-            FailedPrediction.dismissed_at.is_(None),
+            failed_prediction_row.project_id.in_(project_ids),
+            failed_prediction_row.dismissed_at.is_(None),
         )
-        .group_by(FailedPrediction.project_id)
+        .group_by(failed_prediction_row.project_id)
     )
     fail_counts = {pid: int(cnt) for pid, cnt in fail_q.all()}
 

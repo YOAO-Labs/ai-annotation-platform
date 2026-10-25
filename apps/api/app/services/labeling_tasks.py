@@ -55,6 +55,12 @@ from app.services.task_creation_contract import (
     CreationOperation,
     decode_creation_reply,
 )
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    get_core_row,
+    task_row,
+)
 
 
 class LabelingUploadTaskNotFound(LookupError):
@@ -573,8 +579,8 @@ class LabelingTaskService(LabelingTaskCreationPort):
         task_id_select = select(task_ids.c.id)
         annotation_count = (
             await self.db.execute(
-                select(func.count(Annotation.id)).where(
-                    Annotation.task_id.in_(task_id_select)
+                select(func.count(annotation_row.id)).where(
+                    annotation_row.task_id.in_(task_id_select)
                 )
             )
         ).scalar() or 0
@@ -613,8 +619,6 @@ class LabelingTaskService(LabelingTaskCreationPort):
     async def recalculate_source_less_task_counters(
         self, project_id: uuid.UUID
     ) -> None:
-        from app.db.models.task_batch import TaskBatch
-
         register_project_counter_projection(self.db, project_id)
         project = await get_workspace_project(self.db, project_id=project_id)
         if project:
@@ -624,13 +628,17 @@ class LabelingTaskService(LabelingTaskCreationPort):
                     select(
                         func.count().label("total"),
                         func.count()
-                        .filter(Task.status == "completed")
+                        .filter(task_row.status == "completed")
                         .label("completed"),
-                        func.count().filter(Task.status == "review").label("review"),
                         func.count()
-                        .filter(Task.status == "in_progress")
+                        .filter(task_row.status == "review")
+                        .label("review"),
+                        func.count()
+                        .filter(task_row.status == "in_progress")
                         .label("in_progress"),
-                    ).where(Task.project_id == project_id)
+                    )
+                    .select_from(task_row)
+                    .where(task_row.project_id == project_id)
                 )
             ).one()
             register_project_counter_projection(self.db, project_id)
@@ -644,7 +652,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
         batches = (
             (
                 await self.db.execute(
-                    select(TaskBatch).where(TaskBatch.project_id == project_id)
+                    select(batch_row).where(batch_row.project_id == project_id)
                 )
             )
             .scalars()
@@ -656,10 +664,14 @@ class LabelingTaskService(LabelingTaskCreationPort):
                     select(
                         func.count().label("total"),
                         func.count()
-                        .filter(Task.status == "completed")
+                        .filter(task_row.status == "completed")
                         .label("completed"),
-                        func.count().filter(Task.status == "review").label("review"),
-                    ).where(Task.batch_id == batch.id)
+                        func.count()
+                        .filter(task_row.status == "review")
+                        .label("review"),
+                    )
+                    .select_from(task_row)
+                    .where(task_row.batch_id == batch.id)
                 )
             ).one()
             batch.total_tasks = counts.total
@@ -691,13 +703,13 @@ class LabelingTaskService(LabelingTaskCreationPort):
         row = (
             await self.db.execute(
                 select(
-                    Task.id,
-                    Task.project_id,
-                    Task.batch_id,
-                    Task.file_path,
-                    Task.file_type,
-                    Task.status,
-                ).where(Task.id == task_id)
+                    task_row.id,
+                    task_row.project_id,
+                    task_row.batch_id,
+                    task_row.file_path,
+                    task_row.file_type,
+                    task_row.status,
+                ).where(task_row.id == task_id)
             )
         ).one_or_none()
         if row is None:
@@ -706,7 +718,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
 
     async def mark_uploading_task_pending(self, target: LabelingUploadTarget) -> None:
         """Commit after the workflow holds the canonical current task fence."""
-        task = await self.db.get(Task, target.task_id)
+        task = await get_core_row(self.db, task_row, target.task_id)
         if task is None:
             raise LabelingUploadTaskNotFound
         if task.status != "uploading":
@@ -725,7 +737,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
         self, task_id: uuid.UUID, thumbnail_path: str, blurhash: str | None
     ) -> None:
         """Set task thumbnail fields within the caller's transaction."""
-        task = await self.db.get(Task, task_id)
+        task = await get_core_row(self.db, task_row, task_id)
         if task is None:
             return
         task.thumbnail_path = thumbnail_path

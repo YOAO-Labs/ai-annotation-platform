@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
+from app.services.labeling_core_read_relations import task_dataset_item_link_row
 
 
 def _validate_role(role: str) -> None:
@@ -52,6 +53,8 @@ async def get_linked_items(
 ) -> list[TaskDatasetItemLink]:
     """返回某 task 的全部关联 link 行。"""
     result = await session.execute(
-        select(TaskDatasetItemLink).where(TaskDatasetItemLink.task_id == task_id)
+        select(task_dataset_item_link_row).where(
+            task_dataset_item_link_row.task_id == task_id
+        )
     )
     return list(result.scalars().all())

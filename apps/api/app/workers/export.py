@@ -26,8 +26,6 @@ from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.project import Project
-from app.db.models.task import Task
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.services import async_job as async_job_svc
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.identity_account_lock_data import IdentityAccountLockData
@@ -46,6 +44,10 @@ from app.services.data_management.task_filters import visible_tasks_stmt
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.labeling_scene import read_spatial_item_facts
 from app.services.workspace_read_relations import project_facts
+from app.services.labeling_core_read_relations import (
+    task_dataset_item_link_row,
+    task_row,
+)
 from aap_assets_catalog.spatial_contract import (
     ReadPosesRequest,
     SpatialItem,
@@ -241,14 +243,16 @@ async def _scope_fingerprint(
     if batch_id is not None:
         # Annotation 无 batch_id 列；与 _load_data 一致，按 task.batch_id 过滤。
         q = q.where(
-            Annotation.task_id.in_(select(Task.id).where(Task.batch_id == batch_id))
+            Annotation.task_id.in_(
+                select(task_row.id).where(task_row.batch_id == batch_id)
+            )
         )
     if task_ids is not None:
         q = q.where(
             Annotation.task_id.in_(
-                select(Task.id).where(
-                    Task.project_id == project_id,
-                    Task.id.in_(task_ids),
+                select(task_row.id).where(
+                    task_row.project_id == project_id,
+                    task_row.id.in_(task_ids),
                 )
             )
         )
@@ -266,9 +270,9 @@ async def _nuscenes_scope_digest(
     project_id: uuid.UUID,
     batch_id: uuid.UUID | None,
 ) -> str:
-    task_query = select(Task).where(Task.project_id == project_id)
+    task_query = select(task_row).where(task_row.project_id == project_id)
     if batch_id is not None:
-        task_query = task_query.where(Task.batch_id == batch_id)
+        task_query = task_query.where(task_row.batch_id == batch_id)
     tasks = list((await db.execute(task_query)).scalars())
     task_ids = [task.id for task in tasks]
     links = []
@@ -277,8 +281,8 @@ async def _nuscenes_scope_digest(
             list(
                 (
                     await db.execute(
-                        select(TaskDatasetItemLink).where(
-                            TaskDatasetItemLink.task_id.in_(
+                        select(task_dataset_item_link_row).where(
+                            task_dataset_item_link_row.task_id.in_(
                                 task_ids[start : start + 1000]
                             )
                         )
@@ -372,9 +376,9 @@ async def _multicamera_coco_scope_digest(
     project_id: uuid.UUID,
     batch_id: uuid.UUID | None,
 ) -> str:
-    task_query = select(Task.id).where(Task.project_id == project_id)
+    task_query = select(task_row.id).where(task_row.project_id == project_id)
     if batch_id is not None:
-        task_query = task_query.where(Task.batch_id == batch_id)
+        task_query = task_query.where(task_row.batch_id == batch_id)
     task_ids = list((await db.execute(task_query)).scalars())
     rows = []
     for start in range(0, len(task_ids), 1000):
@@ -382,11 +386,13 @@ async def _multicamera_coco_scope_digest(
             list(
                 (
                     await db.execute(
-                        select(TaskDatasetItemLink).where(
-                            TaskDatasetItemLink.task_id.in_(
+                        select(task_dataset_item_link_row).where(
+                            task_dataset_item_link_row.task_id.in_(
                                 task_ids[start : start + 1000]
                             ),
-                            TaskDatasetItemLink.role.like("camera\\_%", escape="\\"),
+                            task_dataset_item_link_row.role.like(
+                                "camera\\_%", escape="\\"
+                            ),
                         )
                     )
                 ).scalars()
@@ -480,13 +486,13 @@ async def _scope_naming(
     display_id = (row[1] if row else None) or "export"
     media = "video" if data_type == "video" else "image"
 
-    name_q = select(func.split_part(Task.file_path, "/", 1)).where(
-        Task.project_id == project_id
+    name_q = select(func.split_part(task_row.file_path, "/", 1)).where(
+        task_row.project_id == project_id
     )
     if batch_id is not None:
-        name_q = name_q.where(Task.batch_id == batch_id)
+        name_q = name_q.where(task_row.batch_id == batch_id)
     if task_ids is not None:
-        name_q = name_q.where(Task.id.in_(task_ids))
+        name_q = name_q.where(task_row.id.in_(task_ids))
     names = [r[0] for r in (await db.execute(name_q.distinct())).all() if r[0]]
     dataset_name = names[0] if len(names) == 1 else None
     return media, dataset_name, display_id
@@ -555,9 +561,9 @@ async def _assert_export_task_scope(
         raise ValueError("export job task scope does not match worker arguments")
 
     if access.is_manager:
-        query = select(Task.id).where(
-            Task.project_id == project_id,
-            Task.id.in_(task_ids),
+        query = select(task_row.id).where(
+            task_row.project_id == project_id,
+            task_row.id.in_(task_ids),
         )
     else:
         query = visible_tasks_stmt(
@@ -565,7 +571,7 @@ async def _assert_export_task_scope(
             user=actor,
             project=project,
             project_role=access.project_role,
-        ).where(Task.id.in_(task_ids))
+        ).where(task_row.id.in_(task_ids))
     visible_ids = set((await db.execute(query)).scalars().all())
     if visible_ids != set(task_ids):
         raise ValueError("export task scope is no longer visible")

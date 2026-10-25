@@ -18,7 +18,7 @@ from aap_workspace.configuration_values import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNI
 
 from app.db.enums import UserRole
 from app.services.project_access import get_workspace_project
-from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
+from app.db.models.prediction import Prediction, FailedPrediction
 from app.db.models.task import Task
 from app.services.annotation_propagation import _new_track_id
 from app.services.labeling_write_scope import LabelingWriteScope
@@ -51,6 +51,12 @@ from app.services.labeling_prediction_records import (
     delete_prediction_records_for_tasks,
     prediction_record_command,
     set_failed_prediction_dismissed,
+)
+from app.services.labeling_core_read_relations import (
+    get_core_row,
+    prediction_meta_row,
+    prediction_row,
+    task_row,
 )
 
 logger = logging.getLogger("app.services.prediction")
@@ -617,22 +623,29 @@ class PredictionService:
     ) -> Prediction | None:
         """Find the completed frame result for this exact execution and plan entry."""
         statement = (
-            select(Prediction)
-            .join(PredictionMeta, PredictionMeta.prediction_id == Prediction.id)
+            select(prediction_row)
+            .join(
+                prediction_meta_row,
+                prediction_meta_row.prediction_id == prediction_row.id,
+            )
             .where(
-                Prediction.task_id == task_id,
-                PredictionMeta.extra["accepted_video_execution_job_id"].as_string()
+                prediction_row.task_id == task_id,
+                prediction_meta_row.extra["accepted_video_execution_job_id"].as_string()
                 == str(execution_job_id),
-                PredictionMeta.extra["accepted_video_input"]["input_id"].as_string()
+                prediction_meta_row.extra["accepted_video_input"][
+                    "input_id"
+                ].as_string()
                 == str(evidence.input_id),
-                PredictionMeta.extra["accepted_video_input"]["plan_digest"].as_string()
+                prediction_meta_row.extra["accepted_video_input"][
+                    "plan_digest"
+                ].as_string()
                 == evidence.plan_digest,
-                PredictionMeta.extra["accepted_video_input"]["entry"][
+                prediction_meta_row.extra["accepted_video_input"]["entry"][
                     "ordinal"
                 ].as_string()
                 == str(evidence.entry.ordinal),
             )
-            .order_by(Prediction.created_at.asc())
+            .order_by(prediction_row.created_at.asc())
             .limit(1)
         )
         return (await self.db.execute(statement)).scalars().first()
@@ -730,7 +743,9 @@ class PredictionService:
             raise ValueError("prediction write scope does not match its target")
         if accepted_video_input is not None and len(requests) != 1:
             raise ValueError("retained video frames must be written individually")
-        preflight_task = await self.db.get(Task, first.task_id, populate_existing=True)
+        preflight_task = await get_core_row(
+            self.db, task_row, first.task_id, populate_existing=True
+        )
         normalized_results = [
             _prediction_result_for_write(request) for request in requests
         ]
@@ -1011,18 +1026,18 @@ class PredictionService:
     async def list_by_task(
         self, task_id: uuid.UUID, model_version: str | None = None
     ) -> list[Prediction]:
-        q = select(Prediction).where(Prediction.task_id == task_id)
+        q = select(prediction_row).where(prediction_row.task_id == task_id)
         if model_version:
-            q = q.where(Prediction.model_version == model_version)
-        q = q.order_by(Prediction.created_at.desc())
+            q = q.where(prediction_row.model_version == model_version)
+        q = q.order_by(prediction_row.created_at.desc())
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
     async def get_latest_for_task(self, task_id: uuid.UUID) -> Prediction | None:
         result = await self.db.execute(
-            select(Prediction)
-            .where(Prediction.task_id == task_id)
-            .order_by(Prediction.created_at.desc())
+            select(prediction_row)
+            .where(prediction_row.task_id == task_id)
+            .order_by(prediction_row.created_at.desc())
             .limit(1)
         )
         return result.scalar_one_or_none()

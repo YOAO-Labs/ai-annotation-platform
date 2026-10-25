@@ -33,6 +33,11 @@ from aap_assets_catalog.spatial_contract import (
     normalize_calibration_record,
 )
 from app.services.storage import storage_service
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    task_dataset_item_link_row,
+    task_row,
+)
 
 
 MAX_PREFLIGHT_ISSUES = 200
@@ -241,11 +246,11 @@ async def preflight_lidar_export(
             issues=issues,
         )
 
-    task_scope = [Task.project_id == project_id]
+    task_scope = [task_row.project_id == project_id]
     if batch_id is not None:
-        task_scope.append(Task.batch_id == batch_id)
+        task_scope.append(task_row.batch_id == batch_id)
     task_count = int(
-        (await db.scalar(select(func.count(Task.id)).where(*task_scope))) or 0
+        (await db.scalar(select(func.count(task_row.id)).where(*task_scope))) or 0
     )
     if needs_multicamera_coco and task_count == 0:
         add_issue(
@@ -290,13 +295,13 @@ async def preflight_lidar_export(
             )
         else:
             box_count_query = (
-                select(func.count(Annotation.id))
-                .join(Task, Task.id == Annotation.task_id)
+                select(func.count(annotation_row.id))
+                .join(task_row, task_row.id == annotation_row.task_id)
                 .where(
                     *task_scope,
-                    Annotation.geometry["type"].as_string() == "box_3d",
-                    Annotation.is_active.is_(True),
-                    Annotation.was_cancelled.is_(False),
+                    annotation_row.geometry["type"].as_string() == "box_3d",
+                    annotation_row.is_active.is_(True),
+                    annotation_row.was_cancelled.is_(False),
                 )
             )
             box_count = int((await db.scalar(box_count_query)) or 0)
@@ -322,12 +327,12 @@ async def preflight_lidar_export(
             )
 
     task_query = (
-        select(Task)
-        .where(Task.project_id == project_id)
-        .order_by(Task.sequence_order, Task.created_at, Task.id)
+        select(task_row)
+        .where(task_row.project_id == project_id)
+        .order_by(task_row.sequence_order, task_row.created_at, task_row.id)
     )
     if batch_id is not None:
-        task_query = task_query.where(Task.batch_id == batch_id)
+        task_query = task_query.where(task_row.batch_id == batch_id)
     tasks = list((await db.execute(task_query)).scalars())
     tasks_by_id = {task.id: task for task in tasks}
     task_ids = [task.id for task in tasks]
@@ -343,9 +348,9 @@ async def preflight_lidar_export(
         link_rows = list(
             (
                 await db.execute(
-                    select(TaskDatasetItemLink)
-                    .where(TaskDatasetItemLink.task_id.in_(chunk_ids))
-                    .order_by(TaskDatasetItemLink.role)
+                    select(task_dataset_item_link_row)
+                    .where(task_dataset_item_link_row.task_id.in_(chunk_ids))
+                    .order_by(task_dataset_item_link_row.role)
                 )
             ).scalars()
         )
@@ -481,15 +486,15 @@ async def preflight_lidar_export(
             manual_member_count += int(
                 (
                     await db.scalar(
-                        select(func.count(Annotation.id)).where(
-                            Annotation.task_id.in_(
+                        select(func.count(annotation_row.id)).where(
+                            annotation_row.task_id.in_(
                                 task_ids[start : start + PREFLIGHT_LINK_CHUNK_SIZE]
                             ),
-                            Annotation.sensor_role.is_not(None),
-                            Annotation.source == "manual",
-                            Annotation.geometry["type"].as_string() == "bbox",
-                            Annotation.is_active.is_(True),
-                            Annotation.was_cancelled.is_(False),
+                            annotation_row.sensor_role.is_not(None),
+                            annotation_row.source == "manual",
+                            annotation_row.geometry["type"].as_string() == "bbox",
+                            annotation_row.is_active.is_(True),
+                            annotation_row.was_cancelled.is_(False),
                         )
                     )
                 )
@@ -517,17 +522,18 @@ async def preflight_lidar_export(
                     list(
                         (
                             await db.execute(
-                                select(Annotation).where(
-                                    Annotation.task_id.in_(
+                                select(annotation_row).where(
+                                    annotation_row.task_id.in_(
                                         task_ids[
                                             start : start + PREFLIGHT_LINK_CHUNK_SIZE
                                         ]
                                     ),
-                                    Annotation.sensor_role.is_not(None),
-                                    Annotation.source == "manual",
-                                    Annotation.geometry["type"].as_string() == "bbox",
-                                    Annotation.is_active.is_(True),
-                                    Annotation.was_cancelled.is_(False),
+                                    annotation_row.sensor_role.is_not(None),
+                                    annotation_row.source == "manual",
+                                    annotation_row.geometry["type"].as_string()
+                                    == "bbox",
+                                    annotation_row.is_active.is_(True),
+                                    annotation_row.was_cancelled.is_(False),
                                 )
                             )
                         ).scalars()
@@ -563,18 +569,18 @@ async def preflight_lidar_export(
             ):
                 parents = (
                     await db.execute(
-                        select(Annotation)
-                        .join(Task, Task.id == Annotation.task_id)
+                        select(annotation_row)
+                        .join(task_row, task_row.id == annotation_row.task_id)
                         .where(
                             *task_scope,
-                            Annotation.scene_track_id.in_(
+                            annotation_row.scene_track_id.in_(
                                 ordered_scene_track_ids[
                                     start : start + PREFLIGHT_LINK_CHUNK_SIZE
                                 ]
                             ),
-                            Annotation.geometry["type"].as_string() == "box_3d",
-                            Annotation.is_active.is_(True),
-                            Annotation.was_cancelled.is_(False),
+                            annotation_row.geometry["type"].as_string() == "box_3d",
+                            annotation_row.is_active.is_(True),
+                            annotation_row.was_cancelled.is_(False),
                         )
                     )
                 ).scalars()
@@ -731,9 +737,9 @@ async def preflight_lidar_export(
         }
         full_rows = (
             await db.execute(
-                select(Task, Task.dataset_item_id)
-                .where(Task.project_id == project_id)
-                .where(Task.dataset_item_id.is_not(None))
+                select(task_row, task_row.dataset_item_id)
+                .where(task_row.project_id == project_id)
+                .where(task_row.dataset_item_id.is_not(None))
             )
         ).all()
         full_items, scenes_by_id = await read_spatial_item_facts(
@@ -777,10 +783,10 @@ async def preflight_lidar_export(
             chunk_ids = task_ids[start : start + PREFLIGHT_LINK_CHUNK_SIZE]
             annotations = (
                 await db.execute(
-                    select(Annotation).where(
-                        Annotation.task_id.in_(chunk_ids),
-                        Annotation.is_active.is_(True),
-                        Annotation.was_cancelled.is_(False),
+                    select(annotation_row).where(
+                        annotation_row.task_id.in_(chunk_ids),
+                        annotation_row.is_active.is_(True),
+                        annotation_row.was_cancelled.is_(False),
                     )
                 )
             ).scalars()

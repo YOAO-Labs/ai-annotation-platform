@@ -10,8 +10,6 @@ from app.deps import (
     assert_project_visible,
 )
 from app.db.models.user import User
-from app.db.models.task import Task
-from app.db.models.annotation import Annotation
 from app.schemas.task import (
     TaskOut,
     TaskListResponse,
@@ -27,7 +25,6 @@ from app.services.scheduler import (
     task_visibility_clause,
 )
 from app.services.user_brief import resolve_briefs
-from app.db.models.task_batch import TaskBatch
 
 
 from app.services import task_access
@@ -43,6 +40,11 @@ from app.api.v1.tasks._shared import (
     _SEQ_NULL_SENTINEL,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    batch_row,
+    task_row,
+)
 
 router = APIRouter()
 
@@ -61,34 +63,39 @@ def _build_task_query(
     class_name: str | None,
 ):
     """Build the one authorized task relation used by page and count queries."""
-    query = select(Task).where(Task.project_id == project_id)
+    query = select(task_row).where(task_row.project_id == project_id)
 
     # B-16: retain the scheduler's exact non-privileged batch visibility policy.
     if not access.is_manager:
-        query = query.outerjoin(TaskBatch, Task.batch_id == TaskBatch.id).where(
-            task_visibility_clause(user.id, project_role=access.project_role)
+        query = query.outerjoin(batch_row, task_row.batch_id == batch_row.id).where(
+            task_visibility_clause(
+                user.id,
+                project_role=access.project_role,
+                task_model=task_row,
+                batch_model=batch_row,
+            )
         )
 
     if status:
-        query = query.where(Task.status == status)
+        query = query.where(task_row.status == status)
     if assignee_id:
-        query = query.where(Task.assignee_id == assignee_id)
+        query = query.where(task_row.assignee_id == assignee_id)
     if reject_reason_type:
-        query = query.where(Task.reject_reason_type == reject_reason_type)
+        query = query.where(task_row.reject_reason_type == reject_reason_type)
     if class_name:
         query = query.where(
             exists().where(
-                Annotation.task_id == Task.id,
-                Annotation.class_name == class_name,
-                Annotation.is_active.is_(True),
+                annotation_row.task_id == task_row.id,
+                annotation_row.class_name == class_name,
+                annotation_row.is_active.is_(True),
             )
         )
 
     # Unbatched keeps precedence over an explicitly supplied batch_id.
     if unbatched:
-        query = query.where(Task.batch_id.is_(None))
+        query = query.where(task_row.batch_id.is_(None))
     elif batch_id:
-        query = query.where(Task.batch_id == batch_id)
+        query = query.where(task_row.batch_id == batch_id)
     return query
 
 
@@ -129,20 +136,22 @@ async def list_tasks(
     # 创建的、created_at 全相同,旧的 (created_at, id) 排序退化为按随机 UUID id 乱序)。
     # 非序列任务 sequence_order 为 NULL → coalesce 到哨兵,排序退回 (created_at, id),行为不变。
     q = filtered
-    seq_key = func.coalesce(Task.sequence_order, _SEQ_NULL_SENTINEL)
+    seq_key = func.coalesce(task_row.sequence_order, _SEQ_NULL_SENTINEL)
     if cursor:
         last_seq, last_ts, last_id = _decode_task_cursor(cursor)
         q = q.where(
             or_(
                 seq_key > last_seq,
-                and_(seq_key == last_seq, Task.created_at > last_ts),
+                and_(seq_key == last_seq, task_row.created_at > last_ts),
                 and_(
-                    seq_key == last_seq, Task.created_at == last_ts, Task.id > last_id
+                    seq_key == last_seq,
+                    task_row.created_at == last_ts,
+                    task_row.id > last_id,
                 ),
             )
         )
 
-    q = q.order_by(seq_key, Task.created_at, Task.id).limit(limit)
+    q = q.order_by(seq_key, task_row.created_at, task_row.id).limit(limit)
     if not cursor and offset:
         q = q.offset(offset)
     tasks = list((await db.execute(q)).scalars().all())

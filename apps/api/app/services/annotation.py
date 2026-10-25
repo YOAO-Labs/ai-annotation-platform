@@ -41,7 +41,6 @@ from app.services.project_access import get_workspace_project
 from app.db.models.scene_track import SceneTrack
 from app.db.models.prediction import (
     INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
-    Prediction,
 )
 from app.db.models.task import Task
 from app.db.models.task_lock import AnnotationDraft
@@ -89,6 +88,14 @@ from app.services.labeling_cross_frame_writes import LabelingCrossFrameWriteServ
 from app.services.labeling_annotation_prediction import (
     annotation_prediction_command,
     annotation_prediction_context,
+)
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    lock_task_for_core_read,
+    prediction_meta_row,
+    prediction_row,
+    task_row,
 )
 
 logger = logging.getLogger("app.services.annotation")
@@ -188,8 +195,8 @@ class AnnotationService:
     async def _load_after_write(self, annotation_id: uuid.UUID) -> Annotation:
         return (
             await self.db.execute(
-                select(Annotation)
-                .where(Annotation.id == annotation_id)
+                select(annotation_row)
+                .where(annotation_row.id == annotation_id)
                 .execution_options(populate_existing=True)
             )
         ).scalar_one()
@@ -204,10 +211,15 @@ class AnnotationService:
         }
         if not loaded:
             return
-        columns = [Annotation.id, *(getattr(Annotation, field) for field in fields)]
+        columns = [
+            annotation_row.id,
+            *(getattr(annotation_row, field) for field in fields),
+        ]
         with self.db.no_autoflush:
             rows = (
-                await self.db.execute(select(*columns).where(Annotation.id.in_(loaded)))
+                await self.db.execute(
+                    select(*columns).where(annotation_row.id.in_(loaded))
+                )
             ).mappings()
             for row in rows:
                 item = loaded[row["id"]]
@@ -230,17 +242,13 @@ class AnnotationService:
         )
         if loaded is None:
             return
-        columns = [SceneTrack.id, *(getattr(SceneTrack, field) for field in fields)]
+        from app.services.labeling_scene_read import read_scene_data
+
         with self.db.no_autoflush:
-            row = (
-                (
-                    await self.db.execute(
-                        select(*columns).where(SceneTrack.id == scene_track_id)
-                    )
-                )
-                .mappings()
-                .one_or_none()
+            data = await read_scene_data(
+                self.db, "load_scene_track_cache", scene_track_id=scene_track_id
             )
+        row = data.track_cache
         if row is not None:
             state = inspect(loaded)
             for field in fields:
@@ -261,28 +269,22 @@ class AnnotationService:
         }
         if not loaded:
             return
+        from app.services.labeling_scene_read import read_scene_data
+
         with self.db.no_autoflush:
-            rows = (
-                await self.db.execute(
-                    select(
-                        Annotation.id,
-                        Annotation.class_name,
-                        Annotation.version,
-                        Annotation.updated_at,
-                    )
-                    .where(Annotation.id.in_(loaded))
-                    .where(Annotation.scene_track_id == scene_track_id)
-                    .where(Annotation.sensor_role.is_not(None))
-                    .where(Annotation.was_cancelled.is_(False))
-                )
-            ).mappings()
-            for row in rows:
-                item = loaded[row["id"]]
-                state = inspect(item)
-                for field in ("class_name", "version", "updated_at"):
-                    value = row[field]
-                    if field not in state.dict or state.dict[field] != value:
-                        set_committed_value(item, field, value)
+            data = await read_scene_data(
+                self.db,
+                "load_scene_camera_cache",
+                scene_track_id=scene_track_id,
+                annotation_ids=list(loaded),
+            )
+        for row in data.camera_members:
+            item = loaded[row.id]
+            state = inspect(item)
+            for field in ("class_name", "version", "updated_at"):
+                value = getattr(row, field)
+                if field not in state.dict or state.dict[field] != value:
+                    set_committed_value(item, field, value)
 
     async def _refresh_deleted_annotation_cache(
         self,
@@ -298,24 +300,24 @@ class AnnotationService:
         }
         if not loaded:
             return
-        targets = [Annotation.id == annotation.id]
+        targets = [annotation_row.id == annotation.id]
         if deleted_camera_members and annotation.scene_track_id is not None:
             targets.append(
-                (Annotation.task_id == annotation.task_id)
-                & (Annotation.scene_track_id == annotation.scene_track_id)
-                & Annotation.sensor_role.is_not(None)
-                & Annotation.was_cancelled.is_(False)
+                (annotation_row.task_id == annotation.task_id)
+                & (annotation_row.scene_track_id == annotation.scene_track_id)
+                & annotation_row.sensor_role.is_not(None)
+                & annotation_row.was_cancelled.is_(False)
             )
         if deleted_children:
-            targets.append(Annotation.parent_annotation_id == annotation.id)
+            targets.append(annotation_row.parent_annotation_id == annotation.id)
         with self.db.no_autoflush:
             rows = (
                 await self.db.execute(
                     select(
-                        Annotation.id,
-                        Annotation.is_active,
-                        Annotation.version,
-                        Annotation.updated_at,
+                        annotation_row.id,
+                        annotation_row.is_active,
+                        annotation_row.version,
+                        annotation_row.updated_at,
                     ).where(or_(*targets))
                 )
             ).mappings()
@@ -378,10 +380,10 @@ class AnnotationService:
         # Slice restore may deactivate a prospective parent. Serialize child
         # creation with it before validating, so a waiter cannot create a child
         # from an active-state snapshot taken before the restore committed.
-        await self.db.execute(select(Task).where(Task.id == task_id).with_for_update())
+        await lock_task_for_core_read(self.db, task_id)
         parent = await self.db.scalar(
-            select(Annotation)
-            .where(Annotation.id == parent_annotation_id)
+            select(annotation_row)
+            .where(annotation_row.id == parent_annotation_id)
             .execution_options(populate_existing=True)
         )
         if parent is None or not parent.is_active:
@@ -422,7 +424,7 @@ class AnnotationService:
         verified_mask_content: _VerifiedMaskContent | None = None,
         require_verified_mask_content: bool = False,
     ) -> Annotation:
-        task = await self.db.get(Task, task_id)
+        task = await get_core_row(self.db, task_row, task_id)
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
         if not require_verified_mask_content:
@@ -521,7 +523,7 @@ class AnnotationService:
     ) -> dict | None:
         """Load a frozen create response or reject reuse of another operation key."""
         project_id = await self.db.scalar(
-            select(Task.project_id).where(Task.id == task_id)
+            select(task_row.project_id).where(task_row.id == task_id)
         )
         if project_id is None:
             return None
@@ -551,7 +553,7 @@ class AnnotationService:
     ) -> None:
         """Stage the historical create response in the labeling transaction."""
         project_id = await self.db.scalar(
-            select(Task.project_id).where(Task.id == task_id)
+            select(task_row.project_id).where(task_row.id == task_id)
         )
         if project_id is None:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -599,7 +601,7 @@ class AnnotationService:
         # v0.10.25 · predictions 复合 PK (id, created_at) 后不能用 db.get(单值)，改按 id 查。
         prediction = (
             await self.db.execute(
-                select(Prediction).where(Prediction.id == prediction_id)
+                select(prediction_row).where(prediction_row.id == prediction_id)
             )
         ).scalar_one_or_none()
         if (
@@ -610,12 +612,11 @@ class AnnotationService:
             return None
         if prediction.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE:
             return None
-        from app.db.models.prediction import PredictionMeta
 
         pred_meta = (
             await self.db.execute(
-                select(PredictionMeta).where(
-                    PredictionMeta.prediction_id == prediction_id
+                select(prediction_meta_row).where(
+                    prediction_meta_row.prediction_id == prediction_id
                 )
             )
         ).scalar_one_or_none()
@@ -790,8 +791,8 @@ class AnnotationService:
                 (index, to_internal_shape(raw_shape))
                 for index, raw_shape in enumerate(raw_shapes)
             ]
-        preflight_task = await self.db.get(
-            Task, prediction.task_id, populate_existing=True
+        preflight_task = await get_core_row(
+            self.db, task_row, prediction.task_id, populate_existing=True
         )
         verified_mask_content = await preflight_mask_payload_for_write(
             self.db,
@@ -1092,7 +1093,9 @@ class AnnotationService:
         task, _actor, _access = await lock_labeling_write(
             self.db, write_scope, operations=("secondary_inference",)
         )
-        annotation = await self.db.get(Annotation, write_scope.source_annotation_id)
+        annotation = await get_core_row(
+            self.db, annotation_row, write_scope.source_annotation_id
+        )
         await record_annotation_actor(self.db, task, actor_id)
 
         if result.write_target == "attributes":
@@ -1199,7 +1202,7 @@ class AnnotationService:
 
         prediction = (
             await self.db.execute(
-                select(Prediction).where(Prediction.id == prediction_id)
+                select(prediction_row).where(prediction_row.id == prediction_id)
             )
         ).scalar_one_or_none()
         if (
@@ -1240,16 +1243,16 @@ class AnnotationService:
         include_cancelled: bool = False,
         video_segment_id: uuid.UUID | None = None,
     ) -> list[Annotation]:
-        q = select(Annotation).where(
-            Annotation.task_id == task_id,
-            Annotation.is_active.is_(True),
-            Annotation.sensor_role.is_(None),
+        q = select(annotation_row).where(
+            annotation_row.task_id == task_id,
+            annotation_row.is_active.is_(True),
+            annotation_row.sensor_role.is_(None),
         )
         if not include_cancelled:
-            q = q.where(Annotation.was_cancelled.is_(False))
+            q = q.where(annotation_row.was_cancelled.is_(False))
         if video_segment_id is not None:
-            q = q.where(Annotation.video_segment_id == video_segment_id)
-        q = q.order_by(Annotation.created_at)
+            q = q.where(annotation_row.video_segment_id == video_segment_id)
+        q = q.order_by(annotation_row.created_at)
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
@@ -1265,15 +1268,15 @@ class AnnotationService:
         """
         if not task_ids:
             return []
-        q = select(Annotation).where(
-            Annotation.task_id.in_(task_ids),
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
-            Annotation.sensor_role.is_(None),
+        q = select(annotation_row).where(
+            annotation_row.task_id.in_(task_ids),
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
+            annotation_row.sensor_role.is_(None),
         )
         if track_id is not None:
-            q = q.where(Annotation.track_id == track_id)
-        q = q.order_by(Annotation.task_id, Annotation.created_at)
+            q = q.where(annotation_row.track_id == track_id)
+        q = q.order_by(annotation_row.task_id, annotation_row.created_at)
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
@@ -1291,22 +1294,24 @@ class AnnotationService:
         cursor 元组语义：取「严格小于」该 (ts, id) 的下一页。
         排序键参考 alembic 0031 的 ix_annotations_task_created_id 复合索引。
         """
-        q = select(Annotation).where(
-            Annotation.task_id == task_id,
-            Annotation.is_active.is_(True),
-            Annotation.sensor_role.is_(None),
+        q = select(annotation_row).where(
+            annotation_row.task_id == task_id,
+            annotation_row.is_active.is_(True),
+            annotation_row.sensor_role.is_(None),
         )
         if not include_cancelled:
-            q = q.where(Annotation.was_cancelled.is_(False))
+            q = q.where(annotation_row.was_cancelled.is_(False))
         if video_segment_id is not None:
-            q = q.where(Annotation.video_segment_id == video_segment_id)
+            q = q.where(annotation_row.video_segment_id == video_segment_id)
         if cursor is not None:
             cur_ts, cur_id = cursor
             q = q.where(
-                (Annotation.created_at < cur_ts)
-                | ((Annotation.created_at == cur_ts) & (Annotation.id < cur_id))
+                (annotation_row.created_at < cur_ts)
+                | ((annotation_row.created_at == cur_ts) & (annotation_row.id < cur_id))
             )
-        q = q.order_by(Annotation.created_at.desc(), Annotation.id.desc()).limit(limit)
+        q = q.order_by(
+            annotation_row.created_at.desc(), annotation_row.id.desc()
+        ).limit(limit)
         rows = list((await self.db.execute(q)).scalars().all())
         next_cursor: tuple[datetime, uuid.UUID] | None = None
         if len(rows) == limit and rows:
@@ -1317,13 +1322,13 @@ class AnnotationService:
     async def delete(
         self, annotation_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
     ) -> bool:
-        annotation = await self.db.get(Annotation, annotation_id)
+        annotation = await get_core_row(self.db, annotation_row, annotation_id)
         if not annotation:
             return False
         project_id = annotation.project_id
         if project_id is None:
             project_id = await self.db.scalar(
-                select(Task.project_id).where(Task.id == annotation.task_id)
+                select(task_row.project_id).where(task_row.id == annotation.task_id)
             )
         if project_id is None:
             return False
@@ -1377,7 +1382,11 @@ class AnnotationService:
         if not ids:
             return []
         rows = (
-            (await self.db.execute(select(Annotation).where(Annotation.id.in_(ids))))
+            (
+                await self.db.execute(
+                    select(annotation_row).where(annotation_row.id.in_(ids))
+                )
+            )
             .scalars()
             .all()
         )
@@ -1560,7 +1569,7 @@ class AnnotationService:
         actor_id: uuid.UUID | None = None,
     ) -> Annotation | None:
         """Surgical update of mutable fields. Increments version for optimistic concurrency."""
-        annotation = await self.db.get(Annotation, annotation_id)
+        annotation = await get_core_row(self.db, annotation_row, annotation_id)
         if not annotation or not annotation.is_active:
             return None
         if annotation.sensor_role is not None:
@@ -1570,7 +1579,7 @@ class AnnotationService:
             )
         verified_mask_content = None
         if geometry is not None and not mask_payload_prepared:
-            task = await self.db.get(Task, annotation.task_id)
+            task = await get_core_row(self.db, task_row, annotation.task_id)
             verified_mask_content = await preflight_mask_payload_for_write(
                 self.db, task, geometry
             )
@@ -1611,7 +1620,7 @@ class AnnotationService:
         project_id = annotation.project_id
         if project_id is None:
             project_id = await self.db.scalar(
-                select(Task.project_id).where(Task.id == annotation.task_id)
+                select(task_row.project_id).where(task_row.id == annotation.task_id)
             )
         if project_id is None:
             raise HTTPException(status_code=404, detail="Task not found")

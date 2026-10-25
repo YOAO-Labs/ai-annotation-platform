@@ -58,16 +58,19 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.db.models.annotation import Annotation
-from app.db.models.prediction import Prediction
 from app.db.models.project import Project
 from app.db.models.project_task_view import ProjectTaskView
 from app.db.models.task import Task
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
 from app.services.assets_spatial_views import spatial_item_references
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.labeling_discussion_relations import annotation_feedback_facts
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    prediction_row,
+    task_dataset_item_link_row,
+    task_row,
+)
 
 
 DEFAULT_COLUMNS = [
@@ -141,14 +144,14 @@ DEFAULT_VIEWS: list[dict[str, Any]] = [
 
 _SORT_FIELD_MAP = {
     **_TASK_FIELD_MAP,
-    "task.display_id": Task.display_id,
-    "display_id": Task.display_id,
-    "file_name": Task.file_name,
-    "status": Task.status,
-    "annotation_count": Task.total_annotations,
-    "prediction_count": Task.total_predictions,
-    "task.created_at": Task.created_at,
-    "task.updated_at": Task.updated_at,
+    "task.display_id": task_row.display_id,
+    "display_id": task_row.display_id,
+    "file_name": task_row.file_name,
+    "status": task_row.status,
+    "annotation_count": task_row.total_annotations,
+    "prediction_count": task_row.total_predictions,
+    "task.created_at": task_row.created_at,
+    "task.updated_at": task_row.updated_at,
 }
 
 
@@ -400,51 +403,59 @@ def invalid_filter_fields(filter_json: dict[str, Any], project: Project) -> list
 def _model_versions_sq() -> ColumnElement[list[str]]:
     return (
         select(
-            func.coalesce(func.array_agg(func.distinct(Prediction.model_version)), [])
+            func.coalesce(
+                func.array_agg(func.distinct(prediction_row.model_version)), []
+            )
         )
-        .where(Prediction.task_id == Task.id, Prediction.model_version.is_not(None))
+        .where(
+            prediction_row.task_id == task_row.id,
+            prediction_row.model_version.is_not(None),
+        )
         .scalar_subquery()
     )
 
 
 def _last_activity_at_expr() -> ColumnElement[datetime]:
     return func.greatest(
-        Task.updated_at,
+        task_row.updated_at,
         func.coalesce(
             (
-                select(func.max(Annotation.updated_at))
-                .where(Annotation.task_id == Task.id, Annotation.is_active.is_(True))
+                select(func.max(annotation_row.updated_at))
+                .where(
+                    annotation_row.task_id == task_row.id,
+                    annotation_row.is_active.is_(True),
+                )
                 .scalar_subquery()
             ),
-            Task.updated_at,
+            task_row.updated_at,
         ),
         func.coalesce(
             (
                 select(func.max(annotation_feedback_facts.updated_at))
-                .where(annotation_feedback_facts.task_id == Task.id)
+                .where(annotation_feedback_facts.task_id == task_row.id)
                 .scalar_subquery()
             ),
-            Task.updated_at,
+            task_row.updated_at,
         ),
         func.coalesce(
             (
-                select(func.max(Prediction.created_at))
-                .where(Prediction.task_id == Task.id)
+                select(func.max(prediction_row.created_at))
+                .where(prediction_row.task_id == task_row.id)
                 .scalar_subquery()
             ),
-            Task.updated_at,
+            task_row.updated_at,
         ),
     )
 
 
 def _annotation_source_count_sq(source: str) -> ColumnElement[int]:
     return (
-        select(func.count(Annotation.id))
+        select(func.count(annotation_row.id))
         .where(
-            Annotation.task_id == Task.id,
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
-            Annotation.source == source,
+            annotation_row.task_id == task_row.id,
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
+            annotation_row.source == source,
         )
         .scalar_subquery()
     )
@@ -454,9 +465,9 @@ def _track_count_sq() -> ColumnElement[int]:
     return (
         select(func.count(func.distinct(_track_id_expr())))
         .where(
-            Annotation.task_id == Task.id,
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
+            annotation_row.task_id == task_row.id,
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
             _track_id_expr().is_not(None),
         )
         .scalar_subquery()
@@ -464,7 +475,7 @@ def _track_count_sq() -> ColumnElement[int]:
 
 
 def _annotation_json_array_total_sq(key: str) -> ColumnElement[int]:
-    value = Annotation.geometry[key]
+    value = annotation_row.geometry[key]
     count = case(
         (func.jsonb_typeof(value) == "array", func.jsonb_array_length(value)),
         else_=0,
@@ -472,9 +483,9 @@ def _annotation_json_array_total_sq(key: str) -> ColumnElement[int]:
     return (
         select(func.coalesce(func.sum(count), 0))
         .where(
-            Annotation.task_id == Task.id,
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
+            annotation_row.task_id == task_row.id,
+            annotation_row.is_active.is_(True),
+            annotation_row.was_cancelled.is_(False),
         )
         .scalar_subquery()
     )
@@ -482,10 +493,10 @@ def _annotation_json_array_total_sq(key: str) -> ColumnElement[int]:
 
 def _camera_count_sq() -> ColumnElement[int]:
     return (
-        select(func.count(TaskDatasetItemLink.id))
+        select(func.count(task_dataset_item_link_row.id))
         .where(
-            TaskDatasetItemLink.task_id == Task.id,
-            TaskDatasetItemLink.role.like("camera_%"),
+            task_dataset_item_link_row.task_id == task_row.id,
+            task_dataset_item_link_row.role.like("camera_%"),
         )
         .scalar_subquery()
     )
@@ -494,11 +505,11 @@ def _camera_count_sq() -> ColumnElement[int]:
 def _calibration_issue_count_sq() -> ColumnElement[int]:
     item = spatial_item_references.alias("calibration_issue_item")
     return (
-        select(func.count(TaskDatasetItemLink.id))
-        .join(item, item.c.item_id == TaskDatasetItemLink.dataset_item_id)
+        select(func.count(task_dataset_item_link_row.id))
+        .join(item, item.c.item_id == task_dataset_item_link_row.dataset_item_id)
         .where(
-            TaskDatasetItemLink.task_id == Task.id,
-            TaskDatasetItemLink.role.like("camera_%"),
+            task_dataset_item_link_row.task_id == task_row.id,
+            task_dataset_item_link_row.role.like("camera_%"),
             item.c.calibration_metadata_present.is_(False),
         )
         .scalar_subquery()
@@ -527,7 +538,7 @@ def apply_sort(q: Select, sort_json: list[dict[str, Any]] | None) -> Select:
         field = item.get("field")
         expr = _sort_expr(field)
         order_by.append(expr.desc() if item.get("direction") == "desc" else expr.asc())
-    order_by.append(Task.id.asc())
+    order_by.append(task_row.id.asc())
     return q.order_by(*order_by)
 
 
@@ -694,8 +705,8 @@ class TaskViewService:
         clause = compile_filter(filter_json, project=project, user=user)
         stmt = (
             select(func.count())
-            .select_from(Task)
-            .where(Task.project_id == project_id, clause)
+            .select_from(task_row)
+            .where(task_row.project_id == project_id, clause)
         )
         stmt = self._apply_visibility(stmt, user, project, project_role=project_role)
         total = await self.db.scalar(stmt)
@@ -719,7 +730,9 @@ class TaskViewService:
             .label(f"c{i}")
             for i, f in enumerate(filters)
         ]
-        stmt = select(*cols).select_from(Task).where(Task.project_id == project_id)
+        stmt = (
+            select(*cols).select_from(task_row).where(task_row.project_id == project_id)
+        )
         stmt = self._apply_visibility(stmt, user, project, project_role=project_role)
         row = (await self.db.execute(stmt)).one()
         return [int(v or 0) for v in row]
@@ -738,9 +751,9 @@ class TaskViewService:
         project_role: str | None = None,
     ) -> tuple[list[Any], int]:
         clause = compile_filter(filter_json, project=project, user=user)
-        base = Task.project_id == project_id
+        base = task_row.project_id == project_id
         count_stmt = self._apply_visibility(
-            select(func.count()).select_from(Task).where(base, clause),
+            select(func.count()).select_from(task_row).where(base, clause),
             user,
             project,
             project_role=project_role,

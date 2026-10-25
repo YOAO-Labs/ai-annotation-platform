@@ -116,6 +116,7 @@ from app.api.v1.tasks._shared import (
 )
 from aap_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import lock_task_for_core_read
 
 router = APIRouter()
 
@@ -978,14 +979,7 @@ async def save_video_mask_correction_keyframe(
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
@@ -1046,14 +1040,7 @@ async def operate_video_mask_correction_keyframe(
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
-    task = (
-        await db.execute(
-            select(Task)
-            .where(Task.id == task_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    task = await lock_task_for_core_read(db, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
