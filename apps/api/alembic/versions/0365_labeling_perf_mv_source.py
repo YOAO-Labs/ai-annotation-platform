@@ -99,7 +99,7 @@ def _replace_user_perf_mv(source: str) -> None:
     owner_ddl = bind.execute(
         text(
             "SELECT pg_catalog.format("
-            "'ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO %I', :owner)"
+            "'ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO %I', CAST(:owner AS text))"
         ),
         {"owner": owner},
     ).scalar_one()
