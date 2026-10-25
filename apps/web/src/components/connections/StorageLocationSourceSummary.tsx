@@ -228,6 +228,7 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
                     value={source.diagnostics}
                     datasetId={source.dataset_id}
                     sourceId={source.source_id}
+                    showFaults={role === "super_admin"}
                     returnTo={returnTo}
                     onJob={openJob}
                   />

@@ -15,6 +15,7 @@ describe("auditActionLabel", () => {
     expect(auditActionLabel("user.invite")).toBe("邀请用户");
     expect(auditActionLabel("project.delete")).toBe("删除项目");
     expect(auditActionLabel("video_mask.keyframe_operate")).toBe("操作视频 Mask 关键帧");
+    expect(auditActionLabel("storage.fault")).toBe("存储访问故障");
   });
 
   it("未知 action → 原 action 串", () => {
@@ -31,6 +32,7 @@ describe("AUDIT_BUSINESS_ACTIONS / AUDIT_TARGET_TYPES", () => {
     expect(AUDIT_BUSINESS_ACTIONS).toContain("auth.login");
     expect(AUDIT_BUSINESS_ACTIONS).toContain("user.invite");
     expect(AUDIT_BUSINESS_ACTIONS).toContain("video_tracker_job.decision");
+    expect(AUDIT_BUSINESS_ACTIONS).toContain("storage.fault");
   });
 
   it("AUDIT_ACTION_LABELS 包含 http.post / http.patch / http.put / http.delete", () => {
@@ -46,6 +48,7 @@ describe("AUDIT_BUSINESS_ACTIONS / AUDIT_TARGET_TYPES", () => {
       "project",
       "task",
       "dataset",
+      "storage_location",
       "annotation",
       "system",
       "ml_backend",

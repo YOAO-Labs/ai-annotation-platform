@@ -74,7 +74,20 @@ async def delete_owned(objects):
             )
 
 
-async def generate(db, location, source, mapping, snapshot, uploaded, retired):
+async def generate(
+    db,
+    location,
+    source,
+    mapping,
+    snapshot,
+    uploaded,
+    retired,
+    *,
+    actor_id=None,
+    run_id=None,
+    job_id=None,
+    registration_id=None,
+):
     if not policy.permits_preview(policy.effective_cache_policy(source, location)):
         return None
     row = await db.get(DatasetSourcePreview, (source.id, mapping.path_digest))
@@ -135,6 +148,23 @@ async def generate(db, location, source, mapping, snapshot, uploaded, retired):
         # A derivative failure does not roll back an already verified original.
         if uploaded and uploaded[-1][1].startswith(f"directory-previews/{source.id}/"):
             await delete_owned([uploaded.pop()])
+        from app.services import storage_fault_events
+
+        await storage_fault_events.report(
+            db,
+            None,
+            operation="preview_generate",
+            preview=True,
+            actor_id=actor_id,
+            location_id=location.id,
+            source_id=source.id,
+            dataset_id=source.dataset_id,
+            item_id=mapping.dataset_item_id,
+            asset_id=mapping.asset_id,
+            run_id=run_id,
+            job_id=job_id,
+            registration_id=registration_id,
+        )
     return row
 
 

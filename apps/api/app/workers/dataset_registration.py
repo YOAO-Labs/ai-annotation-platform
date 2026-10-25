@@ -96,6 +96,8 @@ async def process_one(db, run_id, task_id, fence, work):
             api_key_id=work["api_key_id"],
             before_commit=guard,
             refresh_unverified=work["refresh_unverified"],
+            event_job_id=work["job_id"],
+            event_registration_id=work["registration_id"],
         )
         try:
             estimated, preview_error = 0, None
@@ -142,6 +144,8 @@ async def process_one(db, run_id, task_id, fence, work):
             api_key_id=work["api_key_id"],
             before_apply=guard,
             on_result=registered,
+            event_job_id=work["job_id"],
+            event_registration_id=work["registration_id"],
         )
 
 

@@ -375,6 +375,8 @@ async def next_entry(db, run_id, task_id, fence):
     return {
         "path_digest": entry.path_digest,
         "scan_run_id": run.scan_run_id,
+        "job_id": job.id,
+        "registration_id": run.id,
         "phase": run.phase,
         "refresh_unverified": entry.refresh_unverified,
         "actor_id": uuid.UUID(run.snapshot["actor_id"]),

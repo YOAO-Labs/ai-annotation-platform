@@ -23,7 +23,7 @@ from app.services import content_snapshot as snapshots
 from app.services import dataset_scans as scans
 from app.services import filesystem_storage as fs
 from app.services import reference_storage
-from app.services import storage_access
+from app.services import storage_access, storage_fault_events
 from app.services import storage_location as locations
 from app.services.reference_keys import reference_key
 
@@ -41,6 +41,8 @@ async def register_entry(
     before_apply=None,
     on_result=None,
     revision_context=None,
+    event_job_id=None,
+    event_registration_id=None,
 ):
     from app.services.dataset_content import scan_snapshot, scan_context, key_authority
     from app.services.project_kind import dataset_has_scenes
@@ -84,6 +86,8 @@ async def register_entry(
         node_id=node_id,
         before_io=dataset_guard,
         before_commit=guarded_commit,
+        event_job_id=event_job_id,
+        event_registration_id=event_registration_id,
     )
     observation = dict(snapshot.observation)
     snapshot.close()
@@ -346,7 +350,17 @@ async def register_entry(
             None
             if historical_replay
             else await previews.generate(
-                db, location, source, mapping, final, uploaded, retired
+                db,
+                location,
+                source,
+                mapping,
+                final,
+                uploaded,
+                retired,
+                actor_id=actor.id,
+                run_id=run.id,
+                job_id=event_job_id or run.async_job_id,
+                registration_id=event_registration_id,
             )
         )
         await scans.validate_write_context(db, location, source, snapshot=run.snapshot)
@@ -821,32 +835,42 @@ async def reference_snapshot(
     from_source = snapshot is None
     source_context = None
     if from_source:
-        source_context = await reference_source_context(
+        async with storage_fault_events.observe(
             db,
-            item_id,
-            actor,
+            operation="reference_read",
+            actor_id=actor.id,
             task_id=task_id,
-            node_id=node_id,
-            task_authorizer=task_authorizer,
-        )
-        if any(source_context.get(key) != value for key, value in context.items()):
-            raise snapshots.ContentError("content_binding_changed")
-        snapshot = await snapshots.capture_from_location(
-            db,
-            context["location_id"],
-            lambda: reference_storage.content_file(
-                source_context["config"],
-                source_context["base"],
-                source_context["path"],
-                expected_anchor=source_context["anchor"],
-                expected=source_context["expected"],
-                expected_source_identity=source_context["source_identity"],
-            ),
-            context["sha256"],
-            expected_revision=context["maintenance_revision"],
-            node_id=node_id,
-            on_acquired=admitted,
-        )
+            **{
+                key: context[key]
+                for key in ("location_id", "source_id", "item_id", "asset_id", "run_id")
+            },
+        ):
+            source_context = await reference_source_context(
+                db,
+                item_id,
+                actor,
+                task_id=task_id,
+                node_id=node_id,
+                task_authorizer=task_authorizer,
+            )
+            if any(source_context.get(key) != value for key, value in context.items()):
+                raise snapshots.ContentError("content_binding_changed")
+            snapshot = await snapshots.capture_from_location(
+                db,
+                context["location_id"],
+                lambda: reference_storage.content_file(
+                    source_context["config"],
+                    source_context["base"],
+                    source_context["path"],
+                    expected_anchor=source_context["anchor"],
+                    expected=source_context["expected"],
+                    expected_source_identity=source_context["source_identity"],
+                ),
+                context["sha256"],
+                expected_revision=context["maintenance_revision"],
+                node_id=node_id,
+                on_acquired=admitted,
+            )
     try:
 
         async def validate():

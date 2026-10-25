@@ -703,9 +703,9 @@ async def apply_directory(db, run_id, task_id, fence, work, manifest):
     job.result = {**run.counts, "complete": False}
 
 
-async def fail_attempt(db, run_id, task_id, fence, code):
+async def fail_attempt(db, run_id, task_id, fence, code, *, failure=None):
     try:
-        _, _, run, job = await run_context(db, run_id)
+        location, source, run, job = await run_context(db, run_id)
         if (
             job
             and job.celery_task_id == task_id
@@ -713,5 +713,19 @@ async def fail_attempt(db, run_id, task_id, fence, code):
             and (run.generation, run.lease_token) == fence
         ):
             await finish(db, run, job, "failed", code)
+            if failure is not None:
+                from app.services import storage_fault_events
+
+                await storage_fault_events.report(
+                    db,
+                    failure,
+                    operation="scan",
+                    actor_id=job.user_id,
+                    location_id=location.id,
+                    source_id=source.id,
+                    dataset_id=source.dataset_id,
+                    run_id=run.id,
+                    job_id=job.id,
+                )
     except HTTPException:
         pass

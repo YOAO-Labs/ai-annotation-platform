@@ -119,11 +119,13 @@ function RunEvidence({
 
 export function SourceDiagnostics({
   value,
+  showFaults = false,
   ...navigation
 }: {
   value: StorageSourceDiagnostics;
   datasetId: string | null;
   sourceId: string;
+  showFaults?: boolean;
   returnTo?: string;
   onJob: (id: string, trigger: HTMLElement) => void;
 }) {
@@ -180,6 +182,21 @@ export function SourceDiagnostics({
         <RunEvidence label="扫描" history={value.scan} {...navigation} />
         <RunEvidence label="预检 / 登记" history={value.preflight} {...navigation} />
       </div>
+      {showFaults && (
+        <p className="mt-3 text-xs">
+          <Link
+            className="text-brand underline"
+            to={`/audit?${new URLSearchParams({
+              action: "storage.fault",
+              target_type: "storage_location",
+              detail_key: "source_id",
+              detail_value: navigation.sourceId,
+            })}`}
+          >
+            查看此来源故障记录
+          </Link>
+        </p>
+      )}
       {!!evidence.total && (
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
           完整原图缓存记录 {evidence.original_cache_recorded_count ?? 0} 个；最近登记：

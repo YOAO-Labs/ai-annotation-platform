@@ -172,6 +172,30 @@ it("paginates all backend locations and clears selection on session change", asy
   expect(screen.getByRole("combobox", { name: "查看关联来源的存储位置" })).toHaveValue("");
   expect(api.sourceSummary).not.toHaveBeenCalled();
 });
+
+it("links a super administrator to the current source fault history", async () => {
+  state.role = "super_admin";
+  mount();
+  await screen.findByRole("option", { name: "CephFS · filesystem" });
+  fireEvent.change(screen.getByRole("combobox", { name: "查看关联来源的存储位置" }), {
+    target: { value: "location" },
+  });
+  const link = await screen.findByRole("link", { name: "查看此来源故障记录" });
+  expect(link).toHaveAttribute(
+    "href",
+    "/audit?action=storage.fault&target_type=storage_location&detail_key=source_id&detail_value=source",
+  );
+});
+
+it("does not expose global audit navigation to a project administrator", async () => {
+  mount();
+  await screen.findByRole("option", { name: "CephFS · filesystem" });
+  fireEvent.change(screen.getByRole("combobox", { name: "查看关联来源的存储位置" }), {
+    target: { value: "location" },
+  });
+  await screen.findByRole("link", { name: "Vehicles / Fleet" });
+  expect(screen.queryByRole("link", { name: "查看此来源故障记录" })).not.toBeInTheDocument();
+});
 it("does not query or render management navigation for an annotator", () => {
   state.role = "annotator";
   mount();

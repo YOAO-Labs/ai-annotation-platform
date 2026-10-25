@@ -42,6 +42,12 @@ last_reviewed: 2026-10-25
 
 `state=configured`只表示用途映射符合已支持的配置合同，不证明位置在线、对象可读、历史定位全覆盖或迁移完成。`missing / mismatch`保留其原有含义；策略字段描述当前路由规则，不提供写入或迁移许可。客户端遇到未提供的新字段应显示未知，不能从位置读取能力推断平台写策略。权限仍为当前超级管理员与`datasets:read`。
 
+## 本地来源故障关联
+
+已授权的数据集来源核验读取、引用图片读取、扫描失败与预览生成可产生 `storage.fault` 审计，`target_type=storage_location`、`target_id` 为实际位置 UUID。沿既有 `GET /api/v1/audit-logs?action=storage.fault&target_type=storage_location&target_id=<location_id>` 查询，或用 `detail_key=source_id&detail_value=<source_id>` 按来源过滤；审计权限沿原接口，不赋予普通来源用户全局日志权限。
+
+明细的 `category` 为 `root_unavailable / access_denied / source_changed / preview_failed`，`code`为受控错误码，`operation`为`scan / scan_content / reference_read / preview_generate`。其余关联 UUID 只在真实解析后提供；HTTP request_id在安全长度与格式内原样保留，后台无请求上下文时不提供。无路径、对象键、签名 URL、凭据或异常原文。该观测不改变读取响应、不触发源 I/O，也不构成实时位置健康或全部消费者／站点覆盖证明。
+
 ## 头像用途切换
 
 仅当前有效超级管理员可修改，API Key 要求 `datasets:write`。其余八用途没有切换端点。

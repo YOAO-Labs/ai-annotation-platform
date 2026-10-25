@@ -121,9 +121,14 @@ def location_directory(config, path="", *, expected_anchor=None):
     handles = []
     try:
         handles.append(os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC))
-        root_fd = _open_beneath(
-            handles[0], root.lstrip("/"), directory=True, no_xdev=False
-        )
+        try:
+            root_fd = _open_beneath(
+                handles[0], root.lstrip("/"), directory=True, no_xdev=False
+            )
+        except FilesystemStorageError as exc:
+            if exc.code in {"path_unavailable", "not_a_directory"}:
+                exc.storage_fault_category = "root_unavailable"
+            raise
         handles.append(root_fd)
         base_fd = _open_beneath(root_fd, base, directory=True)
         handles.append(base_fd)

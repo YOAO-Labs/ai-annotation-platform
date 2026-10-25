@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-25
 ---
 
 # 审计与通知
@@ -48,6 +48,16 @@ last_reviewed: 2026-10-19
 | `apps/api/app/api/v1/ws.py`                         | `/ws/notifications` 在线推送                      |
 
 ## Audit：记录发生了什么
+
+### 本地来源故障观测
+
+`services/storage_fault_events.py` 将本地数据集来源的读取、扫描及预览生成故障写入现有 `AuditLog`：action 为 `storage.fault`，target 为已解析的 `storage_location`，明细只接受固定分类、阶段和白名单 UUID。调用点必须先完成当前用户／Key 授权及来源定位，不能从请求参数猜位置；客户端 SHA 错误和普通权限拒绝不会被记成物理原件变化。
+
+filesystem 只在打开配置根的实际失败处标记根不可用；S3／SFTP 在真实服务认证拒绝处保留内部分类，不改变已有公开错误码。读取的完整摘要不符与预览生成失败分别记录。现有 Run／Preview／AsyncJob 仍拥有业务状态，观测事件不代替成功发布或失败提交证明。
+
+旁路持久化使用 `storage_access.engine(db)`，由当前 API／Worker 的正确 Engine 新建事务，不提交或回滚调用者业务。数据库锁等待限制为250ms、语句为1s，观测尝试另有2s超时；失败只输出固定安全日志，不输出异常原文，也不改原读取异常。调用者回滚后观测仍可存在；它记录已发生的尝试，不保证关联业务最终提交。已删除或尚未提交的账号不强造用户外键，已解析的账号 UUID 仍可保留在明细。
+
+HTTP 事件沿现有上下文保留不超过36字符的安全 request_id，不改写其格式；不安全或过长值省略，不丢弃其余故障事实。后台扫描在原 task／fence 检查通过后关联真实 Run／Job，旧投递不重复记录；没有原 HTTP request_id 时不补造。现有审计 API 的 action、target 和 JSONB 明细过滤即可追溯，没有新增监控标签、事件表、队列或通知渠道。当前覆盖边界见[存储故障关联](/user-guide/superadmin/audit-logs#存储故障关联)。
 
 ### 核心模型
 

@@ -184,7 +184,7 @@ class S3Access:
             if getattr(exc, "storage_operation_unsettled", False):
                 raise
             code = exc.response.get("Error", {}).get("Code")
-            raise StorageError(
+            failure = StorageError(
                 "source_changed"
                 if code in {"PreconditionFailed", "412"}
                 else "permission_denied"
@@ -192,7 +192,15 @@ class S3Access:
                 else "path_unavailable"
                 if code in {"NoSuchKey", "NoSuchVersion", "404", "NotFound"}
                 else "content_source_unavailable"
-            ) from None
+            )
+            if code in {
+                "AccessDenied",
+                "403",
+                "SignatureDoesNotMatch",
+                "InvalidAccessKeyId",
+            }:
+                failure.storage_fault_category = "access_denied"
+            raise failure from None
         except (BotoCoreError, connector_guard.ConnectorHostDenied) as exc:
             if getattr(exc, "storage_operation_unsettled", False):
                 raise

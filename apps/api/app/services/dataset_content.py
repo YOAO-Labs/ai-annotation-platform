@@ -17,7 +17,7 @@ from app.services import dataset_scans as scans
 from app.services import filesystem_storage as fs
 from app.services import storage_location as locations
 from app.services import reference_storage
-from app.services import storage_access
+from app.services import storage_access, storage_fault_events
 from app.services.storage import storage_service
 
 
@@ -104,6 +104,8 @@ async def scan_snapshot(
     before_commit=None,
     before_io=None,
     refresh_unverified=False,
+    event_job_id=None,
+    event_registration_id=None,
 ):
     location, source, run, entry, node, anchor = await scan_context(
         db, run_id, path_digest, actor, node_id=node_id
@@ -141,31 +143,42 @@ async def scan_snapshot(
     if location.kind in {"s3", "sftp"}:
         expected = None if refresh_unverified and receipt is None else dict(observed)
         expected_source = None
-    config, base, path = (
-        await reference_storage.configuration(db, location),
-        source.config["relative_path"],
-        entry.relative_path,
-    )
-    revision = (source.config_revision, location.config_revision)
-    if before_io is not None:
-        await before_io(db)
-    await db.commit()  # No database locks span filesystem I/O.
-    snapshot = await snapshots.capture_from_location(
+    async with storage_fault_events.observe(
         db,
-        location.id,
-        lambda: reference_storage.content_file(
-            config,
-            base,
-            path,
-            expected_anchor=anchor,
-            expected=expected,
-            expected_source_identity=expected_source,
-        ),
-        digest,
-        expected_revision=run.snapshot.get("maintenance_revision", 1),
-        node_id=node,
-        purpose="scan_content",
-    )
+        operation="scan_content",
+        actor_id=actor.id,
+        location_id=location.id,
+        source_id=source.id,
+        dataset_id=source.dataset_id,
+        run_id=run.id,
+        job_id=event_job_id or run.async_job_id,
+        registration_id=event_registration_id,
+    ):
+        config, base, path = (
+            await reference_storage.configuration(db, location),
+            source.config["relative_path"],
+            entry.relative_path,
+        )
+        revision = (source.config_revision, location.config_revision)
+        if before_io is not None:
+            await before_io(db)
+        await db.commit()  # No database locks span filesystem I/O.
+        snapshot = await snapshots.capture_from_location(
+            db,
+            location.id,
+            lambda: reference_storage.content_file(
+                config,
+                base,
+                path,
+                expected_anchor=anchor,
+                expected=expected,
+                expected_source_identity=expected_source,
+            ),
+            digest,
+            expected_revision=run.snapshot.get("maintenance_revision", 1),
+            node_id=node,
+            purpose="scan_content",
+        )
     try:
         (
             current_location,

@@ -130,7 +130,7 @@ async def execute_scan(run_id, task_id, node_id):
                     if isinstance(exc, TimeoutError)
                     else "scan_interrupted",
                 )
-                await svc.fail_attempt(db, run_id, task_id, fence, code)
+                await svc.fail_attempt(db, run_id, task_id, fence, code, failure=exc)
                 await db.commit()
     except HTTPException:
         pass  # Deleted/retired contracts cannot be revived by a queued message.

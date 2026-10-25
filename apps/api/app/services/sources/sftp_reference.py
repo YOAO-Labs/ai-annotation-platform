@@ -149,7 +149,9 @@ class SftpAccess:
         except paramiko.AuthenticationException as exc:
             if getattr(exc, "storage_operation_unsettled", False):
                 raise
-            raise StorageError("connection_unavailable") from None
+            failure = StorageError("connection_unavailable")
+            failure.storage_fault_category = "access_denied"
+            raise failure from None
         except connector_guard.ConnectorHostDenied as exc:
             if getattr(exc, "storage_operation_unsettled", False):
                 raise
