@@ -114,11 +114,11 @@ async def test_function_only_cross_frame_owner_fences_versions_and_uses_outer_tr
         dsn = _dsn(
             test_engine,
             "AAP_MODULE_DATA_LABELING_CROSS_FRAME_URL",
-            "labeling_cross_frame_write_client",
+            "labeling_cross_frame_client",
         )
         connection = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         assert await connection.fetchval("SELECT current_user") == (
-            "labeling_cross_frame_write_client"
+            "labeling_cross_frame_client"
         )
         await verify_function_only_role(
             connection, schema="aap_labeling_v1", functions=_FUNCTIONS

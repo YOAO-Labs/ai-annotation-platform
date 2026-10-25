@@ -3,7 +3,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 VOLATILE
 PARALLEL UNSAFE
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 SET TimeZone = 'UTC'
 AS $function$

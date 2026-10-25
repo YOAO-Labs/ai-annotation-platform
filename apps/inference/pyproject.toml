@@ -33,6 +33,7 @@ cache-keys = [
     { file = "README.md" },
     { file = "src/**/*.py" },
     { file = "src/**/*.json" },
+    { file = "src/**/*.sql" },
 ]
 
 [tool.setuptools.packages.find]

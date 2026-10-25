@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from importlib.resources import files
 
 
 def test_pool_reference_schema_and_packaged_sql_describe_fixed_primary_key_read():
-    package_dir = Path(__file__).resolve().parents[1] / "src/aap_inference/sql"
+    package_dir = files("aap_inference").joinpath("sql")
     schema = json.loads(
         (package_dir / "0356_inference_pool_reference.schema.json").read_text()
     )
@@ -39,14 +39,3 @@ def test_pool_reference_schema_and_packaged_sql_describe_fixed_primary_key_read(
     assert "JOIN public.ml_backend_registry" not in sql
     assert "ml_backend_pool_members" not in sql
     assert "FOR UPDATE" not in sql
-
-    repository = Path(__file__).resolve().parents[3]
-    api_sql = repository / "apps/api/alembic/sql/0356_inference_pool_reference.sql"
-    api_schema = (
-        repository / "apps/api/alembic/sql/0356_inference_pool_reference.schema.json"
-    )
-    assert (
-        api_sql.read_bytes()
-        == (package_dir / "0356_inference_pool_reference.sql").read_bytes()
-    )
-    assert json.loads(api_schema.read_text()) == schema

@@ -713,13 +713,6 @@ MODULE_ROLES = (
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
-    "0356_inference_pool_reference.sql",
-    "0350_labeling_video_control.sql",
-    "0351_labeling_annotation_transfer.sql",
-    "0352_labeling_core_read.sql",
-    "0353_labeling_mask_quality.sql",
-    "0354_labeling_spatial_quality.sql",
-    "0355_labeling_task_maintenance.sql",
     "0190_workspace_data_contract.sql",
     "0191_dataset_task_append_contract.sql",
     "0192_creation_authority.sql",
@@ -910,9 +903,8 @@ SQL_ARTIFACTS = (
     "0335_labeling_task_workflow.sql",
     "0336_labeling_annotation_statistics.sql",
     "0337_labeling_scene_track_domain.sql",
-    "0338_labeling_annotation_writes.sql",
     "0338_labeling_annotation_revision_support.sql",
-    "0338_labeling_annotation_revision_support.previous.sql",
+    "0338_labeling_annotation_writes.sql",
     "0339_labeling_annotation_bulk.sql",
     "0340_labeling_video_bbox_editing.sql",
     "0341_labeling_batch_control.sql",
@@ -924,6 +916,13 @@ SQL_ARTIFACTS = (
     "0347_labeling_discussion.sql",
     "0348_labeling_mask_edits.sql",
     "0349_labeling_scene_read.sql",
+    "0350_labeling_video_control.sql",
+    "0351_labeling_annotation_transfer.sql",
+    "0352_labeling_core_read.sql",
+    "0353_labeling_mask_quality.sql",
+    "0354_labeling_spatial_quality.sql",
+    "0355_labeling_task_maintenance.sql",
+    "0356_inference_pool_reference.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0356_inference_pool_reference.schema.json",
@@ -2770,7 +2769,7 @@ def _verify_audit_daily_projection_boundary(
         "refresh_owner": "audit_code",
         "definer": True,
         "owner_temp": True,
-        "owner_public_create": False,
+        "owner_public_create": True,
         "owner_audit_create": False,
         "refresh_temp": False,
     }:

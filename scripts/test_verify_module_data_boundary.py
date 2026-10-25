@@ -20,6 +20,24 @@ from verify_module_data_boundary import (
 import verify_module_data_boundary as verifier
 
 
+def test_frozen_sql_install_uses_upgrade_dependency_order():
+    artifacts = verifier.SQL_ARTIFACTS
+    revisions = [int(name.split("_", 1)[0]) for name in artifacts]
+    assert revisions == sorted(revisions)
+    assert not any(name.endswith(".previous.sql") for name in artifacts)
+    assert artifacts.index("0338_labeling_annotation_revision_support.sql") < (
+        artifacts.index("0338_labeling_annotation_writes.sql")
+    )
+
+
+@pytest.mark.parametrize("suffix", ["sql", "schema.json"])
+def test_pool_reference_resources_match_migration_artifacts(suffix):
+    name = f"0356_inference_pool_reference.{suffix}"
+    frozen = verifier.ROOT / "apps/api/alembic/sql" / name
+    packaged = verifier.ROOT / "apps/inference/src/aap_inference/sql" / name
+    assert packaged.read_bytes() == frozen.read_bytes()
+
+
 @pytest.mark.parametrize(
     "test_path",
     [

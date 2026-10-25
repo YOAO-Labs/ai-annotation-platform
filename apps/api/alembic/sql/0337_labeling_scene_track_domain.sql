@@ -2,7 +2,8 @@ CREATE FUNCTION aap_labeling_v1.scene_track_domain_command(p_request jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public, aap_labeling_v1
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
 AS $function$
 DECLARE
     v_action text;

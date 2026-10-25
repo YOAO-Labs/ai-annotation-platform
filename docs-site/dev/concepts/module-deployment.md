@@ -2479,3 +2479,18 @@ DB bookkeeping 保留 permit → 原任务 advisory lock → 原 autoflush → c
 最后三个写入适配器的预读补充已集成 `31f30cc66`，合并后统一了 worker 与人工路径的
 公共行导入。当前非暂缓读取源码组已汇合，进入集中运行验收准备；Learning／训练、
 测试及截图种子路径继续单列，未据此全局撤销所有 Labeling 私表权限。
+
+集中装配准备已在独占临时数据库完成 `0356 → 0189 → 0356`，冻结 SQL 安装／回滚、
+函数体与公开关系核对通过。安装清单已按升级依赖排序，不再安装降级专用的 revision
+支持文件；0337 的固定搜索路径／UTC 和 0338 的 owner 执行身份已与严格授权配置一致。
+首次 Audit owner 权限断言和随后 Labeling 授权失败记录均保留；修正后的批次停在
+`install-identity-deletion-grants`，47 份选定业务测试文件尚未执行，不能记为 Native
+或实际消费者通过。三次尝试的独占数据库、Redis、桶及临时 PostgreSQL 均完成自有清理。
+
+独立非 editable 安装已核对 Labeling 的 114 份包文件，并通过 116 项包测试；Inference
+核对 41 份包文件，复用首轮 279 项通过结果，并单独重跑已修正安装资源定位的一项测试。
+资源测试使用已安装包，冻结 SQL／schema 字节一致性留在仓库侧检查；Inference 的 SQL
+文件也已加入构建缓存键。27 项验收入口基础检查通过，原始失败与补验回执分别保留。
+这批包检查不代替数据库业务、冷容器、进程故障或完整恢复资格；0352 新锁族的真实双连接
+竞争用例仍待补齐。当前准确断点及各次回执由
+`.worktree/labeling-native-preparation-checkpoint.json` 绑定，不继续盲目重跑完整矩阵。
