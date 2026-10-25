@@ -9,6 +9,7 @@ import gzip
 import hashlib
 import json
 import os
+from pathlib import Path
 import secrets
 import uuid
 
@@ -37,6 +38,7 @@ from tests.test_identity_module_assembly_live import _restored_database
 from tests.test_identity_recovery import _postgres_tool
 from tests.test_workspace_worker_assembly_live import _broker_state
 
+ROOT = Path(__file__).resolve().parents[3]
 ENTRIES = {
     "ensure-future-audit-partitions": "app.workers.audit_partition.ensure_future_audit_partitions",
     "archive-old-audit-partitions": "app.workers.audit_partition.archive_old_audit_partitions",
@@ -57,7 +59,7 @@ async def _worker(test_engine, directory, sender, record_property, *, database=N
     image, image_id, artifact = cold._image_artifact()
     cold._verify_image(image, image_id, artifact)
     for name, digest in artifact["source_manifest"].items():
-        assert hashlib.sha256((cold.ROOT / name).read_bytes()).hexdigest() == digest
+        assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest
     host_url = cold._role_url(
         "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL",
         "identity_api_consumer",
