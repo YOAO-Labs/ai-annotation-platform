@@ -5,6 +5,18 @@
 
 原始§5／工程任务第2项现由E12-B3交付临时输入的真实写删增量及跨盘点对账，B4接入集中托管原件新增，B5接入四类媒体缓存新增，B6接入独立导出媒体新增，B7接入导出ZIP写入净变化，B8接入报告附件受控新增；其他生产者及媒体缓存／导出移除增量仍未完整覆盖。原有LIST快照、额度预约与Creation／Retirement责任账本分别保留，不能将其中任一累计或部分覆盖冒充全平台物理增量；完整工程任务仍未勾完，也不是其他切片的新前置。
 
+## 本轮定稿：E12-B9 其余条件创建对象增量
+
+2026-10-26，基于`bb4b21266`继续原始E12-S03／AC01、§5和工程任务第2项，将头像、评论附件、指南图片、持久RLE和审计归档五类既有条件创建入口接入增量账目。生产者分别为`avatar_uploads`、`comment_attachment_uploads`、`guide_asset_uploads`、`raster_mask_objects`、`audit_archive_outputs`，分类均为`other_platform`。owner分别为头像上传token无损转换的UUID及其余四类保存责任的UUID，不能用用户／项目／Job身份代替；RLE计实际存储编码的SHA和大小，不计canonical大小。
+
+复用B8已验证的公开SDK参数／发送事件、单次明确ACK、不可变返回版本、完整读回及当前HEAD证明。将B8通用Observation／finish提取到`conditional_write_accounting.py`，保留附件模块现有接口和回归；通用recorder接收明确producer／purpose及可选owner_id。每次实际PUT前独立短事务保存一个意图，失败不开始写入。保持原SDK配置、重试和上传算法，仅被观测的写入使用所属独占client；普通读取、探测、授权、发布、清理与旧返回值保持。缺hook／多次发送／无ACK／null或版本失配等保留unknown，只有明确单次条件412计本次零，不推断历史失败窗口。RLE的412后读取已有对象及ready复用保持，未执行PUT的复用不补账。
+
+现有完整reader只增加可选的核验版本出口；评论、指南及RLE沿既有HEAD／GET／后置HEAD，必须与PUT回执相同才能确认。头像沿准确版本GET；审计归档沿既有压缩字节／语义核验额外旁路比对读到的版本，不改变业务读取合同。保留归档file Body、64GiB声明和单PUT算法，不改为内存上传或新上传器。归档账目由外层真实输入临时文件owner收尾，覆盖发布失败和文件关闭失败；其余owner在原线程／Body／client及实际permit结清后发布。业务后续失败不抹掉物理事实，取消排空后按原语义传播，普通账目发布失败不改业务结果。
+
+后端分两个基于本合同提交的隔离树：通用helper／B8薄适配、四类小对象的physical／async owner、schema及相关测试；另树只负责审计归档physical／外层owner及专项测试，依赖同一helper接口。主树负责现有容量摘要文案、必要合同生成与正式用户／API／架构文档、README、CHANGELOG及计划记录。无迁移、配置、依赖、镜像、格式或新公开接口。使用各自核实的一次性test资源验证条件写、版本关联、存储字节、重复／重试、业务失败、原生资源和permit／取消收尾；真实PG／MinIO覆盖生产写入及小型归档，不扩展报告、审核或训练流程。集成后验证14生产者声明、明暗宽窄摘要、所属进程及原业务／对象／文件保持，正常提交并清理所属资源。
+
+本片不覆盖其余训练／直传入口或物理移除；coverage仍partial、projected_total_bytes仍null。上述原始缺口继续独立推进，不新增为本片、其他功能或整套已完成Epic的前置，不重启Tracker／会话／审核专项或训练测量。
+
 ## 本轮定稿：E12-B8 报告附件受控新增增量
 
 2026-10-26，基于`32c5bfe3f`继续原始E12-S03／AC01、§5和工程任务第2项。报告附件已有BugAttachmentUpload UUID、保存的物理地址、条件PUT回执、按返回版本完整SHA／大小读回，以及`storage_access.run`的permit／原生线程排空；本片只补共享`bug_attachment_uploads.upload`→`bug_attachment_storage.write`的容量事实，不改报告、上传授权、图片格式／10MiB／像素预算、绑定、180天期限或清理。
