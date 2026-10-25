@@ -116,20 +116,26 @@ async def test_saved_family_helpers_classify_actual_listed_size(index):
     db.execute.assert_awaited_once()
 
 
+@pytest.mark.parametrize(
+    "service_name,purpose",
+    [("avatar_storage", "avatars"), ("bug_attachment_storage", "bug-reports")],
+)
 @pytest.mark.parametrize("external_endpoint", [False, True])
-async def test_prefixed_avatar_saved_endpoint_prevents_same_bucket_key_alias(
+async def test_prefixed_owner_saved_endpoint_prevents_same_bucket_key_alias(
     external_endpoint,
+    service_name,
+    purpose,
 ):
     index = next(
         index
         for index, family in enumerate(categories.FAMILIES)
-        if family.service == "avatar_storage"
+        if family.service == service_name
     )
     _, data, basename = family_case(index)
     endpoint = (
         "http://other.example:9000" if external_endpoint else categories.endpoint()
     )
-    key = "team/_aap_managed/avatars/" + basename
+    key = f"team/_aap_managed/{purpose}/" + basename
     data["storage_ref"].update(
         schema=2,
         location_id=str(uuid.uuid4()),

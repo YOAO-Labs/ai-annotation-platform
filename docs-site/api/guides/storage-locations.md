@@ -33,12 +33,12 @@ last_reviewed: 2026-10-25
 
 `GET /bindings`只读返回九种平台用途，即使共桶或未配置仍逐行保留，不初始化配置、不探测对象存储。每行包含`purpose / location_id / bucket / generation / state`，并提供：
 
-| 字段                       | 当前值与含义                                                                                                                      |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `location_config_revision` | 关联位置的实际配置修订；无关联位置为null，与用途绑定`generation`独立。                                                            |
-| `read_policy`              | `consumer_owned_compatibility`：各业务负责对象读取；已固定位置的对象按记录读取，其他入口保留既有兼容路径。                        |
-| `write_policy`             | `deployment_mapping`：新写入采用当前兼容部署映射；头像为`current_binding`，采用当前已登记绑定。两者均不赋予引用来源适配器写权限。 |
-| `change_policy`            | `legacy_mapping_locked`：用途映射锁定；头像为`reviewed_avatar_switch`，支持下述受控切换。                                         |
+| 字段                       | 当前值与含义                                                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `location_config_revision` | 关联位置的实际配置修订；无关联位置为null，与用途绑定`generation`独立。                                                                      |
+| `read_policy`              | `consumer_owned_compatibility`：各业务负责对象读取；已固定位置的对象按记录读取，其他入口保留既有兼容路径。                                  |
+| `write_policy`             | `deployment_mapping`：新写入采用当前兼容部署映射；头像和报告附件为`current_binding`，采用当前已登记绑定。两者均不赋予引用来源适配器写权限。 |
+| `change_policy`            | `legacy_mapping_locked`：用途映射锁定；头像为`reviewed_avatar_switch`、报告附件为`reviewed_bug_attachment_switch`，支持下述受控切换。       |
 
 `state=configured`只表示用途映射符合已支持的配置合同，不证明位置在线、对象可读、历史定位全覆盖或迁移完成。`missing / mismatch`保留其原有含义；策略字段描述当前路由规则，不提供写入或迁移许可。客户端遇到未提供的新字段应显示未知，不能从位置读取能力推断平台写策略。权限仍为当前超级管理员与`datasets:read`。
 
@@ -50,7 +50,7 @@ last_reviewed: 2026-10-25
 
 ## 头像用途切换
 
-仅当前有效超级管理员可修改，API Key 要求 `datasets:write`。其余八用途没有切换端点。
+仅当前有效超级管理员可修改，API Key 要求 `datasets:write`。报告附件使用下述独立切换端点，其余七用途保持锁定。
 
 | 方法  | 路径                               | 行为                                                                                         |
 | ----- | ---------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -63,6 +63,14 @@ last_reviewed: 2026-10-25
 确认请求使用同一请求体并增加`impact_token`。服务器锁内复核操作者／原Key、用途代次、目标配置／连接修订、维护代次和历史影响；变化、过期或无效凭证分别返回409 `storage_binding_preview_changed / storage_binding_preview_expired / storage_binding_preview_invalid`，需重新预览。目标不可写、完整读回不符或无法准确清理时不切换。成功审计`storage_binding.update`不保存密钥或令牌。
 
 `history`分别统计pending、ready、retired上传及缺少准确owner的用户引用；`unlocated_users>0`时`can_apply=false`，确认返回409 `avatar_history_unlocated`。相关用户应重新上传或选择内置头像，不自动认领旧路径。切换仅影响后续分配；已分配上传和历史头像继续按保存位置处理，无需先排空全部pending上传。切走后仍有头像记录的位置不能被重定向或删除；正常密钥轮换复用当前连接凭据，不重写历史物理定位。
+
+## 报告附件用途切换
+
+仅超级管理员与现有 `datasets:write` 凭据可预览或确认。三个入口与头像共用目标资格和物理探针，分别为 `GET /bindings/bug-reports/candidates`、`POST /bindings/bug-reports/change-preview`、`PATCH /bindings/bug-reports`。候选接受 `limit / offset`；请求／目标／有效期字段与头像一致，确认凭证的 audience 独立，不能跨用途复用。
+
+`history` 只返回已登记上传的 `pending / ready / retired`，不扫描历史报告或以未知历史附件阻断 `can_apply`。缺 owner 的旧键依旧由附件下载和绑定入口拒绝。预览成功后只变更新分配目标；已分配 pending 和旧 ready／retired 均按保存 owner 处理，不要求先排空。位置、连接、用途代次、维护代次、操作者／Key 或影响事实变化返回冲突，必须重新预览。
+
+目标限定 legacy 或已登记全局 S3，桶和前缀不由请求任意指定。新目标使用连接基前缀下 `_aap_managed/bug-reports/`；公开 `storageKey` 保持 `bug-report-attachments/{owner_uuid}/{upload_uuid}.{ext}`，内部物理定位和凭据不写入报告 DTO。仅此用途与头像可切换，其他七用途保持锁定。
 
 ## 登记和修改
 
@@ -237,11 +245,12 @@ GET 只查询数据库，不读源文件、不 HEAD/LIST 对象、不启动扫�
 
 以下端点属于 `/api/v1/storage`，与上方只读目录位置接口分开。两者均要求当前有效超级管理员；API Key 必须包含全权 `*`。相同限制适用于 ML 集成 overview 中的存储摘要以及 `storage_usage` 类型任务的列表、详情和取消；原任务发起者降权后不能继续访问。
 
-| 方法 | 路径                                 | 行为                                               |
-| ---- | ------------------------------------ | -------------------------------------------------- |
-| GET  | `/api/v1/storage/buckets`            | 只读成功快照与最近尝试，不执行 HEAD/LIST           |
-| POST | `/api/v1/storage/usage-inventory`    | `202 {job_id, reused}`，复用现有活动任务或创建盘点 |
-| POST | `/api/v1/async-jobs/{job_id}/cancel` | 合作式取消，保留成功值及已完成桶                   |
+| 方法 | 路径                                 | 行为                                                         |
+| ---- | ------------------------------------ | ------------------------------------------------------------ |
+| GET  | `/api/v1/storage/buckets`            | 只读成功快照与最近尝试，不执行 HEAD/LIST                     |
+| POST | `/api/v1/storage/usage-inventory`    | `202 {job_id, reused}`，复用现有活动任务或创建盘点           |
+| PUT  | `/api/v1/storage/usage-schedule`     | `{enabled, interval_hours=24}`，显式设置周期，间隔1至168小时 |
+| POST | `/api/v1/async-jobs/{job_id}/cancel` | 合作式取消，保留成功值及已完成桶                             |
 
 每条 `items` 是一个 endpoint 下的唯一桶：`name`、`roles`（多个用途）、兼容字段 `role`（首用途）、`object_count`、`total_size_bytes`、`measured_at`、`measurement_started_at`、`attempt_status`、`attempted_at`、脱敏 `error`。`source=s3_list_objects_v2`、`scope=current_objects`、`coverage=none|complete`、`is_estimate=true` 明确观测范围。`status=unknown|ok|stale` 表示快照新鲜度，不代表存储健康。
 
@@ -254,6 +263,14 @@ GET 只查询数据库，不读源文件、不 HEAD/LIST 对象、不启动扫�
 固定口径为 `scope=configured_platform_buckets_current_objects`、`source=s3_list_objects_v2_and_saved_ownership`、`deduplication_basis=endpoint_bucket_key`、`includes_versions=false`、`is_estimate=true`。分类不返回对象地址或逐对象清单，不证明内容完整性，也不授予清理权限；外部源规模不纳入。分项与桶总量属于同批对象，不得重复相加。
 
 调用方兼容说明：此 GET 已从实时统计变为快照读取；应处理 nullable 计数和新增状态，不能将未知值渲染为零或依赖每次 GET 重新盘点。ML overview.storage 使用相同结构。按桶去重并完整覆盖九用途，不能按角色重复相加。后台任务取消、崩溃与授权/配置变化不会发布未完整桶的累计数。更多口径和预算见[桶布局与快照](/dev/reference/storage-buckets#平台对象占用快照)。
+
+### 增量账目与周期对账
+
+`BucketsResponse.accounting` 为可空固定摘要：`confirmed_added_bytes`、`confirmed_removed_bytes`、`net_change_bytes`、`pending_operation_count` 和 `unknown_operation_count`。当前 `producers=[prediction_inputs, managed_original_creation]`，固定 `scope=current_objects`、`coverage=partial`、`projected_total_bytes=null`。已确认事件按准确物理地址及操作身份幂等累计，不从额度预约、业务删除或当前绑定补算历史；新增字节与移除字节分别为非负值，净变化可为负数。托管原件生产者复用 Creation 最终条件 PUT／CompleteMultipart：冻结地址及该次尝试的意图与 writing 原子提交；完整 SHA／大小读回、返回不可变非 null 版本与当前 HEAD 一致且原生收尾完成后才记新增。412 为零，无版本、应答不明或版本替换保持 unknown；原件退役和 Reclamation 没有实际 DELETE，因此不计移除。覆盖集中创建链中的 Dataset 各 origin、Task 和辅助原件，浏览器暂存及其他生产者仍未覆盖。
+
+`reconciliation` 为可空最近成功桶汇总，含 `status=no_baseline|partial`、`measured_at`、`bucket_count`、`compared_object_count`、`uncertain_object_count`、`unexplained_object_count`、`confirmed_change_bytes`、`known_unexplained_change_bytes` 和 nullable `unexplained_change_bytes`。首次没有对象级基准、跨观测窗口操作或未决事实使完整差额未知；已知部分仍单列。未解释变化可能来自未接入用途或外部写入，不表示账目损坏，更不授予删除许可。LIST快照及事件均只统计当前可见内容字节，不把全部历史版本写删相减。
+
+`usage_schedule` 含 `enabled`、`interval_hours`、`status=off|active|paused`、`next_due_at`、`last_started_at` 和 `pause_reason`。默认关闭；PUT开启保存当前操作者／API Key授权证明及精确配置范围，首次立即到期，既有30秒恢复任务负责调度。活动盘点不重叠；撤权或配置变化暂停并报告 `access_revoked|configuration_changed`，权限恢复后仍须显式重新开启。关闭计划不取消已有任务，PUT不直接访问对象源。GET不包含逐对象地址、事件清单或授权证明。
 
 ## 托管原件保留预演
 

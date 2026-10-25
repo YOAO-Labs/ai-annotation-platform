@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { listStyles } from "@/components/ui/listStyles";
 import { ManagedOriginalReclamationPanel } from "./ManagedOriginalReclamationPanel";
 import { StorageUsageBreakdown } from "./StorageUsageBreakdown";
+import { StorageUsageAccounting } from "./StorageUsageAccounting";
 
 const ROLES: Record<string, string> = {
   annotations: "标注资产",
@@ -181,6 +182,16 @@ function StorageUsageOwner() {
               </div>
             )}
             <StorageUsageBreakdown value={data.breakdown} />
+            <StorageUsageAccounting
+              accounting={data.accounting}
+              reconciliation={data.reconciliation}
+              schedule={data.usage_schedule}
+              onAccessDenied={() => {
+                deniedAt.current = Date.now();
+                setActionDenied(true);
+                setError("当前账号无权管理周期盘点，请重新确认权限。");
+              }}
+            />
             <details className="border-t border-border">
               <summary ref={summaryRef} className="cursor-pointer px-4 py-3 text-sm font-medium">
                 查看各桶统计与时间

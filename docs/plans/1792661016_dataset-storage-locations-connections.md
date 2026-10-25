@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12 与 B13 各切片至 B3-M1 completed locally；Tracker M2 未启动。B14 已完成头像新写入位置受控切换及历史定位验收，其余八用途仍锁定。完整 E02 继续执行，不分配发布版本。
+> 状态：E02-A、B1–B12 与 B13 各切片至 B3-M1 completed locally；Tracker M2 未启动。B14 已完成头像新写入位置受控切换及历史定位验收；B15完成报告附件隔离实现与本地验收、待主树集成，另外七用途仍锁定。完整 E02 继续执行，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -10,7 +10,7 @@
 
 ## 本轮定稿：E02-B15／E09-B8 报告附件新写入位置切换
 
-2026-10-25基于`1e49033c1`，沿原始S04／AC05／AC10推进九用途内bug-reports的受控新分配切换。准确文件、schema1／2兼容、实际版本、旧／在途归属、锁序、验证与回退以[E09-B8实施合同](1792661016_dataset-storage-console-boundaries.md#e02-b15e09-b8报告附件新写入位置切换)为准。旧未知附件原已拒绝，不新增历史修复前置。状态approved，独立树实施；根C5／C6源码冻结结束后再集成，不改其他七用途或重启人工环境。
+2026-10-25基于`1e49033c1`，沿原始S04／AC05／AC10推进九用途内bug-reports的受控新分配切换。准确文件、schema1／2兼容、实际版本、旧／在途归属、锁序、验证与回退以[E09-B8实施合同](1792661016_dataset-storage-console-boundaries.md#e02-b15e09-b8报告附件新写入位置切换)为准。旧未知附件原已拒绝，不新增历史修复前置。隔离验收与主树集成已完成，人工已应用0246并刷新3100／8100、两Worker及绑定Beat；其他七用途保持锁定。C6万条辅助测量已停止，不作为本片前置。下文Outcome中的待集成叙述保留隔离验收时点，当前以此集成状态为准。
 
 ## 已实施定案：E02-B9 审计归档固定归属与源分区事务保护
 
@@ -418,7 +418,7 @@ Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是
 
 实现时同步：[connector-security.md](../../docs-site/dev/reference/connector-security.md)、[storage-connections.md](../../docs-site/user-guide/datasets/storage-connections.md)、[docker-compose.md](../../docs-site/ops/deploy/docker-compose.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## Outcome
 
@@ -1631,3 +1631,13 @@ M1 主接线已合入 `5fcb45050`，涵盖项目批量／workbench、两种失�
 人工环境通过所属监督服务应用 0243 并恢复 3100／8100、两个各注册 73 任务的 Worker 与绑定 Beat；实际空头像清理任务成功。十二表 155 行、24 对象完整字节和十二源文件指纹保持。test／e2e 各自数据库、Redis 和共 18 桶经 owner 校验销毁并独立确认不存在，三棵已集成且干净的本片隔离树移除；仅留有界验证摘要，清理截图、登录状态、私有凭据和中间报告。未重建镜像，未推送或发布。
 
 正式知识同步 `README.md`、`CHANGELOG.md` Unreleased、`docs-site/user-guide/datasets/storage-connections.md`、`docs-site/api/guides/storage-locations.md`、`docs-site/dev/concepts/storage-connections.md`、`docs-site/dev/reference/storage-buckets.md` 和 `docs-site/ops/deploy/storage-recovery.md`。当前九桶恢复工具明确拒绝新头像代次、固定版本回执及外部 B，不伪造其恢复覆盖；跨端点备份仍属原恢复／迁移工作，未在本片追加实施。完整 E02、其余用途切换与整套 Epic 继续活动，Tracker M2 不启动。
+
+## E02-B15 Outcome — 报告附件新写入位置受控切换
+
+2026-10-25在基于`79cca82c7`的独立树完成原始E02-S04／AC05／AC10的bug-reports切片；详细实现、309项后端／迁移、53项Web、50项恢复、4项SDK及真实S3／API／四组合浏览器证据见[E09-B8 Outcome](1792661016_dataset-storage-console-boundaries.md#e09-b8-outcome--报告附件新写入位置受控切换)，不重复累计。保留schema1、头像公开适配器与公开逻辑键，schema2保存实际目标及provider版本；新分配采用B，旧ready与切换前pending继续原位置。未知历史保持已有拒绝，不新增历史全库修复或can_apply门槛；七用途继续锁定，完整E02／E09仍活动。
+
+0245在旧事实时可逆，对schema2／实际版本／新代绑定拒绝破坏性降级。功能回退经同一受控流程切后续分配回A，保留B历史读取；九桶恢复对未覆盖的新事实在修改前拒绝，不声称跨端点备份。README、CHANGELOG及受影响正式说明同步；本计划既有完成步骤链接修正为同目录`README.md#required-completion-steps`，没有新增前置。
+
+隔离test／e2e两库、两Redis和18桶及自有B容器／独占匿名数据卷已按owner清理并独立确认不存在；浏览器、API／Web、临时截图／私密状态和检查缓存已收尾。根C6仍运行，未集成应用源码、应用人工0245或刷新3100／8100／两Worker／Beat，不宣称已做本片人工运行升级；父任务在冻结结束后继续集成。不推送、发布、重建镜像或改变依赖。
+
+E02-B15补充修复：独立复核指出显式`null`为可覆盖槽位，本片新清理路径现先核保存内容，替换时拒删并保留retired责任；非null准确版本清理保持。180项相关本地测试和真实MinIO三场景通过，新增5项回归与精确清理结果见[E09-B8补充修复](1792661016_dataset-storage-console-boundaries.md#e09-b8-补充修复--显式-null-槽位退休)。原`3e24a78c`保留，修复另行提交；根C6与人工环境未变。

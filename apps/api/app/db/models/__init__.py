@@ -5,7 +5,14 @@ from app.db.models.comment_attachment_upload import CommentAttachmentUpload
 from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
-from app.db.models.storage_usage import StorageUsageInventory, StorageUsageSnapshot
+from app.db.models.storage_usage import (
+    StorageUsageInventory,
+    StorageUsageSnapshot,
+    StorageUsageMutation,
+    StorageUsageInventoryObject,
+    StorageUsageReconciliation,
+    StorageUsageSchedule,
+)
 from app.db.models.original_cache import OriginalCacheEntry, OriginalCacheReadLease
 from app.db.models.managed_original_verification import ManagedOriginalVerification
 from app.db.models.managed_original_retirement import ManagedOriginalRetirement
@@ -319,7 +326,14 @@ __all__ += ["DatasetQualityRun", "DatasetQualityResult"]
 __all__ += ["DatasetQualityReviewBatch", "DatasetQualityReviewMember"]
 
 
-__all__ += ["StorageUsageInventory", "StorageUsageSnapshot"]
+__all__ += [
+    "StorageUsageInventory",
+    "StorageUsageSnapshot",
+    "StorageUsageMutation",
+    "StorageUsageInventoryObject",
+    "StorageUsageReconciliation",
+    "StorageUsageSchedule",
+]
 __all__ += ["OriginalCacheEntry", "OriginalCacheReadLease"]
 __all__ += ["ManagedOriginalRetirement"]
 __all__ += ["ManagedOriginalRetentionHold"]

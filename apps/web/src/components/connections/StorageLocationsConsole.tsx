@@ -21,7 +21,7 @@ import { StorageConnectionsPanel } from "./StorageConnectionsPanel";
 import { StorageLocationSourceSummary } from "./StorageLocationSourceSummary";
 import { StorageMaintenanceImpact } from "./StorageMaintenanceImpact";
 import { StorageLocationMaintenance } from "./StorageLocationMaintenance";
-import { AvatarBindingChangeButton } from "./AvatarBindingChangeButton";
+import { StorageBindingChangeButton } from "./StorageBindingChangeButton";
 import { safeDatasetReturn } from "@/components/datasets/storageNavigation";
 
 const PURPOSES = [
@@ -252,10 +252,14 @@ function ConsoleOwner() {
                                   : binding?.state === "mismatch"
                                     ? "配置不匹配"
                                     : "未配置"}
-                              {purpose === "avatars" &&
+                              {(purpose === "avatars" || purpose === "bug-reports") &&
                                 binding?.state === "configured" &&
-                                binding.change_policy === "reviewed_avatar_switch" && (
-                                  <AvatarBindingChangeButton
+                                [
+                                  "reviewed_avatar_switch",
+                                  "reviewed_bug_attachment_switch",
+                                ].includes(binding.change_policy) && (
+                                  <StorageBindingChangeButton
+                                    purpose={purpose}
                                     binding={binding}
                                     onApplied={async () => {
                                       await Promise.all(
@@ -264,6 +268,7 @@ function ConsoleOwner() {
                                           ["storage-source-locations"],
                                           ["storage-location"],
                                           ["avatar-binding-candidates"],
+                                          ["bug-attachment-binding-candidates"],
                                           ["storage-buckets"],
                                         ].map((queryKey) => client.invalidateQueries({ queryKey })),
                                       );
@@ -285,7 +290,7 @@ function ConsoleOwner() {
                   )}
                 {bindingData?.some((row) => row.change_policy === "reviewed_avatar_switch") && (
                   <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                    当前仅开放头像用途的位置切换，其余用途保持锁定。已有头像保留保存位置，切换不搬迁历史对象。
+                    当前开放头像和报告附件用途的位置切换，其余用途保持锁定。已有对象保留保存位置，切换不搬迁历史对象。
                   </p>
                 )}
               </>

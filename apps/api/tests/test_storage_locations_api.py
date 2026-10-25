@@ -317,6 +317,7 @@ async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
     assert {row["change_policy"] for row in response.json()} == {
         "legacy_mapping_locked",
         "reviewed_avatar_switch",
+        "reviewed_bug_attachment_switch",
     }
     training = await db_session.get(StorageBinding, "training")
     training.generation = 2
@@ -332,9 +333,11 @@ async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
     assert rows["training"]["location_config_revision"] == 7
     assert {row["state"] for row in rows.values()} == {"mismatch"}
     assert rows["avatars"]["change_policy"] == "reviewed_avatar_switch"
-    assert {row["change_policy"] for key, row in rows.items() if key != "avatars"} == {
-        "legacy_mapping_locked"
-    }
+    assert {
+        row["change_policy"]
+        for key, row in rows.items()
+        if key not in {"avatars", "bug-reports"}
+    } == {"legacy_mapping_locked"}
     await db_session.refresh(training)
     await db_session.refresh(location)
     assert training.generation == 2 and location.config_revision == 7

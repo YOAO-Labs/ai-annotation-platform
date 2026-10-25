@@ -360,6 +360,13 @@ async def remap_storage(
             }
         )
     for row in await db.scalars(select(BugAttachmentUpload)):
+        if (
+            getattr(row, "object_version_id", None) is not None
+            or (row.storage_ref or {}).get("schema") != 1
+        ):
+            raise WorktreeError(
+                "报告附件含新位置或固定版本回执，当前九桶恢复未覆盖其映射"
+            )
         try:
             owner = bug_attachment_storage.resolve(row)
         except ValueError:

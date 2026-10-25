@@ -1,6 +1,7 @@
 import { apiClient } from "./client";
 import type {
   StorageBindingOut,
+  BugAttachmentBindingPreview,
   AvatarBindingApply,
   AvatarBindingCandidates,
   AvatarBindingChange,
@@ -46,6 +47,49 @@ export interface BucketsResponse {
   location_id: string;
   breakdown?: StorageUsageBreakdown | null;
   uncovered_binding_purposes?: string[];
+  accounting?: StorageUsageAccountingSummary | null;
+  reconciliation?: StorageUsageReconciliationSummary | null;
+  usage_schedule?: UsageScheduleSummary | null;
+}
+
+export interface StorageUsageAccountingSummary {
+  scope: "current_objects";
+  coverage: "partial";
+  producers: string[];
+  confirmed_added_bytes: number;
+  confirmed_removed_bytes: number;
+  net_change_bytes: number;
+  pending_operation_count: number;
+  unknown_operation_count: number;
+  projected_total_bytes: null;
+}
+
+export interface StorageUsageReconciliationSummary {
+  scope: "current_objects";
+  coverage: "partial";
+  status: "no_baseline" | "partial";
+  measured_at: string;
+  bucket_count: number;
+  compared_object_count: number;
+  uncertain_object_count: number;
+  unexplained_object_count: number;
+  confirmed_change_bytes: number;
+  known_unexplained_change_bytes: number;
+  unexplained_change_bytes: number | null;
+}
+
+export interface UsageScheduleSummary {
+  enabled: boolean;
+  interval_hours: number;
+  status: "off" | "active" | "paused";
+  next_due_at: string | null;
+  last_started_at: string | null;
+  pause_reason: string | null;
+}
+
+export interface UsageSchedulePayload {
+  enabled: boolean;
+  interval_hours: number;
 }
 
 export type VideoAssetKind = "probe" | "poster" | "frame_timetable" | "chunk" | "frame";
@@ -105,12 +149,37 @@ export const storageApi = {
     ),
   applyAvatarBinding: (payload: AvatarBindingApply) =>
     apiClient.patch<StorageBindingOut>("/storage-locations/bindings/avatars", payload),
+  bindingCandidates: (
+    purpose: "avatars" | "bug-reports",
+    offset: number,
+    signal?: AbortSignal,
+    limit = 20,
+  ) =>
+    purpose === "avatars"
+      ? storageApi.avatarBindingCandidates(offset, signal, limit)
+      : apiClient.get<AvatarBindingCandidates>(
+          `/storage-locations/bindings/bug-reports/candidates?limit=${limit}&offset=${offset}`,
+          { signal },
+        ),
+  previewBinding: (purpose: "avatars" | "bug-reports", payload: AvatarBindingChange) =>
+    purpose === "avatars"
+      ? storageApi.previewAvatarBinding(payload)
+      : apiClient.post<BugAttachmentBindingPreview>(
+          "/storage-locations/bindings/bug-reports/change-preview",
+          payload,
+        ),
+  applyBinding: (purpose: "avatars" | "bug-reports", payload: AvatarBindingApply) =>
+    purpose === "avatars"
+      ? storageApi.applyAvatarBinding(payload)
+      : apiClient.patch<StorageBindingOut>("/storage-locations/bindings/bug-reports", payload),
   probes: (id: string, signal?: AbortSignal) =>
     apiClient.get<StorageProbeOut[]>(`/storage-locations/${id}/probes`, { signal }),
   health: () => apiClient.get<StorageHealthResponse>("/storage/health"),
   buckets: (signal?: AbortSignal) => apiClient.get<BucketsResponse>("/storage/buckets", { signal }),
   startInventory: () =>
     apiClient.post<{ job_id: string; reused: boolean }>("/storage/usage-inventory"),
+  saveUsageSchedule: (payload: UsageSchedulePayload) =>
+    apiClient.put<UsageScheduleSummary>("/storage/usage-schedule", payload),
   videoAssetFailures: (limit = 50, offset = 0, signal?: AbortSignal) =>
     apiClient.get<VideoAssetFailuresResponse>(
       `/storage/video-assets/failures?limit=${limit}&offset=${offset}`,

@@ -51,6 +51,7 @@ async def creation_db(test_engine):
         "storage_bindings",
         "storage_maintenance_gates",
         "storage_operations",
+        "storage_usage_mutations",
         "dataset_items",
         "dataset_assets",
         "dataset_asset_locations",

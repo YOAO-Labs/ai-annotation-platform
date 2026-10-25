@@ -1168,6 +1168,39 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 base, digest(protected_row("export_media_bundles", changed)), field
             )
 
+    async def test_bug_attachment_new_schema_or_version_refuses_before_mapping(self):
+        for kind in ("schema", "version"):
+            row = self.rows[self.models.bug_attachment][0]
+            saved = deepcopy(vars(row))
+            if kind == "schema":
+                row.storage_ref = {**row.storage_ref, "schema": 2}
+            else:
+                row.object_version_id = "actual-provider-version"
+            with self.assertRaises(WorktreeError):
+                await remap_storage(self.db, self.source, self.target, self.endpoint)
+            self.db.flush.assert_not_awaited()
+            self.assertTrue(
+                all(
+                    row.bucket
+                    == self.source[
+                        {
+                            "annotations": "MINIO_BUCKET",
+                            "datasets": "MINIO_DATASETS_BUCKET",
+                            "bug-reports": "MINIO_BUG_REPORTS_BUCKET",
+                            "media-cache": "MINIO_MEDIA_CACHE_BUCKET",
+                            "audit-archive": "MINIO_AUDIT_ARCHIVE_BUCKET",
+                            "import": "MINIO_IMPORT_BUCKET",
+                            "export": "MINIO_EXPORT_BUCKET",
+                            "avatars": "MINIO_AVATARS_BUCKET",
+                            "training": "MINIO_TRAINING_BUCKET",
+                        }[row.purpose]
+                    ]
+                    for row in self.rows[self.models.binding]
+                )
+            )
+            vars(row).clear()
+            vars(row).update(saved)
+
     async def test_unknown_bug_attachment_refuses_without_partially_mapping_others(
         self,
     ):

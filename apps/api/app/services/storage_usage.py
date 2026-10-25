@@ -17,6 +17,7 @@ from app.db.models.storage_connection import StorageConnection
 from app.db.models.storage_usage import (
     StorageUsageInventory as Inventory,
     StorageUsageSnapshot as Snapshot,
+    StorageUsageSchedule as Schedule,
 )
 from app.db.models.user import User
 from app.schemas.storage import BucketSummary, BucketsResponse
@@ -31,6 +32,7 @@ from app.services.dataset_content import key_authority
 from app.services.storage import storage_service
 from app.services.sources.s3_reference import S3Access
 from app.services.storage_usage_categories import summarize
+from app.services import storage_usage_accounting as accounting
 
 ACTIVE = {"pending", "running"}
 LEASE_SECONDS = 120
@@ -147,7 +149,11 @@ async def read_usage(db):
             )
         )
     count = sum(i.measured_at is not None for i in items)
+    ledger, reconciliation, schedule = await accounting.summaries(db, scope)
     return BucketsResponse(
+        accounting=ledger,
+        reconciliation=reconciliation,
+        usage_schedule=schedule,
         items=items,
         total_object_count=sum(i.object_count for i in items)
         if count == len(items)
@@ -267,6 +273,8 @@ def result(inventory):
 
 
 async def finish(db, inventory, status, error=None):
+    if inventory.async_job_id:
+        await accounting.discard_staging(db, inventory.async_job_id)
     for target in inventory.scope[inventory.bucket_index :]:
         row = await db.get(Snapshot, target["key"], populate_existing=True)
         if row:
@@ -324,3 +332,71 @@ async def signal_interrupted(db, job_id, task_id, *, cancelled):
     inventory.generation += 1
     inventory.lease_until = now()
     job.celery_task_id = str(uuid.uuid4())
+
+
+async def configure_schedule(db, actor, enabled, interval_hours, api_key_id=None):
+    actor = await require_admin(db, actor.id)
+    proof = await key_authority(db, actor, api_key_id, "*")
+    if enabled and await validate_legacy_bindings(db):
+        raise HTTPException(409, detail={"code": "configuration_changed"})
+    await db.execute(
+        insert(Schedule)
+        .values(id="platform", authority={}, scope=[])
+        .on_conflict_do_nothing()
+    )
+    row = await db.scalar(
+        select(Schedule).where(Schedule.id == "platform").with_for_update()
+    )
+    row.enabled, row.interval_hours = enabled, interval_hours
+    row.status, row.pause_reason = ("active" if enabled else "off"), None
+    row.next_due_at = now() if enabled else None
+    row.authority = {
+        "actor_id": str(actor.id),
+        "api_key_id": str(api_key_id) if api_key_id else None,
+        "key_proof": proof,
+    }
+    row.scope = configured_scope()
+    await db.flush()
+    return accounting.schedule_summary(row)
+
+
+async def start_due(db):
+    row = await db.scalar(
+        select(Schedule)
+        .where(
+            Schedule.id == "platform",
+            Schedule.enabled.is_(True),
+            Schedule.status == "active",
+        )
+        .with_for_update(skip_locked=True)
+    )
+    if row is None:
+        await db.commit()
+        return None
+    try:
+        await authority(db, row)
+    except HTTPException as exc:
+        row.status = "paused"
+        row.pause_reason = (
+            "access_revoked"
+            if exc.status_code in {401, 403, 404}
+            else "configuration_changed"
+        )
+        row.next_due_at = None
+        await db.commit()
+        return None
+    if row.next_due_at is None or row.next_due_at > now():
+        await db.commit()
+        return None
+    # start() takes the same inventory lock as manual starts. Reuse is not a
+    # new scheduled delivery and must not move the next due time.
+    actor = await require_admin(db, uuid.UUID(row.authority["actor_id"]))
+    key_id = row.authority.get("api_key_id")
+    job, reused = await start(db, actor, uuid.UUID(key_id) if key_id else None)
+    if reused:
+        await db.commit()
+        return None
+    row.last_started_at = now()
+    row.next_due_at = row.last_started_at + timedelta(hours=row.interval_hours)
+    await db.commit()
+    return job

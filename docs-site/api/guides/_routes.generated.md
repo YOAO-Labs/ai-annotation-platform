@@ -685,6 +685,9 @@
 | GET | `/bindings/avatars/candidates` |
 | POST | `/bindings/avatars/change-preview` |
 | PATCH | `/bindings/avatars` |
+| GET | `/bindings/bug-reports/candidates` |
+| POST | `/bindings/bug-reports/change-preview` |
+| PATCH | `/bindings/bug-reports` |
 | GET | `/{location_id}` |
 | GET | `/{location_id}/source-summary` |
 | POST | `/{location_id}/change-preview` |
@@ -722,6 +725,7 @@
 | GET | `/health` |
 | GET | `/buckets` |
 | POST | `/usage-inventory` |
+| PUT | `/usage-schedule` |
 | GET | `/video-assets/failures` |
 | POST | `/video-assets/retry` |
 
@@ -1067,4 +1071,4 @@
 
 ---
 
-_共 97 模块 / 620 路由_
+_共 97 模块 / 624 路由_

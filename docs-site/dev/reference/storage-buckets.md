@@ -69,13 +69,13 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 
 ## 容量监控与日常巡检
 
-- **前端入口**：存储管理展示真实位置、分节点探测和九用途映射，不再重复数据集目录。用途映射来自 `GET /api/v1/storage-locations/bindings`；共享桶不合并用途行。`read_policy=consumer_owned_compatibility`保留各业务固定定位及旧读取路径，`write_policy=deployment_mapping`描述新写入的兼容部署目标，其余八用途的`change_policy=legacy_mapping_locked`保持锁定；头像使用`write_policy=current_binding / change_policy=reviewed_avatar_switch`支持经预览确认切换。位置配置修订与用途绑定代次独立返回；配置匹配不代表健康或迁移资格。
+- **前端入口**：存储管理展示真实位置、分节点探测和九用途映射，不再重复数据集目录。用途映射来自 `GET /api/v1/storage-locations/bindings`；共享桶不合并用途行。`read_policy=consumer_owned_compatibility`保留各业务固定定位及旧读取路径，`write_policy=deployment_mapping`描述新写入的兼容部署目标，其余七用途的`change_policy=legacy_mapping_locked`保持锁定；头像和报告附件使用`write_policy=current_binding`，分别通过`reviewed_avatar_switch`和`reviewed_bug_attachment_switch`支持经预览确认切换。位置配置修订与用途绑定代次独立返回；配置匹配不代表健康或迁移资格。
 - **统计边界**：平台对象字节读取持久盘点快照，已采纳源索引规模按准确来源地址去重，二者分列。物理容量、提供方配额及其他缺少可靠测量的指标保持未提供；刷新只查询已有记录，不同步列举全部桶。快照和分项口径见下文。
 - **巡检要点**：
   - `media-cache` 体积主要受 `videos/` 前缀的 30 天 Lifecycle 约束；若出现异常增长，通常意味着大量长视频被高频随机寻帧，可结合 `video_frame_service` 缓存命中率排查。
   - `avatars` 单对象不超过约 40 KB（`256×256` WebP），总体积随注册用户数线性增长；若对象数显著多于用户数，可排查是否存在 `users.avatar_ref` 未引用的孤儿对象。
 
-数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本。八用途保持兼容部署映射，头像可经真实托管探针及预览确认切换新写入位置；已固定对象按各自owner记录读取，历史头像定位缺失时阻止该用途切换，不声称全部历史定位已覆盖。用途策略不复用外部引用适配器的只读能力声明。
+数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本。七用途保持兼容部署映射，头像和报告附件可经真实托管探针及预览确认切换新写入位置；已固定对象按各自owner记录读取，历史头像定位缺失时阻止该用途切换，不声称全部历史定位已覆盖。用途策略不复用外部引用适配器的只读能力声明。
 
 独立Task新上传的最终原件位于annotations用途的 `__aap_task_originals__/<Task UUID>/<Creation UUID>/payload`。浏览器只写import暂存区，完整核验封存后保存独立TaskOriginal；删除业务Task或测试fixture不会按前缀删除该原件。历史未知Task不补造归属，全部原件读取者的固定位置接入仍须独立完成。
 
@@ -109,3 +109,15 @@ Celery default worker 执行盘点，Beat 每 30 秒回收超过 120 秒租约�
 分类累计随分页检查点提交，整桶成功后与对象总数、字节、采样时间一起写入 `storage_usage_snapshots.category_totals`。读取核对分类和总量、测量时间一致；旧快照及旧检查点不凭空补分类，下一轮完整盘点自然替换。失败／取消保留上次成功数据。GET 只聚合有效分类快照；API 字段与 partial／未知语义见[平台盘点 API](/api/guides/storage-locations#平台对象占用盘点)。
 
 启用分类统计前应用 0242，并刷新执行盘点的 Worker；无需重建镜像。统计仍限当前配置的平台桶与当前对象，不覆盖历史版本、未完成分片、本地临时磁盘或提供方物理容量。外部已采纳源索引规模继续独立统计。
+
+报告附件可采用已登记全局 S3 位置的新写入绑定。schema2 物理键位于基前缀下 `_aap_managed/bug-reports/bug-report-attachments/<owner>/<upload>.<ext>`，公开报告键仍从 `bug-report-attachments/` 开始。旧与在途上传按保存 endpoint／bucket／key／实际版本处理；当前平台部署桶盘点不包含外部目标。分类必须同时匹配端点，不能把同桶同键的外部声明套用到当前端点对象。
+
+## 当前对象增量与周期核对
+
+`storage_usage_mutations` 在物理I/O前由独立owner事务保存幂等意图。`prediction_inputs` 生产者中，lease／relative／write_nonce构成稳定逻辑组，每次实际条件PUT在I/O前保存独立尝试窗口，412只记零变化，业务发布失败后真正创建的新版本独立保存；未知旧尝试不被重试覆盖。删除按准确endpoint／bucket／key／不可变VersionId去重，不按owner声明次数扣减。同步SDK只收集有界回执，真正收尾后异步owner尽力发布。发布失败保留pending，不将已经成功的业务结果改成失败。物理版本事实与nullable的当前对象增量分开：条件创建成功、完整读回及当前HEAD匹配才增加；精确版本确实移除、删除前为当前对象且删除后无当前内容／回露版本／删除标记才减少。412复用、提交应答不明、进程消失或版本替换不根据最终存在推算增量。
+
+`managed_original_creation` 生产者复用 Creation 现有 prepared→writing 独立事务和同一引擎，在最终条件 PUT／CompleteMultipart 前原子登记意图；通用入口接受调用方的 AsyncSession／AsyncConnection 事务，不提交其业务事务。地址只取冻结 configuration.endpoint、bucket 和完整 key，保留 Creation ID、owner_kind、origin 与独立尝试窗口，集中覆盖 Dataset direct／zip／connector／directory_copy、Task 和辅助原件。真实写回执、完整 SHA／大小读回、当前 HEAD 匹配返回的不可变非 null 版本，并完成原生 close／drain 后才尽力发布正增量；回执或读回持久化及后续业务发布失败不抹去已经取得的物理证据。关闭失败、无版本、null、应答不明或当前版本替换保持 unknown；已核验 Creation 重读不新增。准备分片／abort、浏览器暂存与旧预签名重放不计增量，Retirement／Reclamation 不执行最终物理 DELETE，不能扣减。生产者摘要仍为 partial，projected_total_bytes 保持 null。
+
+盘点页每次最多1,000对象，保存准确key、实际大小和观测窗口；不解码key，不以ETag代替摘要。稳定代次为AsyncJob UUID，执行块的fence代次仅用于拒绝迟到发布。整桶成功才替换基准和对账，保留两个成功代次及当前暂存；重复key、失败和取消不发布不完整基准。数据库按对象比较两次观测，只有完全位于观测之间的已确认事件参与增量核对；跨窗口／pending／unknown及首次无基准单列未知。没有接入的写入方和外部变化只称未解释变化，不宣称精确账目漂移或物理磁盘容量。GET仅返回持久固定摘要。
+
+周期计划存于 `storage_usage_schedules`，默认关闭，管理员通过显式PUT授权开启，间隔1至168小时。已有30秒recover任务复核保存的授权及范围并调度，避免重叠，撤权／配置变化暂停，不能自动换操作者。应用迁移0246后刷新执行盘点、临时输入与托管原件写入的Worker；无镜像或依赖变化。回退先关闭计划，再回退保留schema的旧应用；显式降级仅允许新增表为空，禁止丢弃流水及基准。

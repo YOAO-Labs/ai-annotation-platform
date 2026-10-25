@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from app.db.models.dataset import DatasetItem
 from app.db.models.managed_original_creation import ManagedOriginalCreation as Creation
 from app.db.models.storage_maintenance import StorageOperation
+from app.db.models.storage_usage import StorageUsageMutation
 from app.services import managed_original_creation as service
 from app.services.content_snapshot import ContentError
 from app.services.storage import storage_service
@@ -24,7 +25,14 @@ from tests.test_migration_0230_managed_original_task_scope import (
 )
 
 legacy_creation_db = _legacy_creation_db
-task_creation_db = _task_creation_db
+
+
+@pytest.fixture
+async def task_creation_db(legacy_creation_db):
+    db = await _task_creation_db.__wrapped__(legacy_creation_db)
+    async with service.storage_access.engine(db).begin() as connection:
+        await connection.run_sync(StorageUsageMutation.__table__.create)
+    return db
 
 
 @pytest.fixture

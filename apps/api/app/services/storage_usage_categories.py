@@ -146,7 +146,7 @@ FAMILIES = (
         "bug_attachment_upload.BugAttachmentUpload",
         "bug_attachment_storage",
         "other_platform",
-        rf"^bug-report-attachments/{_UUID}/{_UUID}\.[a-z]+$",
+        rf"^(?:(?:[^/]+/)*_aap_managed/bug-reports/)?bug-report-attachments/{_UUID}/{_UUID}\.[a-z]+$",
         2,
         "key_for",
         ("owner_id", "id", "mime_type"),
@@ -482,7 +482,7 @@ async def classify(db, bucket, objects):
                     },
                 )
                 category, prefix = family.category, family.prefix
-                if family.service == "avatar_storage" and (
+                if family.service in {"avatar_storage", "bug_attachment_storage"} and (
                     owner.ref["endpoint_url"] != endpoint()
                     or owner.ref["storage_identity"] != identity
                 ):

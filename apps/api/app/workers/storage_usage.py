@@ -10,7 +10,7 @@ import uuid
 import boto3
 from botocore.config import Config
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import settings
 from app.db.models.async_job import AsyncJob
@@ -20,6 +20,7 @@ from app.db.models.storage_usage import (
 )
 from app.services import async_job as jobs, storage_usage as svc
 from app.services import storage_usage_categories as categories
+from app.services import storage_usage_accounting as accounting
 from app.workers.celery_app import celery_app
 from app.workers.dataset_quality import _session
 
@@ -122,7 +123,8 @@ async def process_page(db, job_id, task_id, generation):
     checkpoint = dict(inventory.checkpoint)
     row = await db.get(Snapshot, target["key"], populate_existing=True)
     row.attempt_status = "running"
-    checkpoint.setdefault("started_at", svc.now().isoformat())
+    page_started = await db.scalar(select(func.clock_timestamp()))
+    checkpoint.setdefault("started_at", page_started.isoformat())
     inventory.checkpoint = checkpoint
     await db.commit()
     # No database lock is held while waiting for the provider. Publication is fenced again.
@@ -150,6 +152,24 @@ async def process_page(db, job_id, task_id, generation):
         return False
     await svc.authority(db, inventory)
     row = await db.get(Snapshot, target["key"], populate_existing=True)
+    page_completed = await db.scalar(select(func.clock_timestamp()))
+    if not error and page is not None and "objects" in page:
+        try:
+            if page["count"] != len(page["objects"]) or page["bytes"] != sum(
+                item["size"] for item in page["objects"]
+            ):
+                raise ValueError("invalid_inventory_page")
+            async with db.begin_nested():
+                await accounting.stage_page(
+                    db,
+                    job_id,
+                    target["key"],
+                    page["objects"],
+                    page_started,
+                    page_completed,
+                )
+        except Exception:
+            error = "invalid_inventory_page"
     if error:
         row.attempt_status, row.error_code = "failed", error
         inventory.failed_count += 1
@@ -160,6 +180,10 @@ async def process_page(db, job_id, task_id, generation):
             "pages": checkpoint.get("pages", 0) + 1,
             "started_at": checkpoint.get("started_at") or svc.now().isoformat(),
             "token": page["token"],
+            "objects_complete": checkpoint.get(
+                "objects_complete", not checkpoint.get("pages", 0)
+            )
+            and "objects" in page,
             "category_totals": categories.merge(
                 checkpoint.get("category_totals")
                 if checkpoint.get("pages", 0)
@@ -170,6 +194,15 @@ async def process_page(db, job_id, task_id, generation):
         if not page["token"]:
             from datetime import datetime
 
+            measured_at = await db.scalar(select(func.clock_timestamp()))
+            if checkpoint["objects_complete"]:
+                await accounting.complete_bucket(
+                    db,
+                    row,
+                    job_id,
+                    datetime.fromisoformat(checkpoint["started_at"]),
+                    measured_at,
+                )
             row.object_count, row.total_size_bytes = (
                 checkpoint["count"],
                 checkpoint["bytes"],
@@ -177,7 +210,7 @@ async def process_page(db, job_id, task_id, generation):
             row.measurement_started_at = datetime.fromisoformat(
                 checkpoint["started_at"]
             )
-            row.measured_at = svc.now()
+            row.measured_at = measured_at
             row.category_totals = categories.stamp(
                 checkpoint["category_totals"],
                 row.object_count,
@@ -187,6 +220,8 @@ async def process_page(db, job_id, task_id, generation):
             row.attempt_status, row.error_code = "completed", None
             inventory.success_count += 1
     if error or not page["token"]:
+        if error:
+            await accounting.discard_staging(db, job_id, target["key"])
         inventory.bucket_index += 1
         checkpoint = {}
     inventory.checkpoint = checkpoint
@@ -251,6 +286,9 @@ async def execute(db, job_id, task_id):
 
 
 async def recover(db):
+    due = await svc.start_due(db)
+    if due is not None:
+        await dispatch(db, due)
     inventory = await db.scalar(
         select(Inventory)
         .where(Inventory.status.in_(svc.ACTIVE), Inventory.lease_until <= svc.now())

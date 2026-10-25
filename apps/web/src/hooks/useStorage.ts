@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { storageApi } from "../api/storage";
-import type { VideoAssetRetryPayload } from "../api/storage";
+import type { UsageSchedulePayload, VideoAssetRetryPayload } from "../api/storage";
 import { useAuthStore } from "@/stores/authStore";
 import { useSessionRevision } from "./useSessionGuard";
 import { getAuthSessionRevision } from "@/stores/authSession";
@@ -35,6 +35,29 @@ export function useStartStorageInventory() {
       if (getAuthSessionRevision() !== revision) return;
       void qc.invalidateQueries({ queryKey: ["storage-buckets"] });
       void qc.invalidateQueries({ queryKey: ["async-jobs"] });
+    },
+  });
+}
+
+export function useUpdateStorageUsageSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: UsageSchedulePayload) => storageApi.saveUsageSchedule(payload),
+    onMutate: () => {
+      const state = useAuthStore.getState();
+      return {
+        revision: getAuthSessionRevision(),
+        owner: `${state.user?.id}/${state.sessionId}/${state.user?.role}`,
+      };
+    },
+    onSuccess: (_data, _variables, context) => {
+      const state = useAuthStore.getState();
+      const owner = `${state.user?.id}/${state.sessionId}/${state.user?.role}`;
+      if (!context || getAuthSessionRevision() !== context.revision || owner !== context.owner)
+        return;
+      void qc.invalidateQueries({
+        queryKey: ["storage-buckets", context.owner, context.revision],
+      });
     },
   });
 }

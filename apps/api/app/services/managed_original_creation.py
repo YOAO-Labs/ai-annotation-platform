@@ -13,6 +13,7 @@ import uuid
 import boto3
 from botocore.config import Config
 from sqlalchemy import insert, select, update
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.db.models.dataset_asset import (
@@ -23,7 +24,7 @@ from app.db.models.dataset_asset import (
 )
 from app.db.models.managed_original_creation import ManagedOriginalCreation as Creation
 from app.db.models.storage_maintenance import StorageOperation
-from app.services import storage_access
+from app.services import storage_access, storage_usage_accounting as accounting
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import (
     LEGACY_LOCATION_ID,
@@ -173,7 +174,7 @@ async def _read(db, creation_id):
         return dict(row) if row else None
 
 
-async def _change(db, creation_id, expected, **values):
+async def _change(db, creation_id, expected, *, record_mutation=False, **values):
     """No independent ledger transaction spans executor or network I/O."""
     async with storage_access.engine(db).begin() as connection:
         row = (
@@ -195,6 +196,21 @@ async def _change(db, creation_id, expected, **values):
         )
         if row is None:
             reject("managed_original_creation_state_conflict")
+        if record_mutation:
+            handle = await accounting.begin_in_transaction(
+                connection,
+                endpoint_url=row["configuration"]["endpoint"],
+                bucket=row["bucket"],
+                object_key=row["object_key"],
+                producer="managed_original_creation",
+                owner_id=row["id"],
+                purpose="managed_original",
+                kind="create",
+                nonce=str(row["id"]),
+                new_request=True,
+                evidence={"owner_kind": row["owner_kind"], "origin": row["origin"]},
+            )
+            return dict(row), handle
         return dict(row)
 
 
@@ -555,6 +571,9 @@ async def _physical(db, row, stream):
     client, prepared, completion_started = None, None, False
     physical = _Physical()
     failure = None
+    mutation = None
+    evidence = {"physical_outcome": "unknown"}
+    settled = False
     try:
         client = await physical.run(
             create_client, timeout_seconds=row["timeout_seconds"]
@@ -619,8 +638,13 @@ async def _physical(db, row, stream):
                 "object_key": prepared.object_key,
             },
         )
-        await _change(
-            db, row["id"], "prepared", status="writing", write_started_at=now()
+        _, mutation = await _change(
+            db,
+            row["id"],
+            "prepared",
+            record_mutation=True,
+            status="writing",
+            write_started_at=now(),
         )
         completion_started = True
         receipt = await physical.run(
@@ -630,6 +654,11 @@ async def _physical(db, row, stream):
             row["object_key"],
             prepared,
             content_type=row["content_type"],
+        )
+        evidence.update(
+            physical_outcome="written",
+            physical_size_bytes=prepared.size_bytes,
+            returned_version=receipt.response.get("VersionId"),
         )
         try:
             await _change(
@@ -665,6 +694,18 @@ async def _physical(db, row, stream):
         )
         if _proof(verified) != _proof(prepared):
             reject("managed_original_readback_mismatch")
+        evidence["full_readback"] = True
+        if receipt.version_id not in {None, "", "null"}:
+            evidence["current_head_matches"] = await physical.run(
+                accounting.current_matches,
+                client,
+                row["bucket"],
+                row["object_key"],
+                receipt.version_id,
+                prepared.size_bytes,
+            )
+            if evidence["current_head_matches"]:
+                evidence["current_delta_bytes"] = prepared.size_bytes
         try:
             await _change(
                 db,
@@ -683,6 +724,12 @@ async def _physical(db, row, stream):
         return verified.head_bytes
     except BaseException as exc:
         failure = exc
+        if (
+            mutation is not None
+            and evidence["physical_outcome"] != "written"
+            and getattr(exc, "outcome", None) == "conflict"
+        ):
+            evidence.update(physical_outcome="not_written", current_delta_bytes=0)
         if prepared is not None and not completion_started:
             # A failed freeze/config fence may clean only its exact unfinished
             # MPU. This never deletes or retries the final object.
@@ -700,14 +747,35 @@ async def _physical(db, row, stream):
                 ) from None
         raise
     finally:
-        if client is not None:
-            try:
-                await physical.run(storage_access.close_registered, client)
-            except BaseException:
-                raise storage_access.mark_unsettled(
-                    ContentError("managed_original_close_unknown", 503)
-                ) from None
-
+        try:
+            if client is not None:
+                try:
+                    await physical.run(storage_access.close_registered, client)
+                except BaseException:
+                    raise storage_access.mark_unsettled(
+                        ContentError("managed_original_close_unknown", 503)
+                    ) from None
+            settled = True
+        finally:
+            if mutation is not None:
+                # A separate best-effort transaction preserves physical facts
+                # even when Creation or its caller's business publication fails.
+                # Keep the existing permit until native close/drain has finished.
+                publication = asyncio.create_task(
+                    accounting.publish(
+                        async_sessionmaker(
+                            storage_access.engine(db), expire_on_commit=False
+                        ),
+                        mutation,
+                        evidence,
+                        settled=settled,
+                    )
+                )
+                try:
+                    await asyncio.shield(publication)
+                except BaseException:
+                    await _drain(publication)
+                    raise
         if physical.interrupted is not None and failure is None:
             raise physical.interrupted
 

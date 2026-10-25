@@ -18,6 +18,10 @@ from app.db.models.user import User
 from app.deps import get_db, require_roles, assert_request_scopes
 from app.schemas.storage_location import (
     FilesystemLocationCreate,
+    BugAttachmentBindingApply,
+    BugAttachmentBindingCandidates,
+    BugAttachmentBindingChange,
+    BugAttachmentBindingPreview,
     AvatarBindingApply,
     AvatarBindingCandidates,
     AvatarBindingChange,
@@ -137,6 +141,64 @@ async def apply_avatar_binding(
     actor: User = Depends(super_admin),
 ):
     from app.services import avatar_binding_change as change
+
+    try:
+        result = await change.apply(
+            db,
+            payload,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            request=request,
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
+
+
+@router.get(
+    "/bindings/bug-reports/candidates", response_model=BugAttachmentBindingCandidates
+)
+async def bug_attachment_binding_candidates(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(super_admin),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    from app.services import bug_attachment_binding_change as change
+
+    return await change.candidates(db, limit=limit, offset=offset)
+
+
+@router.post(
+    "/bindings/bug-reports/change-preview", response_model=BugAttachmentBindingPreview
+)
+async def preview_bug_attachment_binding(
+    payload: BugAttachmentBindingChange,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import bug_attachment_binding_change as change
+
+    try:
+        result = await change.preview(
+            db, payload, actor, api_key_id=getattr(request.state, "api_key_id", None)
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
+
+
+@router.patch("/bindings/bug-reports", response_model=StorageBindingOut)
+async def apply_bug_attachment_binding(
+    payload: BugAttachmentBindingApply,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import bug_attachment_binding_change as change
 
     try:
         result = await change.apply(

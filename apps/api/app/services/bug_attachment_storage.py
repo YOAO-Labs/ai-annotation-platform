@@ -2,12 +2,14 @@
 
 Only explicit allocation consults the current purpose binding. Existing records
 resolve their saved bucket, independently of the configured new-write bucket.
-Credentials remain owned by StorageService; legacy references are never guessed.
+Credentials come from the saved registered target; legacy references are never guessed.
 """
 
 from __future__ import annotations
 
 from copy import deepcopy
+from types import SimpleNamespace
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -25,7 +27,9 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
+from app.db.models.storage_connection import StorageConnection
 from app.services import storage_access
+from app.services.managed_s3_target import version_matches
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
@@ -209,6 +213,10 @@ class Owner:
     _ref: dict = field(repr=False)
 
     @property
+    def endpoint_url(self):
+        return self._ref["endpoint_url"]
+
+    @property
     def ref(self):
         return deepcopy(self._ref)
 
@@ -220,24 +228,66 @@ def resolve_ref(ref, *, expected_key=None) -> Owner:
         not isinstance(ref, dict)
         or set(ref) != _FIELDS
         or type(ref["schema"]) is not int
-        or ref["schema"] != 1
+        or ref["schema"] not in {1, 2}
         or ref["purpose"] != "bug-reports"
-        or ref["location_id"] != str(LEGACY_LOCATION_ID)
         or type(ref["config_revision"]) is not int
-        or ref["config_revision"] != 1
+        or ref["config_revision"] < 1
         or type(ref["binding_generation"]) is not int
-        or ref["binding_generation"] != 1
+        or ref["binding_generation"] < 1
         or not _plain(ref["bucket"], 255)
         or any(char in ref["bucket"] for char in "/\\?#@")
         or not isinstance(ref["object_key"], str)
-        or _KEY.fullmatch(ref["object_key"]) is None
-        or (expected_key is not None and ref["object_key"] != expected_key)
         or not isinstance(ref["storage_identity"], str)
         or _SHA256.fullmatch(ref["storage_identity"]) is None
     ):
         _reject()
+    try:
+        identifier = uuid.UUID(ref["location_id"])
+        if str(identifier) != ref["location_id"]:
+            _reject()
+    except (ValueError, TypeError, AttributeError):
+        _reject()
+    key = ref["object_key"]
+    matched = re.search(
+        r"bug-report-attachments/"
+        + _UUID_PART
+        + r"/"
+        + _UUID_PART
+        + r"\.(?:png|jpg|webp)$",
+        key,
+    )
+    if matched is None:
+        _reject()
+    logical = matched[0]
+    if expected_key is not None and logical != expected_key:
+        _reject()
+    if ref["schema"] == 1:
+        if (
+            identifier != LEGACY_LOCATION_ID
+            or ref["config_revision"] != 1
+            or ref["binding_generation"] != 1
+            or key != logical
+        ):
+            _reject()
+    else:
+        from app.services.bug_attachment_storage_target import (
+            MANAGED_NAMESPACE,
+            managed_prefix,
+        )
+
+        if ref["binding_generation"] < 2 or len(key.encode("utf-8")) > 1024:
+            _reject()
+        if identifier == LEGACY_LOCATION_ID:
+            if ref["config_revision"] != 1 or key != logical:
+                _reject()
+        else:
+            prefix = key[: -len(logical)]
+            if not prefix.endswith(MANAGED_NAMESPACE):
+                _reject()
+            if managed_prefix(prefix[: -len(MANAGED_NAMESPACE)]) != prefix:
+                _reject()
     endpoint = _endpoint(ref["endpoint_url"])
-    if endpoint != _runtime_endpoint() or ref[
+    if (identifier == LEGACY_LOCATION_ID and endpoint != _runtime_endpoint()) or ref[
         "storage_identity"
     ] != managed_storage_identity(endpoint, ref["bucket"]):
         _reject()
@@ -278,56 +328,105 @@ def resolve(record) -> Owner:
     expires = _instant(getattr(record, "expires_at", None))
     if not created < expires <= created + timedelta(seconds=RETENTION_SECONDS):
         _reject("bug_attachment_storage_invalid_receipt")
+    from app.services.bug_attachment_storage_target import version_id
+
+    version_id({"VersionId": getattr(record, "object_version_id", None)})
     return resolve_ref(getattr(record, "storage_ref", None), expected_key=key)
 
 
 async def allocate(db, record) -> dict:
-    """Create-only allocation; the caller persists the independent upload."""
+    """Create-only allocation; the caller persists the independent upload row."""
     key = key_for(record.owner_id, record.id, record.mime_type)
     try:
         await ensure_legacy_bindings(db)
     except ValueError:
         _reject("bug_attachment_storage_binding_unproven")
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
-    binding = await db.scalar(
+    initial = await db.scalar(
         select(StorageBinding)
         .where(StorageBinding.purpose == "bug-reports")
         .execution_options(populate_existing=True)
     )
+    if initial is None:
+        _reject("bug_attachment_storage_binding_unproven")
+    binding_facts = initial.location_id, initial.bucket, initial.generation
+    initial_location = await db.get(
+        StorageLocation, initial.location_id, populate_existing=True
+    )
+    if initial_location is None:
+        _reject("bug_attachment_storage_binding_unproven")
+    connection_id = getattr(initial_location, "connection_id", None)
+    if connection_id is not None:
+        await db.scalar(
+            select(StorageConnection)
+            .where(StorageConnection.id == connection_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+    location = await db.scalar(
+        select(StorageLocation)
+        .where(StorageLocation.id == binding_facts[0])
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    binding = await db.scalar(
+        select(StorageBinding)
+        .where(StorageBinding.purpose == "bug-reports")
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
     if (
         location is None
-        or location.id != LEGACY_LOCATION_ID
-        or location.kind != "s3"
-        or type(location.config_revision) is not int
-        or location.config_revision != 1
-        or location.enabled is not True
-        or not isinstance(location.config, dict)
-        or type(location.config.get("use_ssl")) is not bool
-        or location.config
-        != {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
+        or location.id != binding_facts[0]
+        or getattr(location, "connection_id", None) != connection_id
         or binding is None
-        or binding.purpose != "bug-reports"
-        or binding.location_id != LEGACY_LOCATION_ID
-        or type(binding.generation) is not int
-        or binding.generation != 1
-        or binding.bucket != storage_service.bug_reports_bucket
+        or (binding.location_id, binding.bucket, binding.generation) != binding_facts
     ):
         _reject("bug_attachment_storage_binding_unproven")
-    endpoint = _runtime_endpoint()
+    from app.services.bug_attachment_storage_target import target_for
+
+    target = await target_for(db, location)
+    if (
+        type(binding.generation) is not int
+        or binding.generation < 1
+        or binding.bucket != target.bucket
+        or (binding.generation == 1 and location.id != LEGACY_LOCATION_ID)
+    ):
+        _reject("bug_attachment_storage_binding_unproven")
+    endpoint = target.endpoint_url
     return resolve_ref(
         {
-            "schema": 1,
+            "schema": 1 if binding.generation == 1 else 2,
             "purpose": "bug-reports",
             "location_id": str(location.id),
             "config_revision": location.config_revision,
             "binding_generation": binding.generation,
             "endpoint_url": endpoint,
             "bucket": binding.bucket,
-            "object_key": key,
+            "object_key": target.key_prefix + key,
             "storage_identity": managed_storage_identity(endpoint, binding.bucket),
         },
         expected_key=key,
     ).ref
+
+
+async def io_target(db, record):
+    """Capture current credentials while keeping the saved physical address fixed."""
+    owner = resolve(record)
+    if owner.ref["schema"] == 1:
+        return None
+    from app.services.bug_attachment_storage_target import target_for
+
+    identifier = uuid.UUID(owner.ref["location_id"])
+    location = await db.get(StorageLocation, identifier, populate_existing=True)
+    target = await target_for(db, location)
+    if (
+        target.endpoint_url != owner.endpoint_url
+        or target.bucket != owner.bucket
+        or target.key_prefix + key_for(record.owner_id, record.id, record.mime_type)
+        != owner.object_key
+    ):
+        _reject()
+    return target
 
 
 def _budget(deadline):
@@ -344,13 +443,41 @@ def _unavailable(exc):
     return error
 
 
-def read(record, *, missing_ok=False) -> bytes | None:
+def _client_context(record, target):
+    owner = resolve(record)
+    ref = owner.ref
+    if target is None:
+        if ref["location_id"] != str(LEGACY_LOCATION_ID):
+            _reject("bug_attachment_storage_binding_unproven")
+        return nullcontext(storage_service.client)
+    if (
+        str(target.location_id) != ref["location_id"]
+        or target.endpoint_url != owner.endpoint_url
+        or target.bucket != owner.bucket
+        or target.key_prefix + key_for(record.owner_id, record.id, record.mime_type)
+        != owner.object_key
+    ):
+        _reject()
+    return target.client()
+
+
+def read(record, *, missing_ok=False, target=None) -> bytes | None:
+    with _client_context(record, target) as client:
+        return _read(client, record, missing_ok=missing_ok)
+
+
+def _read(client, record, *, missing_ok=False) -> bytes | None:
     """Conditionally read and hash the exact saved object, then close it."""
     owner = resolve(record)
     deadline = time.monotonic() + VERIFY_SECONDS
-    params = {"Bucket": owner.bucket, "Key": owner.object_key}
+    from app.services.bug_attachment_storage_target import object_params
+
+    version = getattr(record, "object_version_id", None)
+    params = object_params(owner.bucket, owner.object_key, version)
     try:
-        head = storage_service.client.head_object(**params)
+        head = client.head_object(**params)
+        if version is not None and not version_matches(version, head.get("VersionId")):
+            _reject("bug_attachment_storage_integrity_mismatch")
         _budget(deadline)
         etag = head.get("ETag")
         if (
@@ -360,10 +487,14 @@ def read(record, *, missing_ok=False) -> bytes | None:
             or not 0 < len(etag) <= 1024
         ):
             _reject("bug_attachment_storage_integrity_mismatch")
-        response = storage_service.client.get_object(**params, IfMatch=etag)
+        response = client.get_object(**params, IfMatch=etag)
         with storage_access.closing_registered(response["Body"]) as body:
             if (
-                response.get("ETag") != etag
+                (
+                    version is not None
+                    and not version_matches(version, response.get("VersionId"))
+                )
+                or response.get("ETag") != etag
                 or type(response.get("ContentLength")) is not int
                 or response.get("ContentLength") != record.size_bytes
             ):
@@ -382,9 +513,13 @@ def read(record, *, missing_ok=False) -> bytes | None:
             if size != record.size_bytes or checksum.hexdigest() != record.sha256:
                 _reject("bug_attachment_storage_integrity_mismatch")
         _budget(deadline)
-        after = storage_service.client.head_object(**params)
+        after = client.head_object(**params)
         if (
-            after.get("ETag") != etag
+            (
+                version is not None
+                and not version_matches(version, after.get("VersionId"))
+            )
+            or after.get("ETag") != etag
             or type(after.get("ContentLength")) is not int
             or after.get("ContentLength") != record.size_bytes
         ):
@@ -412,8 +547,11 @@ def read(record, *, missing_ok=False) -> bytes | None:
     return b"".join(chunks)
 
 
-def write(record, data) -> None:
-    """Create only the saved key; no failure authorizes compensation deletion."""
+def write(record, data, *, target=None) -> str | None:
+    """Conditionally create the saved physical key and return the provider receipt."""
+    from app.services.managed_s3_target import _conditional_put
+    from app.services.bug_attachment_storage_target import version_id, object_params
+
     owner = resolve(record)
     if (
         type(data) is not bytes
@@ -423,16 +561,37 @@ def write(record, data) -> None:
         _reject("bug_attachment_storage_integrity_mismatch")
     validate_image(data, record.mime_type)
     try:
-        storage_service.client.put_object(
-            Bucket=owner.bucket,
-            Key=owner.object_key,
-            Body=data,
-            ContentType=record.mime_type,
-            IfNoneMatch="*",
-        )
+        with _client_context(record, target) as client:
+            response = _conditional_put(
+                client,
+                {
+                    **object_params(owner.bucket, owner.object_key),
+                    "ContentType": record.mime_type,
+                },
+                data,
+            )
+            receipt = SimpleNamespace(
+                **{
+                    name: getattr(record, name)
+                    for name in (
+                        "id",
+                        "owner_id",
+                        "mime_type",
+                        "file_name",
+                        "created_at",
+                        "expires_at",
+                        "storage_ref",
+                        "sha256",
+                        "size_bytes",
+                    )
+                },
+                object_version_id=version_id(response),
+            )
+            _read(client, receipt)
+            return receipt.object_version_id
+    except BugAttachmentStorageError:
+        raise
     except ClientError as exc:
-        if getattr(exc, "storage_operation_unsettled", False):
-            raise _unavailable(exc) from None
         if str(exc.response.get("Error", {}).get("Code", "")) in {
             "412",
             "PreconditionFailed",
@@ -445,13 +604,33 @@ def write(record, data) -> None:
         raise _unavailable(exc) from None
     except Exception as exc:
         raise _unavailable(exc) from None
-    read(record)
 
 
-def delete(record) -> None:
-    """Delete only the precise object of a caller's committed retirement."""
+def delete(record, *, target=None) -> None:
+    """Delete only this committed retirement's saved physical object/version."""
+    from app.services.bug_attachment_storage_target import object_params
+
     owner = resolve(record)
+    version = getattr(record, "object_version_id", None)
     try:
-        storage_service.delete_object(owner.object_key, bucket=owner.bucket)
+        if (
+            target is None
+            and version is None
+            and owner.ref["location_id"] == str(LEGACY_LOCATION_ID)
+        ):
+            storage_service.delete_object(owner.object_key, bucket=owner.bucket)
+            return
+        with _client_context(record, target) as client:
+            # A null version is a mutable slot, so verify its saved bytes first.
+            if (
+                version in (None, "null")
+                and _read(client, record, missing_ok=True) is None
+            ):
+                return
+            client.delete_object(
+                **object_params(owner.bucket, owner.object_key, version)
+            )
+    except BugAttachmentStorageError:
+        raise
     except Exception as exc:
         raise _unavailable(exc) from None

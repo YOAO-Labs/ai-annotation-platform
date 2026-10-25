@@ -659,6 +659,54 @@ async def test_report_deletion_commits_retirement_even_when_cleanup_fails(
     assert (await uploads.cleanup(db_session))["deleted"] == 1
 
 
+@pytest.mark.parametrize("replaced", [False, True])
+async def test_null_slot_retirement_keeps_owner_when_content_changed(
+    db_session, annotator, objects, monkeypatch, replaced
+):
+    row = await seed_receipt(db_session, objects, annotator[0].id, state="pending")
+    row.object_version_id = "null"
+    await db_session.flush()
+    row.state, row.retired_at = "retired", uploads.now()
+    await db_session.flush()
+    identifier, saved_ref = row.id, dict(row.storage_ref)
+    key = saved_ref["bucket"], saved_ref["object_key"]
+    saved_bytes = objects.objects[key]
+    if replaced:
+        objects.objects[key] = b"x" * len(saved_bytes)
+
+    def head(**params):
+        assert params.pop("VersionId") == "null"
+        return objects.head(**params)
+
+    def get(**params):
+        assert params.pop("VersionId") == "null"
+        return objects.get(**params)
+
+    def delete_object(**params):
+        assert params == {"Bucket": key[0], "Key": key[1], "VersionId": "null"}
+        objects.delete_object(params["Key"], bucket=params["Bucket"])
+
+    deleting = Mock(side_effect=delete_object)
+    monkeypatch.setattr(objects.client, "head_object", head)
+    monkeypatch.setattr(objects.client, "get_object", get)
+    monkeypatch.setattr(objects.client, "delete_object", deleting, raising=False)
+    result = await uploads.cleanup(db_session, identifiers=[identifier])
+    retained = await db_session.get(BugAttachmentUpload, identifier)
+    if replaced:
+        assert result == {"deleted": 0, "retained": 0, "failed": 1}
+        assert retained.state == "retired"
+        assert retained.storage_ref == saved_ref
+        assert retained.object_version_id == "null"
+        assert retained.last_attempted_at is not None
+        assert objects.objects[key] == b"x" * len(saved_bytes)
+        deleting.assert_not_called()
+    else:
+        assert result == {"deleted": 1, "retained": 0, "failed": 0}
+        assert retained is None and key not in objects.objects
+        deleting.assert_called_once()
+    assert all(body.closed for body in objects.bodies)
+
+
 async def test_delete_transaction_failure_has_zero_physical_io(
     db_session, annotator, objects, monkeypatch
 ):
@@ -937,6 +985,12 @@ def test_storage_removes_only_bug_bucket_lifecycle():
     service.export_bucket = "export-lifecycle-test"
     service.client = SimpleNamespace(
         delete_bucket_lifecycle=Mock(),
+        get_bucket_lifecycle_configuration=Mock(
+            side_effect=ClientError(
+                {"Error": {"Code": "NoSuchLifecycleConfiguration"}},
+                "GetBucketLifecycleConfiguration",
+            )
+        ),
         put_bucket_lifecycle_configuration=Mock(),
     )
     service._ensure_lifecycle()
@@ -947,9 +1001,10 @@ def test_storage_removes_only_bug_bucket_lifecycle():
         call.kwargs["Bucket"]
         for call in service.client.put_bucket_lifecycle_configuration.call_args_list
     }
-    assert targets == {
-        service.bucket,
-        service.media_cache_bucket,
-        service.import_bucket,
-        service.export_bucket,
-    }
+    service.client.get_bucket_lifecycle_configuration.assert_any_call(
+        Bucket=service.bucket
+    )
+    service.client.get_bucket_lifecycle_configuration.assert_any_call(
+        Bucket=service.import_bucket
+    )
+    assert targets == {service.media_cache_bucket, service.export_bucket}

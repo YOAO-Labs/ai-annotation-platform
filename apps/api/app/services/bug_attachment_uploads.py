@@ -33,6 +33,7 @@ _FACTS = (
     "id",
     "owner_id",
     "storage_ref",
+    "object_version_id",
     "sha256",
     "size_bytes",
     "mime_type",
@@ -73,6 +74,7 @@ class AttachmentSnapshot:
     created_at: datetime
     expires_at: datetime
     bound_report_id: uuid.UUID | None
+    object_version_id: str | None
     _storage_ref: dict = field(repr=False)
 
     @property
@@ -82,7 +84,7 @@ class AttachmentSnapshot:
 
 def snapshot(row):
     storage.resolve(row)
-    facts = {name: deepcopy(getattr(row, name)) for name in _FACTS}
+    facts = {name: deepcopy(getattr(row, name, None)) for name in _FACTS}
     facts["_storage_ref"] = facts.pop("storage_ref")
     return AttachmentSnapshot(**facts)
 
@@ -242,6 +244,7 @@ async def upload(db, authority, data, mime_type, file_name):
         db.add(row)
         await db.flush()
         receipt = snapshot(row)
+        target = await storage.io_target(db, receipt)
     except (storage.BugAttachmentStorageError, ContentError) as exc:
         raise http_error(exc) from None
     await reauthorize(db, authority)
@@ -259,7 +262,7 @@ async def upload(db, authority, data, mime_type, file_name):
         await db.commit()
 
     try:
-        await storage_access.run(
+        version = await storage_access.run(
             db,
             uuid.UUID(receipt.storage_ref["location_id"]),
             "bug_attachment_write_" + receipt.id.hex,
@@ -267,7 +270,20 @@ async def upload(db, authority, data, mime_type, file_name):
             receipt,
             data,
             on_acquired=acquired,
+            **({"target": target} if target is not None else {}),
         )
+        if version is not None:
+            current = await _locked(db, receipt.id)
+            if (
+                current is None
+                or current.state != "pending"
+                or not same(current, receipt)
+            ):
+                reject()
+            current.object_version_id = version
+            await db.flush()
+            receipt = snapshot(current)
+            await db.commit()
         await reauthorize(db, authority)
         current = await _locked(db, receipt.id)
         if current is None or current.state != "pending" or not same(current, receipt):
@@ -415,6 +431,7 @@ async def read(db, actor, request, report_id, key):
     _registered_receipt(report, row, key)
     try:
         receipt = snapshot(row)
+        target = await storage.io_target(db, receipt)
         await db.commit()
         revision = None
 
@@ -439,6 +456,7 @@ async def read(db, actor, request, report_id, key):
             storage.read,
             receipt,
             on_acquired=acquired,
+            **({"target": target} if target is not None else {}),
         )
         actor = await reauthorize(db, authority)
         report = await _readable_report(db, report_id, actor, key)
@@ -527,6 +545,7 @@ async def _cleanup_one(db, identifier):
         await db.commit()
         return False
     await db.commit()
+    target = await storage.io_target(db, receipt)
 
     async def acquired(permit):
         current = await _locked(db, identifier)
@@ -547,6 +566,7 @@ async def _cleanup_one(db, identifier):
         storage.delete,
         receipt,
         on_acquired=acquired,
+        **({"target": target} if target is not None else {}),
     )
     current = await _locked(db, identifier)
     if (

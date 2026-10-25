@@ -59,6 +59,48 @@ class StorageUsageBreakdown(BaseModel):
     is_estimate: bool = True
 
 
+class StorageUsageAccountingSummary(BaseModel):
+    scope: Literal["current_objects"] = "current_objects"
+    coverage: Literal["partial"] = "partial"
+    producers: list[str] = Field(
+        default_factory=lambda: ["prediction_inputs", "managed_original_creation"]
+    )
+    confirmed_added_bytes: int = 0
+    confirmed_removed_bytes: int = 0
+    net_change_bytes: int = 0
+    pending_operation_count: int = 0
+    unknown_operation_count: int = 0
+    projected_total_bytes: None = None
+
+
+class StorageUsageReconciliationSummary(BaseModel):
+    scope: Literal["current_objects"] = "current_objects"
+    coverage: Literal["partial"] = "partial"
+    status: Literal["no_baseline", "partial"]
+    measured_at: datetime
+    bucket_count: int
+    compared_object_count: int
+    uncertain_object_count: int
+    unexplained_object_count: int
+    confirmed_change_bytes: int
+    known_unexplained_change_bytes: int
+    unexplained_change_bytes: int | None
+
+
+class UsageScheduleRequest(BaseModel):
+    enabled: bool
+    interval_hours: int = Field(default=24, ge=1, le=168)
+
+
+class UsageScheduleSummary(BaseModel):
+    enabled: bool = False
+    interval_hours: int = 24
+    status: Literal["off", "active", "paused"] = "off"
+    next_due_at: datetime | None = None
+    last_started_at: datetime | None = None
+    pause_reason: str | None = None
+
+
 class BucketsResponse(BaseModel):
     items: list[BucketSummary]
     total_object_count: int | None
@@ -73,6 +115,9 @@ class BucketsResponse(BaseModel):
     location_id: uuid.UUID
     breakdown: StorageUsageBreakdown | None = None
     uncovered_binding_purposes: list[str] = Field(default_factory=list)
+    accounting: StorageUsageAccountingSummary | None = None
+    reconciliation: StorageUsageReconciliationSummary | None = None
+    usage_schedule: UsageScheduleSummary | None = None
 
 
 class UsageInventoryResponse(BaseModel):

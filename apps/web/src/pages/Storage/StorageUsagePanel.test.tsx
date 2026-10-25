@@ -7,12 +7,14 @@ import { StorageUsagePanel } from "./StorageUsagePanel";
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   start: vi.fn(),
+  schedule: vi.fn(),
   refetch: vi.fn(),
   focus: vi.fn(),
 }));
 vi.mock("@/hooks/useStorage", () => ({
   useStorageBuckets: () => mocks.query(),
   useStartStorageInventory: () => ({ mutateAsync: mocks.start, isPending: false }),
+  useUpdateStorageUsageSchedule: () => ({ mutateAsync: mocks.schedule, isPending: false }),
 }));
 vi.mock("@/components/jobs/AsyncJobDetailModal", () => ({
   AsyncJobDetailModal: ({
@@ -85,6 +87,14 @@ beforeEach(() => {
     refetch: mocks.refetch,
   });
   mocks.start.mockResolvedValue({ job_id: "job-1", reused: false });
+  mocks.schedule.mockResolvedValue({
+    enabled: false,
+    interval_hours: 24,
+    status: "off",
+    next_due_at: null,
+    last_started_at: null,
+    pause_reason: null,
+  });
 });
 it("keeps never measured distinct from zero and does not start inventory on mount", () => {
   render(<StorageUsagePanel />);
@@ -92,6 +102,7 @@ it("keeps never measured distinct from zero and does not start inventory on moun
   expect(screen.getAllByText("未统计").length).toBeGreaterThan(0);
   expect(screen.queryByText("0 B")).not.toBeInTheDocument();
   expect(mocks.start).not.toHaveBeenCalled();
+  expect(mocks.schedule).not.toHaveBeenCalled();
   expect(document.querySelector("details")).not.toHaveAttribute("open");
 });
 it("displays successful zero without treating it as missing", () => {
@@ -236,4 +247,46 @@ it("returns focus to the summary when the active task trigger disappears on comp
   expect(screen.queryByRole("button", { name: "查看盘点任务" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "关闭任务" }));
   expect(mocks.focus).toHaveBeenCalledWith("SUMMARY");
+});
+
+it("hides all retained global usage when saving a schedule loses access", async () => {
+  mocks.query.mockReturnValue({
+    data: data({ total_size_bytes: 1024, inventory_job_id: "active", inventory_status: "running" }),
+  });
+  mocks.schedule.mockRejectedValue({ status: 403 });
+  render(<StorageUsagePanel />);
+  fireEvent.click(screen.getByText("增量账目与周期对账"));
+  fireEvent.click(screen.getByRole("button", { name: "保存周期计划" }));
+  await waitFor(() => expect(screen.queryByText("platform-bucket")).not.toBeInTheDocument());
+  expect(screen.queryByText("1 KiB")).not.toBeInTheDocument();
+  expect(screen.queryByText("增量账目与周期对账")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "查看盘点任务" })).not.toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("无权管理周期盘点");
+});
+
+it("disabling a periodic schedule preserves a running inventory", async () => {
+  mocks.query.mockReturnValue({
+    data: data({
+      inventory_job_id: "active",
+      inventory_status: "running",
+      usage_schedule: {
+        enabled: true,
+        interval_hours: 24,
+        status: "active",
+        next_due_at: "2026-10-26T00:00:00Z",
+        last_started_at: "2026-10-25T00:00:00Z",
+        pause_reason: null,
+      },
+    }),
+  });
+  render(<StorageUsagePanel />);
+  fireEvent.click(screen.getByText("增量账目与周期对账"));
+  fireEvent.click(screen.getByRole("checkbox", { name: "周期盘点" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存周期计划" }));
+  await waitFor(() =>
+    expect(mocks.schedule).toHaveBeenCalledWith({ enabled: false, interval_hours: 24 }),
+  );
+  expect(screen.getByRole("button", { name: "盘点中…" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "查看盘点任务" })).toBeInTheDocument();
+  expect(mocks.start).not.toHaveBeenCalled();
 });

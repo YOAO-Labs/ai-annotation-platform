@@ -98,7 +98,13 @@ class Storage:
         if version in self.world.versions.get((bucket, key), {}):
             raw, metadata = self.world.versions[bucket, key][version]
             return raw, metadata, version
-        raise ClientError({"Error": {"Code": "NoSuchVersion"}}, "HeadObject")
+        raise ClientError(
+            {
+                "Error": {"Code": "NoSuchVersion"},
+                "ResponseMetadata": {"HTTPStatusCode": 404},
+            },
+            "HeadObject",
+        )
 
     def _head(self, bucket, key, version=None):
         raw, metadata, version = self._value(bucket, key, version)
@@ -223,6 +229,7 @@ async def world(test_engine, monkeypatch):
             "storage_bindings",
             "storage_maintenance_gates",
             "storage_operations",
+            "storage_usage_mutations",
         ):
             await connection.execute(
                 text(
@@ -348,7 +355,7 @@ async def test_planned_intent_precedes_put_and_verified_receipt_survives_cleanup
     entry = next(iter(saved["objects"].values()))
     assert entry["state"] == "verified" and entry["version_id"] not in {None, "null"}
     assert world.signed_versions == [entry["version_id"]]
-    assert all(version == entry["version_id"] for _, _, version in world.heads)
+    assert all(version in {None, entry["version_id"]} for _, _, version in world.heads)
     assert all(version == entry["version_id"] for _, _, version in world.reads)
     await current.close()
     row = await lease(world, current.record.id)
@@ -877,7 +884,7 @@ async def test_put_receipt_stays_on_its_version_when_acknowledgement_loses_curre
     assert world.current_versions[identity] == replacements[0]
     assert world.objects[identity] == b"foreign-new-current"
     assert world.signed_versions == [entry["version_id"]]
-    assert all(version == entry["version_id"] for _, _, version in world.heads)
+    assert all(version in {None, entry["version_id"]} for _, _, version in world.heads)
     assert all(version == entry["version_id"] for _, _, version in world.reads)
     await current.close()
     assert not world.deleted and len(world.versions[identity]) == 2

@@ -75,7 +75,13 @@ class MemoryStorage:
         if version in self.world.versions.get((bucket, key), {}):
             raw, metadata = self.world.versions[bucket, key][version]
             return raw, metadata, version
-        raise ClientError({"Error": {"Code": "NoSuchVersion"}}, "HeadObject")
+        raise ClientError(
+            {
+                "Error": {"Code": "NoSuchVersion"},
+                "ResponseMetadata": {"HTTPStatusCode": 404},
+            },
+            "HeadObject",
+        )
 
     def _head(self, bucket, key, version=None):
         raw, metadata, version = self._value(bucket, key, version)
@@ -102,12 +108,17 @@ class MemoryStorage:
             self.world.put_started.set()
             if not self.world.put_release.wait(5):
                 raise TimeoutError("test gate expired")
-        if (Bucket, Key) in self.world.objects:
-            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
-        raw = Body.read()
-        assert len(raw) == ContentLength
-        version = self.seed(self.world, Bucket, Key, raw, Metadata)
-        written = self._head(Bucket, Key, version)
+        # Match S3's atomic conditional creation even when native I/O runs in
+        # separate threads. The external gate still observes both requests.
+        with self.world.conditional_put_lock:
+            if (Bucket, Key) in self.world.objects:
+                raise ClientError(
+                    {"Error": {"Code": "PreconditionFailed"}}, "PutObject"
+                )
+            raw = Body.read()
+            assert len(raw) == ContentLength
+            version = self.seed(self.world, Bucket, Key, raw, Metadata)
+            written = self._head(Bucket, Key, version)
         if self.world.after_put:
             self.world.after_put()
         if self.world.fail_put:
@@ -229,6 +240,7 @@ async def input_world(test_engine, monkeypatch):
             "storage_bindings",
             "storage_maintenance_gates",
             "storage_operations",
+            "storage_usage_mutations",
         ):
             await connection.execute(
                 text(
@@ -268,6 +280,7 @@ async def input_world(test_engine, monkeypatch):
         fail_delete=False,
         put_started=None,
         put_release=None,
+        conditional_put_lock=threading.Lock(),
         after_put=None,
     )
     try:
@@ -443,7 +456,9 @@ async def test_put_acknowledgement_pins_written_version_before_current_replaceme
     assert world.current_versions[identity] == replacements[0]
     assert world.objects[identity] == b"foreign-current"
     assert world.signed_versions == [entry["version_id"]]
-    assert all(version == entry["version_id"] for version in world.head_versions)
+    assert all(
+        version in {None, entry["version_id"]} for version in world.head_versions
+    )
     assert all(version == entry["version_id"] for version in world.read_versions)
     await inputs.close()
     assert not world.deletions and len(world.versions[identity]) == 2

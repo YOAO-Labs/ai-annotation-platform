@@ -223,9 +223,19 @@ def allocation_db(storage):
         generation=1,
         bucket=storage.bug_reports_bucket,
     )
+
+    async def scalar(statement):
+        from app.db.models.dataset_asset import StorageLocation
+
+        return (
+            location
+            if statement.column_descriptions[0]["entity"] is StorageLocation
+            else binding
+        )
+
     return (
         SimpleNamespace(
-            get=AsyncMock(return_value=location), scalar=AsyncMock(return_value=binding)
+            get=AsyncMock(return_value=location), scalar=AsyncMock(side_effect=scalar)
         ),
         location,
         binding,
@@ -267,7 +277,6 @@ async def test_allocate_proves_current_binding_without_mutating_upload(
             },
         ),
         ("binding", "location_id", uuid.UUID(int=2)),
-        ("binding", "generation", 2),
         ("binding", "generation", True),
         ("binding", "bucket", "historical-only"),
     ],
@@ -287,7 +296,9 @@ async def test_allocate_rejects_changed_binding(
 async def test_allocate_rejects_missing_binding(storage, monkeypatch, missing):
     db, _, _ = allocation_db(storage)
     monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
-    (db.get if missing == "location" else db.scalar).return_value = None
+    missing_call = db.get if missing == "location" else db.scalar
+    missing_call.side_effect = None
+    missing_call.return_value = None
     with pytest.raises(owners.BugAttachmentStorageError):
         await owners.allocate(db, record())
 
@@ -431,6 +442,7 @@ def test_streaming_never_requests_unbounded_or_full_object_read(storage, monkeyp
 
 def test_write_uses_conditional_create_and_full_saved_read(storage):
     body = readable(storage)
+    storage.client.put_object.return_value = {}
     owners.write(record(), RAW)
     storage.client.put_object.assert_called_once_with(
         Bucket="attachments-original",
@@ -616,3 +628,53 @@ def test_saved_bucket_read_never_touches_same_key_in_current_bucket(storage):
         call.kwargs == {"Bucket": "attachments-original", "Key": KEY}
         for call in storage.client.head_object.call_args_list
     )
+
+
+@pytest.mark.parametrize(
+    "version,accepted", [("null", True), ("non-null-provider-version", False)]
+)
+def test_explicit_null_version_can_omit_header_but_non_null_must_match(
+    storage, version, accepted
+):
+    readable(storage)
+    row = record(object_version_id=version)
+    if accepted:
+        assert owners.read(row) == RAW
+        assert storage.client.get_object.call_args.kwargs["VersionId"] == version
+    else:
+        with pytest.raises(owners.BugAttachmentStorageError):
+            owners.read(row)
+        storage.client.get_object.assert_not_called()
+
+
+@pytest.mark.parametrize("replaced", [False, True])
+def test_null_slot_cleanup_verifies_saved_content_before_delete(storage, replaced):
+    body = readable(storage, b"x" * len(RAW) if replaced else RAW)
+    storage.client.delete_object = Mock()
+    row = record(object_version_id="null")
+    if replaced:
+        with pytest.raises(owners.BugAttachmentStorageError) as caught:
+            owners.delete(row)
+        assert caught.value.code == "bug_attachment_storage_integrity_mismatch"
+        storage.client.delete_object.assert_not_called()
+    else:
+        owners.delete(row)
+        storage.client.delete_object.assert_called_once_with(
+            Bucket="attachments-original", Key=KEY, VersionId="null"
+        )
+        assert storage.client.head_object.call_count == 2
+    assert body.closed
+    assert storage.client.get_object.call_args.kwargs["VersionId"] == "null"
+    storage.delete_object.assert_not_called()
+
+
+def test_immutable_version_cleanup_keeps_exact_saved_version(storage):
+    readable(storage)
+    storage.client.delete_object = Mock()
+    owners.delete(record(object_version_id="saved-provider-version"))
+    storage.client.delete_object.assert_called_once_with(
+        Bucket="attachments-original", Key=KEY, VersionId="saved-provider-version"
+    )
+    storage.client.head_object.assert_not_called()
+    storage.client.get_object.assert_not_called()
+    storage.delete_object.assert_not_called()

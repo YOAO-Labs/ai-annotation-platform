@@ -16,7 +16,12 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.storage import storage_service
-from app.schemas.storage import BucketsResponse, UsageInventoryResponse
+from app.schemas.storage import (
+    BucketsResponse,
+    UsageInventoryResponse,
+    UsageScheduleRequest,
+    UsageScheduleSummary,
+)
 from app.services import storage_usage
 
 router = APIRouter()
@@ -117,6 +122,25 @@ async def start_usage_inventory(
     else:
         await dispatch(db, job)
     return UsageInventoryResponse(job_id=job_id, reused=reused)
+
+
+@router.put("/usage-schedule", response_model=UsageScheduleSummary)
+async def update_usage_schedule(
+    body: UsageScheduleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    assert_request_scopes(request, "*")
+    result = await storage_usage.configure_schedule(
+        db,
+        current_user,
+        body.enabled,
+        body.interval_hours,
+        getattr(request.state, "api_key_id", None),
+    )
+    await db.commit()
+    return result
 
 
 class VideoAssetFailureItem(BaseModel):

@@ -267,7 +267,11 @@ class StorageBindingOut(BaseModel):
     state: Literal["missing", "configured", "mismatch"]
     read_policy: Literal["consumer_owned_compatibility"]
     write_policy: Literal["deployment_mapping", "current_binding"]
-    change_policy: Literal["legacy_mapping_locked", "reviewed_avatar_switch"]
+    change_policy: Literal[
+        "legacy_mapping_locked",
+        "reviewed_avatar_switch",
+        "reviewed_bug_attachment_switch",
+    ]
 
 
 class AvatarBindingCandidate(BaseModel):
@@ -310,6 +314,52 @@ class AvatarBindingPreview(BaseModel):
     previous: StorageBindingOut
     target: AvatarBindingTarget
     history: AvatarBindingHistory
+    capabilities: dict[str, bool]
+    can_apply: bool
+    measured_at: datetime
+    expires_at: datetime
+    impact_token: str
+
+
+class BugAttachmentBindingCandidate(BaseModel):
+    location_id: uuid.UUID
+    name: str
+    config_revision: int
+
+
+class BugAttachmentBindingCandidates(BaseModel):
+    items: list[BugAttachmentBindingCandidate]
+    total: int
+
+
+class BugAttachmentBindingChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
+    target_location_id: uuid.UUID
+    target_config_revision: int = Field(ge=1)
+
+
+class BugAttachmentBindingApply(BugAttachmentBindingChange):
+    impact_token: str = Field(min_length=1, max_length=8192)
+
+
+class BugAttachmentBindingTarget(BugAttachmentBindingCandidate):
+    bucket: str
+    key_prefix: str
+    connection_revision: int | None = None
+
+
+class BugAttachmentBindingHistory(BaseModel):
+    pending: int
+    ready: int
+    retired: int
+
+
+class BugAttachmentBindingPreview(BaseModel):
+    purpose: Literal["bug-reports"] = "bug-reports"
+    previous: StorageBindingOut
+    target: BugAttachmentBindingTarget
+    history: BugAttachmentBindingHistory
     capabilities: dict[str, bool]
     can_apply: bool
     measured_at: datetime

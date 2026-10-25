@@ -29,7 +29,7 @@ from app.config import settings
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.prediction_input import PredictionInputLease as InputRecord
 from app.db.models.storage_maintenance import StorageOperation
-from app.services import storage_access
+from app.services import storage_access, storage_usage_accounting as accounting
 from app.services.content_snapshot import ContentError, MAX_BYTES, MAX_PIXELS, Snapshot
 from app.services.managed_original_reader import BinaryStage
 from app.services.dataset_assets import LEGACY_LOCATION_ID
@@ -639,7 +639,7 @@ def _read(client, bucket, key, entry, deadline, *, lease_id, written=None):
     return {**entry, "state": "verified", "etag": etag, "version_id": version}
 
 
-def _using_storage(record, call, provided=None):
+def _using_storage(record, call, provided=None, *, close=True):
     ref = _resolve(record)
     try:
         storage = provided or make_storage()
@@ -661,7 +661,8 @@ def _using_storage(record, call, provided=None):
         storage.client.meta.events.register("before-send.s3", same_origin)
         return call(storage)
     finally:
-        storage_access.close_registered(storage.client)
+        if close:
+            storage_access.close_registered(storage.client)
 
 
 class PredictionInputs:
@@ -962,6 +963,22 @@ class PredictionInputs:
             ),
         )
 
+        handle = (
+            await _async(
+                accounting.begin(
+                    self.factory,
+                    self.record,
+                    relative,
+                    "create",
+                    nonce=expected["write_nonce"],
+                    new_request=True,
+                )
+            )
+            if expected["state"] == "planned"
+            else None
+        )
+        evidence = {}
+
         def physical(storage):
             body = io.BytesIO(content) if type(content) is bytes else content
             position = body.tell()
@@ -1000,6 +1017,10 @@ class PredictionInputs:
                             },
                         )
                         _http(written)
+                        evidence.update(
+                            physical_outcome="written",
+                            returned_version=_version(written),
+                        )
                     except Exception as exc:
                         code = str(
                             getattr(exc, "response", {})
@@ -1009,6 +1030,9 @@ class PredictionInputs:
                         if code not in {"412", "PreconditionFailed"}:
                             raise
                         written = None
+                        evidence.update(
+                            physical_outcome="not_written", current_delta_bytes=0
+                        )
                 else:
                     written = None
                 verified = _read(
@@ -1020,6 +1044,20 @@ class PredictionInputs:
                     lease_id=self.record.id,
                     written=written,
                 )
+                if written is not None:
+                    matched = accounting.current_matches(
+                        storage.client,
+                        self.record.bucket,
+                        self.prefix + relative,
+                        verified["version_id"],
+                        verified["size_bytes"],
+                    )
+                    evidence.update(
+                        physical_size_bytes=verified["size_bytes"],
+                        body_verified=True,
+                        current_version_matches=matched,
+                        current_delta_bytes=verified["size_bytes"] if matched else None,
+                    )
                 return verified, self._url(storage, relative, verified)
             finally:
                 if type(content) is bytes:
@@ -1053,6 +1091,12 @@ class PredictionInputs:
                 _uncertainty(failure, exc)
                 raise failure from None
             raise
+        finally:
+            await _async(
+                accounting.publish(
+                    self.factory, handle, evidence, settled=not self._unsettled
+                )
+            )
 
     async def upload_video(self, stage: BinaryStage, *, probe):
         """Borrow one verified descriptor; the source owner retains its real close."""
@@ -1361,7 +1405,7 @@ def _listed(client, record, expected, deadline, *, versions=False):
         markers = next_markers
 
 
-def _delete_known(storage, record, inventory):
+def _prepare_delete_known(storage, record, inventory):
     # Some S3 servers ignore conditional DELETE headers. A saved immutable
     # version is required independently from ETag and content equality.
     if any(
@@ -1392,15 +1436,47 @@ def _delete_known(storage, record, inventory):
         ):
             reject("unknown_object")
         observations[relative] = observed
-    for relative, item in versions.items():
+    return {
+        relative: (item, observations[relative]) for relative, item in versions.items()
+    }
+
+
+def _delete_known(storage, record, inventory, prepared, evidence):
+    deadline = time.monotonic() + IO_SECONDS
+    for relative, (item, observed) in prepared.items():
         _deadline(deadline)
+        fact = evidence[relative]
+        current_before = accounting.current_matches(
+            storage.client,
+            record.bucket,
+            item["Key"],
+            item["VersionId"],
+            observed["size_bytes"],
+        )
+        fact.update(
+            physical_size_bytes=observed["size_bytes"], current_before=current_before
+        )
         result = storage.client.delete_object(
             Bucket=record.bucket,
             Key=item["Key"],
             VersionId=item["VersionId"],
-            IfMatch=observations[relative]["etag"],
+            IfMatch=observed["etag"],
         )
         _http(result, (200, 204))
+        removed = accounting._missing(
+            storage.client, record.bucket, item["Key"], version=item["VersionId"]
+        )
+        current_gone = removed and accounting.deleted_current(
+            storage.client, record.bucket, item["Key"], item["VersionId"]
+        )
+        fact.update(
+            physical_outcome="deleted" if removed else "unknown",
+            version_removed=removed,
+            current_absent=current_gone,
+            current_delta_bytes=-observed["size_bytes"]
+            if current_before and current_gone
+            else None,
+        )
     if _listed(storage.client, record, inventory, deadline) or _listed(
         storage.client, record, inventory, deadline, versions=True
     ):
@@ -1411,6 +1487,12 @@ async def purge_input(factory, input_id, *, storage=None):
     """Only exact saved inventory may be removed; unknown operations never age out."""
     input_id = uuid.UUID(str(input_id))
     record, inventory, permit = None, None, None
+    accounting_handles, accounting_evidence, physical_holder = {}, {}, {}
+
+    async def close_physical():
+        target = physical_holder.pop("storage", None)
+        if target is not None:
+            await settled_io(storage_access.close_registered, target.client)
 
     async def select_owner():
         async with factory() as db:
@@ -1496,12 +1578,38 @@ async def purge_input(factory, input_id, *, storage=None):
 
         permit = await _async(acquire(), late=_settle)
         await _async(fresh(lock=True))
+
+        def prepare():
+            target = storage if storage is not None else make_storage()
+            physical_holder["storage"] = target
+            return _using_storage(
+                record,
+                lambda client: _prepare_delete_known(client, record, inventory),
+                target,
+                close=False,
+            )
+
+        prepared = await settled_io(prepare)
+        for relative, (item, _) in prepared.items():
+            accounting_handles[relative] = await _async(
+                accounting.begin(
+                    factory, record, relative, "delete", version=item["VersionId"]
+                )
+            )
+            accounting_evidence[relative] = {}
+        await _async(fresh(lock=True))
         await settled_io(
             _using_storage,
             record,
-            lambda client: _delete_known(client, record, inventory),
-            storage,
+            lambda client: _delete_known(
+                client, record, inventory, prepared, accounting_evidence
+            ),
+            physical_holder["storage"],
+            close=False,
         )
+        # Preserve the original lifecycle contract: publishing deleted is only
+        # allowed after the native client really closed, while its permit lives.
+        await close_physical()
         await _async(fresh(lock=True))
 
         async def finish():
@@ -1533,6 +1641,17 @@ async def purge_input(factory, input_id, *, storage=None):
         except BaseException as later:
             _uncertainty(failure, later)
     finally:
+        try:
+            await close_physical()
+        except BaseException as closing:
+            if failure is None:
+                failure = closing
+            else:
+                _uncertainty(failure, closing)
+            try:
+                await _async(error(failure))
+            except BaseException as later:
+                _uncertainty(failure, later)
         if permit is not None and not getattr(
             failure, "storage_operation_unsettled", False
         ):
@@ -1543,6 +1662,15 @@ async def purge_input(factory, input_id, *, storage=None):
                     failure = closing
                 else:
                     _uncertainty(failure, closing)
+    for relative, handle in accounting_handles.items():
+        await _async(
+            accounting.publish(
+                factory,
+                handle,
+                accounting_evidence[relative],
+                settled=not getattr(failure, "storage_operation_unsettled", False),
+            )
+        )
     if failure is not None:
         if not isinstance(failure, Exception) or getattr(
             failure, "storage_operation_unsettled", False

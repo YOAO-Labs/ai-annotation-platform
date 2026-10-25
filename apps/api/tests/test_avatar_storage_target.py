@@ -401,3 +401,17 @@ async def test_io_target_uses_rotated_credentials_without_rewriting_saved_locati
 def test_managed_namespace_rejects_unsafe_or_oversize_prefix(base):
     with pytest.raises(avatar_storage.AvatarStorageError):
         targets.managed_prefix(base)
+
+
+def test_probe_explicit_null_version_accepts_missing_response_header():
+    objects = Objects("null")
+    original = objects.get_object
+
+    def get(**kwargs):
+        result = original(**kwargs)
+        result.pop("VersionId", None)
+        return result
+
+    objects.get_object = get
+    assert targets.probe_target(target(objects))["full_read"]
+    assert not objects.objects
