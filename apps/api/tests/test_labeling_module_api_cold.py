@@ -437,20 +437,25 @@ async def _wait_for_api(
             except httpx.HTTPError:
                 pass
             await asyncio.sleep(0.2)
+    pytest.fail(
+        "cold API did not become database-ready:\n"
+        + _api_failure_logs(container_id, secrets_to_redact)[-4000:],
+        pytrace=False,
+    )
+
+
+def _api_failure_logs(container_id: str, secrets_to_redact: list[str]) -> str:
     try:
         logs = _docker("logs", "--tail", "100", container_id, timeout=15)
     except Exception:
-        logs = ""
+        return ""
     for value in sorted(
         (value for value in secrets_to_redact if value), key=len, reverse=True
     ):
         logs = logs.replace(value, "[redacted]")
-    logs = re.sub(
+    return re.sub(
         r"(?:postgresql(?:\+\w+)?|redis|https?)://[^\s\"'<>]+", "[endpoint]", logs
-    )
-    pytest.fail(
-        f"cold API did not become database-ready:\n{logs[-4000:]}", pytrace=False
-    )
+    )[-8000:]
 
 
 async def _container_identity_probe(container_id: str) -> dict[str, str]:
@@ -831,7 +836,14 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
                 )
             created = await asyncio.wait_for(pending_write, timeout=30)
             assert lock_wait_observed, "API write bypassed the Task row lock"
-            assert created.status_code == 201, created.text
+            assert created.status_code == 201, (
+                created.text
+                + "\n"
+                + _api_failure_logs(
+                    api_container_id,
+                    [*secret_values, actor_token, outsider_token],
+                )
+            )
             created_json = created.json()
             annotation_id = uuid.UUID(created_json["id"])
 
