@@ -422,7 +422,7 @@ BEGIN
         SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(issue) ORDER BY issue.id),'[]'::jsonb)
         INTO v_rows FROM public.mask_qc_issues AS issue
         WHERE issue.project_id=(p_request ->> 'project_id')::uuid
-          AND issue.id IN (SELECT item.value #>> '{}' FROM pg_catalog.jsonb_array_elements(p_request -> 'issue_ids') AS item(value));
+          AND issue.id IN (SELECT (item.value #>> '{}')::uuid FROM pg_catalog.jsonb_array_elements(p_request -> 'issue_ids') AS item(value));
         v_data := v_rows;
     ELSIF v_operation = 'list_issues' THEN
         IF pg_catalog.jsonb_typeof(p_request -> 'project_id') IS DISTINCT FROM 'string'
@@ -470,7 +470,7 @@ BEGIN
               AND (p_request ->> 'annotation_id' IS NULL OR issue.annotation_id=(p_request ->> 'annotation_id')::uuid)
               AND (p_request ->> 'frame' IS NULL OR (issue.frame_start <= (p_request ->> 'frame')::integer AND issue.frame_end >= (p_request ->> 'frame')::integer))
               AND (p_request -> 'allowed_task_ids'='null'::jsonb OR issue.task_id IN (
-                  SELECT item.value #>> '{}' FROM pg_catalog.jsonb_array_elements(p_request -> 'allowed_task_ids') AS item(value)))
+                  SELECT (item.value #>> '{}')::uuid FROM pg_catalog.jsonb_array_elements(p_request -> 'allowed_task_ids') AS item(value)))
         )
         SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(row_data) ORDER BY row_data.severity_rank,row_data.created_at DESC,row_data.id DESC),'[]'::jsonb)
         INTO v_rows FROM (
@@ -537,7 +537,7 @@ BEGIN
           AND issue.status='open'
           AND (p_request ->> 'severity' IS NULL OR issue.severity=p_request ->> 'severity')
           AND (p_request -> 'issue_ids'='null'::jsonb OR issue.id IN (
-              SELECT item.value #>> '{}' FROM pg_catalog.jsonb_array_elements(p_request -> 'issue_ids') AS item(value)))
+              SELECT (item.value #>> '{}')::uuid FROM pg_catalog.jsonb_array_elements(p_request -> 'issue_ids') AS item(value)))
           AND NOT EXISTS (
               SELECT 1 FROM pg_catalog.jsonb_each_text(COALESCE(issue.source_versions,pg_catalog.jsonb_build_object(issue.annotation_id::text,issue.annotation_version))) AS source(id,version)
               LEFT JOIN public.annotations AS annotation ON annotation.id=source.id::uuid
@@ -618,7 +618,7 @@ BEGIN
                    OR annotation.version <> source.version::integer
             ) THEN 'stale' ELSE issue.status END),'{}'::jsonb)
         INTO v_statuses FROM public.mask_qc_issues AS issue
-        WHERE issue.id IN (SELECT item.value #>> '{}' FROM pg_catalog.jsonb_array_elements(p_request -> 'issue_ids') AS item(value));
+        WHERE issue.id IN (SELECT (item.value #>> '{}')::uuid FROM pg_catalog.jsonb_array_elements(p_request -> 'issue_ids') AS item(value));
         v_data := v_statuses;
     ELSIF v_operation = 'issue_versions_current' THEN
         IF pg_catalog.jsonb_typeof(p_request -> 'issue_id') IS DISTINCT FROM 'string'
