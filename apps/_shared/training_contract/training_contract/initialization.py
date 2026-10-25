@@ -119,6 +119,44 @@ def is_sha256(value):
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
+def artifact_root(pin):
+    """Accept the original address or one bounded managed training root."""
+    key = pin["artifact"]["key"]
+    logical = f"projects/{pin['project_id']}/runs/{pin['run_id']}/attempts/{pin['attempt_id']}/"
+    if not isinstance(key, str):
+        raise ValueError("初始化权重地址无效")
+    if key.startswith(logical):
+        return ""
+    marker = "_aap_managed/training/"
+    root, separator, suffix = key.rpartition(marker + logical)
+    prefix = root + marker
+    if (
+        not separator
+        or not suffix
+        or prefix.startswith("__aap_reference__/")
+        or len(prefix) > 266
+        or len(prefix.encode("utf-8")) > 707
+        or len(key.encode("utf-8")) > 1024
+        or "\\" in key
+        or any(ord(char) < 32 or ord(char) == 127 for char in key)
+        or any(part in {"", ".", ".."} for part in key.split("/"))
+    ):
+        raise ValueError("初始化权重地址无效")
+    return prefix
+
+
+def saved_prefix_compatible(config, runtime):
+    pin = config.get("initialization")
+    return (
+        not pin
+        or not artifact_root(pin)
+        or (
+            type(runtime.get("training_saved_prefix_schema", 1)) is int
+            and runtime.get("training_saved_prefix_schema", 1) >= 2
+        )
+    )
+
+
 def validate_pin(pin):
     policy = policy_for_pin(pin)
     segmentation = normalize_task(policy["task"]) == SEGMENTATION
@@ -160,15 +198,13 @@ def validate_pin(pin):
         or set(artifact) != {"key", "role", "sha256", "size_bytes"}
         or artifact["role"] != "weights"
         or not isinstance(artifact["key"], str)
-        or not artifact["key"].startswith(
-            f"projects/{pin['project_id']}/runs/{pin['run_id']}/attempts/{pin['attempt_id']}/"
-        )
         or len(artifact["key"]) > 500
         or not is_sha256(artifact["sha256"])
         or type(artifact["size_bytes"]) is not int
         or not 0 < artifact["size_bytes"] <= MAX_WEIGHTS_BYTES
     ):
         raise ValueError("初始化权重身份或大小无效")
+    artifact_root(pin)
     classes, bindings = pin["classes"], pin["bindings"]
     if (
         not isinstance(classes, list)
@@ -229,7 +265,8 @@ def compatible_runtime(config, runtime):
     pin = validate_pin(config["initialization"])
     policy = policy_for_pin(pin)
     return bool(
-        config.get("adapter_revision") == 2
+        saved_prefix_compatible(config, runtime)
+        and config.get("adapter_revision") == 2
         and config.get("framework") == pin["framework"]
         and config.get("framework_version") == pin["framework_version"]
         and config.get("base_model", {}).get("id") == pin["base_model"]

@@ -1,6 +1,5 @@
 """Project training and the separately authenticated executor protocol."""
 
-import asyncio
 import secrets
 import uuid
 from datetime import timedelta
@@ -49,7 +48,6 @@ from app.services.training_list_filters import (
     literal_search_pattern,
     run_task_expression,
 )
-from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 
 router = APIRouter(
@@ -396,7 +394,7 @@ async def get_evaluation(
     attempt = await db.get(TrainingAttempt, attempt_id)
     if run is None or attempt is None or attempt.run_id != run.id:
         raise HTTPException(status_code=404, detail="实验或执行尝试不存在")
-    result = await read_evaluation(run, attempt, offset, limit)
+    result = await read_evaluation(run, attempt, offset, limit, db=db)
     await db.commit()
     return result
 
@@ -553,34 +551,46 @@ async def download_artifact(
         raise HTTPException(status_code=404, detail="训练产物不存在或尚未校验完成")
     owner = service.attempt_storage_owner(run, attempt, artifact["key"])
     if artifact["role"] == "log":
-        derived = await asyncio.to_thread(
-            observations.redacted_log, run, attempt, name, artifact
+
+        def redacted_download(transport):
+            derived = observations.redacted_log(
+                run, attempt, name, artifact, transport=transport
+            )
+            return {
+                **{key: value for key, value in derived.items() if key != "key"},
+                "url": transport.generate_download_url(
+                    derived["key"],
+                    expires_in=600,
+                    bucket=owner.bucket,
+                    download_name=name,
+                    align=False,
+                ),
+            }
+
+        return await service.storage_io.run(
+            db, owner, "training_artifact_download", redacted_download
         )
+
+    def download(transport):
+        if not transport.verify_upload(artifact["key"], bucket=owner.bucket):
+            raise HTTPException(
+                status_code=409, detail="训练产物已不可用，请联系管理员"
+            )
         return {
-            **{key: value for key, value in derived.items() if key != "key"},
-            "url": storage.generate_download_url(
-                derived["key"],
+            "url": transport.generate_download_url(
+                artifact["key"],
                 expires_in=600,
                 bucket=owner.bucket,
                 download_name=name,
                 align=False,
             ),
+            "sha256": artifact["sha256"],
+            "size_bytes": artifact["size_bytes"],
         }
-    if not await asyncio.to_thread(
-        storage.verify_upload, artifact["key"], bucket=owner.bucket
-    ):
-        raise HTTPException(status_code=409, detail="训练产物已不可用，请联系管理员")
-    return {
-        "url": storage.generate_download_url(
-            artifact["key"],
-            expires_in=600,
-            bucket=owner.bucket,
-            download_name=name,
-            align=False,
-        ),
-        "sha256": artifact["sha256"],
-        "size_bytes": artifact["size_bytes"],
-    }
+
+    return await service.storage_io.run(
+        db, owner, "training_artifact_download", download
+    )
 
 
 @router.delete(
@@ -637,7 +647,7 @@ async def delete_run(
     from app.services import training_storage_cleanup as cleanup
 
     try:
-        await cleanup.delete_record(db, run, f"projects/{project.id}/runs/{run.id}/")
+        await cleanup.delete_record(db, run, service.storage_owner(run).prefix)
     except TrainingDatasetError as exc:
         raise HTTPException(
             exc.status_code, detail={"code": exc.code, "message": str(exc)}

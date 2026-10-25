@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from app.services import training_storage_io as storage_io
+from app.services import storage_access
+
 from aap_task_contract import normalize_task
 
 import asyncio
@@ -66,7 +69,7 @@ def engine_for(value):
     return engine
 
 
-async def frozen_mask_truth(project_id, version, member, source, classes):
+async def frozen_mask_truth(project_id, version, member, source, classes, *, db):
     from app.services import sample_evaluation_masks as masks
     from training_contract.dataset import segmentation_labels
 
@@ -84,16 +87,27 @@ async def frozen_mask_truth(project_id, version, member, source, classes):
             or sum(encoded_bytes) > masks.MAX_SAMPLE_RLE_BYTES
         ):
             raise ValueError("Frozen masks exceed the sample RLE budget")
-        retained_instances = await asyncio.to_thread(
-            read_instance_masks,
-            project_id,
-            version,
-            SimpleNamespace(
-                included=True,
-                label_sha256=member["label_sha256"],
-                task_id=uuid.UUID(member["task_id"]),
+        from app.services import training_dataset_storage
+
+        source_owner = training_dataset_storage.resolve(version)
+        retained_instances = await storage_io.run(
+            db,
+            source_owner,
+            "sample_evaluation_source",
+            lambda transport: read_instance_masks(
+                project_id,
+                version,
+                SimpleNamespace(
+                    included=True,
+                    label_sha256=member["label_sha256"],
+                    task_id=uuid.UUID(member["task_id"]),
+                ),
+                [
+                    uuid.UUID(instance["annotation_id"])
+                    for instance in member["instances"]
+                ],
+                transport=transport,
             ),
-            [uuid.UUID(instance["annotation_id"]) for instance in member["instances"]],
         )
         for instance in member["instances"]:
             index = instance["class_index"]
@@ -276,7 +290,7 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
             raise reject("sample_budget", "所选图片超过评估大小或像素上限", 422)
         if segmentation:
             truth = await frozen_mask_truth(
-                project.id, version, member, source, classes
+                project.id, version, member, source, classes, db=db
             )
         else:
             text = detection_labels(source["annotations"], classes)
@@ -444,16 +458,16 @@ def validate_spec(run):
     return spec
 
 
-def prepare_input(run, version, frozen):
+def prepare_input(run, version, frozen, *, transport=None):
     if frozen["size_bytes"] > engine.MAX_RAW_BYTES:
         raise ValueError("Frozen input exceeds byte budget")
     source, _content_type = read_media(
-        run.project_id, version, SimpleNamespace(**frozen)
+        run.project_id, version, SimpleNamespace(**frozen), transport=transport
     )
     try:
         raw = source.read(engine.MAX_RAW_BYTES + 1)
     finally:
-        source.close()
+        storage_access.close_registered(source)
     png, preprocessing = engine.normalize_image(
         raw, width=frozen["width"], height=frozen["height"]
     )
@@ -693,10 +707,11 @@ def report_metadata(run, attempt):
 
 
 def report_prefix(run):
-    return owners.prefix_for(run.project_id, run.id)
+    return owners.resolve(run).prefix
 
 
-def upload_report(run, attempt, report):
+def upload_report(run, attempt, report, *, transport=None):
+    transport = storage if transport is None else transport
     owner = owners.resolve(run)
     if attempt.run_id != run.id:
         raise TrainingDatasetError(
@@ -715,7 +730,7 @@ def upload_report(run, attempt, report):
         "size_bytes": len(raw),
     }
     owners.expect_report(owner, attempt.id, artifact["key"], sha)
-    storage.client.put_object(
+    transport.client.put_object(
         Bucket=owner.bucket,
         Key=artifact["key"],
         Body=raw,
@@ -727,6 +742,7 @@ def upload_report(run, attempt, report):
             artifact,
             attempt.id,
             bucket=owner.bucket,
+            transport=transport,
             required_metadata=report_metadata(run, attempt),
             node_budget=engine.REPORT_NODE_BUDGET,
         )
@@ -752,13 +768,18 @@ async def read_report(db, run, attempt):
     except (KeyError, TypeError) as exc:
         raise reject("report_corrupt", "报告存储身份不匹配") from exc
     try:
-        report = await asyncio.to_thread(
-            read_json_artifact,
-            artifact,
-            attempt.id,
-            bucket=owner.bucket,
-            required_metadata=report_metadata(run, attempt),
-            node_budget=engine.REPORT_NODE_BUDGET,
+        report = await storage_io.run(
+            db,
+            owner,
+            "sample_evaluation_read",
+            lambda transport: read_json_artifact(
+                artifact,
+                attempt.id,
+                bucket=owner.bucket,
+                transport=transport,
+                required_metadata=report_metadata(run, attempt),
+                node_budget=engine.REPORT_NODE_BUDGET,
+            ),
         )
         if report.get("status") != attempt.status:
             raise ValueError("Report state differs from terminal attempt")
@@ -877,7 +898,12 @@ async def purge_requested(db, run_id):
     owner = owners.resolve(run)
     await guard_source(db, evaluation_id=run.id)
     await db.commit()
-    await asyncio.to_thread(storage.delete_prefix, owner.prefix, bucket=owner.bucket)
+    await storage_io.run(
+        db,
+        owner,
+        "sample_evaluation_cleanup",
+        lambda transport: transport.delete_prefix(owner.prefix, bucket=owner.bucket),
+    )
     run = await db.scalar(
         select(Run)
         .where(Run.id == run_id)

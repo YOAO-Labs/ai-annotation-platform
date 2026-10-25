@@ -22,10 +22,15 @@ PURPOSES = {
     "datasets",
     "media-cache",
     "annotations",
+    "training",
 }
 
 
 def owner_module(purpose):
+    if purpose == "training":
+        from app.services import training_dataset_storage
+
+        return training_dataset_storage
     if purpose == "avatars":
         from app.services import avatar_storage
 
@@ -63,6 +68,12 @@ def owner_module(purpose):
 
 def error(purpose, suffix):
     owners = owner_module(purpose)
+    if purpose == "training":
+        return owners.TrainingDatasetError(
+            "training_storage_" + suffix,
+            "训练文件存储归属或目标能力无法核实",
+            status_code=409,
+        )
     cls, prefix = (
         (owners.AvatarStorageError, "avatar_storage_")
         if purpose == "avatars"
@@ -96,6 +107,20 @@ def managed_prefix(base, *, purpose="avatars"):
     ):
         raise error(purpose, "binding_unproven")
     result = (base + "/" if base else "") + f"_aap_managed/{purpose}/"
+    if purpose == "training":
+        from app.services.reference_keys import is_reference
+
+        try:
+            valid = (
+                len(result) <= 266
+                and len(result.encode("utf-8")) <= 707
+                and not is_reference(result)
+            )
+        except UnicodeError:
+            valid = False
+        if not valid:
+            raise error(purpose, "binding_unproven")
+        return result
     if purpose == "media-cache":
         if len(result.encode("utf-8")) > 436:
             raise error(purpose, "binding_unproven")
@@ -180,6 +205,7 @@ async def target_for(db, location, *, purpose, require_enabled=True):
                     "datasets",
                     "media-cache",
                     "annotations",
+                    "training",
                 }
                 and type(location.config.get("use_ssl")) is not bool
             )
@@ -204,6 +230,7 @@ async def target_for(db, location, *, purpose, require_enabled=True):
                     "datasets": "datasets_bucket",
                     "media-cache": "media_cache_bucket",
                     "annotations": "bucket",
+                    "training": "training_bucket",
                 }[purpose],
             ),
             "",

@@ -73,6 +73,7 @@ async def validate_legacy_bindings(db):
                 "datasets",
                 "media-cache",
                 "annotations",
+                "training",
             }
             and binding.generation >= 2
         ):
@@ -84,6 +85,7 @@ async def validate_legacy_bindings(db):
             from app.services.annotations_storage import AnnotationsStorageError
             from app.services.avatar_storage import AvatarStorageError
             from app.services.bug_attachment_storage import BugAttachmentStorageError
+            from app.services.training_dataset_bridge import TrainingDatasetError
 
             if purpose == "avatars":
                 from app.services.avatar_storage_target import target_for
@@ -99,6 +101,8 @@ async def validate_legacy_bindings(db):
                 from app.services.annotations_storage import target_for
             elif purpose == "datasets":
                 from app.services.dataset_storage_target import target_for
+            elif purpose == "training":
+                from app.services.training_dataset_storage import target_for
             else:
                 from app.services.export_storage_target import target_for
 
@@ -118,6 +122,7 @@ async def validate_legacy_bindings(db):
                 DatasetStorageError,
                 MediaCacheStorageError,
                 AnnotationsStorageError,
+                TrainingDatasetError,
             ):
                 errors.append(f"binding_mismatch:{purpose}")
         elif (

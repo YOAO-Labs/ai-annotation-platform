@@ -38,6 +38,7 @@ from app.services import (
 from app.services.async_job_notify import notify_job_terminal
 from app.services.batch import BatchService
 from app.services.storage import storage_service as storage
+from app.services import training_storage_io as storage_io
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
@@ -399,21 +400,22 @@ async def new_attempt(db, round):
 
 def media_descriptor(round, sample):
     return {
-        "key": f"projects/{round.project_id}/active-learning/{round.id}/media/{sample['ordinal']}.png",
+        "key": owners.resolve(round).key(f"media/{sample['ordinal']}.png"),
         "sha256": sample["derived_sha256"],
     }
 
 
-def read_retained_png(round, sample):
+def read_retained_png(round, sample, *, transport=None):
+    transport = storage if transport is None else transport
     owner = owners.resolve(round)
     artifact = media_descriptor(round, sample)
     owners.expect_media(owner, sample["ordinal"], artifact["key"])
     params = {"Bucket": owner.bucket, "Key": artifact["key"]}
-    head = storage.client.head_object(**params)
+    head = transport.client.head_object(**params)
     size = head.get("ContentLength")
     if type(size) is not int or not 0 < size <= detection.MAX_PNG_BYTES:
         raise ValueError("Retained source exceeds image budget")
-    response = storage.client.get_object(**params, IfMatch=head["ETag"])
+    response = transport.client.get_object(**params, IfMatch=head["ETag"])
     try:
         png = response["Body"].read(size + 1)
     finally:
@@ -435,6 +437,7 @@ def read_retained_png(round, sample):
 
 async def prepare_image(db, round, sample, *, guard=None):
     owner = owners.resolve(round)
+    target = await storage_io.prepare(db, owner)
     context = await originals.delegated(db, round)
     location_id = uuid.UUID(owner.ref["location_id"])
     permit = await originals.storage_access.acquire(
@@ -442,15 +445,27 @@ async def prepare_image(db, round, sample, *, guard=None):
     )
     async with permit:
         await originals.check(db, context, guard=guard)
-        try:
-            png = await originals.bounded_thread(read_retained_png, round, sample)
-        except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") not in {
-                "404",
-                "NoSuchKey",
-                "NotFound",
-            }:
+
+        def retained_or_missing(transport):
+            # Classify the exact provider result before S3Access translates it.
+            # A failed client close still raises before any fallback can begin.
+            try:
+                return read_retained_png(round, sample, transport=transport)
+            except ClientError as exc:
+                if exc.response.get("Error", {}).get("Code") in {
+                    "404",
+                    "NoSuchKey",
+                    "NotFound",
+                }:
+                    return None
                 raise
+
+        png = await originals.bounded_thread(
+            storage_io.physical,
+            target,
+            retained_or_missing,
+        )
+        if png is None:
             if round.spec.get("original_contract") != 1:
                 raise originals.ContentError("original_input_unrecorded") from None
             async with originals.input_image(
@@ -469,7 +484,13 @@ async def prepare_image(db, round, sample, *, guard=None):
                 ):
                     raise ValueError("Current source differs from the frozen round")
                 await originals.check(db, context, guard=guard)
-                await originals.bounded_thread(_store_png, round, sample, owner, png)
+                await originals.bounded_thread(
+                    storage_io.physical,
+                    target,
+                    lambda transport: _store_png(
+                        round, sample, owner, png, transport=transport
+                    ),
+                )
         await originals.check(db, context, commit=False, guard=guard)
         if owners.resolve(round) != owner:
             raise originals.ContentError("content_binding_changed")
@@ -481,10 +502,11 @@ async def prepare_image(db, round, sample, *, guard=None):
     return png
 
 
-def _store_png(round, sample, owner, png):
+def _store_png(round, sample, owner, png, *, transport=None):
+    transport = storage if transport is None else transport
     artifact = media_descriptor(round, sample)
     owners.expect_media(owner, sample["ordinal"], artifact["key"])
-    storage.client.put_object(
+    transport.client.put_object(
         Bucket=owner.bucket,
         Key=artifact["key"],
         Body=png,
@@ -496,7 +518,7 @@ def _store_png(round, sample, owner, png):
             "sha256": artifact["sha256"],
         },
     )
-    if read_retained_png(round, sample) != png:
+    if read_retained_png(round, sample, transport=transport) != png:
         raise ValueError("Published PNG differs from the frozen input")
 
 

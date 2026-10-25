@@ -44,6 +44,9 @@ from tests.sample_evaluation_fixtures import (
 
 @pytest.fixture
 async def world(test_engine, monkeypatch):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     objects = Objects()
     monkeypatch.setattr(service.storage, "client", objects)
     monkeypatch.setattr(service.storage, "delete_prefix", objects.delete_prefix)
@@ -265,21 +268,22 @@ async def test_lost_commit_acknowledgement_keeps_the_published_report(world):
         run, attempt = await worker.fenced(db, world.attempt.id, claim_id)
         await complete_rows(db, run, attempt, world.fixture)
         await db.commit()
-    calls = 0
 
     @asynccontextmanager
     async def uncertain_factory():
-        nonlocal calls
-        calls += 1
         async with world.factory() as db:
-            if calls == 2:
-                commit = db.commit
+            commit = db.commit
 
-                async def commit_then_lose_ack():
-                    await commit()
+            async def commit_then_lose_ack():
+                publishing = any(
+                    isinstance(row, Attempt) and row.report
+                    for row in db.identity_map.values()
+                )
+                await commit()
+                if publishing:
                     raise ConnectionError("Commit ACK lost after success")
 
-                db.commit = commit_then_lose_ack
+            db.commit = commit_then_lose_ack
             yield db
 
     with pytest.raises(ConnectionError, match="ACK lost"):
@@ -306,8 +310,8 @@ async def test_competing_cancel_publish_and_revocation_cannot_delete_a_committed
     both_started, release_second = threading.Event(), threading.Event()
     counter, mutex = [], threading.Lock()
 
-    def synchronized_upload(*args):
-        artifact = upload(*args)
+    def synchronized_upload(*args, **kwargs):
+        artifact = upload(*args, **kwargs)
         with mutex:
             counter.append(artifact)
             index = len(counter)

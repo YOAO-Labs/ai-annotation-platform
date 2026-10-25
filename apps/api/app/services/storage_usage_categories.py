@@ -37,6 +37,14 @@ CATEGORIES = (
 )
 SCHEMA = 1
 _UUID = r"([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})"
+_TRAINING_ROOT = r"(?:(?:[^/]+/)*_aap_managed/training/)?"
+_TRAINING_SERVICES = {
+    "training_dataset_storage",
+    "training_run_storage",
+    "training_preview_storage",
+    "sample_evaluation_storage",
+    "active_learning_storage",
+}
 
 
 @dataclass(frozen=True)
@@ -93,7 +101,7 @@ FAMILIES = (
         "training_dataset.TrainingDatasetVersion",
         "training_dataset_storage",
         "training_version",
-        rf"^projects/{_UUID}/datasets/{_UUID}/",
+        rf"^{_TRAINING_ROOT}projects/{_UUID}/datasets/{_UUID}/",
         2,
         "prefix_for",
         ("project_id", "id"),
@@ -102,7 +110,7 @@ FAMILIES = (
         "training_run.TrainingRun",
         "training_run_storage",
         "other_platform",
-        rf"^projects/{_UUID}/runs/{_UUID}/",
+        rf"^{_TRAINING_ROOT}projects/{_UUID}/runs/{_UUID}/",
         2,
         "prefix_for",
         ("project_id", "id"),
@@ -111,7 +119,7 @@ FAMILIES = (
         "training_preview.TrainingPreview",
         "training_preview_storage",
         "preview_cache",
-        rf"^projects/{_UUID}/previews/{_UUID}/",
+        rf"^{_TRAINING_ROOT}projects/{_UUID}/previews/{_UUID}/",
         2,
         "prefix_for",
         ("project_id", "id"),
@@ -120,7 +128,7 @@ FAMILIES = (
         "sample_evaluation.SampleEvaluationRun",
         "sample_evaluation_storage",
         "other_platform",
-        rf"^projects/{_UUID}/sample-evaluations/{_UUID}/",
+        rf"^{_TRAINING_ROOT}projects/{_UUID}/sample-evaluations/{_UUID}/",
         2,
         "prefix_for",
         ("project_id", "id"),
@@ -129,7 +137,7 @@ FAMILIES = (
         "active_learning.ActiveLearningRound",
         "active_learning_storage",
         "other_platform",
-        rf"^projects/{_UUID}/active-learning/{_UUID}/",
+        rf"^{_TRAINING_ROOT}projects/{_UUID}/active-learning/{_UUID}/",
         2,
         "prefix_for",
         ("project_id", "id"),
@@ -489,7 +497,11 @@ async def classify(db, bucket, objects):
     prefixes = {
         match[0]
         for key in keys
-        if (match := re.match(rf"^projects/{_UUID}/(?:datasets|runs)/{_UUID}/", key))
+        if (
+            match := re.match(
+                rf"^{_TRAINING_ROOT}projects/{_UUID}/(?:datasets|runs)/{_UUID}/", key
+            )
+        )
     }
     if prefixes:
         queries.append(
@@ -543,6 +555,11 @@ async def classify(db, bucket, objects):
                 owner = _resolve_ref(
                     data["storage_ref"], purpose=purpose, expected_prefix=data["prefix"]
                 )
+                if (
+                    owner.ref["endpoint_url"] != endpoint()
+                    or owner.ref["storage_identity"] != identity
+                ):
+                    continue
                 category = (
                     "training_version"
                     if purpose == "training-dataset"
@@ -555,7 +572,10 @@ async def classify(db, bucket, objects):
                 expected = getattr(service, family.method)(
                     *[data[name] for name in family.arguments]
                 )
-                if (
+                if family.service in _TRAINING_SERVICES:
+                    # Record identity is logical; expected_prefix elsewhere is physical.
+                    owner = service.resolve(SimpleNamespace(**data))
+                elif (
                     family.service
                     in {"image_pyramid_storage", "video_derivative_storage"}
                     and (data["storage_ref"] or {}).get("schema") == 2
@@ -576,19 +596,23 @@ async def classify(db, bucket, objects):
                     )
                 category, prefix = family.category, family.prefix
                 saved_ref = owner if isinstance(owner, dict) else owner.ref
-                if family.service in {
-                    "avatar_storage",
-                    "bug_attachment_storage",
-                    "audit_archive_storage",
-                    "export_storage",
-                    "export_media_storage",
-                    "prediction_inputs",
-                    "image_pyramid_storage",
-                    "video_derivative_storage",
-                    "comment_attachment_storage",
-                    "guide_asset_storage",
-                    "raster_object_storage",
-                } and (
+                if (
+                    family.service in _TRAINING_SERVICES
+                    or family.service
+                    in {
+                        "avatar_storage",
+                        "bug_attachment_storage",
+                        "audit_archive_storage",
+                        "export_storage",
+                        "export_media_storage",
+                        "prediction_inputs",
+                        "image_pyramid_storage",
+                        "video_derivative_storage",
+                        "comment_attachment_storage",
+                        "guide_asset_storage",
+                        "raster_object_storage",
+                    }
+                ) and (
                     saved_ref["endpoint_url"] != endpoint()
                     or saved_ref["storage_identity"] != identity
                 ):

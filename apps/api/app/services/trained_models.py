@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from app.services import training_storage_io as storage_io
+
 from aap_protocol_v2.backend_auth import managed_provider
 
 from aap_task_contract import normalize_task, normalize_task_fields
 from training_contract.dataset import config_task
 from training_contract.inference_runtime import validate_inference_runtime
 
-import asyncio
 import math
 import uuid
 from datetime import datetime, timezone
@@ -197,11 +198,25 @@ async def register(db, project, user, body):
     classes = run.config["classes"]
     validate_bindings(project, classes, body.bindings, config_task(run.config))
     try:
-        await asyncio.to_thread(
-            verify_artifact, weights["key"], weights, attempt.id, bucket=owner.bucket
+        await storage_io.run(
+            db,
+            owner,
+            "training_model_read",
+            lambda transport: verify_artifact(
+                weights["key"],
+                weights,
+                attempt.id,
+                bucket=owner.bucket,
+                transport=transport,
+            ),
         )
-        evaluation = await asyncio.to_thread(
-            read_json_artifact, metrics, attempt.id, bucket=owner.bucket
+        evaluation = await storage_io.run(
+            db,
+            owner,
+            "training_model_read",
+            lambda transport: read_json_artifact(
+                metrics, attempt.id, bucket=owner.bucket, transport=transport
+            ),
         )
         if (
             run.config["framework"] == "libreyolo"
@@ -433,8 +448,9 @@ async def assert_routable_backend(db, project_id, registry_id):
         raise HTTPException(status_code=409, detail="推理实例健康或能力校验尚未就绪")
 
 
-def download_url(key, *, bucket):
-    return storage.generate_download_url(
+def download_url(key, *, bucket, transport=None):
+    transport = storage if transport is None else transport
+    return transport.generate_download_url(
         key, bucket=bucket, expires_in=600, align=False, audience="ml"
     )
 
@@ -471,13 +487,27 @@ async def install_and_trial(db, project, version, deployment):
     backend = await enabled_backend(db, project.id, deployment.registry_id)
     await assert_routable_backend(db, project.id, deployment.registry_id)
     client = MLBackendClient(backend)
+    weights_url = await storage_io.run(
+        db,
+        weights_owner,
+        "training_model_url",
+        lambda transport: download_url(
+            version.artifact["key"], bucket=weights_owner.bucket, transport=transport
+        ),
+    )
+    sample_url = await storage_io.run(
+        db,
+        owner,
+        "training_model_url",
+        lambda transport: download_url(
+            sample_key, bucket=owner.bucket, transport=transport
+        ),
+    )
     receipt = await client.install_trained_model(
         {
             **expected_receipt(version),
             "size_bytes": version.artifact["size_bytes"],
-            "download_url": download_url(
-                version.artifact["key"], bucket=weights_owner.bucket
-            ),
+            "download_url": weights_url,
         }
     )
     check_receipt(version, receipt)
@@ -488,7 +518,7 @@ async def install_and_trial(db, project, version, deployment):
         [
             {
                 "id": sample["task_id"],
-                "file_path": download_url(sample_key, bucket=owner.bucket),
+                "file_path": sample_url,
             },
         ],
         context=wire_context(ref, {"conf": 0.01}),

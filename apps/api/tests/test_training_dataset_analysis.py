@@ -704,6 +704,12 @@ async def test_immutable_media_checks_bytes_and_never_substitutes_current_source
     )
     fake = FrozenStore(payload, digest, data.snapshot_digest)
     monkeypatch.setattr(service.storage, "client", fake)
+    from app.services import training_storage_io, training_dataset_storage
+
+    async def capture_fixture(db, owner, **kwargs):
+        return await training_dataset_storage.target_for_ref(db, owner.ref, **kwargs)
+
+    monkeypatch.setattr(training_storage_io, "prepare", capture_fixture)
     headers = {"Authorization": "Bearer " + token}
     base = f"/api/v1/projects/{project.id}/training-datasets/{data.id}/insights"
     task_id = data.manifest["samples"][0]["task_id"]
@@ -770,6 +776,12 @@ async def test_preview_respects_frozen_exif_dimensions_and_paginated_native_labe
     )
     fake = FrozenStore(payload, digest, data.snapshot_digest)
     monkeypatch.setattr(service.storage, "client", fake)
+    from app.services import training_storage_io, training_dataset_storage
+
+    async def capture_fixture(db, owner, **kwargs):
+        return await training_dataset_storage.target_for_ref(db, owner.ref, **kwargs)
+
+    monkeypatch.setattr(training_storage_io, "prepare", capture_fixture)
     headers = {"Authorization": "Bearer " + token}
     task_id = data.manifest["samples"][0]["task_id"]
     path = f"/api/v1/projects/{project.id}/training-datasets/{data.id}/insights/samples/{task_id}"
@@ -819,6 +831,7 @@ async def test_media_observation_serializes_with_concurrent_version_deletion(
     from app.api.v1.training_datasets import delete_version
     from app.db.models.project import Project
     from app.db.models.user import User
+    from app.services.storage import StorageService
     from tests.factory import create_user
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -853,9 +866,9 @@ async def test_media_observation_serializes_with_concurrent_version_deletion(
     monkeypatch.setattr(service.storage, "client", fake)
     deleted_prefixes = []
     monkeypatch.setattr(
-        service.storage,
+        StorageService,
         "delete_prefix",
-        lambda *args, **kwargs: deleted_prefixes.append(args[0]),
+        lambda self, prefix, **kwargs: deleted_prefixes.append(prefix) or 0,
     )
     deletion_pid = None
 

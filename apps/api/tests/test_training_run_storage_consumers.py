@@ -26,6 +26,18 @@ from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 
 
+@pytest.fixture(autouse=True)
+def legacy_transport_boundary(monkeypatch):
+    # These pre-existing unit cases isolate business ownership from admission.
+    from app.services import training_storage_io
+    from app.services.storage import storage_service
+
+    async def run(db, owner, purpose, callback, *args, **kwargs):
+        return callback(storage_service, *args, **kwargs)
+
+    monkeypatch.setattr(training_storage_io, "run", run)
+
+
 class Objects:
     def __init__(self, endpoint):
         self.meta = SimpleNamespace(endpoint_url=endpoint)
@@ -268,7 +280,7 @@ def test_initialization_verifies_source_owner_not_current_or_target(
 ):
     from app.services import training_runs
 
-    def verify(key, spec, attempt_id, *, bucket):
+    def verify(key, spec, attempt_id, *, bucket, transport=None):
         # The run-flow owner separately tests the whole streaming verifier.
         response = world.client.get_object(Bucket=bucket, Key=key)
         try:
@@ -323,14 +335,14 @@ async def test_evaluation_reads_source_run_and_rejects_unpinned_before_io(
 ):
     monkeypatch.setattr(evaluations, "parse_evaluation", lambda report, *args: report)
     assert (
-        await evaluations.read_evaluation(world.run, world.attempt, 0, 20)
+        await evaluations.read_evaluation(world.run, world.attempt, 0, 20, db=world.db)
         == world.report
     )
     assert {call[1] for call in world.client.calls} == {world.bucket}
     world.client.calls.clear()
     world.run.storage_ref = None
     with pytest.raises(HTTPException) as failure:
-        await evaluations.read_evaluation(world.run, world.attempt, 0, 20)
+        await evaluations.read_evaluation(world.run, world.attempt, 0, 20, db=world.db)
     assert failure.value.status_code == 409 and not world.client.calls
 
 
@@ -412,7 +424,7 @@ async def test_registration_checks_weights_and_metrics_in_the_run_bucket(
         lambda _: {"qualified": True, "qualification": None},
     )
 
-    def verify(key, spec, attempt_id, *, bucket):
+    def verify(key, spec, attempt_id, *, bucket, transport=None):
         assert bucket == world.bucket
         response = world.client.get_object(Bucket=bucket, Key=key)
         try:

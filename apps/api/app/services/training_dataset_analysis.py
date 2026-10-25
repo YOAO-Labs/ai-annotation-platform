@@ -23,7 +23,7 @@ from app.db.models.training_dataset_analysis import (
     TrainingDatasetAnalyzedSample,
 )
 from app.services.storage import storage_service as storage
-from app.services import training_dataset_storage
+from app.services import training_dataset_storage, storage_access
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
@@ -847,9 +847,12 @@ async def media_observations(db, version_id):
     return result
 
 
-def read_media(project_id, version, sample, *, preview=False):
+def read_media(project_id, version, sample, *, preview=False, transport=None):
     """Verify the complete retained object before sending any byte to the caller."""
     owner = training_dataset_storage.resolve(version)
+    if transport is None and owner.key_prefix:
+        training_dataset_storage._reject("training_storage_binding_unproven")
+    destination = transport or storage
     if str(project_id) != str(version.project_id):
         raise TrainingDatasetError(
             "training_storage_invalid_key", "冻结图片不属于该项目", status_code=409
@@ -858,7 +861,7 @@ def read_media(project_id, version, sample, *, preview=False):
     temporary = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
     body = None
     try:
-        head = storage.client.head_object(Bucket=owner.bucket, Key=key)
+        head = destination.client.head_object(Bucket=owner.bucket, Key=key)
         if (
             head.get("Metadata", {}).get("snapshot-digest") != version.snapshot_digest
             or head.get("Metadata", {}).get("sha256") != sample.sha256
@@ -870,7 +873,7 @@ def read_media(project_id, version, sample, *, preview=False):
             raise TrainingDatasetError(
                 "frozen_media_identity", "冻结图片身份或大小不匹配", status_code=409
             )
-        response = storage.client.get_object(
+        response = destination.client.get_object(
             Bucket=owner.bucket, Key=key, IfMatch=head["ETag"]
         )
         body = response["Body"]
@@ -939,7 +942,7 @@ def read_media(project_id, version, sample, *, preview=False):
         raise
     finally:
         if body is not None:
-            body.close()
+            storage_access.close_registered(body)
 
 
 def stream_media(source):
@@ -950,7 +953,7 @@ def stream_media(source):
         source.close()
 
 
-def read_instance_masks(project_id, version, sample, annotation_ids):
+def read_instance_masks(project_id, version, sample, annotation_ids, *, transport=None):
     """Read and verify requested instances from one independent frozen object."""
     if not sample.included or not sample.label_sha256:
         raise TrainingDatasetError(
@@ -960,6 +963,9 @@ def read_instance_masks(project_id, version, sample, annotation_ids):
     if not requested:
         return {}
     owner = training_dataset_storage.resolve(version)
+    if transport is None and owner.key_prefix:
+        training_dataset_storage._reject("training_storage_binding_unproven")
+    destination = transport or storage
     if str(project_id) != str(version.project_id):
         raise TrainingDatasetError(
             "training_storage_invalid_key", "冻结掩码不属于该项目", status_code=409
@@ -967,13 +973,13 @@ def read_instance_masks(project_id, version, sample, annotation_ids):
     key = owner.key(f"masks/{sample.task_id}.json")
     result = {}
     try:
-        response = storage.client.get_object(Bucket=owner.bucket, Key=key)
+        response = destination.client.get_object(Bucket=owner.bucket, Key=key)
         try:
             data = response["Body"].read(
                 INSTANCE_RLE_LIMITS["max_sample_label_bytes"] + 1
             )
         finally:
-            response["Body"].close()
+            storage_access.close_registered(response["Body"])
         if len(data) > INSTANCE_RLE_LIMITS["max_sample_label_bytes"]:
             raise ValueError("frozen mask object exceeds budget")
         if hashlib.sha256(data).hexdigest() != sample.label_sha256:
@@ -1006,8 +1012,8 @@ def read_instance_masks(project_id, version, sample, annotation_ids):
     return result
 
 
-def read_instance_mask(project_id, version, sample, annotation_id):
+def read_instance_mask(project_id, version, sample, annotation_id, *, transport=None):
     """Read one frozen mask from the version-owned independent training object."""
-    return read_instance_masks(project_id, version, sample, [annotation_id])[
-        str(annotation_id)
-    ]
+    return read_instance_masks(
+        project_id, version, sample, [annotation_id], transport=transport
+    )[str(annotation_id)]

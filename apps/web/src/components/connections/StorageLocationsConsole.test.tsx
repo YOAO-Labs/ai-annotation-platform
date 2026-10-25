@@ -674,3 +674,58 @@ it.each(["legacy_mapping_locked", "reviewed_dataset_switch"])(
     expect(storage.bindingCandidates).not.toHaveBeenCalled();
   },
 );
+
+it("opens reviewed training switching with its dedicated policy", async () => {
+  const binding = {
+    purpose: "training",
+    location_id: ID,
+    bucket: "cache-a",
+    generation: 1,
+    location_config_revision: 1,
+    state: "configured",
+    read_policy: "consumer_owned_compatibility",
+    write_policy: "current_binding",
+    change_policy: "reviewed_training_switch",
+  };
+  const target = {
+    location_id: "22222222-2222-2222-2222-222222222222",
+    name: "训练文件目标",
+    config_revision: 2,
+  };
+  storage.bindings.mockResolvedValue([binding]);
+  storage.bindingCandidates.mockResolvedValue({ items: [target], total: 1 });
+  mount("/storage?tab=bindings");
+  const button = await screen.findByRole("button", { name: "切换训练文件位置" });
+  fireEvent.click(button);
+  await screen.findByRole("option", { name: target.name });
+  expect(storage.bindingCandidates).toHaveBeenCalledWith(
+    "training",
+    0,
+    expect.any(AbortSignal),
+    20,
+  );
+  expect(storage.avatarBindingCandidates).not.toHaveBeenCalled();
+});
+
+it.each(["legacy_mapping_locked", "reviewed_dataset_switch"])(
+  "keeps training unavailable for the %s backend policy",
+  async (change_policy) => {
+    storage.bindings.mockResolvedValue([
+      {
+        purpose: "training",
+        location_id: ID,
+        bucket: "training-a",
+        generation: 1,
+        location_config_revision: 1,
+        state: "configured",
+        read_policy: "consumer_owned_compatibility",
+        write_policy: "current_binding",
+        change_policy,
+      },
+    ]);
+    mount("/storage?tab=bindings");
+    await screen.findByRole("row", { name: /冻结训练数据/ });
+    expect(screen.queryByRole("button", { name: "切换训练文件位置" })).not.toBeInTheDocument();
+    expect(storage.bindingCandidates).not.toHaveBeenCalled();
+  },
+);

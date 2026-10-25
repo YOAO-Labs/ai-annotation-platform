@@ -1,6 +1,5 @@
 """Authorized native-preview requests and purpose-specific trusted CPU protocol."""
 
-import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -80,7 +79,7 @@ async def create(
     preview = await service.create(
         db, project, user, body, getattr(request.state, "api_key_id", None)
     )
-    result = await service.output(preview)
+    result = await service.output(preview, db=db)
     await db.commit()
     return result
 
@@ -107,7 +106,7 @@ async def pin_legacy_preview_storage(
         project,
         getattr(request.state, "api_key_id", None),
     )
-    return await service.output(preview, include_report=False)
+    return await service.output(preview, include_report=False, db=db)
 
 
 @router.get("/{preview_id}", response_model=TrainingPreviewOut)
@@ -119,7 +118,7 @@ async def get(
 ):
     await lock_owner(db, user, project)
     preview = await load(db, project.id, preview_id, lock="share")
-    result = await service.output(preview)
+    result = await service.output(preview, db=db)
     await db.commit()
     return result
 
@@ -138,7 +137,7 @@ async def cancel(
     await lock_owner(db, user, project)
     preview = await load(db, project.id, preview_id, lock=True)
     await service.cancel(db, preview)
-    result = await service.output(preview)
+    result = await service.output(preview, db=db)
     await db.commit()
     return result
 
@@ -178,9 +177,15 @@ async def image(
         raise HTTPException(status_code=409, detail="原生预览尚未完成或图片不存在")
     source = None
     try:
-        report = await asyncio.to_thread(service.read_report, preview)
-        output = next(item for item in report.outputs if item.index == index)
-        source = await asyncio.to_thread(service.read_image, preview, output)
+        owner = service.storage_owner(preview)
+
+        def read(transport):
+            nonlocal source
+            report = service.read_report(preview, transport=transport)
+            output = next(item for item in report.outputs if item.index == index)
+            source = service.read_image(preview, output, transport=transport)
+
+        await service.storage_io.run(db, owner, "training_preview_read", read)
         await db.commit()
         return StreamingResponse(
             stream_media(source),

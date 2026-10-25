@@ -20,7 +20,8 @@ from app.services import (
     training_auxiliary_storage_adoption as adoption,
     training_previews,
     sample_evaluations,
-    active_learning,
+    sample_evaluation_storage,
+    active_learning_storage,
     storage_access,
 )
 from app.services.storage import storage_service
@@ -118,7 +119,11 @@ async def legacy(
             report, ensure_ascii=False, allow_nan=False, separators=(",", ":")
         ).encode()
         sha = hashlib.sha256(raw).hexdigest()
-        key = sample_evaluations.report_prefix(row) + f"{attempt.id}/{sha}.json"
+        # Legacy fixture bytes exist before this row has a saved reference.
+        key = (
+            sample_evaluation_storage.prefix_for(row.project_id, row.id)
+            + f"{attempt.id}/{sha}.json"
+        )
         attempt.report = {"key": key, "sha256": sha, "size_bytes": len(raw)}
         store.objects[key], store.metadata[key] = (
             raw,
@@ -157,7 +162,11 @@ async def legacy(
 
         context = await originals.delegated(db_session, row)
         raw, _, _ = await originals.read_input(db_session, context, sample["snapshot"])
-        descriptor = active_learning.media_descriptor(row, sample)
+        descriptor = {
+            "key": active_learning_storage.prefix_for(row.project_id, row.id)
+            + f"media/{sample['ordinal']}.png",
+            "sha256": sample["derived_sha256"],
+        }
         member = await db_session.get(
             ActiveLearningCandidate, (row.id, sample["ordinal"])
         )
@@ -188,7 +197,6 @@ async def test_get_never_pins_explicit_pin_is_idempotent_and_hides_internal_ref(
     get = await httpx_client.get(path, headers=headers)
     assert get.status_code == 200, get.text
     assert row.storage_ref is None and not store.reads
-    monkeypatch.setattr(storage_service, "training_bucket", "different-current-purpose")
     response = await httpx_client.post(path + "/storage-pin", headers=headers)
     assert response.status_code == 200, response.text
     await db_session.refresh(row)

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
+from app.services import training_storage_io as storage_io
+from app.services import storage_access
+
 import hashlib
 from datetime import timedelta
 
@@ -228,14 +230,15 @@ async def cleanup(db):
     return counts
 
 
-def redacted_log(run, attempt, name, artifact):
+def redacted_log(run, attempt, name, artifact, *, transport=None):
+    transport = storage if transport is None else transport
     owner = training.attempt_storage_owner(run, attempt, artifact["key"])
     expected = training.artifact_key(owner, attempt.id, name)
     if artifact["key"] != expected or artifact["size_bytes"] > LOG_BYTES:
         raise HTTPException(
             status_code=409, detail="历史日志超出脱敏下载上限或归属不符"
         )
-    response = storage.client.get_object(Bucket=owner.bucket, Key=expected)
+    response = transport.client.get_object(Bucket=owner.bucket, Key=expected)
     digest = hashlib.sha256()
     total = 0
     redactor = RedactedLines((settings.training_executor_token,))
@@ -270,12 +273,12 @@ def redacted_log(run, attempt, name, artifact):
             status_code=409, detail="历史日志校验失败，不能生成脱敏下载"
         ) from exc
     finally:
-        response["Body"].close()
+        storage_access.close_registered(response["Body"])
     output_sha = hashlib.sha256(output).hexdigest()
     key = training.artifact_key(
         owner, attempt.id, f"redacted-logs/{name}.{output_sha}.log"
     )
-    storage.client.put_object(
+    transport.client.put_object(
         Bucket=owner.bucket,
         Key=key,
         Body=bytes(output),
@@ -296,15 +299,16 @@ def redacted_log(run, attempt, name, artifact):
     }
 
 
-def verify_summary(run, attempt, artifact):
+def verify_summary(run, attempt, artifact, *, transport=None):
+    transport = storage if transport is None else transport
     owner = training.attempt_storage_owner(run, attempt, artifact["key"])
     if artifact["size_bytes"] > SUMMARY_BYTES:
         raise ValueError("Observation artifact exceeds its bound")
-    response = storage.client.get_object(Bucket=owner.bucket, Key=artifact["key"])
+    response = transport.client.get_object(Bucket=owner.bucket, Key=artifact["key"])
     try:
         body = json_load_bounded(response["Body"].read(SUMMARY_BYTES + 1))
     finally:
-        response["Body"].close()
+        storage_access.close_registered(response["Body"])
     if (
         body.get("protocol") != 1
         or body.get("run_id") != str(run.id)
@@ -322,10 +326,11 @@ def json_load_bounded(raw):
     return json.loads(raw)
 
 
-def checkpoint_available(run, attempt, checkpoint):
+def checkpoint_available(run, attempt, checkpoint, *, transport=None):
+    transport = storage if transport is None else transport
     try:
         owner = training.attempt_storage_owner(run, attempt, checkpoint["key"])
-        response = storage.client.head_object(
+        response = transport.client.head_object(
             Bucket=owner.bucket, Key=checkpoint["key"]
         )
         metadata = response.get("Metadata", {})
@@ -388,12 +393,21 @@ async def recovery(db, run, *, check_storage=True, lease=None):
         await training.authority(db, run)
     except HTTPException:
         reasons.append("authority_unavailable")
-    if (
-        checkpoint
-        and check_storage
-        and not await asyncio.to_thread(checkpoint_available, run, attempt, checkpoint)
-    ):
-        reasons.append("checkpoint_unavailable")
+    if checkpoint and check_storage:
+        try:
+            owner = training.attempt_storage_owner(run, attempt, checkpoint["key"])
+            available = await storage_io.run(
+                db,
+                owner,
+                "training_checkpoint_read",
+                lambda transport: checkpoint_available(
+                    run, attempt, checkpoint, transport=transport
+                ),
+            )
+        except Exception:
+            available = False
+        if not available:
+            reasons.append("checkpoint_unavailable")
     return {
         "attempt_id": attempt.id if attempt else None,
         "eligible": not reasons,

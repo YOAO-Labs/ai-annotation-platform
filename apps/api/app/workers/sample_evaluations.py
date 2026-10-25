@@ -223,9 +223,8 @@ async def cleanup_candidate(factory, run_id, attempt_id, artifact, *, storage_re
         owner = service.owners.resolve_ref(storage_ref)
         owner = service.owners.resolve_ref(
             storage_ref,
-            expected_prefix=service.owners.prefix_for(
-                owner.prefix.split("/")[1], run_id
-            ),
+            expected_prefix=owner.key_prefix
+            + service.owners.prefix_for(owner.logical_prefix.split("/")[1], run_id),
         )
         service.owners.expect_report(
             owner, attempt_id, artifact["key"], artifact["sha256"]
@@ -252,11 +251,15 @@ async def cleanup_candidate(factory, run_id, attempt_id, artifact, *, storage_re
                 return
             # This attempt can never become the current active writer again.
             await db.commit()
-        await asyncio.to_thread(
-            service.storage.client.delete_object,
-            Bucket=owner.bucket,
-            Key=artifact["key"],
-        )
+        async with factory() as db:
+            await service.storage_io.run(
+                db,
+                owner,
+                "sample_evaluation_cleanup",
+                lambda transport: transport.client.delete_object(
+                    Bucket=owner.bucket, Key=artifact["key"]
+                ),
+            )
     except Exception:
         # Retain uncertain candidates under the evaluation's cleanup prefix.
         log.warning("Evaluation report cleanup deferred attempt=%s", attempt_id)
@@ -272,7 +275,15 @@ async def finish(factory, attempt_id, claim_id):
         status = "failed" if any(s.status == "failed" for s in rows) else "succeeded"
         report = service.build_report(run, attempt, rows, status)
         await db.commit()
-    artifact = await asyncio.to_thread(service.upload_report, run, attempt, report)
+    async with factory() as db:
+        artifact = await service.storage_io.run(
+            db,
+            service.owners.resolve(run),
+            "sample_evaluation_write",
+            lambda transport: service.upload_report(
+                run, attempt, report, transport=transport
+            ),
+        )
     try:
         async with factory() as db:
             current, current_attempt = await fenced(
@@ -334,9 +345,17 @@ async def execute(factory, attempt_id, celery_task_id=None):
                     raise ValueError("Frozen dataset identity differs")
                 await db.commit()
             try:
-                png, preprocessing = await asyncio.to_thread(
-                    service.prepare_input, run, version, frozen
-                )
+                from app.services import training_dataset_storage
+
+                async with factory() as db:
+                    png, preprocessing = await service.storage_io.run(
+                        db,
+                        training_dataset_storage.resolve(version),
+                        "sample_evaluation_source",
+                        lambda transport: service.prepare_input(
+                            run, version, frozen, transport=transport
+                        ),
+                    )
             except Exception:
                 async with factory() as db:
                     current, _attempt = await fenced(
@@ -450,11 +469,17 @@ async def settle_cancel(factory, run_id):
                 # Confirming remote stop must not require a retained output owner.
                 report = None
         await db.commit()
-    artifact = (
-        await asyncio.to_thread(service.upload_report, current, attempt, report)
-        if report
-        else None
-    )
+    artifact = None
+    if report:
+        async with factory() as db:
+            artifact = await service.storage_io.run(
+                db,
+                service.owners.resolve(current),
+                "sample_evaluation_write",
+                lambda transport: service.upload_report(
+                    current, attempt, report, transport=transport
+                ),
+            )
     candidate = artifact
     try:
         async with factory() as db:

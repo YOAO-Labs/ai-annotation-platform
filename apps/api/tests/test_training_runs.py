@@ -34,6 +34,9 @@ IMAGE = "sha256:" + "1" * 64
 
 @pytest.fixture
 def training_config(monkeypatch):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     monkeypatch.setattr(settings, "training_enabled", True)
     monkeypatch.setattr(settings, "training_executor_token", TOKEN)
     monkeypatch.setattr(settings, "training_gpu_uuid", GPU)

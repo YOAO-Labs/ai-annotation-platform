@@ -25,6 +25,18 @@ from app.services.storage import storage_service
 from app.services.training_dataset_bridge import content_digest
 
 
+@pytest.fixture(autouse=True)
+def legacy_transport_boundary(monkeypatch):
+    # These pre-existing unit cases isolate business ownership from admission.
+    from app.services import training_storage_io
+    from app.services.storage import storage_service
+
+    async def run(db, owner, purpose, callback, *args, **kwargs):
+        return callback(storage_service, *args, **kwargs)
+
+    monkeypatch.setattr(training_storage_io, "run", run)
+
+
 class Objects:
     def __init__(self, endpoint):
         self.meta = SimpleNamespace(endpoint_url=endpoint)
@@ -174,7 +186,9 @@ async def test_upload_authorization_signs_the_saved_run_bucket(owned, monkeypatc
             TrainingArtifactSpec(**{k: v for k, v in value.items() if k != "key"})
         ]
     )
-    result = await runs.authorize_upload(None, owned.attempt.id, body)
+    result = await runs.authorize_upload(
+        SimpleNamespace(commit=AsyncMock()), owned.attempt.id, body
+    )
     assert result["best.pt"]["url"].startswith(f"https://owned-storage/{owned.bucket}/")
     assert owned.client.calls == [("sign-put_object", owned.bucket, value["key"])]
 
@@ -199,7 +213,9 @@ async def test_upload_authorization_rejects_unknown_owner_before_signing(
         ]
     )
     with pytest.raises(HTTPException) as error:
-        await runs.authorize_upload(None, owned.attempt.id, body)
+        await runs.authorize_upload(
+            SimpleNamespace(commit=AsyncMock()), owned.attempt.id, body
+        )
     assert error.value.status_code == 409
     assert owned.client.calls == [] and owned.attempt.upload_inventory == {}
 
@@ -336,7 +352,9 @@ async def test_unpinned_stopped_receipt_can_settle_without_storage_resolution(
     )
     terminal = AsyncMock()
     monkeypatch.setattr(runs, "mark_terminal", terminal)
-    result = await runs.finish(None, owned.attempt.id, finish_body(status))
+    result = await runs.finish(
+        SimpleNamespace(commit=AsyncMock()), owned.attempt.id, finish_body(status)
+    )
     assert result is owned.attempt and lease.attempt_id is None
     assert owned.attempt.upload_inventory == before
     assert owned.attempt.artifacts == {} and owned.client.calls == []
@@ -355,7 +373,11 @@ async def test_success_cannot_release_a_lease_when_storage_is_unknown(
     terminal = AsyncMock()
     monkeypatch.setattr(runs, "mark_terminal", terminal)
     with pytest.raises(HTTPException) as error:
-        await runs.finish(None, owned.attempt.id, finish_body("succeeded"))
+        await runs.finish(
+            SimpleNamespace(commit=AsyncMock()),
+            owned.attempt.id,
+            finish_body("succeeded"),
+        )
     assert error.value.status_code == 409
     assert lease.attempt_id == owned.attempt.id and owned.client.calls == []
     terminal.assert_not_awaited()
@@ -371,7 +393,9 @@ async def test_failed_receipt_for_foreign_attempt_cannot_release_gpu(
         runs, "fenced", AsyncMock(return_value=(lease, owned.run, owned.attempt))
     )
     with pytest.raises(HTTPException) as error:
-        await runs.finish(None, owned.attempt.id, finish_body("failed"))
+        await runs.finish(
+            SimpleNamespace(commit=AsyncMock()), owned.attempt.id, finish_body("failed")
+        )
     assert error.value.status_code == 409 and lease.attempt_id == owned.attempt.id
     assert owned.client.calls == []
 
@@ -398,7 +422,9 @@ async def test_successful_finish_verifies_every_artifact_in_saved_bucket(
     monkeypatch.setattr(runs, "authority", AsyncMock())
     terminal = AsyncMock()
     monkeypatch.setattr(runs, "mark_terminal", terminal)
-    await runs.finish(None, owned.attempt.id, finish_body("succeeded"))
+    await runs.finish(
+        SimpleNamespace(commit=AsyncMock()), owned.attempt.id, finish_body("succeeded")
+    )
     assert set(owned.attempt.artifacts) == set(roles)
     assert len(owned.client.calls) == len(roles)
     assert {call[1] for call in owned.client.calls} == {owned.bucket}
@@ -505,7 +531,7 @@ async def test_assignment_keeps_dataset_and_run_sources_separate(owned, resume):
 
     before = deepcopy(owned.run.config)
     result = await runs.assignment(
-        SimpleNamespace(get=get), owned.run, owned.attempt, "token"
+        SimpleNamespace(get=get, commit=AsyncMock()), owned.run, owned.attempt, "token"
     )
     assert result["dataset_url"].startswith(
         "https://owned-storage/dataset-input-bucket/"
@@ -538,7 +564,10 @@ async def test_resume_cannot_sign_another_attempt_owner(owned, invalid):
 
     with pytest.raises(HTTPException) as error:
         await runs.assignment(
-            SimpleNamespace(get=get), owned.run, owned.attempt, "token"
+            SimpleNamespace(get=get, commit=AsyncMock()),
+            owned.run,
+            owned.attempt,
+            "token",
         )
     assert error.value.status_code == 409
     assert not any(call[1] == owned.bucket for call in owned.client.calls)
@@ -572,7 +601,7 @@ async def test_assignment_initialization_uses_its_source_run_owner(
     before = deepcopy(owned.run.config)
     source_resolver = AsyncMock(return_value=source_owner)
     monkeypatch.setattr(runs.initialization, "source_storage_owner", source_resolver)
-    db = SimpleNamespace(get=AsyncMock(return_value=owned.dataset))
+    db = SimpleNamespace(get=AsyncMock(return_value=owned.dataset), commit=AsyncMock())
     if foreign_attempt:
         with pytest.raises(HTTPException) as error:
             await runs.assignment(db, owned.run, owned.attempt, "token")

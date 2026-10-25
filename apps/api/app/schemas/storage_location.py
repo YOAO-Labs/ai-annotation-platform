@@ -277,6 +277,7 @@ class StorageBindingOut(BaseModel):
         "reviewed_dataset_switch",
         "reviewed_media_cache_switch",
         "reviewed_annotations_switch",
+        "reviewed_training_switch",
     ]
 
 
@@ -605,6 +606,55 @@ class AnnotationsBindingPreview(BaseModel):
     previous: StorageBindingOut
     target: AnnotationsBindingTarget
     history: AnnotationsBindingHistory
+    capabilities: dict[str, bool]
+    can_apply: bool
+    measured_at: datetime
+    expires_at: datetime
+    impact_token: str
+
+
+class TrainingBindingCandidate(BaseModel):
+    location_id: uuid.UUID
+    name: str
+    config_revision: int
+
+
+class TrainingBindingCandidates(BaseModel):
+    items: list[TrainingBindingCandidate]
+    total: int
+
+
+class TrainingBindingChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
+    target_location_id: uuid.UUID
+    target_config_revision: int = Field(ge=1)
+
+
+class TrainingBindingApply(TrainingBindingChange):
+    impact_token: str = Field(min_length=1, max_length=8192)
+
+
+class TrainingBindingTarget(TrainingBindingCandidate):
+    bucket: str
+    key_prefix: str
+    connection_revision: int | None = None
+
+
+class TrainingBindingHistory(BaseModel):
+    training_versions: int
+    training_runs: int
+    training_previews: int
+    sample_evaluations: int
+    active_learning_rounds: int
+    deletion_intents: int
+
+
+class TrainingBindingPreview(BaseModel):
+    purpose: Literal["training"] = "training"
+    previous: StorageBindingOut
+    target: TrainingBindingTarget
+    history: TrainingBindingHistory
     capabilities: dict[str, bool]
     can_apply: bool
     measured_at: datetime

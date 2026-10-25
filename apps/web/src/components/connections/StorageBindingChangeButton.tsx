@@ -10,6 +10,7 @@ import type {
   DatasetBindingPreview,
   MediaCacheBindingPreview,
   AnnotationsBindingPreview,
+  TrainingBindingPreview,
   StorageBindingOut,
 } from "@/api/generated/types.gen";
 import { ApiError } from "@/api/client";
@@ -31,7 +32,8 @@ interface Props {
     | "import"
     | "datasets"
     | "media-cache"
-    | "annotations";
+    | "annotations"
+    | "training";
   binding: StorageBindingOut;
   onApplied: () => Promise<void>;
 }
@@ -60,6 +62,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "dataset_binding_unchanged",
       "media_cache_binding_unchanged",
       "annotations_binding_unchanged",
+      "training_binding_unchanged",
     ].includes(code)
   )
     return "请选择与当前绑定不同的存储位置。";
@@ -73,6 +76,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "dataset_binding_target_missing",
       "media_cache_binding_target_missing",
       "annotations_binding_target_missing",
+      "training_binding_target_missing",
     ].includes(code)
   )
     return "目标位置已不存在，请刷新候选位置后重新选择。";
@@ -86,6 +90,7 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "dataset_storage_binding_unproven",
       "media_cache_storage_binding_unproven",
       "annotations_storage_binding_unproven",
+      "training_storage_binding_unproven",
     ].includes(code)
   )
     return "用途绑定或目标配置无法确认，请刷新存储配置后重新预览。";
@@ -113,12 +118,15 @@ function changeError(error: unknown, _purpose: Props["purpose"]): string {
       "dataset_storage_probe_cleanup_unproven",
       "media_cache_storage_probe_cleanup_unproven",
       "annotations_storage_probe_cleanup_unproven",
+      "training_storage_probe_cleanup_unproven",
       "storage_operation_unsettled",
     ].includes(code)
   )
     return "验证操作尚未确认收尾，用途未切换。请管理员检查目标位置的测试对象和未收尾访问。";
   if (code === "import_storage_versioning_required")
     return "临时输入需要版本化存储，请启用目标桶版本控制并允许版本读取、删除和列举后重新预览。";
+  if (code === "training_storage_unavailable")
+    return "目标训练存储验证失败，请检查连接、普通写入、分段上传、读取、前缀列举及批量删除权限后重新预览。";
   if (code === "media_cache_storage_unavailable")
     return "目标缓存存储验证失败，请检查连接、条件写入、读取、删除和前缀列举权限后重新预览。";
   if (code === "dataset_storage_unavailable" || code === "annotations_storage_unavailable")
@@ -159,6 +167,7 @@ function ChangeOwner({
     import: "导入暂存",
     datasets: "数据集原件",
     annotations: "标注文件",
+    training: "训练文件",
     "media-cache": "媒体缓存",
   }[purpose];
   const capture = useSessionGuard();
@@ -177,6 +186,7 @@ function ChangeOwner({
     | ExportBindingPreview
     | ImportBindingPreview
     | DatasetBindingPreview
+    | TrainingBindingPreview
     | AnnotationsBindingPreview
     | MediaCacheBindingPreview
     | null
@@ -197,6 +207,7 @@ function ChangeOwner({
         import: "import-binding-candidates",
         datasets: "dataset-binding-candidates",
         annotations: "annotations-binding-candidates",
+        training: "training-binding-candidates",
         "media-cache": "media-cache-binding-candidates",
       }[purpose],
       session,
@@ -281,6 +292,7 @@ function ChangeOwner({
         "dataset_binding_target_missing",
         "media_cache_binding_target_missing",
         "annotations_binding_target_missing",
+        "training_binding_target_missing",
       ].includes(errorCode(failure))
     ) {
       setPreview(null);
@@ -361,11 +373,13 @@ function ChangeOwner({
             ? "媒体缓存绑定已更新，后续新分配使用新位置"
             : purpose === "import"
               ? "导入暂存绑定已更新，后续新分配使用新位置"
-              : purpose === "annotations"
-                ? "标注文件绑定已更新，后续新分配使用新位置"
-                : purpose === "datasets"
-                  ? "数据集原件绑定已更新，后续新分配使用新位置"
-                  : `${noun}存储绑定已更新，后续新${noun}使用新位置`,
+              : purpose === "training"
+                ? "训练文件绑定已更新，后续新分配使用新位置"
+                : purpose === "annotations"
+                  ? "标注文件绑定已更新，后续新分配使用新位置"
+                  : purpose === "datasets"
+                    ? "数据集原件绑定已更新，后续新分配使用新位置"
+                    : `${noun}存储绑定已更新，后续新${noun}使用新位置`,
         kind: "success",
       });
       await onApplied();
@@ -432,6 +446,10 @@ function ChangeOwner({
             {purpose === "media-cache" ? (
               <>
                 仅后续新分配的原图缓存、目录预览、缩略图、图片金字塔和视频派生输出使用新位置。已有及在途输出保留原位置，切换不会搬迁或清空缓存。
+              </>
+            ) : purpose === "training" ? (
+              <>
+                仅后续新分配的训练版本、实验、预览、逐样本评估和主动学习文件使用新位置。已有及在途文件保留原位置，重试、续训及清理沿保存地址，内容和首次期限不变。
               </>
             ) : purpose === "annotations" ? (
               <>
@@ -502,11 +520,13 @@ function ChangeOwner({
                   id={`${selectId}-hint`}
                   className="mt-2 text-xs leading-relaxed text-muted-foreground"
                 >
-                  {purpose === "media-cache"
-                    ? "选择已登记的全局 S3 位置。验证将检查条件写入、完整读回、准确删除和前缀列举。"
-                    : purpose === "datasets" || purpose === "annotations"
-                      ? "选择已登记的全局 S3 位置。验证将检查空文件和分段上传的条件写入，完整读回并清理测试对象。"
-                      : "选择已登记的全局 S3 位置。验证将实际写入、完整读回并删除一个测试对象。"}
+                  {purpose === "training"
+                    ? "选择已登记的全局 S3 位置。验证将实际执行普通写入、非空分段上传、完整读回、精确前缀列举和批量删除。"
+                    : purpose === "media-cache"
+                      ? "选择已登记的全局 S3 位置。验证将检查条件写入、完整读回、准确删除和前缀列举。"
+                      : purpose === "datasets" || purpose === "annotations"
+                        ? "选择已登记的全局 S3 位置。验证将检查空文件和分段上传的条件写入，完整读回并清理测试对象。"
+                        : "选择已登记的全局 S3 位置。验证将实际写入、完整读回并删除一个测试对象。"}
                   {purpose === "export" &&
                     "同时验证对象和版本列举权限；外部端点须供浏览器及下载脚本访问。"}
                   {purpose === "import" &&
@@ -574,7 +594,8 @@ function ChangeOwner({
                         {purpose === "import" ||
                         purpose === "datasets" ||
                         purpose === "media-cache" ||
-                        purpose === "annotations"
+                        purpose === "annotations" ||
+                        purpose === "training"
                           ? "后续分配位置"
                           : `后续新${noun}位置`}
                       </dt>
@@ -593,7 +614,25 @@ function ChangeOwner({
                     用途代次 {visiblePreview.previous.generation} →{" "}
                     {(visiblePreview.previous.generation ?? 0) + 1}
                   </p>
-                  {"task_originals" in visiblePreview.history ? (
+                  {"training_versions" in visiblePreview.history ? (
+                    <div className="space-y-1 text-xs leading-relaxed text-muted-foreground">
+                      <p>
+                        训练版本 {visiblePreview.history.training_versions} · 训练实验{" "}
+                        {visiblePreview.history.training_runs}
+                      </p>
+                      <p>
+                        训练预览 {visiblePreview.history.training_previews} · 逐样本评估{" "}
+                        {visiblePreview.history.sample_evaluations}
+                      </p>
+                      <p>
+                        主动学习轮次 {visiblePreview.history.active_learning_rounds} · 删除意图{" "}
+                        {visiblePreview.history.deletion_intents}
+                      </p>
+                      <p>
+                        以上为不同类型的责任记录，包含所有保存状态，不相加作为对象总数。未固定的历史对象仍须显式核验，不要求先全库接管。
+                      </p>
+                    </div>
+                  ) : "task_originals" in visiblePreview.history ? (
                     <div className="space-y-1 text-xs leading-relaxed text-muted-foreground">
                       <p>
                         任务原件 {visiblePreview.history.task_originals} · 任务写入分配{" "}
@@ -688,8 +727,15 @@ function ChangeOwner({
                       </p>
                     )}
                   <p className="text-xs leading-relaxed text-muted-foreground">
-                    目标实际验证：条件写入
-                    {visiblePreview.capabilities.conditional_write ? "通过" : "未通过"} · 完整读回
+                    目标实际验证：{purpose === "training" ? "普通写入" : "条件写入"}
+                    {(
+                      purpose === "training"
+                        ? visiblePreview.capabilities.write
+                        : visiblePreview.capabilities.conditional_write
+                    )
+                      ? "通过"
+                      : "未通过"}{" "}
+                    · 完整读回
                     {visiblePreview.capabilities.full_read ? "通过" : "未通过"} · 删除
                     {visiblePreview.capabilities.delete ? "通过" : "未通过"}
                     {(purpose === "datasets" || purpose === "annotations") && (
@@ -697,6 +743,14 @@ function ChangeOwner({
                         {" "}
                         · 空文件{visiblePreview.capabilities.empty_put ? "通过" : "未通过"} ·
                         分段上传{visiblePreview.capabilities.multipart ? "通过" : "未通过"}
+                      </>
+                    )}
+                    {purpose === "training" && (
+                      <>
+                        {" "}
+                        · 分段上传{visiblePreview.capabilities.multipart ? "通过" : "未通过"} ·
+                        前缀列举{visiblePreview.capabilities.list ? "通过" : "未通过"} · 批量删除
+                        {visiblePreview.capabilities.delete ? "通过" : "未通过"}
                       </>
                     )}
                     {purpose === "media-cache" && (

@@ -28,7 +28,7 @@ class TrainingPreview(Base):
     __table_args__ = (
         CheckConstraint(_STORAGE_REF_CHECK, name="ck_training_preview_storage_ref"),
         CheckConstraint(
-            "storage_ref IS NULL OR storage_ref->>'prefix' = "
+            "storage_ref IS NULL OR storage_ref->>'prefix' = COALESCE(storage_ref->>'key_prefix','') || "
             "'projects/' || project_id::text || '/previews/' || id::text || '/'",
             name="ck_training_preview_storage_prefix",
         ),

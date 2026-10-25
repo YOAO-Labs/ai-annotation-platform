@@ -21,6 +21,9 @@ from tests.test_original_binary import request
 
 
 async def seed(db, owner, monkeypatch, *, count=6, duplicate=False):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
+    mock_legacy_transport(monkeypatch)
     objects = Objects()
     monkeypatch.setattr(service.storage, "client", objects)
     monkeypatch.setattr(service.storage, "delete_prefix", objects.delete_prefix)

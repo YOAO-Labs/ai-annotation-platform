@@ -94,6 +94,12 @@ async def location_is_referenced(db, location_id):
     from app.db.models.guide_asset_upload import GuideAssetUpload
     from app.db.models.raster_mask_object import RasterMaskObject
     from app.db.models.task_original import TaskOriginal
+    from app.db.models.training_dataset import TrainingDatasetVersion
+    from app.db.models.training_run import TrainingRun
+    from app.db.models.training_preview import TrainingPreview
+    from app.db.models.sample_evaluation import SampleEvaluationRun
+    from app.db.models.active_learning import ActiveLearningRound
+    from app.db.models.training_storage_deletion import TrainingStorageDeletion
 
     for model, column in (
         (ThumbnailOutput, ThumbnailOutput.storage_ref),
@@ -106,6 +112,12 @@ async def location_is_referenced(db, location_id):
         (CommentAttachmentUpload, CommentAttachmentUpload.storage_ref),
         (GuideAssetUpload, GuideAssetUpload.storage_ref),
         (RasterMaskObject, RasterMaskObject.storage_ref),
+        (TrainingDatasetVersion, TrainingDatasetVersion.storage_ref),
+        (TrainingRun, TrainingRun.storage_ref),
+        (TrainingPreview, TrainingPreview.storage_ref),
+        (SampleEvaluationRun, SampleEvaluationRun.storage_ref),
+        (ActiveLearningRound, ActiveLearningRound.storage_ref),
+        (TrainingStorageDeletion, TrainingStorageDeletion.storage_ref),
     ):
         if await db.scalar(
             select(model.id)
@@ -721,6 +733,7 @@ async def binding_rows(db):
                     "datasets",
                     "media-cache",
                     "annotations",
+                    "training",
                 }
                 else "deployment_mapping",
                 "change_policy": "reviewed_avatar_switch"
@@ -740,6 +753,8 @@ async def binding_rows(db):
                     if purpose == "media-cache"
                     else "reviewed_annotations_switch"
                     if purpose == "annotations"
+                    else "reviewed_training_switch"
+                    if purpose == "training"
                     else "legacy_mapping_locked"
                 ),
             }

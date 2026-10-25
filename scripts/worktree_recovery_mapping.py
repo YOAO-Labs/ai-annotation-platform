@@ -236,6 +236,31 @@ async def remap_storage(
     ):
         raise WorktreeError("标注文件含新归属，当前九桶恢复未覆盖其映射")
 
+    for model in (
+        TrainingDatasetVersion,
+        TrainingRun,
+        TrainingPreview,
+        SampleEvaluationRun,
+        ActiveLearningRound,
+        TrainingStorageDeletion,
+    ):
+        if await db.scalar(
+            select(model.id)
+            .where(model.storage_ref["schema"].as_integer() == 2)
+            .limit(1)
+        ):
+            raise WorktreeError("训练文件含新归属，当前九桶恢复未覆盖其映射")
+    if await db.scalar(
+        select(StorageBinding.purpose)
+        .where(
+            StorageBinding.purpose == "training",
+            (StorageBinding.location_id != LEGACY_LOCATION_ID)
+            | (StorageBinding.generation != 1),
+        )
+        .limit(1)
+    ):
+        raise WorktreeError("训练用途含新绑定，当前九桶恢复未覆盖其映射")
+
     mapping = bucket_mapping(source, target)
     planned = []
     ledger = []

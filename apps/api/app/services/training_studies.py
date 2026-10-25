@@ -445,7 +445,7 @@ async def describe(db, study):
                 )
                 try:
                     evaluation = await training_evaluations.read_evaluation(
-                        run, current, 0, 0
+                        run, current, 0, 0, db=db
                     )
                     objective = evaluation["summary"].get(study.plan["objective"])
                     if (
