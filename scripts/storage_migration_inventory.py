@@ -183,6 +183,9 @@ class _Writer:
         self.bytes += len(data)
 
     def finish(self, summary):
+        # Seal the outcome as well as object records. The tail duplicates it for
+        # convenient bounded consumption, but cannot change it independently.
+        self.emit({"type": "summary", **summary})
         tail = {
             "type": "tail",
             "schema": SCHEMA,
@@ -351,8 +354,13 @@ class _Inventory:
         if response.get("ETag") != etag:
             raise InventoryError("etag_changed")
         actual = response.get("VersionId")
-        if (version is not None and actual != version) or (
-            version is None and actual not in (None, "null")
+        # Null versions are explicitly requested, but compatible servers can
+        # omit the response header for that mutable slot. A non-null version
+        # must always be echoed exactly; ETag and both HEADs still fence null.
+        if (
+            (version not in (None, "null") and actual != version)
+            or (version == "null" and actual not in (None, "null"))
+            or (version is None and actual not in (None, "null"))
         ):
             raise InventoryError("version_changed")
 
@@ -390,7 +398,9 @@ class _Inventory:
                 raise InventoryError("response_metadata_changed")
             while True:
                 remaining = deadline()
-                if callable(getattr(body, "set_socket_timeout", None)):
+                if observed < size and callable(
+                    getattr(body, "set_socket_timeout", None)
+                ):
                     body.set_socket_timeout(remaining)
                 requested = min(
                     self.limits.chunk_bytes,
@@ -650,6 +660,7 @@ def write_inventory(
 def verify_inventory(path):
     """Verify canonical framing and accidental truncation/tampering, not authenticity."""
     digest, count, size, header, tail = hashlib.sha256(), 0, 0, None, None
+    summary = None
     try:
         with Path(path).open("rb") as stream:
             while True:
@@ -672,6 +683,12 @@ def verify_inventory(path):
                 if record.get("type") == "tail":
                     tail = record
                 else:
+                    if summary is not None:
+                        raise InventoryError("invalid_report")
+                    if record.get("type") == "summary":
+                        summary = {
+                            key: value for key, value in record.items() if key != "type"
+                        }
                     digest.update(line)
                     count += 1
                     size += len(line)
@@ -681,6 +698,17 @@ def verify_inventory(path):
             tail.get("prior_records") != count
             or tail.get("prior_bytes") != size
             or tail.get("sha256") != digest.hexdigest()
+        ):
+            raise InventoryError("integrity_mismatch")
+        if (
+            summary is None
+            or {
+                key: value
+                for key, value in tail.items()
+                if key
+                not in {"type", "schema", "prior_records", "prior_bytes", "sha256"}
+            }
+            != summary
         ):
             raise InventoryError("integrity_mismatch")
         if (

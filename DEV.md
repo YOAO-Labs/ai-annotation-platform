@@ -267,6 +267,8 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py
 
 该命令只创建两套随机 owned test 资源，不接收现有环境目标，不启动应用或调度；源销毁后从完整备份代次和独立演练密钥恢复，再校验冻结包、标注、物理映射及未完成任务。成功或注入失败均核对清理；清理失败会保留私有清单。纯守卫测试为 `PYTHONPATH=scripts:apps/api apps/api/.venv/bin/python -m unittest test_storage_backup_bundle test_worktree_recovery`。详细预算、报告、故障注入与生产边界见[一致备份与隔离恢复演练](docs-site/ops/deploy/storage-recovery.md)。
 
+对象存储源端迁移清单使用当前API虚拟环境和显式部署配置：`apps/api/.venv/bin/python scripts/inventory_storage_migration.py --output /private/source.jsonl`；`--verify`可离线核对同一清单。对象账号可限制为只读，命令不会建桶或修改业务行。九用途处理选择、预算、退出码及一次性实际演练见[源端迁移清单](docs-site/ops/deploy/storage-migration-inventory.md)。
+
 ## Codex 会话启动硬件上下文
 
 仓库内的 `.codex/hooks.json` 会在 Codex 会话启动、恢复、清空或压缩后运行

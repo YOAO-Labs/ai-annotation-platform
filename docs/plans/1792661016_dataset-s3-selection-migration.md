@@ -1,6 +1,6 @@
 # EPIC-07：对象存储选型与 MinIO 退役迁移
 
-> 状态：源端只读清单分项已批准实施；候选PoC、实际复制、切换与退役仍待各自条件，不分配发布版本。
+> 状态：源端只读清单分项已完成本地验证；候选PoC、实际复制、切换与退役仍待各自条件，完整E07活动，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 已按 [backlog promotion gate](backlog/README.md#promotion-gate) 复核当前实现与源端分项；整套实施授权沿用当前目标。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -38,7 +38,7 @@
 
 ### 文件、验证与回退
 
-实施文件固定为 `scripts/storage_migration_inventory.py`（纯读取/报告核心）、`scripts/test_storage_migration_inventory.py`、`scripts/inventory_storage_migration.py`（运行配置/DB适配）、`scripts/test_inventory_storage_migration.py`、`scripts/verify_storage_migration_inventory.py`（所属一次性实际演练）、`docs-site/ops/deploy/storage-migration-inventory.md`，以及DEV、README、CHANGELOG、本计划和执行队列。晋升修复backlog导航、路线图与基线链接。总数超过八文件，以同一源端清单合同交付；主要为脚本和文档，没有新表、迁移、公开API、UI、依赖、镜像或发布版本。
+实施文件固定为 `scripts/storage_migration_inventory.py`（纯读取/报告核心）、`scripts/test_storage_migration_inventory.py`、`scripts/inventory_storage_migration.py`（运行配置/DB适配）、`scripts/test_inventory_storage_migration.py`、`scripts/verify_storage_migration_inventory.py`（所属一次性实际演练）、`docs-site/ops/deploy/storage-migration-inventory.md`，以及DEV、README、CHANGELOG、本计划和执行队列。运维首页及侧栏加入正式手册导航；晋升修复backlog导航、路线图与基线链接。总数超过八文件，以同一源端清单合同交付；主要为脚本和文档，没有新表、迁移、公开API、UI、依赖、镜像或发布版本。
 
 核心与CLI检查覆盖共享桶、九用途完整性、版本/删除标记、多页与循环标记、生命周期缺失/拒绝、精确版本与条件读取、正文/响应不符、预算、真实关闭及清单完整性。实际演练使用与C5不同的所属test模式，真实MinIO的中文键、历史版本、删除标记和未完成multipart；运行CLI时使用真正只读S3凭据，核对运行前后对象、规则及业务行不变，并验证源端写删拒绝。静态检查、文档构建、正常提交钩子及差异检查后按归属清理；不重复已有浏览器矩阵。
 
@@ -167,11 +167,12 @@
 
 试验先具备隔离桶/前缀、专用凭据和可清理容量；切换另需所有写入者清单、备份/密钥材料、停写窗口、清单覆盖和回退方案。默认对象级复制+停写最终增量，不引入未验证双写。候选试验和生产选型均未完成。
 
-| 切片  | 独立结果         | 交付范围                                                                                 | 验收 / 回退边界                                          |
-| ----- | ---------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| E07-A | 隔离候选报告     | SeaweedFS/RustFS 使用同数据与代理拓扑完成 S3 契约、性能/恢复对照，锁镜像摘要与许可文件。 | 不改变现有流量；正确性硬门通过；报告不把宣称当实测。     |
-| E07-B | 全用途清单与演练 | 定位、读取和 E12 恢复门通过后，可续跑复制、停写、最终核验及带新写入回滚演练。            | 九用途完整；旧 PUT 无写入窗口；回滚保留切换后新对象。    |
-| E07-C | 生产切换与退役   | 另行确认维护窗口/观察期，保留旧端只读和恢复点。                                          | 未确认保留策略或仍有引用时不删旧数据；退役门独立于切换。 |
+| 切片    | 独立结果         | 交付范围                                                                                 | 验收 / 回退边界                                          |
+| ------- | ---------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| E07-A   | 源端只读清单     | 当前配置源的九用途、全部版本与删除标记、规则和multipart、完整SHA及有界DB观测。           | 本分项已完成；未知覆盖保留，不是完整S02或迁移许可。      |
+| 候选PoC | 隔离候选报告     | SeaweedFS/RustFS 使用同数据与代理拓扑完成 S3 契约、性能/恢复对照，锁镜像摘要与许可文件。 | 不改变现有流量；正确性硬门通过；报告不把宣称当实测。     |
+| E07-B   | 全用途清单与演练 | 定位、读取和 E12 恢复门通过后，可续跑复制、停写、最终核验及带新写入回滚演练。            | 九用途完整；旧 PUT 无写入窗口；回滚保留切换后新对象。    |
+| E07-C   | 生产切换与退役   | 另行确认维护窗口/观察期，保留旧端只读和恢复点。                                          | 未确认保留策略或仍有引用时不删旧数据；退役门独立于切换。 |
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
@@ -180,3 +181,19 @@
 实现时同步：[docker-compose.md](../../docs-site/ops/deploy/docker-compose.md)、[storage-buckets.md](../../docs-site/dev/reference/storage-buckets.md)、[env-vars.md](../../docs-site/dev/reference/env-vars.md)、[DEV.md](../../DEV.md)、[README.md](../../README.md)、[.env.example](../../.env.example)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
 完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+
+## Outcome — E07-A 源端只读迁移清单
+
+2026-10-25，本地源端分项已交付；核心集成`aefb7d245`，CLI、实际适配修正及正式手册见本Outcome所在提交。不分配发布版本。九用途按共享桶去重，记录全部版本／删除标记、规则与未完成上传，条件读取和前后HEAD核对后完整计算SHA；私有JSONL独占创建，受摘要覆盖的summary与tail必须一致。数据库只读观测先结束，其他绑定、潜在作业及未知覆盖分别表达。
+
+最终40个不同辅助用例通过，覆盖核心、CLI、尾部状态／计数篡改、真实流EOF后的socket边界、明确null版本与非null精确回显、实际对账时间归一和空演练夹具守卫。新增守卫用例首轮误断言异常基类，已改为实际ValueError并通过；守卫不改变已验证的读取核心。
+
+真实PostgreSQL／MinIO演练使用所属test环境和独立只读S3账号，经正式CLI的每页1项完成九桶、12个对象版本／217字节、1个删除标记和1个未完成上传，所有版本SHA与预期相符，22页、零issue；真实PUT／DELETE均403。已保存但不被配置源覆盖的avatars绑定和一个潜在export作业准确出现；限额清单有效封闭但complete=false，正式CLI退出1。运行前后源对象、版本、规则、上传事实及165表13行合成配置／作业完整指纹保持；此结果不代表生产迁移或冻结版本回归。
+
+首轮实际适配暴露EOF后设置socket超时和null版本响应头省略，修正并补回归；后续两轮演练夹具分别错误比较verified_at、从可省略的PUT响应头推断null槽位，均修正后最终通过。没有把失败计为成功，没有放开写权限、关闭条件读取或把null槽位称为不可变版本。每轮自有test资源均清理，实际创建的临时账号独立确认撤销。
+
+正式知识见[运维手册](../../docs-site/ops/deploy/storage-migration-inventory.md)、DEV、README及CHANGELOG Unreleased。Ruff／格式、文档frontmatter／可读性、完整文档构建及只读复核通过；最终资源独立清理、提交钩子与diff结果随本次交付记录。人工环境及C5原进程保持，未改变应用／Worker或六份冻结工具，没有重建镜像。
+
+剩余仍按原始E07：完整业务引用、历史位置和全写入方覆盖，九用途最终处理评审，候选锁定／对照PoC、实际复制与续跑、停写最终核验、切换后新写入回滚、旧冻结版本及退役资格。本片仅完成选定配置源的观测，不勾完完整S02、AC02或工程迁移项，也不新增Tracker、会话或审核前置。
+
+最终独立复查：所属test数据库、Redis和九桶均不存在，私有原始清单／日志、构建产物和测试缓存已清理，仅留有界核验摘要。C5所属e2e资源及人工环境未操作。

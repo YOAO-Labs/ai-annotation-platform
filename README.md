@@ -58,6 +58,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 维护者可运行[一致备份与隔离恢复演练](./docs-site/ops/deploy/storage-recovery.md)，在两套随机资源中验证数据库、九用途对象、独立密钥及冻结内容。源销毁后再恢复并对账，原人工环境保留；结果只说明本地合成演练。
 
+对象存储迁移前，可先生成[源端只读清单](./docs-site/ops/deploy/storage-migration-inventory.md)，覆盖当前配置的九用途桶、全部版本、删除标记、未完成上传及完整SHA；保存绑定与潜在写入方单独观测，未知覆盖不冒充迁移就绪。
+
 超级管理员可在外部存储位置详情展开[维护影响](./docs-site/user-guide/datasets/storage-connections.md#位置维护影响)，查看已保存的业务关系、活动工作与副本账本，以及位置停用、人员授权和配置修订的实际边界。位置使用范围和缓存配置先预览差异与影响，再在五分钟内确认；提交会复核权限、配置及关系，拒绝失效确认。
 
 数据集上传按稳定身份隔离原图，同名不同内容保留为独立文件；改名不移动已有原图。旧数据可按真实对象键回填内容与位置映射；未知摘要可先预览当前原件，再显式应用SHA-256补算，保留旧任务身份。参见[数据集上传与扫描](./docs-site/api/guides/datasets.md)、[兼容回填](./docs-site/dev/concepts/storage-connections.md#内容身份与兼容回填)及[旧托管原件补算](./docs-site/dev/concepts/storage-connections.md#显式补算旧托管原件)。

@@ -536,6 +536,76 @@ class InventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(inventory.InventoryError, "unsealed_report"):
             inventory.verify_inventory(self.path)
 
+    def test_tail_outcome_and_counts_cannot_change_independently(self):
+        self.client.lifecycle_error = "AccessDenied"
+        self.assertFalse(self.run_inventory()["complete"])
+        records = list(map(json.loads, self.path.read_text().splitlines()))
+        for field, changed in (("complete", True), ("counts", {"issues": 0})):
+            with self.subTest(field=field):
+                modified = deepcopy(records)
+                modified[-1][field] = changed
+                self.path.write_bytes(
+                    b"".join(inventory._canonical(row) for row in modified)
+                )
+                with self.assertRaisesRegex(
+                    inventory.InventoryError, "integrity_mismatch"
+                ):
+                    inventory.verify_inventory(self.path)
+
+    def test_summary_outcome_is_covered_by_sealed_digest(self):
+        self.run_inventory()
+        records = list(map(json.loads, self.path.read_text().splitlines()))
+        records[-2]["complete"] = False
+        self.path.write_bytes(b"".join(inventory._canonical(row) for row in records))
+        with self.assertRaisesRegex(inventory.InventoryError, "integrity_mismatch"):
+            inventory.verify_inventory(self.path)
+
+    def test_socket_timeout_is_not_set_after_stream_has_consumed_content_length(self):
+        self.client.add("key")
+
+        def socket_body(response):
+            body = response["Body"]
+
+            def timeout(seconds):
+                if body.tell() >= len(body.getvalue()):
+                    raise AttributeError("underlying socket already released")
+
+            body.set_socket_timeout = timeout
+            return response
+
+        self.client.get_hook = socket_body
+        self.assertTrue(self.run_inventory()["complete"])
+        self.assertTrue(self.client.bodies[0].closed)
+
+    def test_explicit_null_version_allows_omitted_header_but_keeps_request_identity(
+        self,
+    ):
+        self.client.status = "Suspended"
+        self.client.add("key", version="null")
+
+        def omit(response):
+            response.pop("VersionId", None)
+            return response
+
+        self.client.head_hook = self.client.get_hook = omit
+        self.assertTrue(self.run_inventory()["complete"])
+        self.assertEqual(self.records("object")[0]["version_id"], "null")
+        self.assertTrue(
+            all(
+                args.get("VersionId") == "null"
+                for name, args in self.client.calls
+                if name in {"head_object", "get_object"}
+            )
+        )
+
+    def test_non_null_version_still_requires_exact_response_header(self):
+        self.client.status = "Enabled"
+        self.client.add("key", version="immutable-v1")
+        self.client.get_hook = lambda response: {
+            key: value for key, value in response.items() if key != "VersionId"
+        }
+        self.assert_unverified("version_changed")
+
 
 if __name__ == "__main__":
     unittest.main()

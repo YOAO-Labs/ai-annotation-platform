@@ -17,6 +17,7 @@ export const opsSidebar: DefaultTheme.SidebarItem[] = [
     collapsed: true,
     items: [
       { text: "升级指南", link: "/ops/upgrade-guide" },
+      { text: "对象存储源端迁移清单", link: "/ops/deploy/storage-migration-inventory" },
       { text: "本机 ML 服务维护", link: "/ops/deploy/ml-backend-maintenance" },
     ],
   },
