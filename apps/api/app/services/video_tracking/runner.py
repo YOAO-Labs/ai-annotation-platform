@@ -34,7 +34,6 @@ from aap_assets_video_inputs.tracker import TrackerFailure
 from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import VideoSegment
-from app.db.models.mask_qc import MaskQCIssue
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import (
     VideoTrackerJob,
@@ -75,6 +74,7 @@ from app.services.raster_mask_storage import (
     validate_mask_geometry_for_task,
     lock_raster_mask_references,
 )
+from app.services.mask_qc.service import load_mask_qc_issue
 from app.services.mask_qc.topology import rle_and, rle_replace_region, rle_xor
 from app.services.video_collaboration import segment_work_bounds_for_task
 from app.services.video_tracking.adapters import (
@@ -2040,7 +2040,7 @@ async def _decide_tracker_issue_region(
     commit: bool,
 ) -> VideoTrackerJob:
     expected_status = job.status
-    issue_snapshot = await db.get(MaskQCIssue, issue_id)
+    issue_snapshot = await load_mask_qc_issue(db, issue_id=issue_id)
     if issue_snapshot is None:
         raise TrackerJobStateConflict(
             "Mask QC issue no longer exists", reason="mask_qc_issue_not_found"
@@ -2138,14 +2138,7 @@ async def _decide_tracker_issue_region(
         source_ids={source_annotation_id},
     )
     annotation = locked_sources[source_annotation_id]
-    issue = (
-        await db.execute(
-            select(MaskQCIssue)
-            .where(MaskQCIssue.id == issue_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
+    issue = await load_mask_qc_issue(db, issue_id=issue_id, lock=True)
     if issue is None:
         raise TrackerJobStateConflict(
             "Mask QC issue no longer exists", reason="mask_qc_issue_not_found"

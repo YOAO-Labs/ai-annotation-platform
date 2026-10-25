@@ -497,7 +497,7 @@ async def test_blocking_qc_prevents_approve_until_blocker_resolved(
         annotator_id=contrib.id,
     )
     snapshot, source_digest = await current_task_source_snapshot(
-        db_session, task_id=task.id
+        db_session, task_id=task.id, project_id=project.id
     )
     assert source_digest is not None
     run = MaskQCRun(

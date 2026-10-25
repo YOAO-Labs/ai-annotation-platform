@@ -5,18 +5,19 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.mask_annotation_revision import MaskAnnotationRevision
-from app.db.models.video_tracker_job import VideoTrackerJob
 from aap_workspace.mask_configuration_values import (
     MaskCompareBaseline as _MaskCompareBaseline,
 )
 from app.schemas.mask_qc import MaskCompareOut
 from app.services.mask_qc import compare_rles
-from app.services.mask_qc.service import MaskQCError
+from app.services.mask_qc.service import (
+    MaskQCError,
+    read_mask_annotation_revision,
+    read_tracker_candidate_context,
+)
 from app.services.raster_mask_storage import load_coco_rle
 from app.services.video_tracking import runner as tracker_runner
 from app.services.video_tracks import resolve_mask_track_state_at_frame
@@ -60,15 +61,22 @@ async def geometry_for_annotation_version(
 ) -> tuple[dict, str]:
     if annotation_version == annotation.version:
         return dict(annotation.geometry or {}), str(annotation.source or "current")
-    revision = (
-        await db.execute(
-            select(MaskAnnotationRevision).where(
-                MaskAnnotationRevision.annotation_id == annotation.id,
-                MaskAnnotationRevision.annotation_version == annotation_version,
-            )
-        )
-    ).scalar_one_or_none()
-    if revision is None or revision.expires_at <= datetime.now(timezone.utc):
+    revision = await read_mask_annotation_revision(
+        db,
+        task_id=annotation.task_id,
+        annotation_id=annotation.id,
+        annotation_version=annotation_version,
+    )
+    expires_at = (
+        datetime.fromisoformat(str(revision["expires_at"]).replace("Z", "+00:00"))
+        if revision is not None
+        else None
+    )
+    if (
+        revision is None
+        or expires_at is None
+        or expires_at <= datetime.now(timezone.utc)
+    ):
         raise MaskQCError(
             status_code=409,
             reason=missing_reason,
@@ -76,7 +84,7 @@ async def geometry_for_annotation_version(
             annotation_id=str(annotation.id),
             annotation_version=annotation_version,
         )
-    return dict(revision.geometry or {}), revision.source_kind
+    return dict(revision["geometry"] or {}), str(revision["source_kind"])
 
 
 def _reference_for_geometry(
@@ -269,8 +277,10 @@ async def _resolve_tracker_candidate_side(
             reason="mask_compare_candidate_context_required",
             message="tracker comparison requires frame and job context",
         )
-    job = await db.get(VideoTrackerJob, candidate_job_id)
-    if job is None or job.task_id != annotation.task_id:
+    job = await read_tracker_candidate_context(
+        db, task_id=annotation.task_id, job_id=candidate_job_id
+    )
+    if job is None:
         raise MaskQCError(
             status_code=404,
             reason="mask_compare_candidate_not_found",

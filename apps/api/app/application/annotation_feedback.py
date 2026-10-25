@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,7 +37,7 @@ from app.services.discussion_notifications import (
     prepare_feedback_status_notifications,
 )
 from app.services.feedback import FeedbackService
-from app.services.mask_qc.service import effective_issue_status
+from app.services.mask_qc.service import effective_issue_status, load_mask_qc_issue
 from app.services.notification import NotificationService
 from app.services.point_cloud_quality.service import refresh_issue_staleness
 from aap_workspace_contract.access import ProjectAccess
@@ -548,7 +549,7 @@ class AnnotationFeedbackWorkflow:
                 issue_id = uuid.UUID(str(mask_qc_issue_id))
             except (TypeError, ValueError):
                 return False
-            issue = await self.db.get(MaskQCIssue, issue_id, populate_existing=True)
+            issue = await load_mask_qc_issue(self.db, issue_id=issue_id)
             if issue is None:
                 return False
             return await effective_issue_status(self.db, issue) != "stale"
@@ -784,14 +785,21 @@ class AnnotationFeedbackWorkflow:
         return entry, root
 
     async def _lock_mask_qc_issue(self, issue_id: uuid.UUID) -> MaskQCIssue | None:
-        return await lock_row_nowait(
-            self.db,
-            select(MaskQCIssue)
-            .where(MaskQCIssue.id == issue_id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
-            reason="feedback_mask_qc_issue_busy",
-        )
+        try:
+            with self.db.no_autoflush:
+                return await load_mask_qc_issue(
+                    self.db,
+                    issue_id=issue_id,
+                    lock=True,
+                    nowait=True,
+                    flush_before=False,
+                )
+        except HTTPException as exc:
+            if exc.status_code == 409 and exc.detail == {"reason": "task_busy"}:
+                raise TaskWorkflowError(
+                    409, {"reason": "feedback_mask_qc_issue_busy"}
+                ) from exc
+            raise
 
     async def _lock_point_cloud_issue(
         self, issue_id: uuid.UUID

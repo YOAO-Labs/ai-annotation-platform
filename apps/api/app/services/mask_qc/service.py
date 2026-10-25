@@ -8,8 +8,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import and_, case, func, literal_column, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
@@ -17,6 +15,7 @@ from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.db.models.video_tracker_job import VideoTrackerJob
 from aap_workspace.mask_configuration_values import MaskQCConfig
 from app.schemas.mask_qc import MaskQCRunRequest
 from app.services.quality_job_dispatch import QualityJobDispatcher
@@ -26,28 +25,39 @@ from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
 from app.services.raster_mask_storage import collect_mask_references
+from aap_labeling.quality_data_contract import (
+    DecideMaskQCIssue,
+    FailMaskQCRun,
+    ReadMaskQCRunByJob,
+    ReadMaskQCSource,
+    ReadMaskQCRun,
+    ReadMaskQCRunSummary,
+    ReconcileMaskQCRun,
+    ReadMaskQCIssue,
+    ReadMaskQCIssues,
+    ReadMaskAnnotationRevision,
+    ReadTrackerCandidateContext,
+    ListMaskQCIssues,
+    ReadTaskRunMaskQCIssues,
+    FindLatestTaskMaskQCRun,
+    FindCurrentCompletedTaskMaskQCRun,
+    ReadOpenTaskMaskQCIssues,
+    ResolveRepairedMaskQCIssue,
+    CreateMaskQCRun,
+    FindMaskQCRun,
+    ReadMaskQCIssueStatuses,
+    QUALITY_DATA_PROTOCOL,
+)
+from app.services.labeling_quality_data import (
+    model_from_quality_row,
+    quality_data_command,
+)
+from sqlalchemy.orm.attributes import set_committed_value
 
 MAX_QC_ANNOTATIONS = 1_000
 MAX_QC_SAMPLED_FRAMES = 5_000
 MAX_QC_TILES = 200_000
 MAX_QC_OVERLAP_PAIRS = 100_000
-
-
-def _effective_current_clause():
-    return literal_column(
-        """
-        NOT EXISTS (
-            SELECT 1
-            FROM jsonb_each_text(mask_qc_issues.source_versions) AS source(id, version)
-            LEFT JOIN annotations AS current_annotation
-              ON current_annotation.id = source.id::uuid
-            WHERE current_annotation.id IS NULL
-               OR current_annotation.is_active IS NOT TRUE
-               OR current_annotation.was_cancelled IS TRUE
-               OR current_annotation.version <> source.version::integer
-        )
-        """
-    )
 
 
 class MaskQCError(RuntimeError):
@@ -214,42 +224,49 @@ async def _selected_annotations(
     project_id: uuid.UUID,
     request: MaskQCRunRequest,
 ) -> list[Annotation]:
-    query = select(Annotation).where(
-        Annotation.project_id == project_id,
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
-        Annotation.geometry["type"].astext.in_(("raster_mask", "video_track_mask")),
+    data = await quality_data_command(
+        db,
+        ReadMaskQCSource(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_source",
+            project_id=project_id,
+            scope=request.scope,
+            task_ids=request.task_ids if request.scope == "task_ids" else [],
+            annotation_ids=(
+                request.annotation_ids if request.scope == "annotation_ids" else []
+            ),
+        ),
     )
-    if request.scope == "task_ids":
-        found_task_ids = set(
-            (
-                await db.execute(
-                    select(Task.id).where(
-                        Task.project_id == project_id,
-                        Task.id.in_(request.task_ids),
-                    )
-                )
-            ).scalars()
-        )
-        if found_task_ids != set(request.task_ids):
+    if not isinstance(data, dict) or data.get("missing_scope"):
+        if request.scope == "task_ids":
             raise MaskQCError(
                 status_code=404,
                 reason="mask_qc_task_not_found",
                 message="one or more requested tasks are unavailable",
             )
-        query = query.where(Annotation.task_id.in_(request.task_ids))
-    elif request.scope == "annotation_ids":
-        query = query.where(Annotation.id.in_(request.annotation_ids))
-    rows = list(
-        (await db.execute(query.order_by(Annotation.task_id, Annotation.id))).scalars()
-    )
-    if request.scope == "annotation_ids" and len(rows) != len(
-        set(request.annotation_ids)
-    ):
         raise MaskQCError(
             status_code=404,
             reason="mask_qc_annotation_not_found",
             message="one or more requested Mask annotations are unavailable",
+        )
+    rows = [
+        Annotation(
+            id=uuid.UUID(str(item["id"])),
+            project_id=uuid.UUID(str(item["project_id"])),
+            task_id=uuid.UUID(str(item["task_id"])),
+            class_name=item["class_name"],
+            source=item["source"],
+            track_id=item["track_id"],
+            version=int(item["version"]),
+            geometry=item["geometry"],
+        )
+        for item in data["annotations"]
+    ]
+    for row, item in zip(rows, data["annotations"], strict=True):
+        row.dataset_item_id = (
+            uuid.UUID(str(item["dataset_item_id"]))
+            if item.get("dataset_item_id") is not None
+            else None
         )
     return rows
 
@@ -257,22 +274,18 @@ async def _selected_annotations(
 async def _task_frame_counts(
     db: AsyncSession, annotations: list[Annotation]
 ) -> dict[uuid.UUID, int]:
-    task_ids = sorted({annotation.task_id for annotation in annotations}, key=str)
-    if not task_ids:
-        return {}
-    rows = (
-        await db.execute(
-            select(Task.id, Task.dataset_item_id).where(Task.id.in_(task_ids))
-        )
-    ).all()
-    item_ids = tuple(item_id for _task_id, item_id in rows if item_id is not None)
+    task_items = {
+        annotation.task_id: getattr(annotation, "dataset_item_id", None)
+        for annotation in annotations
+    }
+    item_ids = tuple(item_id for item_id in task_items.values() if item_id is not None)
     from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 
     summaries = await AssetsTaskMediaSummaryReader(db).current_video_metadata_many(
         item_ids
     )
     counts: dict[uuid.UUID, int] = {}
-    for task_id, item_id in rows:
+    for task_id, item_id in task_items.items():
         video = summaries.get(item_id) if item_id is not None else None
         value = video.get("frame_count") if isinstance(video, dict) else None
         if isinstance(value, int) and value > 0:
@@ -429,19 +442,30 @@ async def create_mask_qc_run(
             "source_snapshot_digest": source_digest,
         }
     )
+    existing_row = await quality_data_command(
+        db,
+        FindMaskQCRun(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="find_run",
+            project_id=project.id,
+            singleflight_key=singleflight_key,
+        ),
+    )
     existing = (
-        await db.execute(
-            select(MaskQCRun).where(
-                MaskQCRun.project_id == project.id,
-                MaskQCRun.singleflight_key == singleflight_key,
-                MaskQCRun.status.in_(("pending", "running")),
-            )
-        )
-    ).scalar_one_or_none()
+        model_from_quality_row(MaskQCRun, existing_row)
+        if isinstance(existing_row, dict)
+        else None
+    )
     if existing is not None:
         return existing, None, False
 
     celery_task_id = str(uuid.uuid4())
+    run_id = uuid.uuid4()
+
+    class _ExistingSingleflightRun(Exception):
+        def __init__(self, row: dict[str, object]):
+            self.row = row
+
     try:
         async with db.begin_nested():
             job = await create_job(
@@ -455,39 +479,40 @@ async def create_mask_qc_run(
                 },
                 celery_task_id=celery_task_id,
             )
-            run = MaskQCRun(
-                project_id=project.id,
-                async_job_id=job.id,
-                requested_by_id=actor_id,
-                status="pending",
-                progress_pct=0,
-                scope_json=scope_json,
-                config_revision=config.config_revision,
-                config_digest=config_digest,
-                config_snapshot=config.model_dump(mode="json"),
-                source_snapshot=snapshot,
-                source_snapshot_digest=source_digest,
-                task_snapshot_digests=_task_digests(snapshot),
-                singleflight_key=singleflight_key,
-                summary={
-                    "annotation_count": len(annotations),
-                    "sampled_frames": sampled_frames,
-                    "estimated_tiles": tile_count,
-                },
-            )
-            db.add(run)
             await db.flush()
-    except IntegrityError:
-        existing = (
-            await db.execute(
-                select(MaskQCRun).where(
-                    MaskQCRun.project_id == project.id,
-                    MaskQCRun.singleflight_key == singleflight_key,
-                    MaskQCRun.status.in_(("pending", "running")),
-                )
+            run_data = await quality_data_command(
+                db,
+                CreateMaskQCRun(
+                    schema=QUALITY_DATA_PROTOCOL,
+                    operation="create_run",
+                    run_id=run_id,
+                    project_id=project.id,
+                    async_job_id=job.id,
+                    requested_by_id=actor_id,
+                    scope_json=scope_json,
+                    config_revision=config.config_revision,
+                    config_digest=config_digest,
+                    config_snapshot=config.model_dump(mode="json"),
+                    source_snapshot=snapshot,
+                    source_snapshot_digest=source_digest,
+                    task_snapshot_digests=_task_digests(snapshot),
+                    singleflight_key=singleflight_key,
+                    summary={
+                        "annotation_count": len(annotations),
+                        "sampled_frames": sampled_frames,
+                        "estimated_tiles": tile_count,
+                    },
+                ),
             )
-        ).scalar_one()
-        return existing, None, False
+            if not isinstance(run_data, dict) or not isinstance(
+                run_data.get("row"), dict
+            ):
+                raise RuntimeError("Mask QC owner did not return the inserted run")
+            if not run_data.get("created"):
+                raise _ExistingSingleflightRun(run_data["row"])
+            run = model_from_quality_row(MaskQCRun, run_data["row"])
+    except _ExistingSingleflightRun as exc:
+        return model_from_quality_row(MaskQCRun, exc.row), None, False
     return run, job, True
 
 
@@ -516,6 +541,101 @@ async def effective_issue_status(db: AsyncSession, issue: MaskQCIssue) -> str:
     return (await effective_issue_statuses(db, [issue]))[issue.id]
 
 
+async def load_mask_qc_run(
+    db: AsyncSession, *, run_id: uuid.UUID, lock: bool = False
+) -> MaskQCRun | None:
+    row = await quality_data_command(
+        db,
+        ReadMaskQCRun(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_run",
+            run_id=run_id,
+            lock=lock,
+        ),
+    )
+    return model_from_quality_row(MaskQCRun, row) if isinstance(row, dict) else None
+
+
+async def load_mask_qc_issue(
+    db: AsyncSession,
+    *,
+    issue_id: uuid.UUID,
+    lock: bool = False,
+    nowait: bool = False,
+    flush_before: bool = True,
+) -> MaskQCIssue | None:
+    row = await quality_data_command(
+        db,
+        ReadMaskQCIssue(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_issue",
+            issue_id=issue_id,
+            lock=lock,
+            nowait=nowait,
+        ),
+        flush_before=flush_before,
+    )
+    return model_from_quality_row(MaskQCIssue, row) if isinstance(row, dict) else None
+
+
+async def load_mask_qc_issues(
+    db: AsyncSession, *, project_id: uuid.UUID, issue_ids: list[uuid.UUID]
+) -> list[MaskQCIssue]:
+    rows = await quality_data_command(
+        db,
+        ReadMaskQCIssues(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_issues",
+            project_id=project_id,
+            issue_ids=issue_ids,
+        ),
+    )
+    return (
+        [model_from_quality_row(MaskQCIssue, row) for row in rows]
+        if isinstance(rows, list)
+        else []
+    )
+
+
+async def read_mask_annotation_revision(
+    db: AsyncSession,
+    *,
+    task_id: uuid.UUID,
+    annotation_id: uuid.UUID,
+    annotation_version: int,
+) -> dict[str, Any] | None:
+    data = await quality_data_command(
+        db,
+        ReadMaskAnnotationRevision(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_annotation_revision",
+            task_id=task_id,
+            annotation_id=annotation_id,
+            annotation_version=annotation_version,
+        ),
+    )
+    return data if isinstance(data, dict) else None
+
+
+async def read_tracker_candidate_context(
+    db: AsyncSession, *, task_id: uuid.UUID, job_id: uuid.UUID
+) -> VideoTrackerJob | None:
+    data = await quality_data_command(
+        db,
+        ReadTrackerCandidateContext(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_tracker_candidate_context",
+            task_id=task_id,
+            job_id=job_id,
+        ),
+    )
+    return (
+        model_from_quality_row(VideoTrackerJob, data)
+        if isinstance(data, dict)
+        else None
+    )
+
+
 async def decide_issue(
     db: AsyncSession,
     *,
@@ -525,22 +645,46 @@ async def decide_issue(
     status: str,
 ) -> None:
     """Apply a manual decision to the freshly locked, current Mask QC issue."""
-
-    if (
-        issue.task_id != expected_task_id
-        or await effective_issue_status(db, issue) == "stale"
-    ):
+    data = await quality_data_command(
+        db,
+        DecideMaskQCIssue(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="decide_issue",
+            issue_id=issue.id,
+            expected_task_id=expected_task_id,
+            actor_id=actor_id,
+            status=status,
+            decided_at=datetime.now(timezone.utc),
+        ),
+    )
+    if not isinstance(data, dict) or not data.get("changed"):
+        reason = data.get("reason") if isinstance(data, dict) else None
         raise MaskQCError(
-            status_code=409,
-            reason="mask_qc_issue_stale",
+            status_code=403 if reason == "actor_inactive" else 409,
+            reason="actor_inactive"
+            if reason == "actor_inactive"
+            else "mask_qc_issue_stale",
         )
-    issue.status = status
-    if status == "open":
-        issue.resolved_by_id = None
-        issue.resolved_at = None
-    else:
-        issue.resolved_by_id = actor_id
-        issue.resolved_at = datetime.now(timezone.utc)
+    row = data.get("row")
+    if isinstance(row, dict):
+        set_committed_value(issue, "status", row["status"])
+        set_committed_value(issue, "resolved_by_id", row["resolved_by_id"])
+        resolved_at = row["resolved_at"]
+        updated_at = row["updated_at"]
+        set_committed_value(
+            issue,
+            "resolved_at",
+            datetime.fromisoformat(resolved_at.replace("Z", "+00:00"))
+            if isinstance(resolved_at, str)
+            else resolved_at,
+        )
+        set_committed_value(
+            issue,
+            "updated_at",
+            datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+            if isinstance(updated_at, str)
+            else updated_at,
+        )
 
 
 async def effective_issue_statuses(
@@ -548,46 +692,19 @@ async def effective_issue_statuses(
 ) -> dict[uuid.UUID, str]:
     """Resolve stale state for an issue page with one annotation query."""
 
-    source_versions_by_issue = {
-        issue.id: issue.source_versions
-        or {str(issue.annotation_id): issue.annotation_version}
-        for issue in issues
-    }
-    ids = {
-        uuid.UUID(annotation_id)
-        for source_versions in source_versions_by_issue.values()
-        for annotation_id in source_versions
-    }
-    if ids:
-        rows = (
-            await db.execute(
-                select(
-                    Annotation.id,
-                    Annotation.version,
-                    Annotation.is_active,
-                    Annotation.was_cancelled,
-                ).where(Annotation.id.in_(ids))
-            )
-        ).all()
-    else:
-        rows = []
-    current = {
-        str(annotation_id): version
-        for annotation_id, version, is_active, was_cancelled in rows
-        if is_active and not was_cancelled
-    }
-    return {
-        issue.id: (
-            "stale"
-            if issue.status == "stale"
-            or any(
-                current.get(annotation_id) != version
-                for annotation_id, version in source_versions_by_issue[issue.id].items()
-            )
-            else issue.status
-        )
-        for issue in issues
-    }
+    if not issues:
+        return {}
+    data = await quality_data_command(
+        db,
+        ReadMaskQCIssueStatuses(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_issue_statuses",
+            issue_ids=[issue.id for issue in issues],
+        ),
+    )
+    if not isinstance(data, dict):
+        raise RuntimeError("Mask QC owner returned invalid issue statuses")
+    return {issue.id: str(data.get(str(issue.id), "stale")) for issue in issues}
 
 
 def encode_issue_cursor(issue: MaskQCIssue) -> str:
@@ -626,72 +743,65 @@ async def list_issues(
     frame: int | None = None,
     allowed_task_ids: set[uuid.UUID] | None = None,
 ) -> tuple[list[MaskQCIssue], str | None]:
-    query = select(MaskQCIssue).where(MaskQCIssue.project_id == project_id)
-    if status:
-        effective_current = _effective_current_clause()
-        if status == "stale":
-            query = query.where(or_(MaskQCIssue.status == "stale", ~effective_current))
-        else:
-            query = query.where(MaskQCIssue.status == status, effective_current)
-    if severity:
-        query = query.where(MaskQCIssue.severity == severity)
-    if code:
-        query = query.where(MaskQCIssue.code == code)
-    if task_id:
-        query = query.where(MaskQCIssue.task_id == task_id)
-    if annotation_id:
-        query = query.where(MaskQCIssue.annotation_id == annotation_id)
-    if frame is not None:
-        query = query.where(
-            MaskQCIssue.frame_start <= frame,
-            MaskQCIssue.frame_end >= frame,
-        )
-    if allowed_task_ids is not None:
-        query = query.where(MaskQCIssue.task_id.in_(allowed_task_ids))
+    cursor_rank = None
+    cursor_created_at = None
+    cursor_id = None
     if cursor:
-        rank, created_at, issue_id = decode_issue_cursor(cursor)
-        query = query.where(
-            or_(
-                MaskQCIssue.severity_rank > rank,
-                and_(
-                    MaskQCIssue.severity_rank == rank,
-                    MaskQCIssue.created_at < created_at,
-                ),
-                and_(
-                    MaskQCIssue.severity_rank == rank,
-                    MaskQCIssue.created_at == created_at,
-                    MaskQCIssue.id < issue_id,
-                ),
-            )
-        )
-    rows = list(
-        (
-            await db.execute(
-                query.order_by(
-                    MaskQCIssue.severity_rank,
-                    MaskQCIssue.created_at.desc(),
-                    MaskQCIssue.id.desc(),
-                ).limit(limit + 1)
-            )
-        ).scalars()
+        cursor_rank, cursor_created_at, cursor_id = decode_issue_cursor(cursor)
+    data = await quality_data_command(
+        db,
+        ListMaskQCIssues(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="list_issues",
+            project_id=project_id,
+            limit=limit + 1,
+            status=status,
+            severity=severity,
+            code=code,
+            task_id=task_id,
+            annotation_id=annotation_id,
+            frame=frame,
+            allowed_task_ids=(
+                sorted(allowed_task_ids, key=str)
+                if allowed_task_ids is not None
+                else None
+            ),
+            cursor_rank=cursor_rank,
+            cursor_created_at=cursor_created_at,
+            cursor_id=cursor_id,
+        ),
+    )
+    rows = (
+        [model_from_quality_row(MaskQCIssue, row) for row in data]
+        if isinstance(data, list)
+        else []
     )
     next_cursor = encode_issue_cursor(rows[limit - 1]) if len(rows) > limit else None
     return rows[:limit], next_cursor
 
 
 async def qc_digest_for_issues(
-    db: AsyncSession, *, run: MaskQCRun, task_id: uuid.UUID
+    db: AsyncSession,
+    *,
+    run: MaskQCRun,
+    task_id: uuid.UUID,
+    issues: list[MaskQCIssue] | None = None,
 ) -> str:
-    issues = list(
-        (
-            await db.execute(
-                select(MaskQCIssue).where(
-                    MaskQCIssue.task_id == task_id,
-                    MaskQCIssue.last_seen_run_id == run.id,
-                )
-            )
-        ).scalars()
-    )
+    if issues is None:
+        rows = await quality_data_command(
+            db,
+            ReadTaskRunMaskQCIssues(
+                schema=QUALITY_DATA_PROTOCOL,
+                operation="read_task_run_issues",
+                task_id=task_id,
+                run_id=run.id,
+            ),
+        )
+        issues = (
+            [model_from_quality_row(MaskQCIssue, row) for row in rows]
+            if isinstance(rows, list)
+            else []
+        )
     statuses = await effective_issue_statuses(db, issues)
     evidence = []
     for issue in issues:
@@ -715,25 +825,14 @@ async def qc_digest_for_issues(
 
 
 async def current_task_source_snapshot(
-    db: AsyncSession, *, task_id: uuid.UUID
+    db: AsyncSession, *, task_id: uuid.UUID, project_id: uuid.UUID
 ) -> tuple[list[dict[str, Any]], str | None]:
     """Return the current Mask source snapshot and its deterministic digest."""
 
-    annotations = list(
-        (
-            await db.execute(
-                select(Annotation)
-                .where(
-                    Annotation.task_id == task_id,
-                    Annotation.is_active.is_(True),
-                    Annotation.was_cancelled.is_(False),
-                    Annotation.geometry["type"].astext.in_(
-                        ("raster_mask", "video_track_mask")
-                    ),
-                )
-                .order_by(Annotation.id)
-            )
-        ).scalars()
+    annotations = await _selected_annotations(
+        db,
+        project_id=project_id,
+        request=MaskQCRunRequest(scope="task_ids", task_ids=[task_id]),
     )
     if not annotations:
         return [], None
@@ -747,17 +846,16 @@ async def latest_task_run(
 ) -> MaskQCRun | None:
     """Find the newest run whose frozen scope contains the task."""
 
-    return (
-        await db.execute(
-            select(MaskQCRun)
-            .where(
-                MaskQCRun.project_id == project_id,
-                MaskQCRun.task_snapshot_digests.op("?")(str(task_id)),
-            )
-            .order_by(MaskQCRun.created_at.desc(), MaskQCRun.id.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    row = await quality_data_command(
+        db,
+        FindLatestTaskMaskQCRun(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="find_latest_task_run",
+            project_id=project_id,
+            task_id=task_id,
+        ),
+    )
+    return model_from_quality_row(MaskQCRun, row) if isinstance(row, dict) else None
 
 
 async def task_qc_summary(
@@ -765,7 +863,9 @@ async def task_qc_summary(
 ) -> dict[str, Any]:
     """Build the task summary from current versions, never from stale job payloads."""
 
-    _snapshot, current_digest = await current_task_source_snapshot(db, task_id=task.id)
+    _snapshot, current_digest = await current_task_source_snapshot(
+        db, task_id=task.id, project_id=task.project_id
+    )
     config = load_mask_qc_config(project.mask_qc_config)
     if current_digest is None or not config.enabled:
         return {
@@ -798,15 +898,19 @@ async def task_qc_summary(
         and run.config_digest == mask_qc_config_digest(config)
     )
     counts: dict[str, int] = {}
-    issue_rows = list(
-        (
-            await db.execute(
-                select(MaskQCIssue).where(
-                    MaskQCIssue.task_id == task.id,
-                    MaskQCIssue.last_seen_run_id == run.id,
-                )
-            )
-        ).scalars()
+    issue_data = await quality_data_command(
+        db,
+        ReadTaskRunMaskQCIssues(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_task_run_issues",
+            task_id=task.id,
+            run_id=run.id,
+        ),
+    )
+    issue_rows = (
+        [model_from_quality_row(MaskQCIssue, row) for row in issue_data]
+        if isinstance(issue_data, list)
+        else []
     )
     statuses = await effective_issue_statuses(db, issue_rows)
     for issue in issue_rows:
@@ -815,7 +919,9 @@ async def task_qc_summary(
         if status == "open":
             counts[issue.severity] = counts.get(issue.severity, 0) + 1
 
-    qc_digest = await qc_digest_for_issues(db, run=run, task_id=task.id)
+    qc_digest = await qc_digest_for_issues(
+        db, run=run, task_id=task.id, issues=issue_rows
+    )
     return {
         "task_id": task.id,
         "run_id": run.id,
@@ -833,23 +939,24 @@ async def current_completed_task_run(
 ) -> tuple[MaskQCRun | None, str | None]:
     """Return completed evidence matching current sources and current config."""
 
-    _snapshot, source_digest = await current_task_source_snapshot(db, task_id=task.id)
+    _snapshot, source_digest = await current_task_source_snapshot(
+        db, task_id=task.id, project_id=task.project_id
+    )
     if source_digest is None:
         return None, None
     config_digest = mask_qc_config_digest(load_mask_qc_config(project.mask_qc_config))
-    run = (
-        await db.execute(
-            select(MaskQCRun)
-            .where(
-                MaskQCRun.project_id == project.id,
-                MaskQCRun.status == "completed",
-                MaskQCRun.config_digest == config_digest,
-                MaskQCRun.task_snapshot_digests[str(task.id)].astext == source_digest,
-            )
-            .order_by(MaskQCRun.completed_at.desc(), MaskQCRun.id.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    row = await quality_data_command(
+        db,
+        FindCurrentCompletedTaskMaskQCRun(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="find_current_completed_task_run",
+            project_id=project.id,
+            task_id=task.id,
+            config_digest=config_digest,
+            source_digest=source_digest,
+        ),
+    )
+    run = model_from_quality_row(MaskQCRun, row) if isinstance(row, dict) else None
     return run, source_digest
 
 
@@ -860,53 +967,36 @@ async def current_open_task_issues(
     severity: str | None = None,
     issue_ids: set[uuid.UUID] | None = None,
 ) -> list[MaskQCIssue]:
-    query = select(MaskQCIssue).where(
-        MaskQCIssue.task_id == task_id,
-        MaskQCIssue.status == "open",
-        _effective_current_clause(),
+    rows = await quality_data_command(
+        db,
+        ReadOpenTaskMaskQCIssues(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_open_task_issues",
+            task_id=task_id,
+            severity=severity,
+            issue_ids=sorted(issue_ids, key=str) if issue_ids is not None else None,
+        ),
     )
-    if severity is not None:
-        query = query.where(MaskQCIssue.severity == severity)
-    if issue_ids is not None:
-        query = query.where(MaskQCIssue.id.in_(issue_ids))
-    return list((await db.execute(query.order_by(MaskQCIssue.id))).scalars())
+    return (
+        [model_from_quality_row(MaskQCIssue, row) for row in rows]
+        if isinstance(rows, list)
+        else []
+    )
 
 
 async def complete_run_summary(db: AsyncSession, *, run: MaskQCRun) -> dict[str, Any]:
     """Aggregate persisted issue counts without loading RLE payloads."""
-
-    effective_status = case(
-        (
-            or_(
-                MaskQCIssue.status == "stale",
-                ~_effective_current_clause(),
-            ),
-            "stale",
+    data = await quality_data_command(
+        db,
+        ReadMaskQCRunSummary(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_run_summary",
+            run_id=run.id,
         ),
-        else_=MaskQCIssue.status,
-    ).label("effective_status")
-    rows = (
-        await db.execute(
-            select(
-                MaskQCIssue.severity,
-                effective_status,
-                func.count(MaskQCIssue.id),
-            )
-            .where(MaskQCIssue.last_seen_run_id == run.id)
-            .group_by(MaskQCIssue.severity, effective_status)
-        )
-    ).all()
-    summary = dict(run.summary or {})
-    summary["issue_count"] = sum(int(count) for _, _, count in rows)
-    summary["issues_by_severity"] = {
-        severity: sum(int(count) for sev, _, count in rows if sev == severity)
-        for severity in ("blocker", "warning", "info")
-    }
-    summary["issues_by_status"] = {
-        status: sum(int(count) for _, row_status, count in rows if row_status == status)
-        for status in ("open", "resolved", "wont_fix", "stale")
-    }
-    return summary
+    )
+    if not isinstance(data, dict):
+        raise RuntimeError("Mask QC owner returned invalid run summary")
+    return data
 
 
 async def fail_mask_qc_run(
@@ -919,6 +1009,16 @@ async def fail_mask_qc_run(
 
     now = datetime.now(timezone.utc)
     if run.status not in {"completed", "cancelled"}:
+        await quality_data_command(
+            db,
+            FailMaskQCRun(
+                schema=QUALITY_DATA_PROTOCOL,
+                operation="fail_run",
+                run_id=run.id,
+                at=now,
+                error_message=error[:4000],
+            ),
+        )
         run.status = "failed"
         run.error_message = error[:4000]
         run.completed_at = now
@@ -936,7 +1036,20 @@ async def dispatch_mask_qc_run(
 ) -> None:
     """Dispatch only after the caller committed the paired run/job rows."""
 
-    run = await db.get(MaskQCRun, run_id)
+    run_data = await quality_data_command(
+        db,
+        ReadMaskQCRun(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_run",
+            run_id=run_id,
+            lock=False,
+        ),
+    )
+    run = (
+        model_from_quality_row(MaskQCRun, run_data)
+        if isinstance(run_data, dict)
+        else None
+    )
     job = await async_job_svc.get_job(db, async_job_id)
     if run is None or job is None or not job.celery_task_id:
         raise MaskQCError(
@@ -948,11 +1061,18 @@ async def dispatch_mask_qc_run(
         dispatcher.dispatch_run("mask_qc", run.id, execution_id=job.celery_task_id)
     except Exception as exc:
         await db.rollback()
-        run = (
-            await db.execute(
-                select(MaskQCRun).where(MaskQCRun.id == run_id).with_for_update()
-            )
-        ).scalar_one()
+        run_data = await quality_data_command(
+            db,
+            ReadMaskQCRun(
+                schema=QUALITY_DATA_PROTOCOL,
+                operation="read_run",
+                run_id=run_id,
+                lock=True,
+            ),
+        )
+        if not isinstance(run_data, dict):
+            raise RuntimeError("Mask QC run disappeared during dispatch failure")
+        run = model_from_quality_row(MaskQCRun, run_data)
         error = f"Mask QC dispatch failed: {type(exc).__name__}: {exc}"
         await fail_mask_qc_run(db, run=run, error=error)
         await db.commit()
@@ -965,21 +1085,28 @@ async def dispatch_mask_qc_run(
 
 async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
     """Reconcile the QC ledger without committing the caller's transaction."""
-    run = (
-        await db.execute(
-            select(MaskQCRun)
-            .where(MaskQCRun.async_job_id == terminal.job_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    row = await quality_data_command(
+        db,
+        ReadMaskQCRunByJob(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_run_by_job",
+            async_job_id=terminal.job_id,
+        ),
+    )
+    run = model_from_quality_row(MaskQCRun, row) if isinstance(row, dict) else None
     if run is None or run.status not in {"pending", "running"}:
         return
-    if terminal.cancelled:
-        run.status = "cancelled"
-    else:
-        run.status = "failed"
-        run.error_message = (terminal.error or "")[:4000]
-    run.completed_at = datetime.now(timezone.utc)
+    await quality_data_command(
+        db,
+        ReconcileMaskQCRun(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="reconcile_run",
+            run_id=run.id,
+            at=datetime.now(timezone.utc),
+            terminal_cancelled=terminal.cancelled,
+            error_message=(terminal.error or "")[:4000],
+        ),
+    )
 
 
 async def resolve_repair_issue(
@@ -989,9 +1116,13 @@ async def resolve_repair_issue(
     actor_id: uuid.UUID,
 ) -> None:
     """Resolve a QC issue atomically with its accepted repair mutation."""
-    issue = await db.get(MaskQCIssue, issue_id)
-    if issue is None:
-        return
-    issue.status = "resolved"
-    issue.resolved_by_id = actor_id
-    issue.resolved_at = datetime.now(timezone.utc)
+    await quality_data_command(
+        db,
+        ResolveRepairedMaskQCIssue(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="resolve_repaired_issue",
+            issue_id=issue_id,
+            actor_id=actor_id,
+            decided_at=datetime.now(timezone.utc),
+        ),
+    )

@@ -9,12 +9,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import case, select, update
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJobStatus
-from app.db.models.mask_qc import MaskQCIssue, MaskQCRun
+from app.db.models.mask_qc import MaskQCRun
 from aap_workspace.mask_configuration_values import MaskQCConfig
 from app.services.mask_qc import (
     SingleFrameThresholds,
@@ -39,6 +37,21 @@ from app.services.raster_mask_storage import (
 )
 from app.services.video_tracks import resolve_mask_track_state_at_frame
 from app.utils.raster_mask_rle import coco_rle_bbox_norm
+from aap_labeling.quality_data_contract import (
+    BeginMaskQCRun,
+    CancelMaskQCRun,
+    CompleteMaskQCRun,
+    FailMaskQCRun,
+    MarkMaskQCIssuesSeen,
+    ProgressMaskQCRun,
+    QUALITY_DATA_PROTOCOL,
+    ReadMaskQCRun,
+    UpsertMaskQCIssue,
+)
+from app.services.labeling_quality_data import (
+    model_from_quality_row,
+    quality_data_command,
+)
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +135,15 @@ async def _mark_cancelled(
     job_lifecycle: QualityJobLifecycle,
 ) -> None:
     now = datetime.now(timezone.utc)
+    await quality_data_command(
+        db,
+        CancelMaskQCRun(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="cancel_run",
+            run_id=run.id,
+            at=now,
+        ),
+    )
     run.status = "cancelled"
     run.completed_at = now
     if run.async_job_id is not None:
@@ -141,6 +163,15 @@ async def _update_progress(
     job_lifecycle: QualityJobLifecycle,
 ) -> None:
     pct = min(95, max(1, int(completed * 90 / max(total, 1)) + 5))
+    await quality_data_command(
+        db,
+        ProgressMaskQCRun(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="progress_run",
+            run_id=run.id,
+            progress_pct=pct,
+        ),
+    )
     run.progress_pct = pct
     if run.async_job_id is not None:
         await job_lifecycle.update_progress(run.async_job_id, pct)
@@ -227,32 +258,15 @@ async def _persist_issue(
         "source": source,
         "suggestion": _SUGGESTIONS.get(code),
     }
-    statement = insert(MaskQCIssue).values(**values)
-    excluded = statement.excluded
-    statement = statement.on_conflict_do_update(
-        constraint="uq_mask_qc_issues_dedupe",
-        set_={
-            "severity": excluded.severity,
-            "severity_rank": excluded.severity_rank,
-            "status": case(
-                (excluded.status == "stale", "stale"),
-                (
-                    MaskQCIssue.status.in_(("resolved", "wont_fix")),
-                    MaskQCIssue.status,
-                ),
-                else_="open",
-            ),
-            "metric": excluded.metric,
-            "threshold": excluded.threshold,
-            "region_bbox": excluded.region_bbox,
-            "region_mask_ref": excluded.region_mask_ref,
-            "region_digest": excluded.region_digest,
-            "source": excluded.source,
-            "suggestion": excluded.suggestion,
-            "updated_at": datetime.now(timezone.utc),
-        },
+    values["updated_at"] = datetime.now(timezone.utc)
+    await quality_data_command(
+        db,
+        UpsertMaskQCIssue(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="upsert_issue",
+            issue=values,
+        ),
     )
-    await db.execute(statement)
 
 
 async def _scan_single_frame(
@@ -611,18 +625,31 @@ async def _execute_scan(
         "overlap_pairs": overlap_pairs,
     }
     if seen_keys:
-        await db.execute(
-            update(MaskQCIssue)
-            .where(
-                MaskQCIssue.project_id == run.project_id,
-                MaskQCIssue.dedupe_key.in_(sorted(seen_keys)),
-            )
-            .values(last_seen_run_id=run.id)
+        await quality_data_command(
+            db,
+            MarkMaskQCIssuesSeen(
+                schema=QUALITY_DATA_PROTOCOL,
+                operation="mark_seen",
+                project_id=run.project_id,
+                run_id=run.id,
+                dedupe_keys=sorted(seen_keys),
+            ),
         )
     run.summary = await complete_run_summary(db, run=run)
+    now = datetime.now(timezone.utc)
+    await quality_data_command(
+        db,
+        CompleteMaskQCRun(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="complete_run",
+            run_id=run.id,
+            at=now,
+            summary=run.summary,
+        ),
+    )
     run.status = "completed"
     run.progress_pct = 100
-    run.completed_at = datetime.now(timezone.utc)
+    run.completed_at = now
     if run.async_job_id is not None:
         await job_lifecycle.mark_complete(
             run.async_job_id,
@@ -639,11 +666,20 @@ async def execute_run(
     celery_task_id: str | None,
     job_lifecycle: QualityJobLifecycle,
 ) -> None:
+    run_data = await quality_data_command(
+        db,
+        ReadMaskQCRun(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="read_run",
+            run_id=run_id,
+            lock=True,
+        ),
+    )
     run = (
-        await db.execute(
-            select(MaskQCRun).where(MaskQCRun.id == run_id).with_for_update()
-        )
-    ).scalar_one_or_none()
+        model_from_quality_row(MaskQCRun, run_data)
+        if isinstance(run_data, dict)
+        else None
+    )
     if run is None or run.status != "pending":
         return
     if run.async_job_id is None:
@@ -656,8 +692,18 @@ async def execute_run(
         await db.commit()
         return
 
+    started_at = datetime.now(timezone.utc)
+    await quality_data_command(
+        db,
+        BeginMaskQCRun(
+            schema=QUALITY_DATA_PROTOCOL,
+            operation="begin_run",
+            run_id=run.id,
+            at=started_at,
+        ),
+    )
     run.status = "running"
-    run.started_at = run.started_at or datetime.now(timezone.utc)
+    run.started_at = run.started_at or started_at
     run.progress_pct = max(run.progress_pct, 1)
     await job_lifecycle.mark_running(run.async_job_id, celery_task_id=celery_task_id)
     await job_lifecycle.update_progress(run.async_job_id, 1)
@@ -667,18 +713,54 @@ async def execute_run(
         await _execute_scan(db, run, job_lifecycle)
     except _MaskQCCancelled:
         await db.rollback()
-        run = await db.get(MaskQCRun, run_id)
+        run_data = await quality_data_command(
+            db,
+            ReadMaskQCRun(
+                schema=QUALITY_DATA_PROTOCOL,
+                operation="read_run",
+                run_id=run_id,
+                lock=False,
+            ),
+        )
+        run = (
+            model_from_quality_row(MaskQCRun, run_data)
+            if isinstance(run_data, dict)
+            else None
+        )
         if run is not None:
             await _mark_cancelled(db, run, job_lifecycle)
             await db.commit()
     except Exception as exc:  # noqa: BLE001
         await db.rollback()
-        run = await db.get(MaskQCRun, run_id)
+        run_data = await quality_data_command(
+            db,
+            ReadMaskQCRun(
+                schema=QUALITY_DATA_PROTOCOL,
+                operation="read_run",
+                run_id=run_id,
+                lock=False,
+            ),
+        )
+        run = (
+            model_from_quality_row(MaskQCRun, run_data)
+            if isinstance(run_data, dict)
+            else None
+        )
         if run is None:
             raise
-        run.status = "failed"
         run.error_message = f"{type(exc).__name__}: {exc}"[:4000]
         run.completed_at = datetime.now(timezone.utc)
+        await quality_data_command(
+            db,
+            FailMaskQCRun(
+                schema=QUALITY_DATA_PROTOCOL,
+                operation="fail_run",
+                run_id=run.id,
+                at=run.completed_at,
+                error_message=run.error_message,
+            ),
+        )
+        run.status = "failed"
         if run.async_job_id is not None:
             await job_lifecycle.mark_failed(run.async_job_id, error=run.error_message)
             await job_lifecycle.notify_terminal(job_id=run.async_job_id)
