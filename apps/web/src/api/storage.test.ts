@@ -30,26 +30,29 @@ it("pages avatar binding candidates with cancellation and uses reviewed apply pa
   });
 });
 
-it("routes import binding review and confirmation to its own endpoints", () => {
-  const signal = new AbortController().signal;
-  storageApi.bindingCandidates("import", 40, signal, 20);
-  expect(api.get).toHaveBeenCalledWith(
-    "/storage-locations/bindings/import/candidates?limit=20&offset=40",
-    { signal },
-  );
-  const payload = {
-    expected_generation: 3,
-    target_location_id: "target",
-    target_config_revision: 7,
-  };
-  storageApi.previewBinding("import", payload);
-  expect(api.post).toHaveBeenCalledWith(
-    "/storage-locations/bindings/import/change-preview",
-    payload,
-  );
-  storageApi.applyBinding("import", { ...payload, impact_token: "import-reviewed" });
-  expect(api.patch).toHaveBeenCalledWith("/storage-locations/bindings/import", {
-    ...payload,
-    impact_token: "import-reviewed",
-  });
-});
+it.each(["import", "datasets"] as const)(
+  "routes %s binding review and confirmation to its own endpoints",
+  (purpose) => {
+    const signal = new AbortController().signal;
+    storageApi.bindingCandidates(purpose, 40, signal, 20);
+    expect(api.get).toHaveBeenCalledWith(
+      `/storage-locations/bindings/${purpose}/candidates?limit=20&offset=40`,
+      { signal },
+    );
+    const payload = {
+      expected_generation: 3,
+      target_location_id: "target",
+      target_config_revision: 7,
+    };
+    storageApi.previewBinding(purpose, payload);
+    expect(api.post).toHaveBeenCalledWith(
+      `/storage-locations/bindings/${purpose}/change-preview`,
+      payload,
+    );
+    storageApi.applyBinding(purpose, { ...payload, impact_token: `${purpose}-reviewed` });
+    expect(api.patch).toHaveBeenCalledWith(`/storage-locations/bindings/${purpose}`, {
+      ...payload,
+      impact_token: `${purpose}-reviewed`,
+    });
+  },
+);
