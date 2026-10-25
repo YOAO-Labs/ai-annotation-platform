@@ -223,9 +223,14 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
                 text(
                     "INSERT INTO public.audit_logs(id,action,created_at,detail_json) "
                     "VALUES (9223372036854775807,:action,'2001-02-02T03:04:05Z',"
-                    '\'[null,{"integer":9007199254740993},true,"文本"]\'::jsonb)'
+                    "CAST(:detail AS jsonb))"
                 ),
-                {"action": action},
+                {
+                    "action": action,
+                    "detail": json.dumps(
+                        [None, {"integer": 9007199254740993}, True, "文本"]
+                    ),
+                },
             )
         async with _cli(
             image, tmp_path / "ensure", maintenance, bucket, "ensure-partitions"
