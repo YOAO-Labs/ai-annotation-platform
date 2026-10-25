@@ -1,6 +1,6 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12与B13各切片至B3-M1 completed locally；Tracker M2未启动。B14头像、B15报告附件、B16审计归档、B17导出、B18导入暂存已交付；B19数据集原件新分配切换已完成隔离验收、主树集成与人工0251刷新。Mask旧摘要问题已窄修并验证实际发布；annotations、media-cache、training三用途仍锁定，完整E02继续执行，不分配发布版本。
+> 状态：E02-A、B1–B12与B13各切片至B3-M1 completed locally；Tracker M2未启动。B14头像、B15报告附件、B16审计归档、B17导出、B18导入暂存、B19数据集原件已交付；B20媒体缓存新分配切换已完成隔离验收、主树集成与人工0252刷新。Mask旧摘要问题已窄修并验证实际发布；annotations和training两用途仍锁定，完整E02继续执行，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -13,6 +13,12 @@
 ## 本轮定稿：E02-B20／E09-B13 媒体缓存新分配位置切换
 
 基于`0e0ee279c`沿原始S04／AC05、AC10继续media-cache用途。复用原图缓存、金字塔和视频派生owner；目录预览与普通Dataset／Task缩略图补共享耐久输出，旧及在途地址保持。只补地址、当前凭据、同源浏览器读回、引用保护和既有清理，annotations／training仍锁定；不增加算法、Tracker／审核、渲染资格或规模测量。准确schema、字段、接口和验证以[E09-B13合同](1792661016_dataset-storage-console-boundaries.md#本轮定稿e02-b20e09-b13-媒体缓存新分配位置切换)为准，沿既有整套实施／提交授权执行。
+
+## E02-B20 Outcome：媒体缓存新分配位置切换
+
+实现`e112b7336`及真实网格并发入场修复`0314036a7`已通过`dc896f4fb`合入。完整原图缓存、目录预览、普通缩略图、金字塔和视频派生的新分配跟随当前绑定，历史和在途输出保存原位置；当前凭据、同源交付、全部状态保护及准确清理沿既有责任接线。真实A／B、回切、轮换撤销、门禁、旧schema1／NULL、物理版本清理及明暗／窄屏确认通过；宿主金字塔原生生成器不可用，严格保留存储接线证据边界。检查数量、浏览器缺图根因／红绿回归、清理和限制统一见[E09-B13 Outcome](1792661016_dataset-storage-console-boundaries.md#e09-b13-outcome媒体缓存新分配位置切换)，不重复累计。
+
+人工0252及原3100／8100、两个73任务Worker／Beat已刷新；172表9,230行、24对象版本／删除标记与12源文件旧字段摘要保持，新nullable字段未回填。现开放七用途，annotations和training两用途继续锁定，完整E02仍活动；不新增训练测量、Tracker或全恢复前置。
 
 ## 本轮定稿：E02-B19／E09-B12 数据集原件新写入位置切换
 
