@@ -3,6 +3,44 @@
 > 状态：E09-A、B1–B13已完成各自本地交付；B13媒体缓存新分配切换已完成隔离验收、主树集成与人工0252刷新。头像、报告附件、审计归档、导出、导入暂存、数据集原件和媒体缓存七用途可受控切换，annotations和training两用途仍锁定；Mask旧摘要问题已窄修并验证实际标注发布。位置影响、配置确认、逻辑维护与原件保留／核验沿既有E11交付；实际迁移与物理退役未完成，完整E09继续活动，不分配发布版本。
 > 转入日期：2026-10-22；A 切片验收：2026-10-23；初始调研基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 
+## 本轮定稿：E02-B21／E09-B14 标注文件新分配位置切换
+
+2026-10-25，基于干净`c490aad54`复核原始E02-S04／AC05、AC10及E09-S05／§4.4，沿用户整套实施／提交授权approved。上一片media-cache已合入并刷新人工0252，当前七用途可切换；本片仅开放annotations新分配，training继续锁定。不改标注画布、Tracker、会话、审核、模型、RLE编码或Mask格式算法，也不增加规模测量、渲染资格或全恢复前置。
+
+### 责任与地址合同
+
+复用四组现有责任：ManagedOriginalCreation＋TaskOriginal的独立Task原件，RasterMaskObject／Publication的持久RLE对象，CommentAttachmentUpload的评论附件，以及GuideAssetUpload的指南图片。普通geometry仍在PostgreSQL，Mask格式暂存属import，缩略图属media-cache，不因名称重复纳入本用途。仅TaskOriginal新增nullable storage_ref；另外三组扩展已有引用及CHECK，不新增责任表、GC、调度、依赖或环境变量。
+
+新增annotations_storage集中解释schema2，保持旧schema1及Task旧NULL原样。新引用为封闭十字段：schema、purpose、location_id、config_revision、binding_generation、endpoint_url、bucket、object_key、storage_identity、key_prefix。schema为2、purpose为annotations；完整物理key为受控根加既有逻辑UUID键。最长Task逻辑后缀104个ASCII字符，因此根连同`_aap_managed/annotations/`最多896字符／920个UTF-8字节，完整key继续受1000字符／1024字节限制。登记根允许既有合法Unicode；新引用不携带密钥。legacy目标的根为空、配置修订1；回切A的新代次合法，旧schema1仍只表示原代次1。
+
+纯helper接口为resolve_ref(ref, expected_key=None)、make_ref(target, generation, physical_key)、legacy_ref(bucket, logical_key)、target_for(db, location, require_enabled=True)、target_for_ref(db, ref, require_enabled=True)及allocate(db, logical_key)。expected_key是原逻辑key，校验physical等于root＋logical；make_ref接收完整物理key。legacy_ref只作运行时适配，不回填旧owner。allocate在调用方短事务按Connection→Location→Binding共享锁固定当前目标，业务锁场景用可恢复savepoint／NOWAIT；调用方持久owner并提交之后才打开provider。Task Creation沿已有独立短分配事务使用同一目标helper；保存地址和当前凭据sidecar分离，实时endpoint／bucket／受控根必须相同，正常轮换不改变冻结事实或首次期限。
+
+Task Creation的新configuration.schema2／original_ref按owner_kind选择annotations解析，datasets分支保持。旧在途Task不再与今天的Binding比较，仍核对其封存配置／原地址。TaskOriginal.FACTS、OriginalSource／ReplicaFacts／LocationFacts及旧序列化合同保持，新地址参与独立owner的幂等与物理定位。canonical Task分支从实际TaskOriginal读取保存引用准备当前transport，不从Task.file_path猜全局桶；只修直接可达的旧Task供图fallback，不扩为模型流程资格。
+
+RLE、评论和指南保持各自逻辑key、内容SHA／长度、RLE portable reference、权限／发布状态及既有清理边界。三个family codec保留schema1解释，仅新schema2转交共享helper；物理client在原permit内用保存目标打开／关闭。评论附件保留首次90天期限，指南对外entry必须仍返回原逻辑key，不能返回带受控根的物理key而破坏现有四段identifier。清理继续完整内容与现行条件删除核验，不因用途切换扩大版本清理或原件物理退役权限。未定位旧对象继续原有拒绝，不新增全库补认或历史修复前置。
+
+```text
+已登记连接／Location → annotations Binding → 短事务持久owner
+                                             ↓
+Task原件／RLE／评论／指南 → 保存地址＋当前凭据 → 原permit内S3
+                                             ↓
+                              既有认证读取／发布／清理
+```
+
+### 控制面、影响与迁移
+
+复用候选→实际探针→五分钟预览→锁内确认／审计。新接口为`/storage-locations/bindings/annotations`及`/candidates`、`/change-preview`，DTO为AnnotationsBinding系列，write_policy为reviewed_annotations_switch。history列task_originals、creation_allocations（仅task）、raster_mask_objects、comment_attachments、guide_assets五类责任记录，说明不能相加冒充对象总数。探针只验证当前原件与附件所需条件PUT、非空条件MPU、完整读回及准确收尾，复用datasets既有物理探针；不附加供应商性能或业务测量。
+
+0253接0252，增加Task引用并调整四组地址约束／不可变保护，不回填旧记录。存在新引用时拒绝破坏性降级；应用回退保留schema，可受控切回后续分配。位置／连接改向及删除保护所有保存状态和Task Creation；占用按实际endpoint／bucket／完整key分类，外部B不计入A部署盘点。九桶恢复在首次映射修改前拒绝新Task／Creation／RLE／评论／指南地址事实，切回A或已退役也不绕过，不把跨目标整库恢复加入本片。
+
+### 文件、分工与验收
+
+这是同一用途跨四组owner及控制面的接线，明确超过8文件／3组件。核心为新annotations_storage／annotations_storage_target、managed_s3_target、dataset_assets、TaskOriginal／三个owner模型及0253，managed_original_creation、task_originals、original_sources和必要的storage／workers.tasks旧fallback；三组消费者为raster_object_storage／raster_mask_objects、comment_attachment_storage／uploads、guide_asset_storage／uploads及直接调用；控制为annotations_binding_change、storage_location schema／storage_locations API、storage API／useStorage／既有Binding Modal和Console。保护与分类落storage_location、storage_usage_categories、worktree_recovery_mapping及定向测试。同步openapi.snapshot、本树生成类型、SDK coverage合同、README／CHANGELOG、用户存储指南、API指南、开发存储概念和恢复说明。
+
+按当前HEAD创建独立树：基础／Task接线 → 三组消费者及控制面集成 → 保存地址保护／计量／恢复边界 → 真实A／B和浏览器 → 主树／人工迁移。修改代理有独立tree与不重叠文件范围，提交后父树集中，不将半合同代码放入活动人工环境。单元／DB通过`pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest <affected tests> -p no:cacheprovider'`，SDK沿aap-sdk-contracts；Web沿现有Vitest／tsc／CSS token，实际API快照codegen，正式文档构建。所有数据库验证仅所属可销毁test；真实provider用独立e2e与小型合成原件／附件／RLE，验证旧／在途A、新B、回切A、当前密钥轮换与撤销、坏目标／竞争拒绝、逻辑键不变、同源认证读取及现有清理的准确目标。Modal做明暗×桌面／窄屏、Escape／焦点、滚动、溢出和实际请求检查，不重跑模型或既有标注状态机。
+
+正常提交并在完整合同验收后集成；人工先停所属Beat、确认两个Worker无active／reserved／scheduled，冻结既有表旧字段／对象版本／源文件摘要，迁移0253后复核保持，恢复原3100／8100和原队列／direct路由、73项任务与维护协议。不重建后端镜像、不升级版本／推送、不写入人工验收夹具；每轮清理所属测试中间产物，最终销毁test／e2e／B与临时树。只有本片完成才开放第八用途，完整E02／E09仍不归档。
+
 ## 本轮定稿：E02-B20／E09-B13 媒体缓存新分配位置切换
 
 2026-10-25，基于干净`0e0ee279c`复核原始E02-S04／AC05、AC10与E09-S05／§4.4，沿整套实施／提交授权approved。下一片开放`media-cache`的新分配位置，保持已保存A／B、在途尝试、内容与现有清理语义；`annotations`和`training`仍锁定。范围覆盖现用完整原图缓存、目录预览、普通Dataset／Task缩略图、金字塔及视频派生输出，不重做预览／转码／瓦片算法、Tracker、审核、训练、规模基线或全消费者资格。
