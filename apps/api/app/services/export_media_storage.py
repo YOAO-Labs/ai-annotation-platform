@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from app.config import settings
-from app.services.storage import storage_service
+from app.services import storage_presigning
 from app.services.storage_access import (
     close_registered,
     closing_registered,
@@ -378,6 +378,7 @@ def create_client():
         ),
     )
     try:
+        storage_presigning.install(client)
         client.meta.events.register("before-send.s3", same_origin)
     except BaseException:
         close_registered(client)
@@ -667,12 +668,13 @@ def signed_url(client, record, relative, *, now=None):
     if seconds <= 0:
         _reject("expired")
     try:
-        raw = client.generate_presigned_url(
+        return storage_presigning.generate_url(
+            client,
             "get_object",
-            Params={"Bucket": owner.bucket, "Key": key},
-            ExpiresIn=min(RETENTION_SECONDS, seconds),
+            params={"Bucket": owner.bucket, "Key": key},
+            expires_in=min(RETENTION_SECONDS, seconds),
+            audience="browser",
         )
-        return storage_service._public_url(raw)
     except Exception as exc:
         raise _translate(exc) from None
 

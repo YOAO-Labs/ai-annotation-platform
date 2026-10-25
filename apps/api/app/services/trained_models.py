@@ -32,7 +32,7 @@ from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 from app.services import training_run_storage
-from app.services.training_runs import internal_download, verify_artifact
+from app.services.training_runs import verify_artifact
 from app.services.training_artifacts import read_json_artifact
 from app.services.training_evaluations import parse_evaluation
 
@@ -434,7 +434,9 @@ async def assert_routable_backend(db, project_id, registry_id):
 
 
 def download_url(key, *, bucket):
-    return storage.rewrite_host_for_ml_backend(internal_download(key, bucket=bucket))
+    return storage.generate_download_url(
+        key, bucket=bucket, expires_in=600, align=False, audience="ml"
+    )
 
 
 def frozen_sample_location(project_id, dataset, task_id):
@@ -486,9 +488,7 @@ async def install_and_trial(db, project, version, deployment):
         [
             {
                 "id": sample["task_id"],
-                "file_path": storage.rewrite_host_for_ml_backend(
-                    internal_download(sample_key, bucket=owner.bucket)
-                ),
+                "file_path": download_url(sample_key, bucket=owner.bucket),
             },
         ],
         context=wire_context(ref, {"conf": 0.01}),

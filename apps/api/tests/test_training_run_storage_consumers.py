@@ -386,7 +386,6 @@ async def test_model_install_weights_and_trial_inputs_keep_distinct_owners(
     monkeypatch.setattr(models, "wire_context", lambda *args: {})
     monkeypatch.setattr(models, "validate_and_map_results", lambda *args: None)
     monkeypatch.setattr(models, "model_task", lambda _: "detect")
-    monkeypatch.setattr(storage, "rewrite_host_for_ml_backend", lambda value: value)
     before = deepcopy((world.version.artifact, world.version.provenance))
     await models.install_and_trial(
         world.db,

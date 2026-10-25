@@ -202,15 +202,15 @@ class MemoryStorage:
             self.world.metadata.pop((Bucket, Key), None)
         return {"ResponseMetadata": {"HTTPStatusCode": 204}}
 
-    def generate_download_url(self, key, *, expires_in, bucket, align, version_id):
+    def generate_download_url(
+        self, key, *, expires_in, bucket, align, version_id, audience
+    ):
+        assert audience == "ml"
         assert not self.closed and align is False
         assert version_id not in {None, "null"}
         self.world.expirations.append(expires_in)
         self.world.signed_versions.append(version_id)
         return f"http://ml-objects.test/{bucket}/{key}?signature=synthetic&versionId={version_id}"
-
-    def rewrite_host_for_ml_backend(self, url):
-        return url
 
     def close(self):
         self.closed = True

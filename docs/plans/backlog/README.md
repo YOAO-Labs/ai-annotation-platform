@@ -36,7 +36,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 | [E02 位置、连接与用途](../1792661016_dataset-storage-locations-connections.md)                     | 只读根、节点能力、九用途映射          | E01；授权矩阵与真实挂载      |
 | [E03 已有目录原地注册（已完成）](../archive/1792661016_dataset-in-place-directory-registration.md) | 不先复制原图即可浏览、关联和标注      | E02、E04-A、E05-A；最小权限  |
 | [E04 增量同步与任务](../archive/1792661016_dataset-incremental-sync-jobs.md)                       | 完整 E04 已验收归档；保留后续范围边界 | 手动/周期/裁决/导航完成      |
-| [E05 文件访问与缓存](../1792661016_dataset-asset-access-cache.md)                                  | 同内容读取、分离原图/预览和缓存       | E01/E02；读取/提交授权       |
+| [E05 文件访问与缓存](../archive/1792661016_dataset-asset-access-cache.md)                          | 同内容读取、分离原图/预览和缓存       | E01/E02；读取/提交授权       |
 | [E06 多站点 Agent](1792661016_dataset-multi-site-agent.md)                                         | 隔离站点出站扫描/读取和断线恢复       | 真实网络触发；不阻塞首目录   |
 | [E07 S3 选型与迁移](1792661016_dataset-s3-selection-migration.md)                                  | 候选契约、全用途迁移及回滚            | 试验独立；切换另过恢复门     |
 | [E08 数据集工作台与质量](../archive/1792661016_dataset-workbench-quality.md)                       | 完整 E08 已验收归档；含项目上下文统计 | 共享／近似重复按原计划后置   |

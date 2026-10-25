@@ -906,14 +906,14 @@ class PredictionInputs:
         )
         if seconds <= 0:
             reject("expired")
-        url = storage.generate_download_url(
+        return storage.generate_download_url(
             self.prefix + relative,
             expires_in=seconds,
             bucket=self.record.bucket,
             align=False,
             version_id=_immutable_version({"VersionId": verified["version_id"]}),
+            audience="ml",
         )
-        return storage.rewrite_host_for_ml_backend(url)
 
     async def _publish(self, relative, expected, verified):
         async def publish():

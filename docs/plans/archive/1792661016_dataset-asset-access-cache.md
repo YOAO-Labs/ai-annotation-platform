@@ -1,19 +1,43 @@
 # EPIC-05：统一文件访问、预览与缓存
 
-> 状态：E05-A/C1/C2-A、引用图片预测/修复/原生掩码及 E05-B1/B2 原图缓存与产品入口已完成本地验收；其余消费者与整项验收矩阵继续核对；不分配发布版本。
+> 状态：原始图片读取、预览、缓存与核心消费者范围已完成本地验收并归档；E05-D 补齐签名端点合同。真实目标部署资格另行核验，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 实施前须通过 [backlog promotion gate](../backlog/README.md#promotion-gate)。[草案总览](../backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](../backlog/1792661016_dataset-storage-architecture.md)和[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                     |
 | ------------- | -------------------------------------------------------- |
-| 状态          | 读取基座已完成，保留消费者接入与缓存治理的后续合同       |
+| 状态          | 读取与缓存治理已交付，收口原始验收矩阵及端点兼容         |
 | 日期          | 2026-10-22（Asia/Shanghai）                              |
 | 优先级 / 阶段 | P0：M1 文件访问与预览；P1：M2 缓存治理；P2：M3 就近读取  |
 | 负责角色      | 后端、媒体服务、前端、运维与测试                         |
 | 最小依赖      | E01 Asset/位置契约；E02 可达性；E11 授权切片             |
 | 下游          | E03 原地目录标注、E06 多站点、E08 样本浏览、E10 训练读取 |
 
-## 当前实施定案：E05-B 原图缓存与配额
+## 最终实施定案：E05-D 签名端点兼容
+
+基线 `fa6b945bb`。对应原始第 4 节和 AC08：现有 `prediction_inputs` 使用 SigV4，却在签名后改 Host；旧公共地址测试仅核对假签名字符串，真实 Worker 测试又令 ML Host 等于签名端点，未覆盖差异。修复只在签名前选择 browser/internal/ml 访问视角，保留不可变版本、精确有效期、原物理客户端与既有许可／关闭归属；不新建存储连接、不修改模型或 Tracker 流程。
+
+相对 `/minio` 签内部端点，由代理恢复该 Host 并去前缀；绝对公共地址签公共 origin，带前缀时要求代理去前缀并保留公共 Host。ML 配置为空时使用内部端点，不能意外继承浏览器地址。真实 MinIO 验证不同 Host、中文与保留字符、版本绑定、上传、代理子路径，以及签后改 Host 的实际拒绝；独立 Worker／HTTP 消费补差异 Host，浏览器使用现有同源代理读取一次性对象。沿用人工3100/8100，空闲后刷新两个受影响 Worker，不重建镜像。
+
+### 原始验收矩阵核对
+
+本表复核已有实现与各 Outcome 记录，不把只读核对当作新跑测试。Tracker M2、完整视频跨来源分段缓存和模型质量专项不增加为本轮条件。
+
+| 原始标准               | 已有证据／本次剩余                                                                                                               |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| AC01 统一读取          | `dataset_content`／`dataset_references` 覆盖受控目录、旧托管图片及逐适配器资格；S3/SFTP 的本地合同资格与真实远端部署资格分开记录 |
+| AC02 预览与原图状态    | `test_directory_policies` 及 B2-B 实际来源离线浏览器记录，预览不能替代原图                                                       |
+| AC03 变化拒绝          | `test_dataset_content` 的读取前／读取中变化及内容 receipt 发布检查                                                               |
+| AC04 当前授权与根边界  | `reference_context`／`key_authority` 及 B2-A 当前 Task／账号／Key 撤权回归                                                       |
+| AC05 内容独立缓存      | 不可变 Asset/SHA/generation；同路径覆盖仍读固定旧内容的完整缓存回归                                                              |
+| AC06 清理与重建        | 缺失预览按需重建、精确派生键清理；B1/B2 退休不删源原件、唯一托管原图或训练副本                                                   |
+| AC07 none 与临时回收   | none 不预约持久缓存，快照完成／取消／异常及迟到读取回收回归                                                                      |
+| AC08 网络与签名        | E05-D 已通过不同 Host 的真实 MinIO、独立 Worker/HTTP、浏览器同源代理和容器网桥传输；绝对公共部署的浏览器 CORS 仍按目标部署核验                                                                     |
+| AC09 Range／并发／配额 | 图片 Range 明确416；独立预约、去重、租约、固定TTL、LRU和删除失败持续计费已验证                                                   |
+| AC10 恢复核验          | 同内容明确复验保留旧Task/标注；变化内容不得仅凭连通性续用旧Asset                                                                 |
+| AC11 派生身份          | 预览有独立摘要和父Asset，严格原图快照及训练冻结不回退缩略图                                                                      |
+
+## 已完成实施定案：E05-B 原图缓存与配额
 
 基线 `f1b3bb89a`。完整 E05-B 仍按本计划第 6—10 节执行，分两段接入，不能把内部资源所有者当作离线标注已经开放。
 
@@ -152,18 +176,18 @@ strict reference_snapshot(worker:<hostname>) -> 临时快照 -> ZIP 原图
 
 | 当前 owner / 代码锚点                                            | 已有能力、缺口与复用约束                                                                                                                                   |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [storage.py](../../apps/api/app/services/storage.py)             | 复用 generate_download_url/\_public_url/rewrite_host_for_ml_backend/resolve_task_url；现有签后重写需连同 nginx/Host 合同验证后替换，不能直接删除兼容分支。 |
-| [dataset.py](../../apps/api/app/services/dataset.py)             | list_items 固定 datasets 签名；media、导出、ML、训练也有全局桶假设，调用方清单不能只含列表。                                                               |
-| [image_pyramid.py](../../apps/api/app/services/image_pyramid.py) | 复用金字塔 generation 和派生 owner；videos/ 短期缓存与 thumbnails/playback 的持久引用分开，不能按桶统一淘汰。                                              |
-| [nginx.conf](../../infra/docker/nginx.conf)                      | /minio/ 代理路径和 Host 是部署合同，浏览器/API/worker/ML 分别验证。                                                                                        |
+| [storage.py](../../../apps/api/app/services/storage.py)             | 复用 generate_download_url/\_public_url/rewrite_host_for_ml_backend/resolve_task_url；现有签后重写需连同 nginx/Host 合同验证后替换，不能直接删除兼容分支。 |
+| [dataset.py](../../../apps/api/app/services/dataset.py)             | list_items 固定 datasets 签名；media、导出、ML、训练也有全局桶假设，调用方清单不能只含列表。                                                               |
+| [image_pyramid.py](../../../apps/api/app/services/image_pyramid.py) | 复用金字塔 generation 和派生 owner；videos/ 短期缓存与 thumbnails/playback 的持久引用分开，不能按桶统一淘汰。                                              |
+| [nginx.conf](../../../infra/docker/nginx.conf)                      | /minio/ 代理路径和 Host 是部署合同，浏览器/API/worker/ML 分别验证。                                                                                        |
 
-候选修改入口：[storage.py](../../apps/api/app/services/storage.py)、[dataset.py](../../apps/api/app/services/dataset.py)、[media.py](../../apps/api/app/workers/media.py)、[image_pyramid.py](../../apps/api/app/services/image_pyramid.py)、[training_dataset.py](../../apps/api/app/workers/training_dataset.py)、[nginx.conf](../../infra/docker/nginx.conf)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[storage.py](../../../apps/api/app/services/storage.py)、[dataset.py](../../../apps/api/app/services/dataset.py)、[media.py](../../../apps/api/app/workers/media.py)、[image_pyramid.py](../../../apps/api/app/services/image_pyramid.py)、[training_dataset.py](../../../apps/api/app/workers/training_dataset.py)、[nginx.conf](../../../infra/docker/nginx.conf)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 要解决的问题
 
 数据集原图可以不在统一对象桶，但浏览器、标注工具、导出 worker 和训练 worker 仍需要一致的访问方式。后端必须负责定位、授权、内容身份校验和访问失败解释，不能要求前端理解服务器磁盘路径。
 
-现有 StorageService 已有签名 URL、内部/外部地址处理及任务 URL 解析。应把这些入口逐步迁移到统一解析契约，保留现有媒体派生资产生命周期约束。[代码依据：StorageService](../../apps/api/app/services/storage.py)
+现有 StorageService 已有签名 URL、内部/外部地址处理及任务 URL 解析。应把这些入口逐步迁移到统一解析契约，保留现有媒体派生资产生命周期约束。[代码依据：StorageService](../../../apps/api/app/services/storage.py)
 
 ## 2. 产品原则
 
@@ -291,13 +315,13 @@ M1 严格方案：对需要与标注绑定的可变原图，读取到受限临�
 
 ## 12. 工程任务与完成定义
 
-- [ ] 实现 access resolver、用途授权和统一错误映射。
-- [ ] 实现文件系统网关及可变源校验快照路径。
-- [ ] 实现预览派生、版本化缓存键和并发去重。
-- [ ] 补齐缓存额度、清理、临时文件回收与状态 API。
-- [ ] 替换前端直拼 URL 与业务层全局桶假设。
-- [ ] 验证浏览器/worker/ML 的网络和签名兼容矩阵。
-- [ ] 通过源变化、撤权、缓存损坏与原件不误删验收。
+- [x] 实现 access resolver、用途授权和统一错误映射。
+- [x] 实现文件系统网关及可变源校验快照路径。
+- [x] 实现预览派生、版本化缓存键和并发去重。
+- [x] 补齐缓存额度、清理、临时文件回收与状态 API。
+- [x] 替换前端直拼 URL 与业务层全局桶假设。
+- [x] 验证浏览器/worker/ML 的网络和签名兼容矩阵。
+- [x] 通过源变化、撤权、缓存损坏与原件不误删验收。
 
 完成定义：所有核心消费者以确定内容身份读取文件，用户能区分“可看预览”和“原图可用”，原地目录无需首次复制就能进入标注主流程。
 
@@ -312,11 +336,11 @@ M1 严格方案：对需要与标注绑定的可变原图，读取到受限临�
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_storage_public_url.py](../../apps/api/tests/test_storage_public_url.py)、[test_storage_event_loop.py](../../apps/api/tests/test_storage_event_loop.py)、[test_image_pyramid.py](../../apps/api/tests/test_image_pyramid.py)、[test_training_dataset_bridge.py](../../apps/api/tests/test_training_dataset_bridge.py)、[test_media_frame_seeking.py](../../apps/api/tests/test_media_frame_seeking.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_storage_public_url.py](../../../apps/api/tests/test_storage_public_url.py)、[test_storage_event_loop.py](../../../apps/api/tests/test_storage_event_loop.py)、[test_image_pyramid.py](../../../apps/api/tests/test_image_pyramid.py)、[test_training_dataset_bridge.py](../../../apps/api/tests/test_training_dataset_bridge.py)、[test_media_frame_seeking.py](../../../apps/api/tests/test_media_frame_seeking.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[storage-buckets.md](../../docs-site/dev/reference/storage-buckets.md)、[index.md](../../docs-site/user-guide/datasets/index.md)、[network-security.md](../../docs-site/ops/deploy/network-security.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[storage-buckets.md](../../../docs-site/dev/reference/storage-buckets.md)、[index.md](../../../docs-site/user-guide/datasets/index.md)、[network-security.md](../../../docs-site/ops/deploy/network-security.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## Outcome
 
@@ -465,3 +489,13 @@ M1 严格方案：对需要与标注绑定的可变原图，读取到受限临�
 - `README.md`、`CHANGELOG.md`、用户导入指南、内容/存储位置/预测/导出API和存储/预测架构说明已同步；OpenAPI、前端生成类型、路由索引与SDK覆盖清单更新。无新依赖、迁移、版本或镜像构建。Python lint/format、Web类型/ESLint/CSS token、文档构建、196页frontmatter、198页导航与197页可读性检查通过；保留既有CSS层级及测试AsyncMock告警，不宣称远程CI结果。
 - 人工3100/8100及普通/维护Worker、beat保留，更新的预测与缓存任务已注册且两队列空账本派发成功。临时来源、样本、原图/预览副本、通知、审计和作业已精确清理；业务仍为8数据集/12样本/7项目/12任务/7标注/0预测/67作业，0活动作业、输入租约和缓存账本。隔离test数据库、Redis和九桶由owner销毁，任务浏览器及中间产物清理后提交。
 - E05-B本地图片路径完成；完整E05的其余消费者和故事/验收矩阵仍须逐项核对，不归档。实施队列下一项为E10-B2冻结血缘与差异解释；节点训练缓存仍须有重复传输的实测瓶颈才启动。
+
+### E05-D Outcome — 签名端点与原始范围归档
+
+- 对照原始 S01–S06、AC01–AC11 与七项工程交付，统一读取／预览、严格快照、内容身份、缓存治理、当前授权和核心图片消费者均有实现及本地证据。E05-D 补齐剩余签名端点缺口，本计划归档。前文各阶段的“未完成／不归档”为当时记录，不再派生新的前置条件。
+- 签名由原客户端在 `before-sign.s3` 前选择 browser/internal/ml origin，预测保留确切 VersionId，上传 Content-Type 和原有效期不变。上下文按 client 隔离并在失败后恢复，不新增客户端、物理 I/O 或绕过归属许可。相对代理签内部 Host，绝对代理签公共 Host；路径式桶地址不足时明确拒绝，不丢桶名。
+- 本次338项不同后端检查通过，覆盖端点隔离、并发／异常恢复、上传与版本参数、预测输入、导出媒体、训练／模型消费者、视频输入和管线校验。另1项既有 `test_pending_job_replay_keeps_original_release_after_new_publication` 返回 `no_readable_original`；已在修改前 `fa6b945bb` 的独立源码快照执行并复现同一失败，不宣称全套回归通过，也不放宽严格原图门禁。
+- 真实MinIO验证中文／保留字符、不可变版本、差异Host GET／PUT、相对与绝对代理、错误Host及过期签名拒绝。独立Celery Worker经不同Host向HTTP模型夹具供图并采纳通过；真实浏览器通过现有3100同源代理完整读取27字节；已有镜像的临时只读容器经网桥网关读取一致原件，不加载模型或重建镜像。
+- 浏览器资格只覆盖当前同源部署；绝对公共origin的HTTP测试不冒充浏览器跨域CORS验收，TLS、CORS、异地网络及未指定S3产品仍是目标部署条件。完整视频跨来源缓存／转码、站点预取与Tracker M2不增加为本计划归档条件。算法质量、会话和审核改造不在本片范围。
+- 两类人工Worker空闲后通过原owner刷新，各注册73项任务并实际完成不存在扫描的无副作用派发；3100／8100和原Beat健康。13张业务表85行、24个对象完整字节、12个源文件指纹与刷新前一致；未修改共享环境配置。一次性test模式已由owner销毁，临时容器和浏览器关闭，任务中间产物清理后提交。
+- 正式文档：`docs-site/dev/concepts/storage-connections.md`、`docs-site/dev/concepts/prediction-pipeline.md`、`docs-site/ops/deploy/docker-compose.md`、`docs-site/dev/troubleshooting/container-networking.md`、`docs-site/user-guide/datasets/storage-connections.md`、`DEV.md`及`CHANGELOG.md`。OpenAPI路由／schema未改变；Ruff、文档构建／frontmatter／readability及diff检查通过。提交随本Outcome落地，不分配版本或宣称远程CI。

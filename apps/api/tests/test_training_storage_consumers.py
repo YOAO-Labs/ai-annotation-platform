@@ -534,7 +534,6 @@ async def test_model_install_keeps_weights_separate_from_the_trial_input(
     monkeypatch.setattr(trained_models, "wire_context", lambda *args: {})
     monkeypatch.setattr(trained_models, "validate_and_map_results", lambda *args: None)
     monkeypatch.setattr(trained_models, "model_task", lambda _: "detect")
-    monkeypatch.setattr(storage_service, "rewrite_host_for_ml_backend", lambda url: url)
 
     async def get(model_type, identifier):
         if model_type is TrainingAttempt:

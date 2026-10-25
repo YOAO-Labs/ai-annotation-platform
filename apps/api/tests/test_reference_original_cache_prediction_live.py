@@ -18,6 +18,7 @@ import uuid
 
 from celery.utils.nodenames import worker_direct
 import httpx
+import pytest
 from redis import Redis
 from sqlalchemy import delete, select
 from training_contract.model_return import segmentation_identity
@@ -186,13 +187,17 @@ async def _http_client(app, world):
 
 @asynccontextmanager
 async def _owned_worker(tmp_path, test_db_url, queue, node, published):
+    storage_endpoint = urlsplit(storage_service.client.meta.endpoint_url)
+    alternate_host = (
+        "localhost" if storage_endpoint.hostname == "127.0.0.1" else "127.0.0.1"
+    )
+    storage_host = f"{alternate_host}:{storage_endpoint.port}"
+    assert storage_host != storage_endpoint.netloc
     environment = dict(
         os.environ,
         DATABASE_URL=test_db_url,
         STORAGE_FILESYSTEM_ROOTS="{}",
-        ML_BACKEND_STORAGE_HOST=urlsplit(
-            storage_service.client.meta.endpoint_url
-        ).netloc,
+        ML_BACKEND_STORAGE_HOST=storage_host,
         RASTER_MASK_READ_ENABLED="true",
         RASTER_MASK_CREATE_ENABLED="true",
         ML_BACKEND_ROUTER_MODE="off",
@@ -408,6 +413,20 @@ async def test_independent_worker_predicts_and_adopts_cached_reference_without_s
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     monkeypatch.setattr(settings, "ml_backend_router_mode", "off")
+    if os.environ.get("AAP_WORKTREE_MODE") == "test":
+        assert storage_service.import_bucket.startswith("aap-wt-")
+        await asyncio.to_thread(
+            storage_service.client.put_bucket_versioning,
+            Bucket=storage_service.import_bucket,
+            VersioningConfiguration={"Status": "Enabled"},
+        )
+    elif (
+        await asyncio.to_thread(
+            storage_service.client.get_bucket_versioning,
+            Bucket=storage_service.import_bucket,
+        )
+    ).get("Status") != "Enabled":
+        pytest.skip("Live prediction requires a versioned disposable import bucket")
     rle, mask = _unique_mask()
     preexisting = await asyncio.to_thread(
         storage_service.verify_upload, mask["object_key"]
@@ -433,6 +452,11 @@ async def test_independent_worker_predicts_and_adopts_cached_reference_without_s
                 results = []
                 for task in body["tasks"]:
                     parsed = urlsplit(task["file_path"])
+                    assert (
+                        parsed.netloc
+                        != urlsplit(storage_service.client.meta.endpoint_url).netloc
+                    )
+                    assert parse_qs(parsed.query)["X-Amz-SignedHeaders"] == ["host"]
                     bucket, key = parsed.path.lstrip("/").split("/", 1)
                     assert bucket == storage_service.import_bucket
                     assert key.startswith("prediction-inputs/") and "/original/" in key

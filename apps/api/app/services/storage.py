@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import logging
-import re
 import time
 from typing import TYPE_CHECKING
 
@@ -11,6 +10,7 @@ from botocore.exceptions import ClientError
 
 from app.config import settings
 from app.services.reference_keys import reject_reference
+from app.services import storage_presigning
 
 
 def _reject_reference_s3(params, **kwargs):
@@ -65,6 +65,7 @@ class StorageService:
         self.client.meta.events.register(
             "before-parameter-build.s3", _reject_reference_s3
         )
+        storage_presigning.install(self.client)
         self.bucket = settings.minio_bucket
         self.datasets_bucket = settings.minio_datasets_bucket
         self.bug_reports_bucket = settings.minio_bug_reports_bucket
@@ -222,34 +223,6 @@ class StorageService:
         # 持久引用;一旦过期就会出现"DB 指向已删对象"的破图(与上面 playback 同类故障)。
         # 修改头像时由 API 显式删除旧对象,不依赖 lifecycle。
 
-    def _public_url(self, url: str) -> str:
-        if settings.minio_public_url:
-            scheme = "https" if settings.minio_use_ssl else "http"
-            internal = f"{scheme}://{settings.minio_endpoint}"
-            url = url.replace(internal, settings.minio_public_url.rstrip("/"), 1)
-        return url
-
-    def rewrite_host_for_ml_backend(self, url: str) -> str:
-        """把 presigned URL 的 host 重写为 ``ml_backend_storage_host`` (容器可达地址)。
-
-        平台 api 跑在 host 进程而 ML backend 在 docker 网内时, presigned URL 里的 host
-        (宿主可达) 在 backend 容器内解析不到; 重写成容器可达地址。v0.18.4 从
-        ``ml_backends._resolve_task_url`` 抽出共用 (task URL 与 ROI crop URL 共享), 行为逐字一致。
-        """
-        # Browser proxy paths have no origin, even when no gateway override is needed.
-        if settings.minio_public_url:
-            public = settings.minio_public_url.rstrip("/")
-            if (
-                settings.ml_backend_storage_host or public.startswith("/")
-            ) and url.startswith(public + "/"):
-                scheme = "https" if settings.minio_use_ssl else "http"
-                url = f"{scheme}://{settings.minio_endpoint}" + url[len(public) :]
-        if settings.ml_backend_storage_host:
-            return re.sub(
-                r"://[^/]+", f"://{settings.ml_backend_storage_host}", url, count=1
-            )
-        return url
-
     def put_bytes(
         self,
         key: str,
@@ -273,22 +246,16 @@ class StorageService:
     def upload_crop_bytes(
         self, jpeg_bytes: bytes, key: str, *, expires_in: int = 3600
     ) -> str:
-        """v0.18.4 · 上传 ROI crop JPEG 字节到 import 桶, 返回下游 backend 可拉取的 presigned URL。
-
-        import 桶挂 7 天 lifecycle 自动清理临时 crop。返回 URL 经 ml_backend host 重写,
-        与 task URL 投递路径一致——对所有走 ``httpx.get`` 的下游 backend (gsam2/sam3 不支持
-        ``data:`` URI) 通用。
-        """
+        """Upload a crop and sign directly for the ML backend's storage endpoint."""
         self.client.put_object(
             Bucket=self.import_bucket,
             Key=key,
             Body=jpeg_bytes,
             ContentType="image/jpeg",
         )
-        url = self.generate_download_url(
-            key, expires_in=expires_in, bucket=self.import_bucket
+        return self.generate_download_url(
+            key, expires_in=expires_in, bucket=self.import_bucket, audience="ml"
         )
-        return self.rewrite_host_for_ml_backend(url)
 
     def generate_upload_url(
         self,
@@ -307,16 +274,17 @@ class StorageService:
             )
         ):
             raise ValueError("Managed originals require controlled server creation")
-        url = self.client.generate_presigned_url(
+        return storage_presigning.generate_url(
+            self.client,
             "put_object",
-            Params={
+            params={
                 "Bucket": bucket or self.bucket,
                 "Key": key,
                 "ContentType": content_type,
             },
-            ExpiresIn=expires_in,
+            expires_in=expires_in,
+            audience="browser",
         )
-        return self._public_url(url)
 
     def generate_download_url(
         self,
@@ -326,6 +294,8 @@ class StorageService:
         download_name: str | None = None,
         align: bool = True,
         version_id: str | None = None,
+        *,
+        audience: storage_presigning.Audience = "browser",
     ) -> str:
         # v0.10.43 · download_name 经 ResponseContentDisposition 给浏览器一个友好文件名。
         reject_reference(key)
@@ -338,12 +308,13 @@ class StorageService:
             )
         # align=True (默认) 把 Expires 对齐到 10 分钟网格以复用浏览器缓存 (缩略图/原图);
         # 非缓存类、要求严格短有效期的调用者 (如评论附件私链) 传 align=False 走精确 expires_in。
-        url = self.client.generate_presigned_url(
+        return storage_presigning.generate_url(
+            self.client,
             "get_object",
-            Params=params,
-            ExpiresIn=_aligned_expires_in(expires_in) if align else expires_in,
+            params=params,
+            expires_in=_aligned_expires_in(expires_in) if align else expires_in,
+            audience=audience,
         )
-        return self._public_url(url)
 
     def upload_file(
         self,
@@ -556,16 +527,7 @@ storage_service = StorageService()
 
 
 def resolve_task_url(task: "Task") -> str:
-    """把 task.file_path (MinIO 对象 key) 转成 ML backend 可访问的 presigned URL。
-
-    SAM backend 协议要求 file_path 是 http(s):// URL 或本地路径; tasks 表里存的是 key,
-    必须先签发 presigned URL。当平台 api 跑在 host 进程而 ML backend 在 docker 网内时,
-    再把 host 替换为 ``settings.ml_backend_storage_host`` (容器可达地址)。
-
-    v0.23.0 · 从 ``app.api.v1.ml_backends._resolve_task_url`` 下沉到 service 层,
-    让 router、worker 与 video tracker runner 共用同一 helper, 消除 service → API
-    反向依赖。行为与原 router 内私有函数逐字一致。
-    """
+    """Sign the task key directly for the ML backend's storage endpoint."""
     from app.services.reference_keys import is_reference
 
     if is_reference(task.file_path):
@@ -577,5 +539,6 @@ def resolve_task_url(task: "Task") -> str:
         if task.dataset_item_id
         else storage_service.bucket
     )
-    url = storage_service.generate_download_url(task.file_path, bucket=bucket)
-    return storage_service.rewrite_host_for_ml_backend(url)
+    return storage_service.generate_download_url(
+        task.file_path, bucket=bucket, audience="ml"
+    )

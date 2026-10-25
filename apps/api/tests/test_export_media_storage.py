@@ -507,6 +507,7 @@ def test_default_constructor_uses_same_origin_guard_and_owns_actual_client(monke
 
 def test_signing_uses_only_remaining_fixed_deadline_and_saved_bucket(monkeypatch):
     row, client = record(), Client()
+    monkeypatch.setattr(physical.settings, "minio_public_url", "")
     monkeypatch.setattr(physical.settings, "minio_export_bucket", "current-bucket-trap")
     assert (
         physical.signed_url(
@@ -707,22 +708,30 @@ def test_gc_post_delete_unknown_object_is_not_deleted_or_reported_clean():
     )
 
 
-@pytest.mark.parametrize("public", ["", "/minio", "https://media.example.test/minio"])
-def test_saved_media_signing_honors_public_gateway_without_changing_signature(
-    monkeypatch, public
+def test_saved_media_signing_uses_admitted_client_saved_owner_and_browser_audience(
+    monkeypatch,
 ):
     row, client = record(), Client()
-    raw = (
-        physical._runtime_endpoint()
-        + "/saved-export-bucket/"
-        + physical.prefix_for(BUNDLE)
-        + RELATIVE
-        + "?signature=a%2Fb&expires=123"
+    calls = []
+
+    def sign(actual_client, operation, **kwargs):
+        assert actual_client is client
+        calls.append((operation, kwargs))
+        return "https://media.example.test/signed"
+
+    monkeypatch.setattr(physical.storage_presigning, "generate_url", sign)
+    assert (
+        physical.signed_url(client, row, RELATIVE)
+        == "https://media.example.test/signed"
     )
-    monkeypatch.setattr(physical.settings, "minio_public_url", public)
-    monkeypatch.setattr(client, "generate_presigned_url", lambda *a, **kw: raw)
-    expected = raw if not public else public + raw[len(physical._runtime_endpoint()) :]
-    assert physical.signed_url(client, row, RELATIVE) == expected
+    operation, args = calls[0]
+    assert operation == "get_object"
+    assert args["params"] == {
+        "Bucket": row.storage_ref["bucket"],
+        "Key": physical.prefix_for(BUNDLE) + RELATIVE,
+    }
+    assert args["audience"] == "browser"
+    assert 0 < args["expires_in"] <= physical.RETENTION_SECONDS
 
 
 def test_empty_object_put_readback_uses_saved_owner_exact_hash_eof_and_real_closes(

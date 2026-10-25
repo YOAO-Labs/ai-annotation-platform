@@ -25,6 +25,16 @@ last_reviewed: 2026-10-25
 | 导入任务        | `apps/api/app/workers/dataset_import.py`                                                           |
 | 迁移            | `apps/api/alembic/versions/0086_storage_connections.py`、`0087_storage_connections_owner_scope.py` |
 
+## 访问端点与签名
+
+`storage_presigning` 在原客户端的 `before-sign.s3` 阶段选择访问端点，不在签名后替换 Host。调用者显式选择 `browser`、`internal` 或 `ml`；下载默认用于浏览器。临时预测输入继续绑定确切 `VersionId`，有效期、对象键及响应参数保持原合同。
+
+- `internal` 使用已核对归属的客户端端点。
+- `ml` 使用内部协议与 `ML_BACKEND_STORAGE_HOST`；该值为空时使用内部端点，不继承浏览器公共地址。
+- `browser` 的绝对 `MINIO_PUBLIC_URL` 使用公共 origin 签名；相对 `/minio` 使用内部端点签名并仅返回代理路由。
+
+签名目标通过上下文隔离并在异常后恢复；物理客户端的端点、凭据、读写围栏和关闭归属不改变，也不为了签名创建额外客户端。跨 origin 签名要求路径式桶地址；发现虚拟主机桶地址时明确拒绝，不能丢掉桶名。相对代理和绝对公共代理对上游 Host 的要求不同，见[部署签名契约](/ops/deploy/docker-compose#对象存储访问与签名契约)。真实跨站点、TLS 与代理部署须在目标环境验证，本机合同测试不证明其网络可达。
+
 ## 数据模型
 
 ### 独立 Task 原件

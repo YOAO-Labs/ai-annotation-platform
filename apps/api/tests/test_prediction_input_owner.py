@@ -195,7 +195,10 @@ class Storage:
             self.world.metadata.pop((Bucket, Key), None)
         return {"ResponseMetadata": {"HTTPStatusCode": 204}}
 
-    def generate_download_url(self, key, *, expires_in, bucket, align, version_id):
+    def generate_download_url(
+        self, key, *, expires_in, bucket, align, version_id, audience
+    ):
+        assert audience == "ml"
         assert not align and 0 < expires_in <= owner.URL_SECONDS
         assert version_id not in {None, "null"}
         self.world.expirations.append(expires_in)
@@ -203,9 +206,6 @@ class Storage:
         return (
             f"https://saved.test/{bucket}/{key}?private=receipt&versionId={version_id}"
         )
-
-    def rewrite_host_for_ml_backend(self, url):
-        return url
 
     def close(self):
         if self.world.fail_close:
@@ -1177,8 +1177,10 @@ def test_download_url_version_is_optional_and_exact(monkeypatch):
     storage = object.__new__(StorageService)
     storage.bucket = "saved-bucket"
     sign = Mock(return_value="https://saved.test/signed")
-    storage.client = SimpleNamespace(generate_presigned_url=sign)
-    monkeypatch.setattr(storage, "_public_url", lambda value: value)
+    storage.client = SimpleNamespace(
+        generate_presigned_url=sign,
+        meta=SimpleNamespace(endpoint_url="https://saved.test"),
+    )
     storage.generate_download_url("object", align=False)
     assert sign.call_args.kwargs["Params"] == {
         "Bucket": "saved-bucket",

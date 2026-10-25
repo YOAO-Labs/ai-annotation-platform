@@ -800,14 +800,13 @@ async def fenced(db, attempt_id, fence: ExecutorFence, *, allow_terminal=False):
     return lease, run, attempt
 
 
-def internal_download(key, *, bucket=None):
-    return storage.client.generate_presigned_url(
-        "get_object",
-        Params={
-            "Bucket": storage.training_bucket if bucket is None else bucket,
-            "Key": key,
-        },
-        ExpiresIn=600,
+def internal_download(key, *, bucket=None, audience="internal"):
+    return storage.generate_download_url(
+        key,
+        bucket=storage.training_bucket if bucket is None else bucket,
+        expires_in=600,
+        align=False,
+        audience=audience,
     )
 
 

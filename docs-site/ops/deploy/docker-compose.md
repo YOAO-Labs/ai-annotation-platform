@@ -649,16 +649,32 @@ docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu-rapi
 - 显存 / 变体相关 env 见 §2.8（grounded-sam2）与 §2.8.1（sam3）；两者 `IDLE_*` / `MODEL_POOL_*` 前缀解耦，可独立调
 - 五个 Backend 的受管生命周期能力都采用部署级验收开关，且默认关闭。只有当前镜像、权重与物理 GPU 完成对应的真实加载、全池卸载和显存回落验收后，才把 `GROUNDED_SAM2_MANAGED_LIFECYCLE_VERIFIED`、`SAM3_MANAGED_LIFECYCLE_VERIFIED`、`YOLO_MANAGED_LIFECYCLE_VERIFIED`、`ONNXTOOLS_MANAGED_LIFECYCLE_VERIFIED` 或 `RAPIDOCR_MANAGED_LIFECYCLE_VERIFIED` 设为字面量 `1`；值只能是 `0` 或 `1`，非法值会使对应 Backend 拒绝启动。复制其他机器的结论不能替代当前部署证据。
 
+### 对象存储访问与签名契约
+
+SigV4 将 Host 纳入签名，不能取得已签链接后再替换主机名。平台在签名前为调用用途选择端点，API／worker 的实际对象读写仍使用 `MINIO_ENDPOINT`。
+
+| 配置方式                             | 签名及代理要求                                                                                                       |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `MINIO_PUBLIC_URL` 为空              | 浏览器直接使用内部端点；只适合客户端确实可达的部署                                                                   |
+| 相对 `/minio`                        | 签内部端点；代理去掉 `/minio` 并将 Host 恢复为该内部端点，含端口。仓库 nginx 和 worktree Vite 使用此合同             |
+| 绝对 `https://objects.example.com`   | 直接签公共 origin；代理／负载均衡保留原 Host，含非标准端口                                                           |
+| 绝对 `https://app.example.com/files` | 签公共 origin；`/files` 仅为传输路由，代理去前缀但保留公共 Host。不能直接套用仓库相对 `/minio` 的 `$proxy_host` 配置 |
+| `ML_BACKEND_STORAGE_HOST`            | 只填模型可达的 `host:port`，协议沿用内部端点；为空时直接使用内部端点，与公共浏览器地址无关                           |
+
+优先使用独立对象存储域名或仓库已有的相对代理。签名不包含传输前缀，代理必须保持原对象路径编码、查询串及上传 Content-Type；内部 Host 与代理目标必须完全一致，`localhost:9000` 与 `127.0.0.1:9000` 不能混用。普通 Vite 默认为 `localhost:9000`；自定义内部端点时同步设置 `MINIO_PROXY_TARGET`。worktree 启动器自动对齐两者。
+
+部署验收应从实际浏览器、API、worker 和 ML 网络分别读取同一测试对象，并验证版本绑定、中文及保留字符、上传和签名过期。已工作相对路由不需要改 Docker 挂载或重建后端镜像。这里的两种代理合同不能由“连通性正常”互相替代。签名规则见 [AWS 官方说明](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html)。
+
 ### dev 跨容器存储访问（`ML_BACKEND_STORAGE_HOST`）
 
-平台 api 跑 host 进程、SAM 容器跑 docker 网内时，SAM 无法访问 host `localhost:9000` MinIO，platform api 端 `_resolve_task_url` 会按 env 把 host 重写：
+平台 api 跑 host 进程、SAM 容器跑 docker 网内时，SAM 无法访问 host `localhost:9000` MinIO，平台在签名前按配置选择模型可达的对象存储 Host：
 
 ```bash
 # .env
 ML_BACKEND_STORAGE_HOST=172.17.0.1:9000   # docker bridge gateway
 ```
 
-K8s 同 namespace 部署时一般留空（直接走 service DNS）；跨 namespace / 跨集群时按需配。详见 ADR-0012。
+K8s 同 namespace 且内部端点对模型可达时可留空；跨 namespace／集群时配置模型实际可达的 Host。
 
 ### `/health` 显存监控
 

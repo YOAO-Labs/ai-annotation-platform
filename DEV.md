@@ -758,7 +758,7 @@ pnpm docs:media:audit -- --release
   DEV 会让签名媒体走页面同源的 `:3000/minio` 并由 Vite 转发到 MinIO，远程机器
   只需打通 3000 端口。若返回 `localhost:9000` 或宿主机 `:9000`，会分别命中
   访问者自己或受跨网段端口策略影响。`ML_BACKEND_STORAGE_HOST` 是容器的另一层
-  地址，可以继续使用 Docker 网关。修改 `.env` 或 Vite 代理配置后重启 API/Web。
+  地址，可以继续使用 Docker 网关。`MINIO_PROXY_TARGET` 必须与 `MINIO_ENDPOINT` 的协议、Host及端口完全一致，确保代理恢复签名 Host；worktree 启动器自动对齐。模型端点在签名前单独选择，不能替换已签名 URL。修改 `.env` 或 Vite 代理配置后重启 API/Web。
 - **截图 seed 报 backend 能力不足**：live 模式只接受当前可达且能力快照覆盖截图场景的
   registry，不按名称猜测。确认目标 backend 已启动并被 API 同步；无 GPU 时启动
   `screenshot-ml-stub` 后改用 `--ml-backend-mode stub`。不要把浏览器的 `/minio`

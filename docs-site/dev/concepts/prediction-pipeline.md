@@ -240,7 +240,7 @@ worker 解析投递模式：端点（`apps/api/app/api/v1/projects.py`）按下�
 
 crop 模式默认走 **presigned URL**：现有 HTTP 后端直接读取 import 桶内的 ROI，不需要修改 ML 镜像。批量预标与模型快照重试通过 `services/prediction_inputs.py` 创建独立 attempt，上传前在独立事务中提交 `prediction_input_leases`；对象使用 `prediction-inputs/<attempt UUID>/crops/<框索引>-<SHA>.jpg`，同题重试和同时执行的 job 不共用前缀。`_run_task_pipeline` 管理原图/PIL 句柄及输入 owner，成功、部分失败、普通异常或取消均在结束时主动清理本 attempt。纯函数调用仍可注入 `upload_crop`，或使用 `data:` 内联。
 
-临时对象最多 10,000 个、总计 4 GiB，单个不超过 64 MiB；attempt 最长活动两小时，到期拒绝新上传。签名最长一小时且不超过剩余活动期，使用 `align=False`，继续复用现有 `rewrite_host_for_ml_backend` 的部署网络合同。专用 S3 客户端连接/读超时为 3/15 秒，只尝试一次，避免 PUT 的自动重试掩盖仍可能迟到的旧请求。临时输入上传与签名错误只记录稳定代码，不将签名地址或 SDK 私有信息写入失败记录。
+临时对象最多 10,000 个、总计 4 GiB，单个不超过 64 MiB；attempt 最长活动两小时，到期拒绝新上传。签名最长一小时且不超过剩余活动期，使用 `align=False`，通过 `audience="ml"` 在签名前选择模型可达端点，不替换已签链接的 Host；模型 Host 为空时使用内部端点，不继承浏览器公共地址。专用 S3 客户端连接/读超时为 3/15 秒，只尝试一次，避免 PUT 的自动重试掩盖仍可能迟到的旧请求。临时输入上传与签名错误只记录稳定代码，不将签名地址或 SDK 私有信息写入失败记录。
 
 清理记录无业务级联外键，固定实际位置、精确对象清单和 endpoint 身份摘要；job、Task 或项目删除不能抹去回收意图。存储身份变化时拒绝清理，不跟随新配置删除其他后端。清理逐对象完整核对内容、写入标记、ETag 和不可变 VersionId，再删除准确版本；`IfMatch` 仅作额外条件，不能假设服务端一定执行该请求头。额外对象、未知版本或任意位置上同 purpose 的未收尾操作均阻止删除。正常清理后保留 `deleted` 墓碑，失败继续保留责任。过期或结果不确定的尝试保留七天恢复观察期，未收尾操作不因观察期结束解除；旧无固定位置的记录返回 `legacy_unpinned`，历史 null 版本回执返回 `immutable_version_required` 并保留。
 

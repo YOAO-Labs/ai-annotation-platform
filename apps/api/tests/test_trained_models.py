@@ -899,7 +899,9 @@ def test_backend_download_is_absolute_with_a_relative_browser_proxy(monkeypatch)
     assert "/retained-model-bucket/" in urlsplit(url).path
     public_url = service.storage.generate_download_url("owned/input.png")
     assert public_url.startswith("/minio/")
-    backend_url = service.storage.rewrite_host_for_ml_backend(public_url)
+    backend_url = service.storage.generate_download_url(
+        "owned/input.png", audience="ml"
+    )
     assert urlsplit(backend_url).netloc == settings.minio_endpoint
     assert urlsplit(backend_url).query == urlsplit(public_url).query
 
