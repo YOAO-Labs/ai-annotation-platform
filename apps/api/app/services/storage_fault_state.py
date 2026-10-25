@@ -7,7 +7,7 @@ import json
 import logging
 import uuid
 
-from sqlalchemy import func, insert, or_, select, text, update
+from sqlalchemy import func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -159,13 +159,14 @@ async def prepare(
                             "operation": operation,
                             "target": digest(target),
                         }
-                        categories["source_changed"] = {
-                            **facts,
-                            "content": digest(expected),
-                            "expected_sha256": expected
-                            if isinstance(expected, str)
-                            else None,
-                        }
+                        if expected is not None:
+                            categories["source_changed"] = {
+                                **facts,
+                                "content": digest(expected),
+                                "expected_sha256": expected
+                                if isinstance(expected, str)
+                                else None,
+                            }
                     if preview_spec is not None:
                         categories = {
                             "preview_failed": {
@@ -409,6 +410,18 @@ async def visible_page(db, location, actor, *, state, limit, offset):
             .offset(offset)
         )
     ).all()
+    job_ids = {row.evidence.get("job_id") for row, _source in rows} - {None}
+    job_query = select(AsyncJob.id).where(AsyncJob.id.in_(job_ids))
+    if actor.role != UserRole.SUPER_ADMIN:
+        job_query = job_query.where(
+            AsyncJob.kind.in_(["dataset_scan", "dataset_registration"]),
+            access.job_scope_clause(actor),
+        )
+    visible_jobs = (
+        {str(identifier) for identifier in await db.scalars(job_query)}
+        if job_ids
+        else set()
+    )
     items = []
     for row, source in rows:
         evidence = row.evidence
@@ -424,15 +437,9 @@ async def visible_page(db, location, actor, *, state, limit, offset):
                 "registration_id",
             )
         }
-        if actor.role != UserRole.SUPER_ADMIN and item["job_id"]:
-            permitted = await db.scalar(
-                select(AsyncJob.id).where(
-                    AsyncJob.id == item["job_id"],
-                    or_(AsyncJob.user_id == actor.id, access.job_scope_clause(actor)),
-                )
-            )
-            if permitted is None:
-                item["job_id"] = None
+        item["dataset_id"] = source.dataset_id if source else None
+        if item["job_id"] not in visible_jobs:
+            item["job_id"] = None
         items.append(
             {
                 **item,

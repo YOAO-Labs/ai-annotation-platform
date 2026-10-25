@@ -173,7 +173,7 @@ async def scan_snapshot(
         anchor=anchor,
         maintenance_revision=run.snapshot.get("maintenance_revision", 1),
         path_digest=path_digest,
-        expected=digest or observed,
+        expected=digest or expected,
         target=[source.config["relative_path"], entry.relative_path],
         run_id=run.id,
         job_id=event_job_id or run.async_job_id,

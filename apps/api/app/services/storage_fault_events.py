@@ -157,6 +157,8 @@ async def _prepare(
     request_id = request_id_var.get() or None
     if request_id and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,36}", request_id):
         request_id = None
+    if request_id is not None:
+        evidence["request_id"] = request_id
     return await storage_fault_state.prepare(
         db,
         location=location,

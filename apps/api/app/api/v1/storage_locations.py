@@ -404,10 +404,13 @@ async def source_faults(
         db, actor, getattr(request.state, "api_key_id", None), "datasets:read"
     )
     location = await svc.get_visible(db, location_id, actor)
+    initial_role = actor.role
     result = await storage_fault_state.visible_page(
         db, location, actor, state=state, limit=limit, offset=offset
     )
     actor = await require_manager(db, actor.id)
+    if actor.role != initial_role:
+        raise HTTPException(403, detail={"code": "access_revoked"})
     await svc.get_visible(db, location_id, actor)
     if (
         await key_authority(
