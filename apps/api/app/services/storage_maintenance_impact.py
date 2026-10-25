@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import Text, case, cast, func, literal, select, union
 from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
 
+from app.db.models.storage_migration_copy import StorageMigrationCopy
 from app.db.enums import UserRole
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem, ProjectDataset
@@ -104,6 +105,9 @@ def dependencies(location_id, *, with_fingerprint=False):
         )
 
     counts = {
+        "migration_copy_plans": rows(
+            StorageMigrationCopy, StorageMigrationCopy.target_location_id == location_id
+        ),
         "sources": count(sources),
         "enabled_sources": rows(
             DatasetSource, DatasetSource.id.in_(sources), DatasetSource.enabled
@@ -205,6 +209,11 @@ def dependencies(location_id, *, with_fingerprint=False):
             )
 
         fingerprints = [
+            footprint(
+                StorageMigrationCopy,
+                "id target_location_id input_fingerprint baseline_sha256",
+                StorageMigrationCopy.target_location_id == location_id,
+            ),
             target_fingerprint,
             footprint(
                 DatasetSource,

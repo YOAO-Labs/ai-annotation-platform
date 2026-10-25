@@ -29,6 +29,7 @@ export const CANCELLABLE_ASYNC_JOB_KINDS = new Set<AsyncJobKind>([
   "storage_usage",
   "managed_original_verification",
   "storage_migration_inventory",
+  "storage_migration_copy",
   "dataset_quality",
   "dataset_quality_review",
   "mask_qc",

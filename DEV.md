@@ -273,6 +273,8 @@ apps/api/.venv/bin/python scripts/verify_worktree_recovery.py
 
 对象存储源端迁移清单使用当前API虚拟环境和显式部署配置：`apps/api/.venv/bin/python scripts/inventory_storage_migration.py --output /private/source.jsonl`；`--verify`可离线核对同一清单。超级管理员也可在“存储管理 → 迁移准备”提交同一核心的后台任务并下载报告，须应用0255及刷新所属Worker。应用报告受32MiB上限和现有终态Job30天保留规则约束；CLI输出由操作者管理。对象账号可限制为只读，命令不会建桶或修改业务行。九用途处理选择、预算、退出码及一次性实际演练见[源端迁移清单](docs-site/ops/deploy/storage-migration-inventory.md)。
 
+应用侧初次复制须应用0256并刷新所属Worker。封存源清单可在控制台选择已登记全局S3目标，后台自动建立配对定位目录与持久复制计划，审阅后显式执行；原CLI目录／复制核心移入应用模块，兼容脚本入口保持。SQLite初始计划与PG逐对象delta保留nonce及准确版本，独立owner不随单次Job过期删除；当前凭据轮换、取消收尾、显式续跑、失败对象选择重试和私密检查点的边界见[控制台初次复制](docs-site/ops/deploy/storage-migration-inventory.md#从控制台执行初次复制)。该链不改Binding、业务引用、镜像或原写入渠道。
+
 已保存业务定位使用独立命令：`apps/api/.venv/bin/python scripts/inventory_storage_references.py --source-inventory /private/source.jsonl --output /private/references.jsonl`。它在有界只读数据库快照结束后关联同一份完整性核验的源报告，不访问S3，覆盖27类保存归属及历史／暂存／删除声明；按各family实际schema解释九用途保存地址，未知、未展开与其他源保留。独立`--verify`只核对新目录。纯检查为`PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p 'test_*storage*references.py'`；当前schema实际只读DB资格使用上述手册中的`verify_storage_references_current.py`，仅在所属空test环境执行。`verify_storage_references.py`保留旧0244／0245历史夹具，不用于当前head。
 
 初次预复制使用 `scripts/copy_storage_migration.py plan/run/verify/status`，输入为封存源清单与配对目录，目标凭据仅从 `0600` 私有 JSON 读取，checkpoint 位于 `0700` 目录。`run` 续跑不明确写入并仅在 `--retry-failed` 时重试失败项；`verify` 只读保存的实际目标版本。纯检查为 `PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -m unittest discover -s scripts -p 'test_*storage_migration_copy.py'`，CLI 检查为同命令模式 `test_copy_storage_migration.py`；所属空 test 实际资格使用 `verify_storage_migration_copy.py`，详细命令、预算、退出码与清理见[本地初次复制](docs-site/ops/deploy/storage-migration-inventory.md#本地初次复制与可恢复核验)。

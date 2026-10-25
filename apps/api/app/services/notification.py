@@ -141,8 +141,9 @@ def _is_migration_inventory_expr():
     return func.coalesce(
         and_(
             Notification.target_type == "async_job",
-            func.coalesce(_job_kind_expr(), Notification.payload["kind"].astext)
-            == "storage_migration_inventory",
+            func.coalesce(_job_kind_expr(), Notification.payload["kind"].astext).in_(
+                {"storage_migration_inventory", "storage_migration_copy"}
+            ),
         ),
         False,
     )
@@ -324,7 +325,7 @@ class NotificationService:
                 jobs.get(row.target_id, (None, None))[1]
                 or (row.payload.get("kind") if isinstance(row.payload, dict) else None)
             )
-            == "storage_migration_inventory"
+            in {"storage_migration_inventory", "storage_migration_copy"}
         }
         inventory_admins = (
             set(
@@ -351,8 +352,9 @@ class NotificationService:
                     job_project, job_kind = (
                         None,
                         (
-                            "storage_migration_inventory"
-                            if payload.get("kind") == "storage_migration_inventory"
+                            payload.get("kind")
+                            if payload.get("kind")
+                            in {"storage_migration_inventory", "storage_migration_copy"}
                             else None
                         ),
                     )
@@ -363,7 +365,10 @@ class NotificationService:
                     export_required = True
                 else:  # async_job
                     restricted = job is None or job_project is not None
-                    if job_kind == "storage_migration_inventory":
+                    if job_kind in {
+                        "storage_migration_inventory",
+                        "storage_migration_copy",
+                    }:
                         restricted = row.user_id not in inventory_admins
                     export_required = job is not None and job_kind == "export"
                 project_id = job_project
@@ -479,7 +484,7 @@ class NotificationService:
                         if isinstance(row.payload, dict)
                         else None
                     )
-                ) == "storage_migration_inventory":
+                ) in {"storage_migration_inventory", "storage_migration_copy"}:
                     return False
             scopes = await self._resolve_delivery_scopes([row])
             allowed = await self._allowed_delivery_indices([row], scopes)

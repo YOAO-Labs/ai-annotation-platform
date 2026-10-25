@@ -48,7 +48,7 @@ function alertKind(type: string): "error" | "warning" {
 
 function alertText(type: string, payload: Record<string, unknown>): string {
   const str = (key: string) => (typeof payload[key] === "string" ? payload[key] : "");
-  const jobVerb = jobNotificationVerb(type, payload.kind);
+  const jobVerb = jobNotificationVerb(type, payload.kind, payload);
   if (jobVerb) return `${jobVerb}${str("error_message") ? `：${str("error_message")}` : ""}`;
   switch (type) {
     case "task.rejected":
@@ -114,7 +114,8 @@ export function useNotificationSocket() {
     const sessionToken = token;
 
     const migrationAlertAllowed = (payload: Record<string, unknown>): boolean => {
-      if (payload.kind !== "storage_migration_inventory") return true;
+      if (!["storage_migration_inventory", "storage_migration_copy"].includes(String(payload.kind)))
+        return true;
       const current = useAuthStore.getState();
       return (
         current.user?.role === "super_admin" &&

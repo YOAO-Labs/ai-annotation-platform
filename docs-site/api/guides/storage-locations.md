@@ -332,6 +332,31 @@ limits为`max_pages`（默认1000，上限100000）、`max_entries`（默认1000
 
 完整清单也不是原子快照或全业务迁移资格；用途已切外部目标时如实保留未覆盖，不要求先切回A。此接口不建立目标、复制对象、修改绑定、执行停写或物理退役。
 
+### 初次复制计划与续跑
+
+以下接口位于`/api/v1/storage`，仅当前有效超级管理员与全权API Key可访问。目标只接受已登记、启用的全局S3位置及连接，不接受任意端点、桶、主机路径或明文凭据；不会修改用途绑定。GET只读保存状态和检查点，不访问源／目标S3或自动投递任务。
+
+| 方法与路径                                                           | 行为                                                                                                                                                                                                     |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /migration-copy-targets?inventory_job_id=...&limit=20&offset=0` | 分页返回`{items:[{location_id,name,config_revision}],total,limit,offset}`。候选只表示已登记，实际能力在执行时核验。                                                                                      |
+| `POST /migration-copies`                                             | 接受`{inventory_job_id,target_location_id,handling,limits?}`，202返回`{item,reused}`；先准备并封存计划，不向目标PUT。同一冻结输入、目标、处理选择和预算复用原计划。                                      |
+| `GET /migration-copies?limit=20&offset=0`                            | 独立复制计划的分页历史，返回`{items,total,limit,offset}`。                                                                                                                                               |
+| `GET /migration-copies/{copy_id}`                                    | 返回安全计划详情及当前／最后attempt结果。                                                                                                                                                                |
+| `GET /migration-copies/{copy_id}/failed-objects?limit=20&offset=0`   | 返回`{items:[{object_id,size_bytes,error_code}],total,limit,offset}`；仅当前failed对象，ID为64位小写十六进制身份摘要，不含原始键。                                                                       |
+| `POST /migration-copies/{copy_id}/attempts`                          | 接受operation（prepare、run、verify、recover）、retry_failed和可选retry_object_ids；202返回`{item,reused}`。沿同一持久计划创建独立AsyncJob，相同活动attempt复用；recover克隆上次操作及选择，不重算范围。 |
+| `POST /migration-copies/{copy_id}/dispatch`                          | 仅显式重投当前pending的原task ID，返回`{item,reused}`。                                                                                                                                                  |
+| `GET /migration-copies/{copy_id}/checkpoint`                         | 认证下载私密SQLite检查点快照，包含实际映射／nonce／回执；固定附件名、no-store与`X-Content-SHA256`，不是公开下载链接。                                                                                    |
+
+item含`copy_id,created_at,updated_at,source_inventory_job_id,source_report_sha256,source_complete,target_location_id,target_name,handling,limits,prepared,job_id,operation,status,cancel_requested,counts,decisions,source_summary,catalog_summary,copy_subset_complete,migration_ready,error_code,io,checkpoint_available`。counts为`verified,pending,writing,uncertain,failed,skipped`六类累计数，准备前为null；准备成功只表示计划可审阅。`job_id`及原清单引用可在对应Job过期后为null，复制计划及事实继续保留。公开DTO、共享Job和通知不包含实际对象键、端点、凭据或完整元数据。
+
+handling必须明确九用途的`migrate|rebuild|retain`；同桶处理歧义、未核验源与超限对象按既有核心列为跳过。已封存的部分清单仍可准备合格子集，源／目录覆盖与全计划状态分别报告，`migration_ready`始终为false。
+
+limits为每次执行预算：`max_object_bytes`默认256MiB、最大1GiB；`max_source_bytes,max_upload_bytes,max_verify_bytes`各默认2GiB、最大16GiB；`max_objects`默认10000、最大100000；`max_seconds`默认1800、最大3600；`connect_timeout_seconds`默认10、最大60；`read_timeout_seconds`默认60、最大60。各项均为严格正整数；固定计划后不重算目标映射。应用封存目录上限64MiB，SQLite检查点在生成时受256MiB硬上限及100000行约束。
+
+`prepare`仅重试尚未封存基线的准备任务；`run`普通续跑不重传verified，也不重试failed，显式`retry_failed=true`才将全部失败项加入续跑。附加非空`retry_object_ids`时仅执行选中的failed对象，其他pending／uncertain／verified保持。选择至多1000个去重ID，未知或已改变状态的ID在建立attempt前409拒绝，不启动I/O；本次选中结果单列`attempt_subset_complete,selected_count,selected_verified_count`，普通执行为null，不替代全计划`copy_subset_complete`。`verify`只读保存的准确目标版本，不PUT。`recover`不接受新的失败选择，在服务端克隆原操作和原选择范围；已成功项不重传，原选择中的writing／uncertain可沿nonce恢复，其他对象不执行。
+
+共享取消入口仍为`POST /api/v1/async-jobs/{job_id}/cancel`。pending可立即结束，running只登记请求，真实原生资源收尾后发布终态；已写及不明回执保持。硬中断后只有确切Worker进程结束证据才能解除对应未决执行，不以TTL接管；无法确认时保留unknown。目标凭据轮换后，新attempt重新解析当前凭据，但端点、桶、前缀及计划身份必须保持。源、目标的保存责任及维护许可独立保留，不从任务终态推导切换或删除许可。
+
 ### 增量账目与周期对账
 
 `BucketsResponse.accounting` 为可空固定摘要：`confirmed_added_bytes`、`confirmed_removed_bytes`、`net_change_bytes`、`pending_operation_count` 和 `unknown_operation_count`。当前 `producers=[prediction_inputs, managed_original_creation, thumbnail_outputs, original_cache, image_pyramid_outputs, video_derivative_outputs, export_media_outputs]`，固定 `scope=current_objects`、`coverage=partial`、`projected_total_bytes=null`。已确认事件按准确物理地址及操作身份幂等累计，不从额度预约、业务删除或当前绑定补算历史；新增字节与移除字节分别为非负值，净变化可为负数。

@@ -732,3 +732,114 @@ class CopyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ApplicationSeamTests(unittest.TestCase):
+    setUp = CopyTests.setUp
+    plan = CopyTests.plan
+    rows = CopyTests.rows
+
+    def test_durable_callback_precedes_intent_and_ack_precedes_readback(self):
+        self.plan()
+        saved = []
+        original_put, original_head = self.target.put_object, self.target.head_object
+
+        def persist(row, checksum):
+            self.assertEqual(checksum, core.digest(row))
+            saved.append(json.loads(core.packed(row)))
+
+        def put(**kwargs):
+            self.assertEqual(saved[-1]["state"], "writing")
+            self.assertTrue(saved[-1]["nonce"])
+            return original_put(**kwargs)
+
+        def head(**kwargs):
+            self.assertEqual(saved[-1]["receipt"]["version_id"], kwargs["VersionId"])
+            return original_head(**kwargs)
+
+        self.target.put_object, self.target.head_object = put, head
+        with core.Checkpoint(self.path, on_save=persist) as state:
+            result = core.execute(
+                state,
+                self.source,
+                self.target,
+                anonymous_staging=True,
+                strict_closure=True,
+            )
+        self.assertTrue(result["copy_subset_complete"])
+        self.assertFalse(list(self.root.glob("**/body.part")))
+
+    def test_refused_durable_intent_stops_before_any_put(self):
+        self.plan()
+
+        def refuse(*args):
+            raise core.CopyStopped("copy_checkpoint_commit_failed")
+
+        with core.Checkpoint(self.path, on_save=refuse) as state:
+            with self.assertRaises(core.CopyStopped):
+                core.execute(state, self.source, self.target, anonymous_staging=True)
+        self.assertEqual(self.target.puts, 0)
+
+    def test_pg_ack_survives_later_local_sqlite_write_failure(self):
+        self.plan()
+        saved = []
+        with core.Checkpoint(self.path) as state:
+
+            def persist(row, checksum):
+                saved.append(json.loads(core.packed(row)))
+                if row.get("receipt"):
+                    state.db.execute("PRAGMA query_only=ON")
+
+            state.on_save = persist
+            with self.assertRaises(core.CopyStopped) as caught:
+                core.execute(state, self.source, self.target, anonymous_staging=True)
+            self.assertEqual(caught.exception.code, "copy_local_checkpoint_failed")
+        self.assertTrue(saved[-1]["receipt"]["put_acknowledged"])
+        self.assertEqual(self.target.puts, 1)
+
+    def test_strict_unknown_body_close_aborts_later_objects(self):
+        self.plan([{}, {"version_id": "v2"}])
+        self.source.fail_close = True
+        with core.Checkpoint(self.path) as state:
+            with self.assertRaises(core.CopyStopped) as caught:
+                core.execute(state, self.source, self.target, strict_closure=True)
+        self.assertTrue(caught.exception.storage_operation_unsettled)
+        self.assertEqual(self.target.puts, 0)
+        self.assertTrue(all(body.was_closed for body in self.source.bodies))
+
+    def test_application_stop_bypasses_recoverable_per_object_catches(self):
+        self.plan([{}, {"version_id": "v2"}])
+
+        def stop():
+            raise core.CopyStopped("copy_cancelled")
+
+        with core.Checkpoint(self.path) as state:
+            with self.assertRaises(core.CopyStopped):
+                core.execute(state, self.source, self.target, stopped=stop)
+        self.assertEqual(self.target.puts, 0)
+
+    def test_selected_retry_two_failed_objects_only_retries_one(self):
+        self.plan([{}, {"version_id": "v2"}])
+        with core.Checkpoint(self.path) as state:
+            for row in state.rows():
+                row.update(state="failed", error="source_denied")
+                state.save(row)
+            selected = [next(state.rows())["id"]]
+            result = core.execute(
+                state,
+                self.source,
+                self.target,
+                retry_failed=True,
+                retry_object_ids=selected,
+            )
+        self.assertEqual(result["counts"], {"verified": 1, "failed": 1})
+        self.assertTrue(result["attempt_subset_complete"])
+        self.assertFalse(result["copy_subset_complete"])
+        self.assertEqual(result["selected_count"], 1)
+        self.assertEqual(self.target.puts, 1)
+
+    def test_application_plan_row_and_sqlite_page_limits(self):
+        source, catalog_path = inputs(self.root, [{}, {"version_id": "v2"}])
+        with self.assertRaises(core.CopyError) as caught:
+            core.plan(self.path, source, catalog_path, TARGET, max_rows=1)
+        self.assertEqual(caught.exception.code, "plan_row_budget")

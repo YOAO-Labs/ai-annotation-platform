@@ -18,6 +18,13 @@ from app.services.notification import NotificationService
 KIND = "storage_migration_inventory"
 
 
+@pytest.fixture(
+    autouse=True, params=["storage_migration_inventory", "storage_migration_copy"]
+)
+def private_kind(request, monkeypatch):
+    monkeypatch.setitem(globals(), "KIND", request.param)
+
+
 async def notices(db, actor):
     job = await jobs.create_job(db, kind=KIND, user_id=actor.id)
     protected = Notification(

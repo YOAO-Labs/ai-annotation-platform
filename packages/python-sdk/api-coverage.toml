@@ -492,6 +492,14 @@ watched_tags = ["projects", "guide-assets", "datasets", "batches", "tasks", "ann
 "POST /api/v1/storage/migration-inventories" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage/migration-inventories/{job_id}/dispatch" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/storage/migration-inventories/{job_id}/report" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-copy-targets" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-copies" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-copies" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-copies/{copy_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-copies/{copy_id}/failed-objects" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-copies/{copy_id}/attempts" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/migration-copies/{copy_id}/dispatch" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/migration-copies/{copy_id}/checkpoint" = { status = "excluded", reason = "web-only" }
 "PUT /api/v1/storage/usage-schedule" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/storage/video-assets/failures" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage/video-assets/retry" = { status = "excluded", reason = "web-only" }

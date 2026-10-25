@@ -48018,6 +48018,695 @@
         "title": "StorageMaintenanceStatus",
         "type": "object"
       },
+      "StorageMigrationCopyAttemptRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "enum": [
+              "prepare",
+              "run",
+              "verify",
+              "recover"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "retry_failed": {
+            "default": false,
+            "title": "Retry Failed",
+            "type": "boolean"
+          },
+          "retry_object_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Object Ids"
+          }
+        },
+        "required": [
+          "operation"
+        ],
+        "title": "StorageMigrationCopyAttemptRequest",
+        "type": "object"
+      },
+      "StorageMigrationCopyCatalogSummary": {
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "enumeration_complete": {
+            "title": "Enumeration Complete",
+            "type": "boolean"
+          },
+          "resolution_complete": {
+            "title": "Resolution Complete",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "complete",
+          "enumeration_complete",
+          "resolution_complete",
+          "counts"
+        ],
+        "title": "StorageMigrationCopyCatalogSummary",
+        "type": "object"
+      },
+      "StorageMigrationCopyCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "failed": {
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "pending": {
+            "minimum": 0.0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "skipped": {
+            "minimum": 0.0,
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "uncertain": {
+            "minimum": 0.0,
+            "title": "Uncertain",
+            "type": "integer"
+          },
+          "verified": {
+            "minimum": 0.0,
+            "title": "Verified",
+            "type": "integer"
+          },
+          "writing": {
+            "minimum": 0.0,
+            "title": "Writing",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "verified",
+          "pending",
+          "writing",
+          "uncertain",
+          "failed",
+          "skipped"
+        ],
+        "title": "StorageMigrationCopyCounts",
+        "type": "object"
+      },
+      "StorageMigrationCopyFailedObject": {
+        "properties": {
+          "error_code": {
+            "title": "Error Code",
+            "type": "string"
+          },
+          "object_id": {
+            "title": "Object Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "object_id",
+          "size_bytes",
+          "error_code"
+        ],
+        "title": "StorageMigrationCopyFailedObject",
+        "type": "object"
+      },
+      "StorageMigrationCopyFailedObjects": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StorageMigrationCopyFailedObject"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "StorageMigrationCopyFailedObjects",
+        "type": "object"
+      },
+      "StorageMigrationCopyHistory": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StorageMigrationCopyItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "StorageMigrationCopyHistory",
+        "type": "object"
+      },
+      "StorageMigrationCopyItem": {
+        "properties": {
+          "attempt_subset_complete": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Subset Complete"
+          },
+          "cancel_requested": {
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
+          "catalog_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageMigrationCopyCatalogSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "checkpoint_available": {
+            "title": "Checkpoint Available",
+            "type": "boolean"
+          },
+          "copy_id": {
+            "format": "uuid",
+            "title": "Copy Id",
+            "type": "string"
+          },
+          "copy_subset_complete": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Copy Subset Complete"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageMigrationCopyCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decisions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decisions"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "handling": {
+            "additionalProperties": {
+              "enum": [
+                "migrate",
+                "rebuild",
+                "retain"
+              ],
+              "type": "string"
+            },
+            "propertyNames": {
+              "enum": [
+                "annotations",
+                "datasets",
+                "bug-reports",
+                "media-cache",
+                "audit-archive",
+                "import",
+                "export",
+                "avatars",
+                "training"
+              ]
+            },
+            "title": "Handling",
+            "type": "object"
+          },
+          "io": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Io"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/StorageMigrationCopyLimits"
+          },
+          "migration_ready": {
+            "const": false,
+            "default": false,
+            "title": "Migration Ready",
+            "type": "boolean"
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prepare",
+                  "run",
+                  "verify"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation"
+          },
+          "prepared": {
+            "title": "Prepared",
+            "type": "boolean"
+          },
+          "selected_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Count"
+          },
+          "selected_verified_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Verified Count"
+          },
+          "source_complete": {
+            "title": "Source Complete",
+            "type": "boolean"
+          },
+          "source_inventory_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Inventory Job Id"
+          },
+          "source_report_sha256": {
+            "title": "Source Report Sha256",
+            "type": "string"
+          },
+          "source_summary": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Summary"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "running",
+                  "completed",
+                  "failed",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "target_location_id": {
+            "format": "uuid",
+            "title": "Target Location Id",
+            "type": "string"
+          },
+          "target_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Name"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "copy_id",
+          "created_at",
+          "updated_at",
+          "source_inventory_job_id",
+          "source_report_sha256",
+          "source_complete",
+          "target_location_id",
+          "target_name",
+          "handling",
+          "limits",
+          "prepared",
+          "job_id",
+          "operation",
+          "status",
+          "cancel_requested",
+          "counts",
+          "decisions",
+          "source_summary",
+          "catalog_summary",
+          "copy_subset_complete",
+          "error_code",
+          "io",
+          "checkpoint_available",
+          "attempt_subset_complete",
+          "selected_count",
+          "selected_verified_count"
+        ],
+        "title": "StorageMigrationCopyItem",
+        "type": "object"
+      },
+      "StorageMigrationCopyLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "connect_timeout_seconds": {
+            "default": 10,
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Connect Timeout Seconds",
+            "type": "integer"
+          },
+          "max_object_bytes": {
+            "default": 268435456,
+            "maximum": 1073741824.0,
+            "minimum": 1.0,
+            "title": "Max Object Bytes",
+            "type": "integer"
+          },
+          "max_objects": {
+            "default": 10000,
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Max Objects",
+            "type": "integer"
+          },
+          "max_seconds": {
+            "default": 1800,
+            "maximum": 3600.0,
+            "minimum": 1.0,
+            "title": "Max Seconds",
+            "type": "integer"
+          },
+          "max_source_bytes": {
+            "default": 2147483648,
+            "maximum": 17179869184.0,
+            "minimum": 1.0,
+            "title": "Max Source Bytes",
+            "type": "integer"
+          },
+          "max_upload_bytes": {
+            "default": 2147483648,
+            "maximum": 17179869184.0,
+            "minimum": 1.0,
+            "title": "Max Upload Bytes",
+            "type": "integer"
+          },
+          "max_verify_bytes": {
+            "default": 2147483648,
+            "maximum": 17179869184.0,
+            "minimum": 1.0,
+            "title": "Max Verify Bytes",
+            "type": "integer"
+          },
+          "read_timeout_seconds": {
+            "default": 60,
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Read Timeout Seconds",
+            "type": "integer"
+          }
+        },
+        "title": "StorageMigrationCopyLimits",
+        "type": "object"
+      },
+      "StorageMigrationCopyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "handling": {
+            "additionalProperties": {
+              "enum": [
+                "migrate",
+                "rebuild",
+                "retain"
+              ],
+              "type": "string"
+            },
+            "propertyNames": {
+              "enum": [
+                "annotations",
+                "datasets",
+                "bug-reports",
+                "media-cache",
+                "audit-archive",
+                "import",
+                "export",
+                "avatars",
+                "training"
+              ]
+            },
+            "title": "Handling",
+            "type": "object"
+          },
+          "inventory_job_id": {
+            "format": "uuid",
+            "title": "Inventory Job Id",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/StorageMigrationCopyLimits"
+          },
+          "target_location_id": {
+            "format": "uuid",
+            "title": "Target Location Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inventory_job_id",
+          "target_location_id",
+          "handling"
+        ],
+        "title": "StorageMigrationCopyRequest",
+        "type": "object"
+      },
+      "StorageMigrationCopyStart": {
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/StorageMigrationCopyItem"
+          },
+          "reused": {
+            "title": "Reused",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "item",
+          "reused"
+        ],
+        "title": "StorageMigrationCopyStart",
+        "type": "object"
+      },
+      "StorageMigrationCopyTarget": {
+        "properties": {
+          "config_revision": {
+            "title": "Config Revision",
+            "type": "integer"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id",
+          "name",
+          "config_revision"
+        ],
+        "title": "StorageMigrationCopyTarget",
+        "type": "object"
+      },
+      "StorageMigrationCopyTargets": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StorageMigrationCopyTarget"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "StorageMigrationCopyTargets",
+        "type": "object"
+      },
       "StorageMigrationInventoryCounts": {
         "additionalProperties": false,
         "properties": {
@@ -100448,6 +101137,459 @@
           }
         ],
         "summary": "Managed Original Verification Start",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/migration-copies": {
+      "get": {
+        "operationId": "history_api_v1_storage_migration_copies_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationCopyHistory"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "History",
+        "tags": [
+          "storage"
+        ]
+      },
+      "post": {
+        "operationId": "start_api_v1_storage_migration_copies_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageMigrationCopyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationCopyStart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Start",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/migration-copies/{copy_id}": {
+      "get": {
+        "operationId": "detail_api_v1_storage_migration_copies__copy_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "copy_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Copy Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationCopyItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Detail",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/migration-copies/{copy_id}/attempts": {
+      "post": {
+        "operationId": "attempt_api_v1_storage_migration_copies__copy_id__attempts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "copy_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Copy Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageMigrationCopyAttemptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationCopyStart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Attempt",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/migration-copies/{copy_id}/checkpoint": {
+      "get": {
+        "operationId": "checkpoint_api_v1_storage_migration_copies__copy_id__checkpoint_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "copy_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Copy Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.sqlite3": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Checkpoint",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/migration-copies/{copy_id}/dispatch": {
+      "post": {
+        "operationId": "dispatch_api_v1_storage_migration_copies__copy_id__dispatch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "copy_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Copy Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationCopyStart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Dispatch",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/migration-copies/{copy_id}/failed-objects": {
+      "get": {
+        "operationId": "failed_api_v1_storage_migration_copies__copy_id__failed_objects_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "copy_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Copy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationCopyFailedObjects"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Failed",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/migration-copy-targets": {
+      "get": {
+        "operationId": "targets_api_v1_storage_migration_copy_targets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "inventory_job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Inventory Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMigrationCopyTargets"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Targets",
         "tags": [
           "storage"
         ]
