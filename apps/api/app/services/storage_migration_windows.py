@@ -478,4 +478,21 @@ async def acquire_source_read(
         if storage_access.unavailable(exc):
             reject("storage_maintenance_busy")
         raise
-    return storage_access.Permit(bind, operation_id, LEGACY_LOCATION_ID, revision)
+    permit = storage_access.Permit(bind, operation_id, LEGACY_LOCATION_ID, revision)
+    try:
+        from app.services.managed_original_reclaim_fence import require_source_readable
+
+        # This must follow the Operation commit. A logical alias of the source
+        # can have a different Gate, so its already-durable GC claim is checked
+        # once more before handing the caller any physical source-read permit.
+        async with AsyncSession(
+            bind=bind, expire_on_commit=False, autoflush=False
+        ) as guarded:
+            await require_source_readable(guarded, window.source)
+    except BaseException:
+        # No SDK has run: settle only this just-created responsibility. The
+        # existing Permit drains repeated cancellation and preserves failed DB
+        # settlement instead of pretending the receipt disappeared.
+        await permit.__aexit__(None, None, None)
+        raise
+    return permit

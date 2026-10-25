@@ -143,3 +143,59 @@ async def require_resumable(db, location_id):
     )
     if active is not None or unsettled is not None or operation is not None:
         raise HTTPException(409, detail={"code": "managed_original_reclaim_unsettled"})
+
+
+async def require_source_readable(db, source):
+    """Post-admission check for B6's saved, read-only migration source scope.
+
+    The source Operation must already be committed. If its check precedes a GC
+    claim, GC's fresh pre-I/O/delete recheck sees that operation. If the claim
+    precedes this check, no SDK read may start. Settled tombstones do not prohibit
+    a future inventory of the remaining versions.
+    """
+    from app.db.models.managed_original_reclaim import (
+        ManagedOriginalReclaimAttempt as Attempt,
+        ManagedOriginalReclaimClaim as Claim,
+    )
+    from app.db.models.storage_maintenance import StorageOperation
+
+    buckets = tuple(sorted(set(source["purpose_buckets"].values())))
+    operation_exists = (
+        select(StorageOperation.id)
+        .where(StorageOperation.id == Attempt.operation_id)
+        .exists()
+    )
+    active = await db.scalar(
+        select(Claim.id)
+        .join(Attempt, Attempt.id == Claim.current_attempt_id)
+        .where(
+            Claim.bucket.in_(buckets),
+            (Claim.state == "claimed")
+            | Attempt.status.in_(("pending", "running"))
+            | (~Attempt.physical_settled)
+            | operation_exists,
+        )
+        .limit(1)
+    )
+    # Keep any older attempt's unresolved physical receipt, even if a later
+    # attempt became current. A receipt without a surviving target is unknown.
+    unsettled = await db.scalar(
+        select(Attempt.id)
+        .where(
+            Attempt.target["bucket"].astext.in_(buckets),
+            (~Attempt.physical_settled) | operation_exists,
+        )
+        .limit(1)
+    )
+    orphan = await db.scalar(
+        select(StorageOperation.id)
+        .where(
+            StorageOperation.purpose == "managed_original_reclaim",
+            ~select(Attempt.id)
+            .where(Attempt.operation_id == StorageOperation.id)
+            .exists(),
+        )
+        .limit(1)
+    )
+    if active is not None or unsettled is not None or orphan is not None:
+        raise HTTPException(409, detail={"code": "managed_original_reclaim_unsettled"})

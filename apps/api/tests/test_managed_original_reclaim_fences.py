@@ -17,6 +17,10 @@ from tests.test_managed_original_reclamation import (
 )
 from tests.factory import create_project
 from tests.test_s3_references import s3_world as s3_world
+from tests.test_storage_migration_windows import (
+    reader_world as reader_world,
+    copy_worker_world as copy_worker_world,
+)
 
 
 def expired():
@@ -647,3 +651,67 @@ async def test_actual_operation_on_another_retirement_peer_location_protects_gro
         == summary["counts"]["protected_groups"]
         == 1
     )
+
+
+@pytest.mark.parametrize(
+    "state,status,settled,rejected",
+    [
+        ("claimed", "pending", True, True),
+        ("tombstone", "pending", True, True),
+        ("tombstone", "unknown", False, True),
+        ("tombstone", "unknown", True, False),
+    ],
+)
+async def test_migration_source_scope_refuses_only_active_or_unsettled_claims(
+    db_session, state, status, settled, rejected
+):
+    row, _, _ = await claim(
+        db_session, state=state, status=status, physical_settled=settled
+    )
+    source = {"purpose_buckets": {"datasets": row.bucket}}
+    if rejected:
+        with pytest.raises(HTTPException):
+            await fence.require_source_readable(db_session, source)
+    else:
+        await fence.require_source_readable(db_session, source)
+    await fence.require_source_readable(
+        db_session, {"purpose_buckets": {"datasets": "different-bucket"}}
+    )
+
+
+async def test_migration_source_postcheck_follows_commit_and_settles_rejected_permit(
+    reader_world, monkeypatch
+):
+    from sqlalchemy import select
+    from tests.test_storage_migration_windows import acquire, bound_reader
+
+    world = reader_world
+    reader = await bound_reader(world, "inventory")
+    captured = []
+
+    async def reject_after_receipt(db, source):
+        assert source == world.source
+        async with world.maker() as independent:
+            rows = list(
+                await independent.scalars(
+                    select(StorageOperation.id).where(
+                        StorageOperation.location_id
+                        == uuid.UUID("4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7"),
+                        StorageOperation.purpose == "storage_migration_inventory",
+                    )
+                )
+            )
+        assert len(rows) == 1
+        captured.extend(rows)
+        raise HTTPException(409, detail={"code": "managed_original_reclaim_unsettled"})
+
+    monkeypatch.setattr(fence, "require_source_readable", reject_after_receipt)
+    with pytest.raises(HTTPException) as rejected:
+        await acquire(world, reader)
+    assert rejected.value.detail["code"] == "managed_original_reclaim_unsettled"
+    async with world.maker() as db:
+        assert not list(
+            await db.scalars(
+                select(StorageOperation.id).where(StorageOperation.id.in_(captured))
+            )
+        )
