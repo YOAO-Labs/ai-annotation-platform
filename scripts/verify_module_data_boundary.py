@@ -1937,6 +1937,35 @@ def _psql(
     return result.stdout
 
 
+def _assert_psql_permission_denied(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    username: str,
+    password: str,
+    database: str,
+    statement: str,
+) -> None:
+    escaped = statement.replace("'", "''")
+    _psql(
+        container_id,
+        container_name,
+        container_identity,
+        username=username,
+        password=password,
+        database=database,
+        sql=(
+            "DO $$ DECLARE denied boolean := false; BEGIN "
+            "BEGIN EXECUTE '"
+            f"{escaped}"
+            "'; EXCEPTION WHEN insufficient_privilege THEN denied := true; "
+            "END; IF NOT denied THEN RAISE EXCEPTION "
+            "'expected SQLSTATE 42501 for a restricted read role'; END IF; END $$;"
+        ),
+    )
+
+
 def _installed_function_body_sha256(
     container_id: str,
     container_name: str,
@@ -3231,7 +3260,7 @@ def main(argv: list[str] | None = None) -> int:
                 contract.get("$schema")
                 != "https://json-schema.org/draft/2020-12/schema"
                 or not isinstance(contract.get("$id"), str)
-                or not isinstance(contract.get("$defs"), dict)
+                or not isinstance(contract.get("$defs", {}), dict)
             ):
                 raise RuntimeError(f"invalid frozen module-data schema: {path.name}")
         grant_sql = grants_path.read_text(encoding="utf-8")
@@ -4677,22 +4706,28 @@ def main(argv: list[str] | None = None) -> int:
                 },
             ),
         )
-        for grant_name, grant_sql, grant_variables in notification_grant_profiles:
-            phase = f"install-notification-{grant_name}-grants"
-            _psql(
-                container_id,
-                container_name,
-                container_identity,
-                username="owner",
-                password=owner_password,
-                database=database,
-                sql=grant_sql,
-                variables={
-                    "expected_database": database,
-                    "migration_role": "owner",
-                    **grant_variables,
-                },
-            )
+
+        def apply_notification_grants() -> None:
+            nonlocal phase
+
+            for grant_name, grant_sql, grant_variables in notification_grant_profiles:
+                phase = f"install-notification-{grant_name}-grants"
+                _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="owner",
+                    password=owner_password,
+                    database=database,
+                    sql=grant_sql,
+                    variables={
+                        "expected_database": database,
+                        "migration_role": "owner",
+                        **grant_variables,
+                    },
+                )
+
+        apply_notification_grants()
 
         notification_inbox_url = URL.create(
             "postgresql+asyncpg",
@@ -5412,19 +5447,56 @@ SELECT pg_catalog.jsonb_build_object(
             container_id, container_name, container_identity, require_running=True
         )
         with patch.dict(os.environ, resource_environment, clear=False):
-            if workspace_import_cli_fence is None:
-                exit_code = run_processes(backend, options)
-            else:
-                prepare_owned_resources = backend.prepare
+            prepare_owned_resources = backend.prepare
 
-                def prepare_fenced_import_resources(*, skip_migrations=False):
-                    prepare_owned_resources(skip_migrations=skip_migrations)
+            def prepare_fenced_resources(*, skip_migrations=False):
+                nonlocal phase
+                prepare_owned_resources(skip_migrations=skip_migrations)
+                if workspace_import_cli_fence is not None:
                     workspace_import_cli_fence()
+                apply_notification_grants()
+                for label, statement in (
+                    (
+                        "private-notifications",
+                        "SELECT 1 FROM public.notifications LIMIT 0",
+                    ),
+                    (
+                        "private-preferences",
+                        "SELECT 1 FROM public.notification_preferences LIMIT 0",
+                    ),
+                    (
+                        "private-outbox",
+                        "SELECT 1 FROM public.notification_delivery_outbox LIMIT 0",
+                    ),
+                    (
+                        "private-facts",
+                        "SELECT 1 FROM aap_notifications_v1.notification_facts LIMIT 0",
+                    ),
+                    (
+                        "private-inbox-helper",
+                        "SELECT 1 FROM aap_notifications_v1._visible_inbox_rows(NULL::uuid, 'super_admin') LIMIT 0",
+                    ),
+                ):
+                    phase = f"verify-final-notification-{label}"
+                    _assert_psql_permission_denied(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        username="legacy_runtime",
+                        password=runtime_password,
+                        database=database,
+                        statement=statement,
+                    )
+                evidence["notification_runtime_final_acl"] = {
+                    "profiles_reapplied_after_launcher": True,
+                    "private_tables_denied": True,
+                    "notification_facts_denied": True,
+                    "inbox_helper_denied": True,
+                }
+                phase = "pytest"
 
-                # The launcher reapplies compatibility grants while preparing.
-                # Fence its actual final credentials before it starts pytest.
-                with patch.object(backend, "prepare", prepare_fenced_import_resources):
-                    exit_code = run_processes(backend, options)
+            with patch.object(backend, "prepare", prepare_fenced_resources):
+                exit_code = run_processes(backend, options)
         evidence["test_exit_code"] = exit_code
         evidence["passed_test_count"] = _passed_test_count(junit)
         if exit_code == 0 and evidence["passed_test_count"] == 0:
