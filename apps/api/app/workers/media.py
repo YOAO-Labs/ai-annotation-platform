@@ -1,6 +1,5 @@
 import asyncio
 import io
-import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -206,104 +205,21 @@ def transcode_video_for_browser(
 
 
 async def _generate_thumbnail(item_id: str) -> None:
-    from sqlalchemy.ext.asyncio import (
-        create_async_engine,
-        async_sessionmaker,
-        AsyncSession,
-    )
-    from app.services.storage import StorageService
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from app.services.ordinary_thumbnails import generate
 
     engine = create_async_engine(settings.database_url, echo=False)
-    SessionLocal = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-
+    SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with SessionLocal() as db:
-            item = await db.get(DatasetItem, uuid.UUID(item_id))
-            if not item or item.file_type != "image":
-                return
-            from app.services.directory_policy import owns_media
-
-            if await owns_media(db, item.id):
-                return
-
-            from app.services.reference_keys import reject_reference
-
-            reject_reference(item.file_path)
-
-            storage = StorageService()
-            if item.width is None or item.height is None:
-                item.width, item.height = await _pyramid_dimensions(
-                    db, "dataset_item", item.id
-                )
-                await db.commit()
-            from app.services.image_pyramid import pyramid_eligible
-
-            if pyramid_eligible(item.width, item.height):
-                if settings.image_pyramid_auto_generate:
-                    from app.services import image_pyramid_originals as originals
-                    from app.workers.image_pyramid import enqueue_image_pyramid
-
-                    source = await originals.pin(db, "dataset_item", item.id)
-                    enqueue_image_pyramid(
-                        "dataset_item",
-                        item.id,
-                        delegation=originals.system_authorization(
-                            "dataset_item", item.id, source
-                        ),
-                    )
-                return
-
-            try:
-                head = storage.client.head_object(
-                    Bucket=storage.datasets_bucket, Key=item.file_path
-                )
-                if int(head.get("ContentLength") or 0) > THUMBNAIL_MAX_SOURCE_BYTES:
-                    raise RuntimeError("thumbnail_source_too_large")
-            except Exception as exc:
-                meta = dict(item.metadata_ or {})
-                meta["thumbnail_error"] = str(exc)
-                item.metadata_ = meta
-                await db.commit()
-                return
-
-            try:
-                with tempfile.TemporaryDirectory(prefix="anno-thumbnail-") as tmp:
-                    source_path = Path(tmp) / "source"
-                    with source_path.open("xb") as stream:
-                        storage.client.download_fileobj(
-                            Bucket=storage.datasets_bucket,
-                            Key=item.file_path,
-                            Fileobj=stream,
-                        )
-                    thumbnail_bytes, hash_str = _thumbnail_from_path(source_path)
-            except Exception as exc:
-                meta = dict(item.metadata_ or {})
-                meta["thumbnail_error"] = str(exc)
-                item.metadata_ = meta
-                await db.commit()
-                return
-
-            thumb_key = f"thumbnails/{item_id}.webp"
-            try:
-                storage.ensure_bucket(storage.media_cache_bucket)
-                storage.client.put_object(
-                    Bucket=storage.media_cache_bucket,
-                    Key=thumb_key,
-                    Body=thumbnail_bytes,
-                    ContentType="image/webp",
-                )
-            except Exception as exc:
-                meta = dict(item.metadata_ or {})
-                meta["thumbnail_error"] = str(exc)
-                item.metadata_ = meta
-                await db.commit()
-                return
-
-            item.thumbnail_path = thumb_key
-            item.blurhash = hash_str
-            await db.commit()
+            await generate(
+                db,
+                "dataset_item",
+                uuid.UUID(item_id),
+                encode=_thumbnail_from_path,
+                dimensions_probe=_pyramid_dimensions,
+                max_source_bytes=THUMBNAIL_MAX_SOURCE_BYTES,
+            )
     finally:
         await engine.dispose()
 
@@ -370,91 +286,22 @@ async def _backfill_media(dataset_id: str, *, video_delegations=None) -> None:
 
 
 async def _generate_task_thumbnail(task_id: str, *, allow_pyramid: bool = True) -> None:
-    from sqlalchemy.ext.asyncio import (
-        create_async_engine,
-        async_sessionmaker,
-        AsyncSession,
-    )
-    from app.db.models.task import Task
-    from app.services.storage import StorageService
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from app.services.ordinary_thumbnails import generate
 
     engine = create_async_engine(settings.database_url, echo=False)
-    SessionLocal = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-
+    SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with SessionLocal() as db:
-            task = await db.get(Task, uuid.UUID(task_id))
-            if not task or task.file_type != "image":
-                return
-            from app.services.directory_policy import owns_media
-
-            if await owns_media(db, task.dataset_item_id):
-                return
-
-            from app.services.reference_keys import reject_reference
-
-            reject_reference(task.file_path)
-
-            storage = StorageService()
-            dimensions = (
-                await _pyramid_dimensions(db, "task", task.id)
-                if allow_pyramid
-                else storage.read_image_dimensions(
-                    task.file_path, bucket=storage.bucket
-                )
+            await generate(
+                db,
+                "task",
+                uuid.UUID(task_id),
+                encode=_thumbnail_from_path,
+                dimensions_probe=_pyramid_dimensions,
+                max_source_bytes=THUMBNAIL_MAX_SOURCE_BYTES,
+                allow_pyramid=allow_pyramid,
             )
-            from app.services.image_pyramid import pyramid_eligible
-
-            if dimensions and pyramid_eligible(*dimensions):
-                if allow_pyramid and settings.image_pyramid_auto_generate:
-                    from app.services import image_pyramid_originals as originals
-                    from app.workers.image_pyramid import enqueue_image_pyramid
-
-                    source = await originals.pin(db, "task", task.id)
-                    enqueue_image_pyramid(
-                        "task",
-                        task.id,
-                        force=True,
-                        delegation=originals.system_authorization(
-                            "task", task.id, source
-                        ),
-                    )
-                return
-            try:
-                head = storage.client.head_object(
-                    Bucket=storage.bucket, Key=task.file_path
-                )
-                if int(head.get("ContentLength") or 0) > THUMBNAIL_MAX_SOURCE_BYTES:
-                    return
-                with tempfile.TemporaryDirectory(prefix="anno-task-thumbnail-") as tmp:
-                    source_path = Path(tmp) / "source"
-                    with source_path.open("xb") as stream:
-                        storage.client.download_fileobj(
-                            Bucket=storage.bucket,
-                            Key=task.file_path,
-                            Fileobj=stream,
-                        )
-                    thumbnail_bytes, hash_str = _thumbnail_from_path(source_path)
-            except Exception:
-                return
-
-            thumb_key = f"thumbnails/{task_id}.webp"
-            try:
-                storage.ensure_bucket(storage.media_cache_bucket)
-                storage.client.put_object(
-                    Bucket=storage.media_cache_bucket,
-                    Key=thumb_key,
-                    Body=thumbnail_bytes,
-                    ContentType="image/webp",
-                )
-            except Exception:
-                return
-
-            task.thumbnail_path = thumb_key
-            task.blurhash = hash_str
-            await db.commit()
     finally:
         await engine.dispose()
 
