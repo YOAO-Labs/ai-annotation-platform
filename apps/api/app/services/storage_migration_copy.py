@@ -34,6 +34,16 @@ from app.services.storage_migration_references import (
 )
 
 SCHEMA = "aap.storage-migration-copy/v1"
+GENERATION_SCHEMA = "aap.storage-migration-copy/v2"
+GENERATION_COUNTS = (
+    "reused_objects",
+    "new_objects",
+    "mutable_recopies",
+    "source_identity_conflicts",
+    "previous_only_objects",
+    "delete_markers",
+    "history_records",
+)
 CHUNK = 1024 * 1024
 STRICT_CLOSE = ContextVar("migration_copy_strict_close", default=False)
 CONTENT_FIELDS = (
@@ -200,6 +210,48 @@ class PlanSource(SourceIndex):
             self.db.execute("CREATE TABLE facts(id INTEGER PRIMARY KEY,data TEXT)")
         elif row["type"] in {"bucket", "multipart", "issue"}:
             self.db.execute("INSERT INTO facts(data) VALUES(?)", (packed(row),))
+        elif row["type"] in {"object", "delete_marker"}:
+            latest = row.get("is_latest")
+            if latest is not None and type(latest) is not bool:
+                raise CopyError("invalid_source_is_latest")
+            args = (
+                row["bucket"],
+                row["key"],
+                json.dumps(row.get("version_id")),
+                row["type"],
+            )
+            data = self.db.execute(
+                "SELECT data FROM objects WHERE bucket=? AND key=? AND version=? AND kind=?",
+                args,
+            ).fetchone()[0]
+            value = json.loads(data) | {"is_latest": latest}
+            self.db.execute(
+                "UPDATE objects SET data=? WHERE bucket=? AND key=? AND version=? AND kind=?",
+                (packed(value), *args),
+            )
+
+
+def physical_intent(row):
+    return bool(
+        row.get("receipt")
+        or (row.get("nonce") and isinstance(row.get("content"), dict))
+    )
+
+
+def history_id(record):
+    if record["record_type"] == "fact":
+        return "f:" + digest(record["value"])
+    row = record["value"]
+    # Verification state and receipt timestamps are observations of one creation,
+    # not new physical identities. Unwritten mappings are only source facts.
+    return "r:" + digest(
+        {
+            "source": row["source"],
+            "source_kind": row["source_kind"],
+            "identity": [row.get(k) for k in ("sha256", "size_bytes", "etag")],
+            "target_key": row.get("target_key") if physical_intent(row) else None,
+        }
+    )
 
 
 def attributes(info):
@@ -318,20 +370,7 @@ class Checkpoint:
                 if self.db.execute("PRAGMA quick_check").fetchone() != ("ok",):
                     raise CopyError("checkpoint_corrupt")
                 self.meta = self.read_meta()
-                for _ in self.rows():
-                    pass
-                for data, checksum in self.db.execute("SELECT data,digest FROM facts"):
-                    self.decode(data, checksum)
-                count = self.db.execute("SELECT count(*) FROM results").fetchone()[0]
-                fact_counts = {}
-                for (data,) in self.db.execute("SELECT data FROM facts"):
-                    kind = json.loads(data)["type"]
-                    fact_counts[kind] = fact_counts.get(kind, 0) + 1
-                if (
-                    count != self.meta["result_count"]
-                    or fact_counts != self.meta["fact_counts"]
-                ):
-                    raise CopyError("checkpoint_corrupt")
+                self.evidence_digest()
         except BaseException:
             self.close()
             raise
@@ -340,7 +379,7 @@ class Checkpoint:
     def decode(data, checksum):
         try:
             value = json.loads(data)
-            if digest(value) != checksum:
+            if not isinstance(value, dict) or digest(value) != checksum:
                 raise CopyError("checkpoint_corrupt")
             return value
         except (ValueError, TypeError, ReferenceError):
@@ -351,9 +390,142 @@ class Checkpoint:
         if row is None:
             raise CopyError("checkpoint_corrupt")
         value = self.decode(*row)
-        if value.get("schema") != SCHEMA:
+        if value.get("schema") not in {SCHEMA, GENERATION_SCHEMA}:
             raise CopyError("checkpoint_schema")
+        try:
+            if str(uuid.UUID(value["plan_uuid"])) != value["plan_uuid"]:
+                raise ValueError
+            if value["schema"] == GENERATION_SCHEMA:
+                ancestors = value["ancestor_plan_uuids"]
+                if (
+                    type(value["generation"]) is not int
+                    or value["generation"] < 2
+                    or not isinstance(ancestors, list)
+                    or len(ancestors) != value["generation"] - 1
+                    or len(set(ancestors)) != len(ancestors)
+                    or value["plan_uuid"] in ancestors
+                    or ancestors[-1] != value["parent_plan_uuid"]
+                    or any(str(uuid.UUID(item)) != item for item in ancestors)
+                    or len(bytes.fromhex(value["parent_evidence_sha256"])) != 32
+                    or set(value["generation_summary"]) != set(GENERATION_COUNTS)
+                    or any(
+                        type(n) is not int or n < 0
+                        for n in value["generation_summary"].values()
+                    )
+                ):
+                    raise ValueError
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise CopyError("checkpoint_corrupt") from None
         return value
+
+    def validate_row(self, row, *, historical=False):
+        try:
+            creator = row.get("creation_plan_uuid", self.meta["plan_uuid"])
+            allowed = self.meta.get("ancestor_plan_uuids", []) + (
+                [] if historical else [self.meta["plan_uuid"]]
+            )
+            if (
+                row["id"] != digest(row["source"])
+                or row["source"]["endpoint_url"] != self.meta["source_endpoint"]
+                or row["source"]["bucket"] not in self.meta["source_buckets"]
+                or creator not in allowed
+                or (
+                    row.get("is_latest") is not None
+                    and type(row["is_latest"]) is not bool
+                )
+            ):
+                raise ValueError
+            if row.get("target_key") is not None:
+                expected = f"{self.meta['target']['key_prefix']}{creator}/{row['id']}/{row['sha256']}"
+                if row["target_key"] != expected or row["source_kind"] != "object":
+                    raise ValueError
+            if row["decision"] == "copy" and row.get("target_key") is None:
+                raise ValueError
+            if row.get("receipt") and (
+                not physical_intent(row)
+                or not isinstance(row["receipt"].get("version_id"), str)
+                or row["receipt"]["version_id"] in {"", "null"}
+                or not row.get("nonce")
+                or not isinstance(row.get("content"), dict)
+            ):
+                raise ValueError
+            if creator != self.meta["plan_uuid"] and not historical:
+                record = {"record_type": "result", "value": row}
+                proof = self.db.execute(
+                    "SELECT data,digest FROM history WHERE id=?", (history_id(record),)
+                ).fetchone()
+                if proof is None:
+                    raise ValueError
+                prior = self.decode(*proof)["value"]
+                if any(
+                    prior.get(k) != row.get(k)
+                    for k in ("creation_plan_uuid", "target_key", "nonce", "content")
+                ):
+                    raise ValueError
+                if prior.get("receipt") and prior["receipt"]["version_id"] != (
+                    row.get("receipt") or {}
+                ).get("version_id"):
+                    raise ValueError
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise CopyError("checkpoint_corrupt") from None
+
+    def history(self):
+        if self.meta["schema"] == SCHEMA:
+            return
+        for record_id, data, checksum in self.db.execute(
+            "SELECT id,data,digest FROM history ORDER BY id"
+        ):
+            record = self.decode(data, checksum)
+            try:
+                if (
+                    record["record_type"] not in {"result", "fact"}
+                    or history_id(record) != record_id
+                ):
+                    raise ValueError
+                if record["record_type"] == "result":
+                    self.validate_row(record["value"], historical=True)
+                elif record["value"]["type"] not in {"bucket", "multipart", "issue"}:
+                    raise ValueError
+            except (KeyError, TypeError, ValueError):
+                raise CopyError("checkpoint_corrupt") from None
+            yield record
+
+    def evidence_digest(self):
+        """Validated logical evidence, independent of SQLite pages and row order."""
+        self.meta = self.read_meta()
+        sha = hashlib.sha256()
+        sha.update(canonical({"record_type": "metadata", "value": self.meta}))
+        history_count = 0
+        for record in self.history():
+            sha.update(canonical({"record_type": "history", "value": record}))
+            history_count += 1
+        count = 0
+        for row in self.rows():
+            sha.update(canonical({"record_type": "current", "value": row}))
+            count += 1
+        fact_counts = {}
+        # Sort logical JSON, never local insertion IDs. Canonical serialization
+        # is already required by writers, but decoding still verifies each fact.
+        for data, checksum in self.db.execute(
+            "SELECT data,digest FROM facts ORDER BY digest,data"
+        ):
+            fact = self.decode(data, checksum)
+            kind = fact.get("type")
+            if kind not in {"bucket", "multipart", "issue"}:
+                raise CopyError("checkpoint_corrupt")
+            fact_counts[kind] = fact_counts.get(kind, 0) + 1
+            sha.update(canonical({"record_type": "fact", "value": fact}))
+        if (
+            count != self.meta["result_count"]
+            or fact_counts != self.meta["fact_counts"]
+            or history_count != self.meta.get("history_count", 0)
+            or (
+                self.meta["schema"] == GENERATION_SCHEMA
+                and history_count != self.meta["generation_summary"]["history_records"]
+            )
+        ):
+            raise CopyError("checkpoint_corrupt")
+        return sha.hexdigest()
 
     def rows(self):
         for object_id, data, checksum in self.db.execute(
@@ -362,9 +534,11 @@ class Checkpoint:
             value = self.decode(data, checksum)
             if value.get("id") != object_id:
                 raise CopyError("checkpoint_corrupt")
+            self.validate_row(value)
             yield value
 
     def save(self, row):
+        self.validate_row(row)
         if self.on_save is not None:
             # Durable remote intent/ACK comes first. Local disk failure must not
             # erase an already-observed provider receipt or permit another I/O.
@@ -385,8 +559,8 @@ class Checkpoint:
         for row in self.rows():
             counts[row["state"]] = counts.get(row["state"], 0) + 1
             decisions[row["decision"]] = decisions.get(row["decision"], 0) + 1
-        return {
-            "schema": SCHEMA,
+        result = {
+            "schema": self.meta["schema"],
             "counts": counts,
             "decisions": decisions,
             "source": self.meta["source_summary"],
@@ -397,6 +571,18 @@ class Checkpoint:
             ),
             "migration_ready": False,
         }
+        if self.meta["schema"] == GENERATION_SCHEMA:
+            result.update(
+                {
+                    key: self.meta[key]
+                    for key in (
+                        "generation",
+                        "parent_evidence_sha256",
+                        "generation_summary",
+                    )
+                }
+            )
+        return result
 
     def close(self):
         try:
@@ -602,6 +788,222 @@ def plan(
             index.close()
 
 
+def plan_generation(
+    checkpoint_path,
+    source_report,
+    catalog_path,
+    target,
+    *,
+    parent,
+    parent_evidence_sha256,
+    handling=None,
+    limits=None,
+    checkpoint_hook=None,
+    max_bytes=None,
+    max_rows=None,
+    strict_closure=False,
+):
+    """Create a self-contained child without changing any parent evidence."""
+    checkpoint_hook = checkpoint_hook or (lambda: None)
+    if parent.evidence_digest() != parent_evidence_sha256:
+        raise CopyError("parent_evidence_mismatch")
+    if target_identity(target) != parent.meta["target"]:
+        raise CopyError("generation_target_mismatch")
+    limits = limits or Limits(**parent.meta["limits"])
+    handling = parent.meta["handling"] if handling is None else handling
+    if asdict(limits) != parent.meta["limits"] or handling != parent.meta["handling"]:
+        raise CopyError("generation_policy_mismatch")
+    # The ordinary sealed-input planner remains the only input projection path.
+    plan(
+        checkpoint_path,
+        source_report,
+        catalog_path,
+        target,
+        handling=handling,
+        limits=limits,
+        checkpoint_hook=checkpoint_hook,
+        max_bytes=max_bytes,
+        max_rows=max_rows,
+        strict_closure=strict_closure,
+    )
+    with Checkpoint(
+        checkpoint_path, max_bytes=max_bytes, strict_closure=strict_closure
+    ) as state:
+        if any(
+            state.meta[k] != parent.meta[k]
+            for k in ("source_endpoint", "source_buckets", "bucket_handling")
+        ):
+            raise CopyError("generation_source_scope_mismatch")
+        budget = Budget(limits)
+
+        def check():
+            checkpoint_hook()
+            budget.check()
+
+        summary = dict.fromkeys(GENERATION_COUNTS, 0)
+        state.db.execute(
+            "CREATE TABLE history(id TEXT PRIMARY KEY,data TEXT,digest TEXT)"
+        )
+        state.db.execute("CREATE TEMP TABLE prior(source_id TEXT,data TEXT)")
+        state.db.execute("CREATE INDEX prior_source ON prior(source_id)")
+        history_count = 0
+        row_limit = (
+            max_rows if max_rows is not None else ReferenceLimits().max_source_entries
+        )
+
+        def remember(record):
+            nonlocal history_count
+            check()
+            record_id = history_id(record)
+            previous = state.db.execute(
+                "SELECT data,digest FROM history WHERE id=?", (record_id,)
+            ).fetchone()
+            if previous:
+                old = state.decode(*previous)
+                if record["record_type"] == "result" and physical_intent(
+                    record["value"]
+                ):
+                    before, after = old["value"], record["value"]
+                    if any(
+                        before.get(k) != after.get(k)
+                        for k in ("creation_plan_uuid", "nonce", "content")
+                    ):
+                        raise CopyError("history_identity_conflict")
+                    if before.get("receipt"):
+                        if (
+                            after.get("receipt")
+                            and before["receipt"]["version_id"]
+                            != after["receipt"]["version_id"]
+                        ):
+                            raise CopyError("history_receipt_conflict")
+                        if not after.get("receipt"):
+                            record = old
+                else:
+                    # Keep the first creation attribution for non-physical facts.
+                    record = old
+            else:
+                if state.meta["result_count"] + history_count >= row_limit:
+                    raise CopyError("plan_row_budget")
+                history_count += 1
+            state.db.execute(
+                "INSERT OR REPLACE INTO history VALUES(?,?,?)",
+                (record_id, packed(record), digest(record)),
+            )
+
+        for record in parent.history():
+            remember(record)
+        for row in parent.rows():
+            row = {
+                **row,
+                "creation_plan_uuid": row.get(
+                    "creation_plan_uuid", parent.meta["plan_uuid"]
+                ),
+                "is_latest": row.get("is_latest"),
+            }
+            remember({"record_type": "result", "value": row})
+        for data, checksum in parent.db.execute(
+            "SELECT data,digest FROM facts ORDER BY digest,data"
+        ):
+            remember({"record_type": "fact", "value": parent.decode(data, checksum)})
+        # A bounded disk-backed join also finds physical versions that disappeared
+        # in one intermediate report and reappear in a later generation.
+        for (data,) in state.db.execute(
+            "SELECT data FROM history WHERE id LIKE 'r:%' ORDER BY id"
+        ):
+            check()
+            row = json.loads(data)["value"]
+            state.db.execute("INSERT INTO prior VALUES(?,?)", (row["id"], packed(row)))
+        for row in state.rows():
+            check()
+            row["creation_plan_uuid"] = state.meta["plan_uuid"]
+            prior = [
+                json.loads(data)
+                for (data,) in state.db.execute(
+                    "SELECT data FROM prior WHERE source_id=?", (row["id"],)
+                )
+            ]
+            if row["source_kind"] == "delete_marker":
+                summary["delete_markers"] += 1
+            elif row["source"]["version_id"] not in (None, "null"):
+                objects = [old for old in prior if old["source_kind"] == "object"]
+                if any(
+                    any(
+                        old.get(k) != row.get(k)
+                        for k in ("sha256", "size_bytes", "etag")
+                    )
+                    for old in objects
+                ):
+                    row.update(
+                        decision="source_identity_conflict",
+                        state="skipped",
+                        target_key=None,
+                    )
+                    summary["source_identity_conflicts"] += 1
+                elif row["decision"] == "copy":
+                    reusable = [old for old in objects if physical_intent(old)]
+                    if reusable:
+                        # Receipts are stronger than unknown-ACK intents. Preserve
+                        # the oldest stable mapping when several facts exist.
+                        old = sorted(
+                            reusable,
+                            key=lambda item: (
+                                not bool(item.get("receipt")),
+                                item["target_key"],
+                            ),
+                        )[0]
+                        for key in (
+                            "creation_plan_uuid",
+                            "target_key",
+                            "nonce",
+                            "content",
+                            "receipt",
+                        ):
+                            if key in old:
+                                row[key] = old[key]
+                        summary["reused_objects"] += 1
+                    else:
+                        summary["new_objects"] += 1
+            elif row["decision"] == "copy":
+                summary[
+                    "mutable_recopies"
+                    if any(old["source_kind"] == "object" for old in prior)
+                    else "new_objects"
+                ] += 1
+            state.db.execute(
+                "UPDATE results SET data=?,digest=? WHERE id=?",
+                (packed(row), digest(row), row["id"]),
+            )
+        for row in parent.rows():
+            check()
+            if (
+                row["source_kind"] == "object"
+                and state.db.execute(
+                    "SELECT 1 FROM results WHERE id=?", (row["id"],)
+                ).fetchone()
+                is None
+            ):
+                summary["previous_only_objects"] += 1
+        summary["history_records"] = history_count
+        state.meta.update(
+            schema=GENERATION_SCHEMA,
+            generation=parent.meta.get("generation", 1) + 1,
+            parent_plan_uuid=parent.meta["plan_uuid"],
+            parent_evidence_sha256=parent_evidence_sha256,
+            ancestor_plan_uuids=parent.meta.get("ancestor_plan_uuids", [])
+            + [parent.meta["plan_uuid"]],
+            history_count=history_count,
+            generation_summary=summary,
+        )
+        state.db.execute(
+            "UPDATE metadata SET data=?,digest=? WHERE id=1",
+            (packed(state.meta), digest(state.meta)),
+        )
+        state.db.execute("DROP TABLE prior")
+        state.db.commit()
+        state.evidence_digest()
+        return state.status()
+
+
 def content(response):
     """Preserve actual conditional-read metadata; never the redacted inventory."""
     value = {}
@@ -751,7 +1153,7 @@ def require_empty_history(client, state, row):
 def creation_metadata(state, row):
     return {
         **row["content"].get("Metadata", {}),
-        "aap-copy-plan": state.meta["plan_uuid"],
+        "aap-copy-plan": row.get("creation_plan_uuid", state.meta["plan_uuid"]),
         "aap-copy-object": row["id"],
         "aap-copy-nonce": row["nonce"],
     }
