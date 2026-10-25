@@ -3399,7 +3399,7 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8"
         )
 
-        from sqlalchemy.engine import URL
+        from sqlalchemy.engine import URL, make_url
 
         from app.config import settings
         from worktree_env import load_identity, topology
@@ -4739,6 +4739,7 @@ def main(argv: list[str] | None = None) -> int:
         ).render_as_string(hide_password=False)
 
         async def verify_notification_function_only_logins() -> None:
+            nonlocal phase
             import asyncpg
 
             from aap_owner_data.postgres import verify_function_only_role
@@ -4755,7 +4756,13 @@ def main(argv: list[str] | None = None) -> int:
                     NOTIFICATION_INBOX_FUNCTIONS,
                 ),
             ):
-                connection = await asyncpg.connect(url, timeout=5)
+                phase = f"verify-notification-{role}-function-only"
+                connection = await asyncpg.connect(
+                    make_url(url)
+                    .set(drivername="postgresql")
+                    .render_as_string(hide_password=False),
+                    timeout=5,
+                )
                 try:
                     await verify_function_only_role(
                         connection,
