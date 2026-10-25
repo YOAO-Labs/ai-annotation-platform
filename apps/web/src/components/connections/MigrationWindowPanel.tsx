@@ -5,6 +5,7 @@ import { ApiError } from "@/api/client";
 import { storageMigrationCopiesApi, type MigrationCopyItem } from "@/api/storageMigrationCopies";
 import {
   storageMigrationWindowsApi,
+  type MigrationWindowFinalization,
   type MigrationWindowItem,
 } from "@/api/storageMigrationWindows";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
@@ -25,6 +26,20 @@ export const WINDOW_STATES = {
 };
 const BOUNDARY =
   "登记访问已停止不等于全源停写，也不代表迁移可切换。旧上传链接、未登记调用及存储端自动过期仍需另行核实。";
+const FINALIZATION_STATES = {
+  bound: "已绑定，待最终核验",
+  sealing: "正在最终核验",
+  sealed: "最终核验已封存",
+  invalidating: "等待收尾并解除绑定",
+  invalidated: "绑定已解除",
+};
+const FINALIZATION_HINTS = {
+  bound: "运维已绑定此窗口，尚未封存最终清单与复制证据。",
+  sealing: "正在处理此窗口的最终清单与准确版本复制，请等待任务收尾。",
+  sealed: "此窗口的最终清单与准确版本复制证据已封存。",
+  invalidating: "等待相关任务和物理操作收尾，再由运维显式解除绑定；普通访问不会自动恢复。",
+  invalidated: "最终核验绑定已解除；访问是否恢复，仍以窗口状态为准。",
+};
 function stamp(value: string) {
   return Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("zh-CN") : "时间未知";
 }
@@ -44,6 +59,11 @@ export function migrationWindowError(error: unknown) {
     migration_window_unsettled: "仍有注册操作尚未收尾，不能确认停止。请等待或核实 Worker 状态。",
     migration_window_source_changed: "源存储配置已变化，不能继续使用此窗口。",
     migration_window_gate_changed: "源访问门禁已变化，请核实当前窗口。",
+    finalization_active: "窗口仍绑定最终核验，请由运维在任务收尾后显式解除绑定，再关闭窗口。",
+    finalization_changed: "最终核验绑定已变化，已重新读取；请审阅当前状态后重试。",
+    finalization_unsettled: "最终核验仍有任务或物理操作尚未收尾，请等待或由运维核实。",
+    finalization_closing: "最终核验正在等待收尾并解除绑定，不能继续读取来源。",
+    finalization_copy_read_only: "此最终复制批次已封存，只能查看，不能继续执行。",
     storage_maintenance_protocol_unqualified: "当前部署尚未具备完整维护协议，无法开启窗口。",
     copy_not_prepared: "所选复制批次尚未封存计划。",
     copy_active_conflict: "所选复制批次仍有活动任务，请等待结束。",
@@ -306,8 +326,10 @@ function WindowDetail({
     if (denied) onDenied();
   }, [denied, onDenied]);
   const item = denied || detail.isError ? undefined : detail.data;
+  const finalizationBlocksClose = !!item?.finalization && item.finalization.state !== "invalidated";
   const transition = async (action: "stop" | "close") => {
-    if (!item || busy || detail.isFetching) return;
+    if (!item || busy || detail.isFetching || (action === "close" && finalizationBlocksClose))
+      return;
     const current = capture();
     setBusy(true);
     setError("");
@@ -375,6 +397,9 @@ function WindowDetail({
               )}
               <p className="text-xs leading-relaxed text-muted-foreground">{BOUNDARY}</p>
             </section>
+            {item.finalization && (
+              <FinalizationSummary finalization={item.finalization} busy={busy} onCopy={onParent} />
+            )}
             <dl className="space-y-2 break-all text-xs text-muted-foreground">
               <div>
                 <dt>窗口</dt>
@@ -414,7 +439,10 @@ function WindowDetail({
               )}
               {item.state !== "closed" && (
                 <Button
-                  disabled={busy || detail.isFetching}
+                  disabled={busy || detail.isFetching || finalizationBlocksClose}
+                  aria-describedby={
+                    finalizationBlocksClose ? "migration-window-close-hint" : undefined
+                  }
                   onClick={() => void transition("close")}
                 >
                   {item.state === "closing" ? "重试关闭窗口" : "关闭窗口"}
@@ -424,6 +452,14 @@ function WindowDetail({
                 查看父复制批次
               </Button>
             </div>
+            {finalizationBlocksClose && item.state !== "closed" && (
+              <p
+                id="migration-window-close-hint"
+                className="text-xs leading-relaxed text-muted-foreground"
+              >
+                窗口仍绑定最终核验。请由运维在任务收尾后显式解除绑定，再关闭窗口。
+              </p>
+            )}
           </>
         )}
         <div className="flex flex-wrap gap-2">
@@ -440,6 +476,61 @@ function WindowDetail({
         </div>
       </div>
     </Modal>
+  );
+}
+function FinalizationSummary({
+  finalization,
+  busy,
+  onCopy,
+}: {
+  finalization: MigrationWindowFinalization;
+  busy: boolean;
+  onCopy: (id: string) => void;
+}) {
+  const copyId = finalization.copy_id;
+  const count = (key: string) => {
+    const value = finalization.counts?.[key];
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+      ? value.toLocaleString("zh-CN")
+      : "未知";
+  };
+  return (
+    <section
+      aria-labelledby="migration-window-finalization-title"
+      className="space-y-2 rounded-md border border-border p-3"
+    >
+      <h3 id="migration-window-finalization-title" className="text-md font-medium">
+        最终核验
+      </h3>
+      <Badge variant="outline">{FINALIZATION_STATES[finalization.state]}</Badge>
+      <p>{FINALIZATION_HINTS[finalization.state]}</p>
+      {finalization.counts ? (
+        <p className="tabular-nums">
+          记录中的当前对象：复制 {count("copied_objects")} · 保留 {count("retained_objects")} · 重建{" "}
+          {count("rebuild_objects")}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">尚无当前对象处理计数。</p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        原生观测时间：
+        {finalization.native_observed_at ? stamp(finalization.native_observed_at) : "暂无记录"}
+        {finalization.sealed_at && ` · 封存时间：${stamp(finalization.sealed_at)}`}
+      </p>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        原生观测是历史记录，不证明来源当前仍处于物理封闭状态。封存不代表业务切换或迁移完成。
+      </p>
+      {finalization.error_code && (
+        <p role="alert" className="text-xs text-status-danger">
+          最终核验记录了未完成情况，请由运维核实任务与本机来源状态。
+        </p>
+      )}
+      {copyId && (
+        <Button size="sm" disabled={busy} onClick={() => onCopy(copyId)}>
+          查看最终复制批次
+        </Button>
+      )}
+    </section>
   );
 }
 function eligible(item: MigrationCopyItem) {

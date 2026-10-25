@@ -5,11 +5,15 @@ import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { MeResponse } from "@/api/auth";
 import { ApiError } from "@/api/client";
-import type { MigrationWindowItem } from "@/api/storageMigrationWindows";
+import type {
+  MigrationWindowFinalization,
+  MigrationWindowItem,
+} from "@/api/storageMigrationWindows";
 import type { MigrationCopyItem } from "@/api/storageMigrationCopies";
 import { useAuthStore } from "@/stores/authStore";
 import { createTestQueryClient } from "@/test/queryClient";
 import { MigrationInventoryPanel } from "./MigrationInventoryPanel";
+import { migrationWindowError } from "./MigrationWindowPanel";
 const api = vi.hoisted(() => ({
   windows: vi.fn(),
   window: vi.fn(),
@@ -73,6 +77,22 @@ const item: MigrationWindowItem = {
   registered_operations: 0,
   registered_access_drained: false,
   source_quiescence_proven: false,
+  migration_ready: false,
+};
+const finalization: MigrationWindowFinalization = {
+  finalization_id: "55555555-5555-5555-5555-555555555555",
+  revision: 2,
+  state: "bound",
+  window_revision: 3,
+  created_at: item.created_at,
+  updated_at: item.updated_at,
+  native_observed_at: null,
+  sealed_at: null,
+  invalidated_at: null,
+  inventory_job_id: null,
+  copy_id: null,
+  counts: null,
+  error_code: null,
   migration_ready: false,
 };
 const copy = {
@@ -316,11 +336,13 @@ it("ignores old transition responses after navigating to another window", async 
   expect(screen.getByTestId("url")).toHaveTextContent(OTHER);
 });
 it("clears sensitive window data and all actions on permission revocation", async () => {
+  api.window.mockResolvedValue({ ...item, finalization });
   api.transition.mockRejectedValueOnce(new ApiError(403, "denied"));
   mount(`/storage?tab=migration&migration_window=${WINDOW}`);
   fireEvent.click(await screen.findByRole("button", { name: "确认停止登记访问" }));
   expect(await screen.findByText("当前账号已无权读取迁移准备。")).toBeInTheDocument();
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "最终核验" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "开启迁移窗口" })).not.toBeInTheDocument();
 });
 it("ordinary managers cannot query windows even through a window deep link", () => {
@@ -437,4 +459,165 @@ it("invalid window IDs do not request details or suppress an existing copy detai
   mount(`/storage?tab=migration&migration_window=invalid&migration_copy=${COPY}`);
   expect(await screen.findByRole("dialog", { name: "审阅初次复制计划" })).toBeInTheDocument();
   expect(api.window).not.toHaveBeenCalled();
+});
+
+it.each([undefined, null])(
+  "keeps legacy finalization=%s windows closable without inventing a record",
+  async (value) => {
+    api.window.mockResolvedValue({ ...item, state: "stopped", finalization: value });
+    mount(`/storage?tab=migration&migration_window=${WINDOW}`);
+    expect(await screen.findByRole("button", { name: "关闭窗口" })).toBeEnabled();
+    expect(screen.queryByRole("region", { name: "最终核验" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "查看最终复制批次" })).not.toBeInTheDocument();
+  },
+);
+
+it.each([
+  ["bound", "已绑定，待最终核验"],
+  ["sealing", "正在最终核验"],
+  ["sealed", "最终核验已封存"],
+  ["invalidating", "等待收尾并解除绑定"],
+] as const)(
+  "shows %s as recorded evidence and blocks close until explicit unbinding",
+  async (state, label) => {
+    api.window.mockResolvedValue({
+      ...item,
+      state: "stopped",
+      finalization: {
+        ...finalization,
+        state,
+        native_observed_at: item.created_at,
+        sealed_at: state === "sealed" ? item.updated_at : null,
+        counts: { copied_objects: 3, retained_objects: 2, rebuild_objects: 1, history_records: 97 },
+      },
+    });
+    mount(`/storage?tab=migration&migration_window=${WINDOW}`);
+    const record = await screen.findByRole("region", { name: "最终核验" });
+    expect(record).toHaveTextContent(label);
+    expect(record).toHaveTextContent("记录中的当前对象：复制 3 · 保留 2 · 重建 1");
+    expect(record).not.toHaveTextContent("97");
+    expect(record).toHaveTextContent("原生观测是历史记录，不证明来源当前仍处于物理封闭状态");
+    expect(record).toHaveTextContent("封存不代表业务切换或迁移完成");
+    const close = screen.getByRole("button", { name: "关闭窗口" });
+    expect(close).toBeDisabled();
+    expect(close).toHaveAccessibleDescription(/由运维在任务收尾后显式解除绑定/);
+    fireEvent.click(close);
+    expect(api.transition).not.toHaveBeenCalled();
+    if (state === "invalidating") {
+      expect(record).toHaveTextContent("普通访问不会自动恢复");
+      expect(screen.queryByText(/普通注册访问已恢复/)).not.toBeInTheDocument();
+    }
+  },
+);
+
+it("allows explicit window close only after finalization is invalidated", async () => {
+  api.window.mockResolvedValue({
+    ...item,
+    state: "stopped",
+    finalization: { ...finalization, state: "invalidating" },
+  });
+  mount(`/storage?tab=migration&migration_window=${WINDOW}`);
+  expect(await screen.findByRole("button", { name: "关闭窗口" })).toBeDisabled();
+  api.window.mockResolvedValue({
+    ...item,
+    state: "stopped",
+    revision: 8,
+    finalization: { ...finalization, state: "invalidated", invalidated_at: item.updated_at },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "刷新窗口状态" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "关闭窗口" })).toBeEnabled());
+  expect(screen.getByRole("region", { name: "最终核验" })).toHaveTextContent(
+    "访问是否恢复，仍以窗口状态为准",
+  );
+  expect(api.transition).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "关闭窗口" }));
+  await waitFor(() => expect(api.transition).toHaveBeenCalledWith(WINDOW, "close", 8));
+});
+
+it("keeps absent observations and counts unknown and does not turn invalid counts into zero", async () => {
+  api.window.mockResolvedValue({ ...item, state: "stopped", finalization });
+  mount(`/storage?tab=migration&migration_window=${WINDOW}`);
+  const record = await screen.findByRole("region", { name: "最终核验" });
+  expect(record).toHaveTextContent("原生观测时间：暂无记录");
+  expect(record).toHaveTextContent("尚无当前对象处理计数");
+  api.window.mockResolvedValue({
+    ...item,
+    state: "stopped",
+    finalization: {
+      ...finalization,
+      native_observed_at: "invalid",
+      counts: { copied_objects: -1, retained_objects: 0, rebuild_objects: 0.5 },
+    },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "刷新窗口状态" }));
+  await waitFor(() => expect(record).toHaveTextContent("复制 未知 · 保留 0 · 重建 未知"));
+  expect(record).toHaveTextContent("原生观测时间：时间未知");
+});
+
+it("opens the actual final copy instead of the window parent and preserves context", async () => {
+  api.window.mockResolvedValue({
+    ...item,
+    state: "stopped",
+    finalization: { ...finalization, state: "sealed", copy_id: OTHER },
+  });
+  api.copy.mockResolvedValue({ ...copy, copy_id: OTHER, parent_copy_id: COPY, generation: 2 });
+  mount(`/storage?tab=migration&migration_window=${WINDOW}&other=keep`);
+  fireEvent.click(await screen.findByRole("button", { name: "查看最终复制批次" }));
+  expect(await screen.findByRole("dialog", { name: "审阅后续复制批次" })).toBeInTheDocument();
+  expect(api.copy).toHaveBeenCalledWith(OTHER, expect.any(AbortSignal));
+  expect(screen.getByTestId("url")).toHaveTextContent(`migration_copy=${OTHER}`);
+  expect(screen.getByTestId("url")).not.toHaveTextContent(`migration_copy=${COPY}`);
+  expect(screen.getByTestId("url")).toHaveTextContent("other=keep");
+  expect(screen.getByTestId("url")).not.toHaveTextContent("migration_window=");
+});
+
+it("does not navigate to a final copy from a late previous-window response", async () => {
+  const late = deferred<MigrationWindowItem>();
+  api.window.mockImplementation((id) =>
+    id === WINDOW
+      ? late.promise
+      : Promise.resolve({
+          ...item,
+          window_id: OTHER,
+          state: "stopped",
+          finalization: { ...finalization, state: "sealed", copy_id: JOB },
+        }),
+  );
+  api.copy.mockResolvedValue({ ...copy, copy_id: JOB, parent_copy_id: COPY });
+  mount(`/storage?tab=migration&migration_window=${WINDOW}`);
+  await waitFor(() => expect(api.window).toHaveBeenCalledWith(WINDOW, expect.any(AbortSignal)));
+  fireEvent.click(screen.getByRole("button", { name: "其他窗口", hidden: true }));
+  await screen.findByRole("button", { name: "查看最终复制批次" });
+  await act(async () =>
+    late.resolve({
+      ...item,
+      finalization: { ...finalization, copy_id: COPY, error_code: "old_failure" },
+    }),
+  );
+  expect(screen.queryByText(/最终核验记录了未完成情况/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "查看最终复制批次" }));
+  await waitFor(() => expect(api.copy).toHaveBeenCalledWith(JOB, expect.any(AbortSignal)));
+  expect(screen.getByTestId("url")).toHaveTextContent(`migration_copy=${JOB}`);
+  expect(api.copy).not.toHaveBeenCalledWith(COPY, expect.any(AbortSignal));
+});
+
+it("refreshes a server finalization conflict and blocks the now-bound close action", async () => {
+  api.window.mockResolvedValue({ ...item, state: "stopped" });
+  api.transition.mockRejectedValueOnce(failure("finalization_active"));
+  mount(`/storage?tab=migration&migration_window=${WINDOW}`);
+  await screen.findByRole("button", { name: "关闭窗口" });
+  api.window.mockResolvedValue({ ...item, state: "stopped", finalization });
+  fireEvent.click(screen.getByRole("button", { name: "关闭窗口" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(/窗口仍绑定最终核验/);
+  await waitFor(() => expect(screen.getByRole("button", { name: "关闭窗口" })).toBeDisabled());
+  expect(api.transition).toHaveBeenCalledWith(WINDOW, "close", 3);
+});
+
+it("explains finalization revision, settlement and read-only rejections", () => {
+  expect(migrationWindowError(failure("finalization_changed"))).toContain("最终核验绑定已变化");
+  expect(migrationWindowError(failure("finalization_unsettled"))).toContain(
+    "任务或物理操作尚未收尾",
+  );
+  expect(migrationWindowError(failure("finalization_closing"))).toContain("不能继续读取来源");
+  expect(migrationWindowError(failure("finalization_copy_read_only"))).toContain("只能查看");
 });

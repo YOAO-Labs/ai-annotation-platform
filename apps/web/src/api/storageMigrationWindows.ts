@@ -1,5 +1,22 @@
 import { apiClient } from "./client";
 
+export interface MigrationWindowFinalization {
+  finalization_id: string;
+  revision: number;
+  state: "bound" | "sealing" | "sealed" | "invalidating" | "invalidated";
+  window_revision: number;
+  created_at: string;
+  updated_at: string;
+  native_observed_at: string | null;
+  sealed_at: string | null;
+  invalidated_at: string | null;
+  inventory_job_id: string | null;
+  copy_id: string | null;
+  counts: Record<string, number> | null;
+  error_code: string | null;
+  migration_ready: false;
+}
+
 export interface MigrationWindowItem {
   window_id: string;
   parent_copy_id: string;
@@ -15,6 +32,7 @@ export interface MigrationWindowItem {
   registered_access_drained: boolean;
   source_quiescence_proven: false;
   migration_ready: false;
+  finalization?: MigrationWindowFinalization | null;
 }
 export interface MigrationWindowHistory {
   items: MigrationWindowItem[];
