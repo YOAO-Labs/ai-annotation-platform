@@ -245,3 +245,18 @@ control token 和按需 Mask token 文件。API 冷镜像另以禁网、只读�
 草稿继续是未接入生产入口的内部服务，本次不新增产品入口。可信调用账号使用
 `infra/docker/labeling-annotation-maintenance-grants.sql`，仅获得这一函数的执行权。
 本组源码实现不替代整个 Labeling 的原生权限、并发、独立运行及恢复验收。
+
+## 讨论、Mask 编辑及场景读取 {#discussion-mask-and-scene}
+
+讨论／反馈与任务事件分别由两个固定命令持有，公开评论、反馈和事件投影供原 SQL 组合读取。
+调用方继续执行原 Identity／Workspace 权限检查及通知、审计和提交顺序。专用 discussion
+账号只有这两个命令及四个只读投影（含既有统一对账 view）的权限，不获得底表写入权。
+
+切片／恢复、Mask 最终编辑、operation／lineage、revision 保留及 AI Mask 采纳记录使用三个
+固定命令。内容验证、像素运算与原 Task／来源围栏保持；内部 revision 保留 helper 显式传入
+Task UUID，未增加产品参数。场景读取使用 `scene_read_query`，严格核对请求字段和返回范围；
+其三个标量 JSON helper 仅由 owner 使用，场景来源仍读 Assets 公开空间投影。
+
+三组可信账号分别使用 `infra/docker/labeling-discussion-grants.sql`、
+`labeling-mask-edit-grants.sql`、`labeling-scene-read-grants.sql`。源码及调用接线已集成，
+原生权限、并发、冷安装及恢复仍按完整 Labeling 模块集中验收。

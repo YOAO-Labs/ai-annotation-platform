@@ -167,6 +167,32 @@ fixture cleanup and other Labeling writes/reads remain explicit migration work;
 these operation contracts do not establish complete module deployment or recovery
 qualification.
 
+## Discussion, Mask editing and scene reads
+
+`discussion_command` and `task_event_command` own comment/feedback mutations and
+event admission/insertion. Three explicit read projections keep the existing
+single-statement discussion, dashboard, export and filtering queries composable.
+The discussion LOGIN gets the two commands and four SELECT-only projections,
+including the existing unified reconciliation view; caller authorization continues
+to consume Identity and Workspace through their existing public capabilities.
+
+`mask_edit_command`, `mask_revision_command` and `ai_mask_accept_command` own the
+existing slice/restore and final Mask writes, operation/lineage/acceptance records,
+and revision retention. Current content validation and pixel algorithms remain in
+the calling workflow. `protect_mask_slice_versions` now takes the task ID before
+the report and expiry; all repository callers use that scope.
+
+`scene_read_query` owns the fixed scene/track/interval/member/timeline reads and
+cache projections, with exact request validation and reply scope binding. Three
+scalar JSON helpers stay private to its owner. Scene facts continue to use the
+existing Assets public spatial projection.
+
+Apply `labeling-discussion-grants.sql`, `labeling-mask-edit-grants.sql` or
+`labeling-scene-read-grants.sql` from `infra/docker` to the corresponding trusted
+LOGIN, after matching migrations and common owner/runtime grants. Mask and scene
+LOGINs get exactly three and one functions; no private base table access is granted.
+Native, cold and restore qualification remains a complete-module acceptance gate.
+
 ## Drafts and schema cleanup
 
 `annotation_maintenance_command(jsonb)` owns existing draft reads/writes, cleanup

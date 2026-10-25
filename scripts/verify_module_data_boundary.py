@@ -88,6 +88,15 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_labeling_v1.discussion_command(jsonb)": "0347_labeling_discussion.sql",
+    "aap_labeling_v1.task_event_command(jsonb)": "0347_labeling_discussion.sql",
+    "aap_labeling_v1.mask_edit_command(jsonb)": "0348_labeling_mask_edits.sql",
+    "aap_labeling_v1.mask_revision_command(jsonb)": "0348_labeling_mask_edits.sql",
+    "aap_labeling_v1.ai_mask_accept_command(jsonb)": "0348_labeling_mask_edits.sql",
+    "aap_labeling_v1.scene_read_query(jsonb)": "0349_labeling_scene_read.sql",
+    "aap_labeling_v1._scene_read_track_json(uuid,uuid,uuid,text,text,text,jsonb,jsonb,integer,timestamptz)": "0349_labeling_scene_read.sql",
+    "aap_labeling_v1._scene_read_interval_json(uuid,uuid,integer,integer,text,integer)": "0349_labeling_scene_read.sql",
+    "aap_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,text,text,jsonb,text,uuid,text,text,boolean,boolean,boolean,boolean,integer,timestamptz,integer)": "0349_labeling_scene_read.sql",
     "aap_labeling_v1.prediction_record_command(jsonb)": "0342_labeling_prediction_records.sql",
     "aap_labeling_v1.scene_track_command(jsonb)": "0343_labeling_scene_track_commands.sql",
     "aap_labeling_v1.cross_frame_write_command(jsonb)": "0344_labeling_cross_frame_writes.sql",
@@ -208,6 +217,73 @@ READ_RELATION_SPECS = {
             ("scope_project_id", "uuid"),
         ],
     },
+    "aap_labeling_v1.annotation_comment_facts": {
+        "sql": "0347_labeling_discussion.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("annotation_id", "uuid"),
+            ("project_id", "uuid"),
+            ("author_id", "uuid"),
+            ("body", "text"),
+            ("is_resolved", "boolean"),
+            ("is_active", "boolean"),
+            ("mentions", "jsonb"),
+            ("attachments", "jsonb"),
+            ("canvas_drawing", "jsonb"),
+            ("anchor", "jsonb"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.annotation_feedback_facts": {
+        "sql": "0347_labeling_discussion.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("kind", "character varying(16)"),
+            ("anchor_type", "character varying(16)"),
+            ("project_id", "uuid"),
+            ("task_id", "uuid"),
+            ("annotation_id", "uuid"),
+            ("anchor_position", "jsonb"),
+            ("status", "character varying(16)"),
+            ("severity", "character varying(16)"),
+            ("title", "character varying(500)"),
+            ("body", "text"),
+            ("author_id", "uuid"),
+            ("attachments", "jsonb"),
+            ("mentions", "jsonb"),
+            ("canvas_drawing", "jsonb"),
+            ("thread_parent_id", "uuid"),
+            ("is_active", "boolean"),
+            ("resolved_at", "timestamp with time zone"),
+            ("resolved_by_id", "uuid"),
+            ("created_at", "timestamp with time zone"),
+            ("updated_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.task_event_facts": {
+        "sql": "0347_labeling_discussion.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+            ("user_id", "uuid"),
+            ("project_id", "uuid"),
+            ("kind", "character varying(16)"),
+            ("started_at", "timestamp with time zone"),
+            ("ended_at", "timestamp with time zone"),
+            ("duration_ms", "integer"),
+            ("annotation_count", "integer"),
+            ("was_rejected", "boolean"),
+            ("collector_version", "character varying(32)"),
+            ("collection_source", "character varying(32)"),
+            ("collection_coverage", "character varying(32)"),
+            ("created_at", "timestamp with time zone"),
+            ("reject_reason_type", "character varying(20)"),
+        ],
+    },
 }
 IDENTITY_CLIENT_ROLES = {
     "AUTH": "identity_auth_client",
@@ -255,6 +331,9 @@ IDENTITY_CLIENT_ROLES = {
     "LABELING_SCENE_TRACK_COMMAND": "labeling_scene_track_command_client",
     "LABELING_CROSS_FRAME": "labeling_cross_frame_client",
     "LABELING_ANNOTATION_MAINTENANCE": "labeling_annotation_maintenance_client",
+    "LABELING_DISCUSSION": "labeling_discussion_client",
+    "LABELING_MASK_EDIT": "labeling_mask_edit_client",
+    "LABELING_SCENE_READ": "labeling_scene_read_client",
     "VIDEO_RESTORE": "video_restore_operator_client",
     "INFERENCE_PIPELINES": "inference_pipelines_client",
     "INFERENCE_BACKEND_PROBE": "inference_backend_probe_client",
@@ -506,6 +585,9 @@ SQL_ARTIFACTS = (
     "0344_labeling_cross_frame_writes.sql",
     "0345_labeling_annotation_prediction.sql",
     "0346_labeling_annotation_maintenance.sql",
+    "0347_labeling_discussion.sql",
+    "0348_labeling_mask_edits.sql",
+    "0349_labeling_scene_read.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -663,6 +745,12 @@ SCHEMA_ARTIFACTS = (
     "0344_labeling_cross_frame_writes.schema.json",
     "0345_labeling_annotation_prediction.schema.json",
     "0346_labeling_annotation_maintenance.schema.json",
+    "0347_labeling_discussion.schema.json",
+    "0347_labeling_task_events.schema.json",
+    "0348_labeling_mask_edits.schema.json",
+    "0348_labeling_mask_revisions.schema.json",
+    "0348_labeling_ai_mask_accept.schema.json",
+    "0349_labeling_scene_read.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -739,6 +827,9 @@ TEST_FILES = (
     "tests/test_labeling_cross_frame_writes_native.py",
     "tests/test_labeling_annotation_prediction_native.py",
     "tests/test_labeling_annotation_maintenance_native.py",
+    "tests/test_labeling_discussion_native.py",
+    "tests/test_labeling_mask_edits_native.py",
+    "tests/test_labeling_scene_read_native.py",
     "tests/test_labeling_video_writer_live.py",
     "tests/test_labeling_video_writer_containers.py",
     "tests/test_labeling_video_writer_restore.py",
@@ -3983,6 +4074,15 @@ def main(argv: list[str] | None = None) -> int:
         labeling_annotation_maintenance_grants_path = (
             ROOT / "infra/docker/labeling-annotation-maintenance-grants.sql"
         )
+        labeling_discussion_grants_path = (
+            ROOT / "infra/docker/labeling-discussion-grants.sql"
+        )
+        labeling_mask_edit_grants_path = (
+            ROOT / "infra/docker/labeling-mask-edit-grants.sql"
+        )
+        labeling_scene_read_grants_path = (
+            ROOT / "infra/docker/labeling-scene-read-grants.sql"
+        )
         video_restore_grants_path = ROOT / "infra/docker/video-restore-grants.sql"
         inference_pipelines_grants_path = (
             ROOT / "infra/docker/inference-pipelines-grants.sql"
@@ -4100,6 +4200,9 @@ def main(argv: list[str] | None = None) -> int:
             or not labeling_scene_track_commands_grants_path.is_file()
             or not labeling_cross_frame_grants_path.is_file()
             or not labeling_annotation_maintenance_grants_path.is_file()
+            or not labeling_discussion_grants_path.is_file()
+            or not labeling_mask_edit_grants_path.is_file()
+            or not labeling_scene_read_grants_path.is_file()
             or not video_restore_grants_path.is_file()
             or not inference_pipelines_grants_path.is_file()
             or not inference_backend_probe_grants_path.is_file()
@@ -4225,6 +4328,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         labeling_annotation_maintenance_grant_sql = (
             labeling_annotation_maintenance_grants_path.read_text(encoding="utf-8")
+        )
+        labeling_discussion_grant_sql = labeling_discussion_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_mask_edit_grant_sql = labeling_mask_edit_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_scene_read_grant_sql = labeling_scene_read_grants_path.read_text(
+            encoding="utf-8"
         )
         video_restore_grant_sql = video_restore_grants_path.read_text(encoding="utf-8")
         inference_pipelines_grant_sql = inference_pipelines_grants_path.read_text(
@@ -4412,8 +4524,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0346"]:
-            raise RuntimeError("module-data acceptance requires migration head 0346")
+        if heads != ["0349"]:
+            raise RuntimeError("module-data acceptance requires migration head 0349")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -6281,6 +6393,54 @@ def main(argv: list[str] | None = None) -> int:
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
                 "annotation_maintenance_role": "labeling_annotation_maintenance_client",
+            },
+        )
+        phase = "install-labeling-discussion-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_discussion_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "discussion_role": "labeling_discussion_client",
+            },
+        )
+        phase = "install-labeling-mask-edit-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_mask_edit_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "mask_edit_role": "labeling_mask_edit_client",
+            },
+        )
+        phase = "install-labeling-scene-read-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_scene_read_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "scene_read_role": "labeling_scene_read_client",
             },
         )
         phase = "install-video-restore-grants"

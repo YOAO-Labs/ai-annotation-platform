@@ -3248,3 +3248,10 @@ python3 scripts/verify_docker_host_forwarding.py \
 草稿和配置孤儿清理也在原业务事务调用 Labeling 固定能力。应用匹配迁移、owner 及普通
 运行授权；函数专用可信账号使用 `infra/docker/labeling-annotation-maintenance-grants.sql`。
 `AAP_MODULE_DATA_LABELING_ANNOTATION_MAINTENANCE_URL` 只用于独占验收库，不是产品 DSN。
+
+讨论／事件、Mask 编辑与场景读取的专用可信账号依次使用
+`infra/docker/labeling-discussion-grants.sql`、`labeling-mask-edit-grants.sql`、
+`labeling-scene-read-grants.sql`；先应用匹配迁移及 common owner/runtime grants。
+独占验收库选择器为 `AAP_MODULE_DATA_LABELING_DISCUSSION_URL`、
+`AAP_MODULE_DATA_LABELING_MASK_EDIT_URL`、`AAP_MODULE_DATA_LABELING_SCENE_READ_URL`，
+均不新增产品 DSN／HTTP 部署模式；日常 API／worker 仍借用原业务事务。

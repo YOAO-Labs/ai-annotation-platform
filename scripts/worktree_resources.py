@@ -1203,6 +1203,9 @@ class LocalResources:
                     "REVOKE ALL (id, kind, scope_project_id) "
                     f"ON TABLE aap_jobs_v1.notification_scope_facts FROM {role}, PUBLIC",
                     f"GRANT SELECT ON aap_jobs_v1.notification_scope_facts TO {role}",
+                    "GRANT SELECT ON aap_labeling_v1.annotation_comment_facts, "
+                    "aap_labeling_v1.annotation_feedback_facts, "
+                    f"aap_labeling_v1.task_event_facts TO {role}",
                     "REVOKE EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv() "
                     f"FROM {role}, PUBLIC",
                     f"GRANT SELECT ON aap_workspace_v1.project_member_facts TO {role}",
@@ -1306,6 +1309,12 @@ class LocalResources:
                     "aap_labeling_v1.cross_frame_write_command(jsonb), "
                     "aap_labeling_v1.annotation_prediction_command(jsonb), "
                     "aap_labeling_v1.annotation_maintenance_command(jsonb), "
+                    "aap_labeling_v1.discussion_command(jsonb), "
+                    "aap_labeling_v1.task_event_command(jsonb), "
+                    "aap_labeling_v1.mask_edit_command(jsonb), "
+                    "aap_labeling_v1.mask_revision_command(jsonb), "
+                    "aap_labeling_v1.ai_mask_accept_command(jsonb), "
+                    "aap_labeling_v1.scene_read_query(jsonb), "
                     "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb), "
                     "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid), "
                     "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb), "

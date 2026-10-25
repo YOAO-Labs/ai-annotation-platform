@@ -105,6 +105,28 @@ def test_module_cold_case_selects_api_bootstrap_credentials(test_path):
             ("aap_labeling_v1.annotation_maintenance_command(jsonb)",),
             "0346_labeling_annotation_maintenance",
         ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_DISCUSSION"],
+            (
+                "aap_labeling_v1.discussion_command(jsonb)",
+                "aap_labeling_v1.task_event_command(jsonb)",
+            ),
+            "0347_labeling_discussion",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_MASK_EDIT"],
+            (
+                "aap_labeling_v1.mask_edit_command(jsonb)",
+                "aap_labeling_v1.mask_revision_command(jsonb)",
+                "aap_labeling_v1.ai_mask_accept_command(jsonb)",
+            ),
+            "0348_labeling_mask_edits",
+        ),
+        (
+            verifier.IDENTITY_CLIENT_ROLES["LABELING_SCENE_READ"],
+            ("aap_labeling_v1.scene_read_query(jsonb)",),
+            "0349_labeling_scene_read",
+        ),
     ],
 )
 def test_capability_logins_have_no_temporary_grant(

@@ -770,6 +770,54 @@ GRANT SELECT (id, unique_id, task_id, user_id, expire_at, created_at),
 GRANT SELECT (project_id, annotation_id), DELETE
     ON public.annotation_comments TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE ON public.task_events TO :"labeling_owner";
+GRANT SELECT (
+    id, annotation_id, project_id, author_id, body,
+    is_resolved, is_active, mentions, attachments, canvas_drawing,
+    anchor, created_at, updated_at
+) ON public.annotation_comments TO :"labeling_owner";
+GRANT SELECT (
+    id, kind, anchor_type, project_id, task_id,
+    annotation_id, anchor_position, status, severity, title,
+    body, author_id, attachments, mentions, canvas_drawing,
+    thread_parent_id, is_active, resolved_at, resolved_by_id, created_at,
+    updated_at
+) ON public.annotation_feedbacks TO :"labeling_owner";
+GRANT SELECT (
+    id, task_id, user_id, project_id, kind,
+    started_at, ended_at, duration_ms, annotation_count, was_rejected,
+    collector_version, collection_source, collection_coverage, created_at
+) ON public.task_events TO :"labeling_owner";
+GRANT SELECT (
+    id, task_id, actor_id, kind, idempotency_key,
+    request_digest, scope_fingerprint, source_versions, result_versions, report,
+    status, response_json, created_at, completed_at
+) ON public.annotation_operations TO :"labeling_owner";
+GRANT SELECT (
+    id, operation_id, source_annotation_id, result_annotation_id, relation,
+    source_version, result_version, frame_index, created_at
+) ON public.annotation_lineage_edges TO :"labeling_owner";
+GRANT SELECT (
+    id, project_id, task_id, annotation_id, annotation_version,
+    geometry, geometry_digest, source_kind, operation_id, actor_id,
+    created_at, expires_at
+) ON public.mask_annotation_revisions TO :"labeling_owner";
+GRANT SELECT (
+    id, task_id, idempotency_key, request_digest, candidate_id,
+    content_digest, prediction_id, prediction_created_at, annotation_id, source_annotation_id,
+    source_version, result_version, actor_id, response_json, created_at,
+    expires_at
+) ON public.ai_mask_accept_decisions TO :"labeling_owner";
+GRANT INSERT (id, annotation_id, project_id, author_id, body, mentions, attachments, canvas_drawing, anchor) ON public.annotation_comments TO :"labeling_owner";
+GRANT INSERT (id, kind, anchor_type, project_id, task_id, annotation_id, anchor_position, status, severity, title, body, author_id, attachments, mentions, canvas_drawing, thread_parent_id, is_active) ON public.annotation_feedbacks TO :"labeling_owner";
+GRANT INSERT (id, task_id, user_id, project_id, kind, started_at, ended_at, duration_ms, annotation_count, was_rejected, collector_version, collection_source, collection_coverage, created_at) ON public.task_events TO :"labeling_owner";
+GRANT INSERT (id, task_id, actor_id, kind, idempotency_key, request_digest, scope_fingerprint, source_versions, result_versions, report, status, response_json, created_at, completed_at) ON public.annotation_operations TO :"labeling_owner";
+GRANT INSERT (operation_id, source_annotation_id, result_annotation_id, relation, source_version, result_version, frame_index) ON public.annotation_lineage_edges TO :"labeling_owner";
+GRANT INSERT (task_id, idempotency_key, request_digest, candidate_id, content_digest, prediction_id, prediction_created_at, annotation_id, source_annotation_id, source_version, result_version, actor_id, response_json) ON public.ai_mask_accept_decisions TO :"labeling_owner";
+GRANT UPDATE (body, is_resolved, is_active, attachments, updated_at) ON public.annotation_comments TO :"labeling_owner";
+GRANT UPDATE (status, resolved_at, resolved_by_id, severity, title, body, mentions, is_active, updated_at) ON public.annotation_feedbacks TO :"labeling_owner";
+GRANT UPDATE (report) ON public.annotation_operations TO :"labeling_owner";
+GRANT UPDATE (tool_unit_id, user_id) ON public.annotations TO :"labeling_owner";
+GRANT DELETE ON public.mask_annotation_revisions, public.ai_mask_accept_decisions TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE ON public.mask_review_scopes TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE ON public.mask_qc_issues TO :"labeling_owner";
 GRANT SELECT (project_id), DELETE ON public.mask_qc_runs TO :"labeling_owner";
@@ -2597,6 +2645,27 @@ ALTER FUNCTION aap_labeling_v1.annotation_prediction_command(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.annotation_maintenance_command(jsonb)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.discussion_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.task_event_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.mask_edit_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.mask_revision_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.ai_mask_accept_command(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.scene_read_query(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._scene_read_track_json(uuid,uuid,uuid,text,text,text,jsonb,jsonb,integer,timestamptz)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._scene_read_interval_json(uuid,uuid,integer,integer,text,integer)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,text,text,jsonb,text,uuid,text,text,boolean,boolean,boolean,boolean,integer,timestamptz,integer)
+    OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.annotation_comment_facts OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.annotation_feedback_facts OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.task_event_facts OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
