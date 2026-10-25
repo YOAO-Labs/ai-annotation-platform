@@ -153,6 +153,8 @@ MinIO bucket，并隔离 DuckDB/临时文件。共享 `.env` 只作为基础配�
 
 已采纳目录来源的完整增量同步使用 `scripts/benchmark_dataset_sync.py`：真实Worker测量1,000／10,000文件的无变化轮次和1%纯新增自动采纳，汇总全部扫描／预检／登记分块及旧文件重读。它在同样空业务库且归属核验的e2e环境运行，显式推进阶段唤醒，不计生产定时周期；复现、计量边界和清理见[增量同步资源基线](docs-site/dev/reference/dataset-sync-benchmark.md)。
 
+训练准备使用`scripts/benchmark_dataset_training.py`，在独立空test模式测量1,000／10,000托管合成任务的真实HTTP预检／创建、Celery打包和两次完整包读取。夹具准备单列，原件与业务行保持，源码指纹变化拒绝完成；复现、S3上下文范围及资源清理见[训练准备资源基线](docs-site/dev/reference/dataset-training-benchmark.md)。
+
 ### 任务数据集管理关联与回填
 
 任务版本流的增量迁移只增加 `project_task_datasets` 与 `task_dataset_version_memberships`，不重写历史冻结记录。先核对实际 API／worker 的 checkout、挂载、数据库与迁移图，再应用迁移，刷新手动创建的 API 和执行自动学习策略的 worker／scheduler。Celery 不会因 Python 文件更新自动重载；仅本次管理与分析代码变化不要求重建未改变的 GPU 训练／推理镜像。
