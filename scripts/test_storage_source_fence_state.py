@@ -13,6 +13,7 @@ from unittest.mock import patch
 import uuid
 
 from storage_source_fence_state import (
+    CLAIM_SCHEMA,
     Controller,
     FenceError,
     Journal,
@@ -24,6 +25,21 @@ DIGEST = "a" * 64
 SEAL = str(uuid.UUID(int=1))
 RELEASE = str(uuid.UUID(int=2))
 NEXT = str(uuid.UUID(int=3))
+
+
+def application_claim(**updates):
+    return {
+        "schema": CLAIM_SCHEMA,
+        "finalization_id": str(uuid.UUID(int=10)),
+        "window_id": str(uuid.UUID(int=11)),
+        "expected_window_revision": 3,
+        "database_identity": "b" * 64,
+        "reservation_nonce": str(uuid.UUID(int=12)),
+        "native_operation_id": SEAL,
+        "config_digest": DIGEST,
+        "reserved": False,
+        **updates,
+    }
 
 
 class Adapter:
@@ -764,6 +780,232 @@ with Journal(path, sys.argv[2], create=True) as journal:
             self.assertEqual(json.loads(self.path.read_bytes())["phase"], "uncertain")
             self.assertTrue(adapter.read_only)
             self.assertFalse(adapter.disabled)
+
+
+class ApplicationClaimTests(Base):
+    def held(self, journal):
+        adapter = Adapter(self.path)
+        Controller(journal, adapter).seal(journal.data["revision"], SEAL)
+        return adapter
+
+    def test_bind_reserved_reload_and_exact_unbind_are_durable(self):
+        claim = application_claim()
+        with self.create() as journal:
+            self.held(journal)
+            before = journal.data["revision"]
+            journal.bind_application(claim)
+            self.assertEqual(journal.data["revision"], before + 1)
+            journal.bind_application(deepcopy(claim))
+            self.assertEqual(journal.data["revision"], before + 1)
+            journal.mark_application_reserved(
+                claim["finalization_id"], claim["reservation_nonce"]
+            )
+            journal.mark_application_reserved(
+                claim["finalization_id"], claim["reservation_nonce"]
+            )
+            self.assertEqual(journal.data["revision"], before + 2)
+            journal.bind_application(claim)
+            self.assertTrue(journal.data["application_claim"]["reserved"])
+        with self.reopen() as journal:
+            self.assertTrue(journal.data["application_claim"]["reserved"])
+            before = journal.data["revision"]
+            journal.unbind_application(
+                claim["finalization_id"], claim["reservation_nonce"]
+            )
+            self.assertEqual(journal.data["revision"], before + 1)
+        with self.reopen() as journal:
+            self.assertNotIn("application_claim", journal.data)
+
+    def test_binding_requires_held_and_exact_native_identity(self):
+        with self.create() as journal:
+            self.assert_code(
+                "application_claim_invalid",
+                lambda: journal.bind_application(application_claim()),
+            )
+            self.held(journal)
+            for updates in ({"native_operation_id": NEXT}, {"config_digest": "c" * 64}):
+                self.assert_code(
+                    "application_claim_invalid",
+                    lambda: journal.bind_application(application_claim(**updates)),
+                )
+            journal.data.update(phase="uncertain", observation=None)
+            journal.save()
+            self.assert_code(
+                "application_fence_not_held",
+                lambda: journal.bind_application(application_claim()),
+            )
+
+    def test_all_immutable_identity_fields_are_checked(self):
+        with self.create() as journal:
+            self.held(journal)
+            journal.bind_application(application_claim())
+            for key, value in (
+                ("finalization_id", NEXT),
+                ("window_id", NEXT),
+                ("reservation_nonce", NEXT),
+                ("database_identity", "c" * 64),
+                ("expected_window_revision", 4),
+            ):
+                self.assert_code(
+                    "application_claim_conflict",
+                    lambda: journal.bind_application(application_claim(**{key: value})),
+                )
+
+    def test_malformed_claims_do_not_change_durable_journal(self):
+        with self.create() as journal:
+            self.held(journal)
+            saved = self.path.read_bytes()
+            invalid = [None, {}, application_claim(extra="private")]
+            for key, values in {
+                "schema": ["other"],
+                "finalization_id": [
+                    application_claim()["finalization_id"].upper(),
+                    "bad",
+                ],
+                "window_id": [None],
+                "reservation_nonce": ["a" * 64],
+                "expected_window_revision": [True, 0, -1, 1.0],
+                "database_identity": ["b" * 63, "B" * 64],
+                "reserved": [0, None],
+            }.items():
+                for value in values:
+                    candidate = application_claim(**{key: value})
+                    if candidate != application_claim():
+                        invalid.append(candidate)
+            for claim in invalid:
+                self.assert_code(
+                    "application_claim_invalid", lambda: journal.bind_application(claim)
+                )
+            self.assertEqual(saved, self.path.read_bytes())
+
+    def test_loaded_claim_is_validated_even_in_uncertainty(self):
+        for updates in (
+            {"config_digest": "c" * 64},
+            {"native_operation_id": NEXT},
+            {"reserved": 1},
+        ):
+            with self.subTest(updates=updates):
+                with self.create() as journal:
+                    self.held(journal)
+                    data = deepcopy(journal.data)
+                data.update(
+                    phase="uncertain",
+                    observation=None,
+                    application_claim=application_claim(**updates),
+                )
+                self.path.write_text(json.dumps(data))
+                self.assert_code(
+                    "application_claim_invalid", lambda: self.reopen().__enter__()
+                )
+                self.path.unlink()
+
+    def test_bound_seal_release_call_no_adapter_method_even_with_stale_cas(self):
+        with self.create() as journal:
+            adapter = self.held(journal)
+            journal.bind_application(application_claim())
+            controller = Controller(journal, adapter)
+            adapter.calls.clear()
+            for revision in (1, journal.data["revision"]):
+                self.assert_code(
+                    "application_fence_bound", lambda: controller.seal(revision, SEAL)
+                )
+                self.assert_code(
+                    "application_fence_bound",
+                    lambda: controller.release(revision, RELEASE),
+                )
+            self.assertEqual(adapter.calls, [])
+
+    def test_status_can_invalidate_proof_without_losing_claim(self):
+        with self.create() as journal:
+            adapter = self.held(journal)
+            journal.bind_application(application_claim())
+            controller = Controller(journal, adapter)
+            summary = controller.status()
+            self.assertTrue(summary["held"])
+            self.assertNotIn("application_claim", summary)
+            adapter.fail = "verify"
+            self.assert_code("native_operation_failed", controller.status)
+            self.assertEqual(journal.data["phase"], "uncertain")
+            self.assertEqual(journal.data["application_claim"], application_claim())
+            self.assert_code(
+                "application_fence_bound",
+                lambda: controller.release(journal.data["revision"], RELEASE),
+            )
+        with self.reopen() as journal:
+            self.assertEqual(journal.data["application_claim"], application_claim())
+
+    def test_wrong_nonce_or_finalization_cannot_change_claim(self):
+        with self.create() as journal:
+            self.held(journal)
+            journal.bind_application(application_claim())
+            for method in (
+                journal.unbind_application,
+                journal.mark_application_reserved,
+            ):
+                for ids in (
+                    (NEXT, application_claim()["reservation_nonce"]),
+                    (application_claim()["finalization_id"], NEXT),
+                ):
+                    self.assert_code("application_claim_conflict", lambda: method(*ids))
+            self.assertFalse(journal.data["application_claim"]["reserved"])
+
+    def test_failed_unbind_save_keeps_in_memory_and_disk_fence(self):
+        with self.create() as journal:
+            adapter = self.held(journal)
+            claim = application_claim()
+            journal.bind_application(claim)
+            with patch.object(journal, "_write", side_effect=OSError("private")):
+                self.assert_code(
+                    "journal_write_failed",
+                    lambda: journal.unbind_application(
+                        claim["finalization_id"], claim["reservation_nonce"]
+                    ),
+                )
+            self.assertEqual(journal.data["application_claim"], claim)
+            self.assert_code(
+                "application_fence_bound",
+                lambda: Controller(journal, adapter).release(
+                    journal.data["revision"], RELEASE
+                ),
+            )
+        with self.reopen() as journal:
+            self.assertEqual(journal.data["application_claim"], claim)
+
+    def test_failed_bind_save_is_fail_closed_without_native_calls(self):
+        with self.create() as journal:
+            adapter = self.held(journal)
+            with patch.object(journal, "_write", side_effect=OSError("private")):
+                self.assert_code(
+                    "journal_write_failed",
+                    lambda: journal.bind_application(application_claim()),
+                )
+            self.assert_code(
+                "application_fence_bound",
+                lambda: Controller(journal, adapter).seal(
+                    journal.data["revision"], SEAL
+                ),
+            )
+
+    def test_bound_journal_retains_existing_cross_process_lock(self):
+        with self.create() as journal:
+            self.held(journal)
+            journal.bind_application(application_claim())
+            code = (
+                "from pathlib import Path; from storage_source_fence_state import Journal,FenceError; "
+                f"j=Journal(Path({str(self.path)!r}),{DIGEST!r}); "
+                "j.__enter__()"
+            )
+            result = subprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True,
+                cwd=Path(__file__).parent,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b"journal_busy", result.stderr)
+            self.assertNotIn(
+                application_claim()["reservation_nonce"].encode(), result.stderr
+            )
 
 
 if __name__ == "__main__":

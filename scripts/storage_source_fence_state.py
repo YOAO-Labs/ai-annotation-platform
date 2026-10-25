@@ -15,6 +15,7 @@ import stat
 import uuid
 
 SCHEMA = "aap.storage-source-fence/v1"
+CLAIM_SCHEMA = "aap.storage-migration-fence-claim/v1"
 MAX_BYTES = 4 * 1024**2
 MAX_RECEIPT_BYTES = 16 * 1024
 MAX_COUNTER = 2**63 - 1
@@ -96,6 +97,46 @@ def _observation(value):
     except (ValueError, TypeError, OverflowError):
         raise FenceError("observation_invalid") from None
     return {"observed_at": stamp, "counts": _counts(value["counts"])}
+
+
+def _application_claim(value, config_digest, operation_id):
+    fields = {
+        "schema",
+        "finalization_id",
+        "window_id",
+        "expected_window_revision",
+        "database_identity",
+        "reservation_nonce",
+        "native_operation_id",
+        "config_digest",
+        "reserved",
+    }
+    try:
+        if (
+            not isinstance(value, dict)
+            or set(value) != fields
+            or value["schema"] != CLAIM_SCHEMA
+            or type(value["expected_window_revision"]) is not int
+            or not 1 <= value["expected_window_revision"] <= MAX_COUNTER
+            or type(value["reserved"]) is not bool
+            or any(
+                not isinstance(value[key], str) or not _DIGEST.fullmatch(value[key])
+                for key in ("database_identity", "config_digest")
+            )
+            or value["config_digest"] != config_digest
+            or value["native_operation_id"] != operation_id
+        ):
+            raise ValueError
+        for key in (
+            "finalization_id",
+            "window_id",
+            "reservation_nonce",
+            "native_operation_id",
+        ):
+            _identifier(value[key])
+    except (ValueError, TypeError, KeyError):
+        raise FenceError("application_claim_invalid") from None
+    return deepcopy(value)
 
 
 def _private(info, mode, *, directory=False):
@@ -213,6 +254,10 @@ class Journal:
             _identifier(value["operation_id"])
         if value.get("release_operation_id") is not None:
             _identifier(value["release_operation_id"])
+        if "application_claim" in value:
+            _application_claim(
+                value["application_claim"], self.config_digest, value["operation_id"]
+            )
         for receipt in value["barriers"]:
             if not isinstance(receipt, dict):
                 raise FenceError("journal_invalid")
@@ -325,6 +370,50 @@ class Journal:
         self.data = candidate
         self._revision = candidate["revision"]
 
+    def bind_application(self, claim):
+        claim = _application_claim(claim, self.config_digest, self.data["operation_id"])
+        if self.data["phase"] != "held":
+            raise FenceError("application_fence_not_held")
+        existing = self.data.get("application_claim")
+        if existing is not None:
+            if {k: v for k, v in existing.items() if k != "reserved"} != {
+                k: v for k, v in claim.items() if k != "reserved"
+            }:
+                raise FenceError("application_claim_conflict")
+            return
+        # A failed write cannot grant permission to reopen in this process.
+        self.data["application_claim"] = claim
+        self.save()
+
+    def _matching_application(self, finalization_id, reservation_nonce):
+        try:
+            _identifier(finalization_id)
+            _identifier(reservation_nonce)
+        except FenceError:
+            raise FenceError("application_claim_invalid") from None
+        claim = self.data.get("application_claim")
+        if claim is None or (
+            claim["finalization_id"] != finalization_id
+            or claim["reservation_nonce"] != reservation_nonce
+        ):
+            raise FenceError("application_claim_conflict")
+        return claim
+
+    def mark_application_reserved(self, finalization_id, reservation_nonce):
+        claim = self._matching_application(finalization_id, reservation_nonce)
+        if not claim["reserved"]:
+            claim["reserved"] = True
+            self.save()
+
+    def unbind_application(self, finalization_id, reservation_nonce):
+        claim = self._matching_application(finalization_id, reservation_nonce)
+        del self.data["application_claim"]
+        try:
+            self.save()
+        except BaseException:
+            self.data["application_claim"] = claim
+            raise
+
 
 class Controller:
     def __init__(self, journal, adapter):
@@ -411,6 +500,8 @@ class Controller:
         return self._summary(observed)
 
     def seal(self, expected_revision: int, operation_id: str):
+        if "application_claim" in self.journal.data:
+            raise FenceError("application_fence_bound")
         self._cas(expected_revision)
         _identifier(operation_id)
         row = self.journal.data
@@ -482,6 +573,8 @@ class Controller:
         self.journal.save()
 
     def release(self, expected_revision: int, operation_id: str):
+        if "application_claim" in self.journal.data:
+            raise FenceError("application_fence_bound")
         self._cas(expected_revision)
         _identifier(operation_id)
         row = self.journal.data
