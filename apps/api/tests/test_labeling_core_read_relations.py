@@ -37,7 +37,11 @@ from app.services.labeling_core_read_relations import (
     lock_task_for_core_read,
     lock_task_rows_for_core_read,
     lock_video_segment_for_core_read,
+    lock_feedback_task_rows_for_share,
+    lock_active_annotation_rows_for_share,
 )
+from app.services.assets_spatial_views import labeling_dataset_item_facts
+from app.services.labeling_discussion_relations import task_event_row
 
 _CORE_READ_ROWS = {
     "task_rows": task_row,
@@ -105,6 +109,99 @@ def test_video_and_scene_rows_use_only_the_fixed_public_relations():
         sql = str(select(row).compile(dialect=postgresql.dialect()))
         assert "FROM aap_labeling_v1." in sql
         assert "FROM public." not in sql
+
+
+def test_active_learning_candidate_query_uses_public_core_and_asset_facts():
+    from app.services.labeling_active_learning_sources import (
+        SqlAlchemyLabelingActiveLearningSources,
+    )
+
+    query = SqlAlchemyLabelingActiveLearningSources(
+        None, dataset_bucket="datasets", task_bucket="tasks"
+    )._candidate_query(uuid.uuid4())
+    sql = str(query.compile(dialect=postgresql.dialect()))
+
+    for relation in (
+        "aap_labeling_v1.task_rows",
+        "aap_labeling_v1.batch_rows",
+        "aap_labeling_v1.annotation_rows",
+        "aap_labeling_v1.annotation_draft_rows",
+        "aap_labeling_v1.task_lock_rows",
+        "aap_assets_v1.labeling_dataset_item_facts",
+    ):
+        assert relation in sql
+    for private_relation in (
+        "FROM tasks",
+        "FROM task_batches",
+        "FROM annotations",
+        "FROM annotation_drafts",
+        "FROM task_locks",
+        "FROM dataset_items",
+    ):
+        assert private_relation not in sql
+    assert tuple(inspect(labeling_dataset_item_facts).selectable.c.keys()) == (
+        "id",
+        "dataset_id",
+        "file_path",
+        "file_type",
+        "file_size",
+        "content_hash",
+        "width",
+        "height",
+    )
+
+
+def test_task_event_rows_bind_to_the_existing_public_facts_view():
+    sql = str(select(task_event_row).compile(dialect=postgresql.dialect()))
+    assert "FROM aap_labeling_v1.task_event_facts" in sql
+    assert "FROM task_events" not in sql
+
+
+def test_new_compatibility_views_and_lock_functions_match_packaged_sql():
+    api_sql = (
+        Path(__file__).resolve().parents[1]
+        / "alembic/sql/0361_labeling_compatibility_reads.sql"
+    )
+    package_sql = (
+        Path(__file__).resolve().parents[3]
+        / "apps/labeling/src/aap_labeling/sql/0361_labeling_compatibility_reads.sql"
+    )
+    sql = api_sql.read_text(encoding="utf-8")
+    assert sql == package_sql.read_text(encoding="utf-8")
+    assert "CREATE VIEW aap_labeling_v1.annotation_draft_rows" in sql
+    assert "SELECT id, task_id\nFROM public.annotation_drafts" in sql
+    assert "CREATE VIEW aap_assets_v1.labeling_dataset_item_facts" in sql
+    assert "LIMIT 4097\n    FOR SHARE" in sql
+    assert sql.count("FOR SHARE") == 2
+    assert "CREATE FUNCTION aap_labeling_v1.next_batch_display_id()" in sql
+    assert "'BT-' || pg_catalog.nextval" in sql
+    assert "'public.display_seq_batches'::pg_catalog.regclass" in sql
+
+    for function, alias, table_name, relation in (
+        (
+            "lock_active_learning_feedback_task_rows",
+            "task",
+            "tasks",
+            "task_rows",
+        ),
+        (
+            "lock_active_learning_feedback_annotation_rows",
+            "annotation",
+            "annotations",
+            "annotation_rows",
+        ),
+    ):
+        function_sql = sql.split(f"CREATE FUNCTION aap_labeling_v1.{function}", 1)[1]
+        selected = re.search(
+            rf"RETURN QUERY\s+SELECT(.*?)\s+FROM public\.{table_name} AS {alias}",
+            function_sql,
+            re.DOTALL,
+        )
+        assert selected is not None
+        assert (
+            tuple(re.findall(rf"\b{alias}\.(\w+)\b", selected.group(1)))
+            == (CORE_READ_COLUMNS[relation])
+        )
 
 
 def test_new_core_read_views_publish_exact_ordered_columns():
@@ -329,6 +426,29 @@ async def test_row_locks_use_only_fixed_owner_lock_functions():
     assert "aap_labeling_v1.lock_video_segment_for_core_read" in session.sql[3]
     assert "aap_labeling_v1.lock_task_rows_for_core_read" in session.sql[4]
     assert all("FOR UPDATE" not in statement for statement in session.sql)
+
+
+@pytest.mark.asyncio
+async def test_active_learning_feedback_share_locks_use_fixed_owner_functions():
+    session = _ReadSession()
+    project_id = uuid.UUID("00000000-0000-0000-0000-000000000012")
+    task_ids = [
+        uuid.UUID("00000000-0000-0000-0000-000000000014"),
+        uuid.UUID("00000000-0000-0000-0000-000000000013"),
+    ]
+
+    await lock_feedback_task_rows_for_share(session, project_id, task_ids)
+    await lock_active_annotation_rows_for_share(session, task_ids)
+
+    assert len(session.sql) == 2
+    assert "aap_labeling_v1.lock_active_learning_feedback_task_rows" in session.sql[0]
+    assert (
+        "aap_labeling_v1.lock_active_learning_feedback_annotation_rows"
+        in session.sql[1]
+    )
+    assert all("ORDER BY" in statement for statement in session.sql)
+    assert all("FROM public.tasks" not in statement for statement in session.sql)
+    assert all("FROM public.annotations" not in statement for statement in session.sql)
 
 
 @pytest.mark.asyncio

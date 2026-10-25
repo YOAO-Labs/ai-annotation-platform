@@ -88,6 +88,9 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])": "0361_labeling_compatibility_reads.sql",
+    "aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])": "0361_labeling_compatibility_reads.sql",
+    "aap_labeling_v1.next_batch_display_id()": "0361_labeling_compatibility_reads.sql",
     "aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)": "0352_labeling_core_read.sql",
     "aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)": "0352_labeling_core_read.sql",
     "aap_inference_v1.ai_mask_pool_reference_row(uuid)": "0356_inference_pool_reference.sql",
@@ -476,6 +479,28 @@ READ_RELATION_SPECS = {
             ("role", "character varying(50)"),
             ("sensor_name", "character varying(100)"),
             ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_labeling_v1.annotation_draft_rows": {
+        "sql": "0361_labeling_compatibility_reads.sql",
+        "owner": "labeling_code",
+        "columns": [
+            ("id", "uuid"),
+            ("task_id", "uuid"),
+        ],
+    },
+    "aap_assets_v1.labeling_dataset_item_facts": {
+        "sql": "0361_labeling_compatibility_reads.sql",
+        "owner": "assets_code",
+        "columns": [
+            ("id", "uuid"),
+            ("dataset_id", "uuid"),
+            ("file_path", "character varying(1000)"),
+            ("file_type", "character varying(20)"),
+            ("file_size", "bigint"),
+            ("content_hash", "character varying(64)"),
+            ("width", "integer"),
+            ("height", "integer"),
         ],
     },
     "aap_assets_v1.video_chapter_facts": {
@@ -932,6 +957,7 @@ SQL_ARTIFACTS = (
     "0358_labeling_fixture_cleanup.sql",
     "0359_labeling_upload_tasks.sql",
     "0360_labeling_video_segment_lifecycle.sql",
+    "0361_labeling_compatibility_reads.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0360_labeling_video_segment_lifecycle.schema.json",

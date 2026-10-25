@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
-from app.db.models.task_batch import TaskBatch
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.user import User
 from app.schemas.training_dataset import TrainingDatasetCreate, TrainingDatasetSelection
@@ -24,6 +23,7 @@ from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.project_access import get_workspace_project, resolve_project_access
+from app.services.labeling_core_read_relations import batch_row, get_core_row
 from app.services.project_write_guard import (
     lock_actor_project_authority,
     lock_project_manager,
@@ -171,7 +171,8 @@ async def freeze_selection(
             "unsupported_project", "当前训练数据版本仅支持图片项目"
         )
     if selection.batch_id:
-        batch = await db.get(TaskBatch, selection.batch_id)
+        with db.no_autoflush:
+            batch = await get_core_row(db, batch_row, selection.batch_id)
         if batch is None or batch.project_id != project.id:
             raise TrainingDatasetError(
                 "batch_not_found", "批次不属于当前项目", status_code=404

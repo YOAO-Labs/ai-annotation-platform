@@ -6,6 +6,7 @@ from sqlalchemy.orm import aliased
 
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.annotation_feedback import AnnotationFeedback
+from app.db.models.task_event import TaskEvent
 
 _comment_facts = table(
     "annotation_comment_facts",
@@ -86,3 +87,4 @@ task_event_facts = table(
     column("reject_reason_type", String),
     schema="aap_labeling_v1",
 )
+task_event_row = aliased(TaskEvent, task_event_facts, adapt_on_names=True)

@@ -665,7 +665,9 @@ GRANT SELECT (
 ) ON public.video_track_quality_issues TO :"labeling_owner";
 GRANT SELECT (id, sensor_name, created_at) ON public.task_dataset_item_links TO :"labeling_owner";
 GRANT SELECT (id, dataset_item_id, title, start_frame, end_frame) ON public.video_chapters TO :"assets_owner";
-GRANT SELECT ON aap_assets_v1.video_chapter_facts TO :"labeling_owner";
+GRANT SELECT ON aap_assets_v1.video_chapter_facts,
+    aap_assets_v1.labeling_dataset_item_facts TO :"labeling_owner";
+GRANT SELECT ON aap_labeling_v1.annotation_draft_rows TO :"labeling_owner";
 
 -- Labeling owns task creation, lifecycle/evidence, edit locks and counters.
 GRANT SELECT (total_annotations, is_labeled),
@@ -1003,7 +1005,8 @@ GRANT SELECT (
     reviewer_is_override, reviewer_claimed_at
 ) ON public.tasks TO :"labeling_owner";
 GRANT UPDATE (id) ON public.task_dataset_item_links TO :"labeling_owner";
-GRANT USAGE ON SEQUENCE public.display_seq_tasks TO :"labeling_owner";
+GRANT USAGE ON SEQUENCE public.display_seq_tasks, public.display_seq_batches
+    TO :"labeling_owner";
 GRANT SELECT, INSERT, UPDATE ON public.task_append_operations TO :"labeling_owner";
 GRANT SELECT (
     id, actor_id, dataset_id, project_id, association_id, job_id, mode,
@@ -2472,6 +2475,7 @@ ALTER FUNCTION aap_assets_v1.workspace_configuration_dataset_scenes(uuid)
 ALTER FUNCTION aap_assets_v1.workspace_configuration_existing_item_ids(uuid[])
     OWNER TO :"assets_owner";
 ALTER VIEW aap_assets_v1.video_chapter_facts OWNER TO :"assets_owner";
+ALTER VIEW aap_assets_v1.labeling_dataset_item_facts OWNER TO :"assets_owner";
 ALTER VIEW aap_assets_v1.project_dataset_item_sources OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_dataset_reference(uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_current_association(uuid, uuid) OWNER TO :"assets_owner";
@@ -2787,6 +2791,12 @@ ALTER FUNCTION aap_labeling_v1._annotation_transfer_camera_bbox_valid(jsonb)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.next_batch_display_id()
+    OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)
@@ -2813,6 +2823,7 @@ ALTER VIEW aap_labeling_v1.prediction_meta_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.failed_prediction_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.task_lock_rows OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.task_dataset_item_link_rows OWNER TO :"labeling_owner";
+ALTER VIEW aap_labeling_v1.annotation_draft_rows OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid) OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid) OWNER TO :"labeling_owner";
 ALTER VIEW aap_labeling_v1.scene_track_rows OWNER TO :"labeling_owner";

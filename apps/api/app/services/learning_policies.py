@@ -37,6 +37,7 @@ from app.services.training_dataset_insight_adapters import adapter_for
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.dataset_task_facts import ProjectTaskSourceReader
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.labeling_core_read_relations import batch_row, get_core_row
 
 ACTIVE_TRIGGERS = {"building", "queued", "running"}
 log = logging.getLogger(__name__)
@@ -115,9 +116,8 @@ async def save(
         parent_id=body.parent_id, batch_id=body.batch_id
     )
     if body.batch_id:
-        from app.db.models.task_batch import TaskBatch
-
-        batch = await db.get(TaskBatch, body.batch_id)
+        with db.no_autoflush:
+            batch = await get_core_row(db, batch_row, body.batch_id)
         if not batch or batch.project_id != project.id:
             raise HTTPException(status_code=404, detail="批次不属于当前项目")
     if policy is None:

@@ -15,7 +15,7 @@ from app.db.models.prediction import FailedPrediction, Prediction, PredictionMet
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.db.models.task_lock import TaskLock
+from app.db.models.task_lock import AnnotationDraft, TaskLock
 from app.db.models.dataset import VideoSegment
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.video_tracker_job import VideoTrackerJob
@@ -56,6 +56,14 @@ failed_prediction_row = _row_relation("failed_prediction_rows", FailedPrediction
 task_lock_row = _row_relation("task_lock_rows", TaskLock)
 task_dataset_item_link_row = _row_relation(
     "task_dataset_item_link_rows", TaskDatasetItemLink
+)
+annotation_draft_rows = table(
+    "annotation_draft_rows",
+    *(
+        column(name, AnnotationDraft.__table__.c[name].type)
+        for name in ("id", "task_id")
+    ),
+    schema="aap_labeling_v1",
 )
 scene_track_row = _row_relation("scene_track_rows", SceneTrack)
 scene_track_interval_row = _row_relation(
@@ -162,6 +170,41 @@ async def lock_task_rows_for_core_read(
     return (await execute_core_read(db, statement)).scalars().all()
 
 
+async def lock_feedback_task_rows_for_share(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    task_ids: list[uuid.UUID],
+):
+    locked = func.aap_labeling_v1.lock_active_learning_feedback_task_rows(
+        project_id, task_ids
+    ).table_valued(
+        *(
+            column(name, Task.__table__.c[name].type)
+            for name in CORE_READ_COLUMNS["task_rows"]
+        )
+    )
+    row = aliased(Task, locked, adapt_on_names=True)
+    statement = select(row).order_by(row.id)
+    return (await execute_core_read(db, statement)).scalars().all()
+
+
+async def lock_active_annotation_rows_for_share(
+    db: AsyncSession,
+    task_ids: list[uuid.UUID],
+):
+    locked = func.aap_labeling_v1.lock_active_learning_feedback_annotation_rows(
+        task_ids
+    ).table_valued(
+        *(
+            column(name, Annotation.__table__.c[name].type)
+            for name in CORE_READ_COLUMNS["annotation_rows"]
+        )
+    )
+    row = aliased(Annotation, locked, adapt_on_names=True)
+    statement = select(row).order_by(row.id)
+    return (await execute_core_read(db, statement)).scalars().all()
+
+
 async def lock_batch_task_rows_for_core_read(
     db: AsyncSession,
     task_ids: list[uuid.UUID],
@@ -230,6 +273,7 @@ async def lock_video_segment_for_core_read(
 __all__ = [
     "alias_core_row",
     "annotation_row",
+    "annotation_draft_rows",
     "batch_row",
     "execute_core_read",
     "failed_prediction_row",
@@ -238,6 +282,8 @@ __all__ = [
     "lock_batch_rows_for_core_read",
     "lock_batch_task_rows_for_core_read",
     "lock_annotation_rows_for_core_read",
+    "lock_active_annotation_rows_for_share",
+    "lock_feedback_task_rows_for_share",
     "lock_task_for_core_read",
     "lock_task_rows_for_core_read",
     "prediction_meta_row",

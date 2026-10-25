@@ -7,6 +7,8 @@ database.  The database-backed producer, lock and concurrency coverage lives in
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -214,6 +216,26 @@ def test_freeze_empty_accumulator_keeps_submitter_only():
     )
 
     assert frozen == [str(actor)]
+
+
+@pytest.mark.asyncio
+async def test_ordered_task_evidence_locks_keep_project_scope(monkeypatch):
+    project_id = uuid.uuid4()
+    task_ids = [uuid.uuid4(), uuid.uuid4()]
+    calls = []
+
+    async def lock_task(db, task_id, **values):
+        calls.append((db, task_id, values))
+
+    monkeypatch.setattr(evidence, "lock_task_for_core_read", lock_task)
+    db = SimpleNamespace(no_autoflush=nullcontext())
+
+    await evidence.lock_tasks_for_evidence(db, task_ids, project_id=project_id)
+
+    assert [(task_id, values) for _, task_id, values in calls] == [
+        (task_id, {"lock_mode": "update", "project_id": project_id})
+        for task_id in sorted(task_ids, key=str)
+    ]
 
 
 def test_clear_invalidates_round_but_retains_accumulator():

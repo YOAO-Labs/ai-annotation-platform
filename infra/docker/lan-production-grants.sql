@@ -163,6 +163,9 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text),
     aap_labeling_v1.scene_read_query(jsonb),
     aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
     aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid),
+    aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]),
+    aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[]),
+    aap_labeling_v1.next_batch_display_id(),
     aap_labeling_v1.video_control_command(jsonb),
     aap_labeling_v1.video_segment_lifecycle_command(jsonb),
     aap_labeling_v1.annotation_transfer_command(jsonb),
@@ -178,6 +181,7 @@ GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text),
 GRANT SELECT ON aap_labeling_v1.task_rows,
     aap_labeling_v1.batch_rows,
     aap_labeling_v1.annotation_rows,
+    aap_labeling_v1.annotation_draft_rows,
     aap_labeling_v1.prediction_rows,
     aap_labeling_v1.prediction_meta_rows,
     aap_labeling_v1.failed_prediction_rows,
@@ -750,7 +754,8 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     TO :"application_role";
 -- Compose the existing Spatial native contract for default API/worker calls.
 GRANT SELECT ON aap_assets_v1.spatial_item_references,
-    aap_assets_v1.spatial_scene_references TO :"application_role";
+    aap_assets_v1.spatial_scene_references,
+    aap_assets_v1.labeling_dataset_item_facts TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.guard_spatial_actor(uuid,text),
     aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer),

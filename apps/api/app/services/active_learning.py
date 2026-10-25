@@ -18,8 +18,6 @@ from app.db.models.active_learning import (
     ActiveLearningPoolMember as Member,
     ActiveLearningRound as Round,
 )
-from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
 from app.db.models.trained_model import ModelDeployment, TrainedModelVersion
 from app.schemas.active_learning import RoundOut, Selection
 from app.schemas.batch import BatchCreate
@@ -49,6 +47,8 @@ from app.services.labeling_active_learning_source_contract import (
 )
 from app.services.training_dataset_bridge import content_digest, sample_identities
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.annotation_evidence import lock_tasks_for_evidence
+from app.services.labeling_core_read_relations import lock_batch_rows_for_core_read
 
 ACTIVE = {"queued", "running", "cancelling", "lost"}
 TERMINAL = {"succeeded", "failed", "cancelled"}
@@ -231,12 +231,9 @@ async def create_round(
     except FreezeModelReferenceError as exc:
         trained_models.raise_frozen_model_reference_error(exc)
     ids = body.sample_task_ids
-    await db.execute(
-        select(Task.id)
-        .where(Task.project_id == project.id, Task.id.in_(ids))
-        .order_by(Task.id)
-        .with_for_update()
-    )
+    if db.autoflush:
+        await db.flush()
+    await lock_tasks_for_evidence(db, ids, project_id=project.id)
     item_ids = [
         uuid.UUID(sample["snapshot"]["dataset_item_id"])
         for sample in prepared["pool"]
@@ -826,18 +823,15 @@ async def decide(
             }
         )
         if batch_ids:
-            await db.execute(
-                select(TaskBatch.id)
-                .where(TaskBatch.id.in_(batch_ids))
-                .order_by(TaskBatch.id)
-                .with_for_update()
+            await lock_batch_rows_for_core_read(
+                db,
+                batch_ids,
+                lock_mode="update",
+                nowait=False,
             )
-        await db.execute(
-            select(Task.id)
-            .where(Task.id.in_(group_ids), Task.project_id == project.id)
-            .order_by(Task.id)
-            .with_for_update()
-        )
+        elif db.autoflush:
+            await db.flush()
+        await lock_tasks_for_evidence(db, group_ids, project_id=project.id)
         item_ids = sorted(
             {
                 uuid.UUID(snapshot["dataset_item_id"])

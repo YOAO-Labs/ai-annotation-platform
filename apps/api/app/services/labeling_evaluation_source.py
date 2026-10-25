@@ -7,9 +7,13 @@ from typing import cast
 from sqlalchemy import String, cast as sql_cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.annotation import Annotation
-from app.db.models.dataset import DatasetItem
-from app.db.models.task import Task
+from app.services.assets_spatial_views import labeling_dataset_item_facts
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    execute_core_read,
+    task_row,
+)
+from sqlalchemy.orm import load_only
 from app.services.labeling_evaluation_source_contract import (
     CurrentTaskSourceAnnotation,
     CurrentTaskSourceRead,
@@ -30,26 +34,26 @@ class SqlAlchemyLabelingEvaluationSourceReader(CurrentTaskSourceReader):
     ) -> CurrentTaskSourceSnapshot | None:
         limited = (
             select(
-                Annotation.id,
-                Annotation.version,
-                Annotation.class_name,
-                Annotation.tool_unit_id,
+                annotation_row.id,
+                annotation_row.version,
+                annotation_row.class_name,
+                annotation_row.tool_unit_id,
                 func.jsonb_build_object(
                     *[
                         item
                         for key in ("type", "x", "y", "w", "h")
-                        for item in (key, Annotation.geometry[key])
+                        for item in (key, annotation_row.geometry[key])
                     ]
                 ).label("geometry"),
             )
             .where(
-                Annotation.task_id == Task.id,
-                Annotation.is_active.is_(True),
-                Annotation.was_cancelled.is_(False),
+                annotation_row.task_id == task_row.id,
+                annotation_row.is_active.is_(True),
+                annotation_row.was_cancelled.is_(False),
             )
-            .order_by(Annotation.id)
+            .order_by(annotation_row.id)
             .limit(request.annotation_limit)
-            .correlate(Task)
+            .correlate(task_row)
             .subquery()
         )
         annotations = (
@@ -73,14 +77,30 @@ class SqlAlchemyLabelingEvaluationSourceReader(CurrentTaskSourceReader):
             .scalar_subquery()
         )
         result = (
-            await self._db.execute(
-                select(Task, DatasetItem, annotations)
-                .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
-                .where(
-                    Task.id == request.task_id,
-                    Task.project_id == request.project_id,
+            await execute_core_read(
+                self._db,
+                select(task_row, labeling_dataset_item_facts, annotations)
+                .outerjoin(
+                    labeling_dataset_item_facts,
+                    labeling_dataset_item_facts.id == task_row.dataset_item_id,
                 )
-                .execution_options(populate_existing=True)
+                .where(
+                    task_row.id == request.task_id,
+                    task_row.project_id == request.project_id,
+                )
+                .options(
+                    load_only(
+                        labeling_dataset_item_facts.id,
+                        labeling_dataset_item_facts.dataset_id,
+                        labeling_dataset_item_facts.file_path,
+                        labeling_dataset_item_facts.file_type,
+                        labeling_dataset_item_facts.file_size,
+                        labeling_dataset_item_facts.content_hash,
+                        labeling_dataset_item_facts.width,
+                        labeling_dataset_item_facts.height,
+                    )
+                )
+                .execution_options(populate_existing=True),
             )
         ).first()
         if not result:

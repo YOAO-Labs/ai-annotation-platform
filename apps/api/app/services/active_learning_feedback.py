@@ -10,14 +10,11 @@ from app.db.models.active_learning import (
     ActiveLearningDecision as Decision,
     ActiveLearningFeedback as Feedback,
 )
-from app.db.models.annotation import Annotation
 from app.db.models.audit_log import AuditLog
 from app.db.models.sample_evaluation import (
     SampleEvaluationAttempt as EvaluationAttempt,
     SampleEvaluationRun as Evaluation,
 )
-from app.db.models.task import Task
-from app.db.models.task_event import TaskEvent
 from app.services import active_learning as rounds, active_learning_pool as pool
 from app.services import sample_evaluations
 from app.services import active_learning_references as source_references
@@ -25,6 +22,11 @@ from app.services.project_performance import _union_minutes
 from app.services.task_event_ingestion import validate_interval
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.labeling_core_read_relations import (
+    lock_active_annotation_rows_for_share,
+    lock_feedback_task_rows_for_share,
+)
+from app.services.labeling_discussion_relations import task_event_row
 
 MAX_FACT_ROWS = 4096
 
@@ -103,13 +105,17 @@ def output(row):
     }
 
 
-async def bounded(db, query):
-    rows = (await db.scalars(query.limit(MAX_FACT_ROWS + 1))).all()
+def _bounded_rows(rows):
     if len(rows) > MAX_FACT_ROWS:
         raise rounds.reject(
             "feedback_limit", "保留的反馈事实超过本轮快照上限，不能静默截断"
         )
     return list(rows)
+
+
+async def bounded(db, query):
+    rows = (await db.scalars(query.limit(MAX_FACT_ROWS + 1))).all()
+    return _bounded_rows(rows)
 
 
 async def evaluation_facts(db, project, round, references):
@@ -219,33 +225,21 @@ async def snapshot(
             }
     if not accepted:
         raise rounds.reject("feedback_unavailable", "须先接纳至少一个普通人工标注任务")
-    tasks = (
-        await db.scalars(
-            select(Task)
-            .where(Task.project_id == project.id, Task.id.in_(accepted))
-            .order_by(Task.id)
-            .with_for_update(read=True)
-        )
-    ).all()
+    tasks = await lock_feedback_task_rows_for_share(db, project.id, list(accepted))
     if len(tasks) != len(accepted):
         raise rounds.reject("feedback_source_missing", "接纳任务来源已缺失")
     cutoff = rounds.now()
-    annotations = await bounded(
-        db,
-        select(Annotation)
-        .where(
-            Annotation.task_id.in_(accepted),
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
-        )
-        .order_by(Annotation.id)
-        .with_for_update(read=True),
+    annotations = _bounded_rows(
+        await lock_active_annotation_rows_for_share(db, list(accepted))
     )
     events = await bounded(
         db,
-        select(TaskEvent)
-        .where(TaskEvent.task_id.in_(accepted), TaskEvent.ended_at <= cutoff)
-        .order_by(TaskEvent.id),
+        select(task_event_row)
+        .where(
+            task_event_row.task_id.in_(accepted),
+            task_event_row.ended_at <= cutoff,
+        )
+        .order_by(task_event_row.id),
     )
     audits = await bounded(
         db,

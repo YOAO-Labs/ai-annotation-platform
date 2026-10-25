@@ -145,6 +145,7 @@ async def lock_tasks_for_evidence(
     task_ids: Iterable[uuid.UUID | None],
     *,
     nowait: bool = False,
+    project_id: uuid.UUID | None = None,
 ) -> None:
     """Lock task rows in stable order before mixed-order annotation writes."""
     ids = sorted({task_id for task_id in task_ids if task_id is not None}, key=str)
@@ -153,13 +154,14 @@ async def lock_tasks_for_evidence(
     try:
         with db.no_autoflush:
             if nowait:
-                await lock_task_rows_for_core_read(db, ids)
+                await lock_task_rows_for_core_read(db, ids, project_id=project_id)
             else:
                 for task_id in ids:
                     await lock_task_for_core_read(
                         db,
                         task_id,
                         lock_mode="update",
+                        project_id=project_id,
                     )
     except DBAPIError as exc:
         sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(

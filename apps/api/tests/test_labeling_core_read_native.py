@@ -19,7 +19,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.db.models.task_lock import TaskLock
+from app.db.models.task_lock import AnnotationDraft, TaskLock
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob
 from tests.factory import create_project, create_task, create_user
@@ -43,6 +43,7 @@ _PRIVATE_TABLES = (
     "failed_predictions",
     "task_locks",
     "task_dataset_item_links",
+    "annotation_drafts",
     "scene_tracks",
     "scene_track_intervals",
     "video_segments",
@@ -61,6 +62,7 @@ _PUBLIC_RELATIONS = (
     "scene_track_interval_rows",
     "video_segment_rows",
     "video_tracker_job_rows",
+    "annotation_draft_rows",
 )
 
 
@@ -68,7 +70,7 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_id = project_id = dataset_id = item_id = None
     ordered_task_id = None
-    task_id = batch_id = annotation_id = lock_id = link_id = None
+    task_id = batch_id = annotation_id = lock_id = link_id = draft_id = None
     segment_id = tracker_job_id = None
     connection = None
     holder = None
@@ -120,7 +122,8 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
                 user_id=actor.id,
                 expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
             )
-            db.add_all([item, annotation, task_lock])
+            draft = AnnotationDraft(task_id=task.id, user_id=actor.id, result={})
+            db.add_all([item, annotation, task_lock, draft])
             await db.flush()
             link = TaskDatasetItemLink(
                 task_id=task.id,
@@ -161,6 +164,7 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
                 task_lock.id,
                 link.id,
             )
+            draft_id = draft.id
             segment_id, tracker_job_id = segment.id, tracker_job.id
 
         dsn = _dsn(test_engine, "AAP_MODULE_DATA_LABELING_CORE_READ_URL", _ROLE)
@@ -230,6 +234,11 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             )
             == item_id
         )
+        draft_row = await connection.fetchrow(
+            "SELECT id, task_id FROM aap_labeling_v1.annotation_draft_rows WHERE id = $1",
+            draft_id,
+        )
+        assert (draft_row["id"], draft_row["task_id"]) == (draft_id, task_id)
         segment_row = await connection.fetchrow(
             "SELECT dataset_item_id, start_frame, end_frame "
             "FROM aap_labeling_v1.video_segment_rows WHERE id = $1",
@@ -316,6 +325,26 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
                         "SELECT id FROM aap_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'share', true)",
                         ([annotation_id], task_id, project_id),
                     ),
+                ],
+            )
+            await assert_nowait_conflicts(
+                "SELECT id FROM aap_labeling_v1.lock_active_learning_feedback_task_rows($1, $2)",
+                (project_id, [task_id]),
+                [
+                    (
+                        "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'update', true)",
+                        (task_id,),
+                    )
+                ],
+            )
+            await assert_nowait_conflicts(
+                "SELECT id FROM aap_labeling_v1.lock_active_learning_feedback_annotation_rows($1)",
+                ([task_id],),
+                [
+                    (
+                        "SELECT id FROM aap_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'update', true)",
+                        ([annotation_id], task_id, project_id),
+                    )
                 ],
             )
 
@@ -431,6 +460,17 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             assert locked_annotation["id"] == annotation_id
             assert locked_segment["id"] == segment_id
             assert foreign_item_segment is None
+            feedback_tasks = await connection.fetch(
+                "SELECT id FROM aap_labeling_v1.lock_active_learning_feedback_task_rows($1, $2)",
+                project_id,
+                [task_id],
+            )
+            feedback_annotations = await connection.fetch(
+                "SELECT id FROM aap_labeling_v1.lock_active_learning_feedback_annotation_rows($1)",
+                [task_id],
+            )
+            assert [row["id"] for row in feedback_tasks] == [task_id]
+            assert [row["id"] for row in feedback_annotations] == [annotation_id]
             with pytest.raises(asyncpg.PostgresError) as invalid_mode:
                 async with connection.transaction():
                     await connection.fetchrow(
@@ -450,6 +490,10 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
                 )
             if lock_id is not None:
                 await db.execute(delete(TaskLock).where(TaskLock.id == lock_id))
+            if draft_id is not None:
+                await db.execute(
+                    delete(AnnotationDraft).where(AnnotationDraft.id == draft_id)
+                )
             if link_id is not None:
                 await db.execute(
                     delete(TaskDatasetItemLink).where(TaskDatasetItemLink.id == link_id)
