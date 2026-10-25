@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import asyncio
 from contextlib import asynccontextmanager
 import json
@@ -315,7 +316,7 @@ async def test_profile_rejects_unsafe_identity_before_acl_changes(test_engine, i
         async with api() as db:
             assert await db.scalar(
                 text(
-                    "SELECT has_table_privilege(current_user,'public.projects','UPDATE')"
+                    "SELECT has_column_privilege(current_user,'public.projects','name','UPDATE')"
                 )
             )
             assert await db.scalar(
@@ -336,7 +337,7 @@ async def test_public_column_grant_causes_atomic_profile_rejection(test_engine):
             async with api() as db:
                 assert await db.scalar(
                     text(
-                        "SELECT has_table_privilege(current_user,'public.projects','UPDATE')"
+                        "SELECT has_column_privilege(current_user,'public.projects','name','UPDATE')"
                     )
                 )
                 assert await db.scalar(
@@ -593,8 +594,9 @@ async def test_migration_owner_inheritance_keeps_the_existing_maintenance_direct
 async def test_worker_counter_service_uses_labeling_owner_and_keeps_rollback(
     test_engine,
 ):
-    from app.db.models.task import Task
     from app.services.batch import BatchService
+    from app.services.labeling_core_read_relations import get_core_row, task_row
+    from app.services.labeling_tasks import LabelingTaskService
 
     async with _world(test_engine) as (owner, api, _role, _url):
         async with owner.begin() as db:
@@ -605,12 +607,16 @@ async def test_worker_counter_service_uses_labeling_owner_and_keeps_rollback(
                 "Worker owner",
             )
             project = await create_project(db, owner_id=actor.id)
-            task = await create_task(db, project_id=project.id, status="pending")
+            task = await create_task(db, project_id=project.id, status="review")
+            task.reviewer_id = actor.id
+            task.review_round_id = uuid.uuid4()
             project_id, task_id = project.id, task.id
         async with api() as db:
             await _assert_closed(db)
-            task = await db.get(Task, task_id)
-            task.status = "completed"
+            task = await get_core_row(db, task_row, task_id)
+            await LabelingTaskService(db).approve_review(
+                task, reviewer_id=actor.id, reviewed_at=datetime.now(timezone.utc)
+            )
             await BatchService(db)._sync_project_counters(project_id)
             await db.flush()
             project = await get_workspace_project(db, project_id=project_id)
@@ -621,7 +627,7 @@ async def test_worker_counter_service_uses_labeling_owner_and_keeps_rollback(
                 await db.scalar(
                     text("SELECT status FROM tasks WHERE id=:id"), {"id": task_id}
                 )
-                == "pending"
+                == "review"
             )
             assert (
                 await db.execute(

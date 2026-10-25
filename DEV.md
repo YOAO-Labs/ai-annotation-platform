@@ -2877,9 +2877,20 @@ backend 的 epoch／incarnation 都需重新核验，完成后由普通 claim �
 
 ### Workspace 普通调用账号权限
 
-在迁移、`module-data-grants.sql` 和现有应用授权之后，由迁移账号对选定普通 API／
-worker LOGIN 显式执行下面的配置。连接参数由当前隔离环境提供；不要使用日常库
-进行验收或把 seed／截图操作账号作为普通调用账号。
+LAN 应用授权和 worktree 默认运行角色复用同一段 Workspace 私有存储围栏。它在宽授权
+之后撤销项目／成员／模板、内部状态及删除／解绑回执的表级、列级和分区权限，撤销
+相关序列与私有 schema CREATE，并清除 owner 的宽默认授权；有效继承旁路会使授权
+事务回滚。只保留两张公开事实视图的 SELECT；`_test`／`_e2e` 库另保留既有模板夹具视图。
+LAN 先收回 Workspace 的 PUBLIC 旁路，再执行原 cleanup 账号的有效权限检查。
+
+共享开发运行账号仍保留既有固定导入、seed、scale 和维护函数，以及仅测试库启用的
+夹具函数；它不是下面的 32 函数最小消费者配置。更新／排空旧直接访问消费者后，
+由当前环境原授权流程应用匹配代码的授权；本轮没有更新日常库或切换独立运行拓扑。
+本地限定证据见[默认存储围栏](docs-site/dev/concepts/module-deployment.md#workspace-default-private-storage)。
+
+独立 API／worker 的显式最小消费者配置，在迁移、`module-data-grants.sql` 和现有
+应用授权之后，由迁移账号对选定 LOGIN 执行。连接参数由当前隔离环境提供；不要使用
+日常库进行验收或把 seed／截图操作账号作为最小消费者账号。
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \

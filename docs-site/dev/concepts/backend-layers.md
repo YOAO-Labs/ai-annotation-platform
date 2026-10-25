@@ -216,9 +216,16 @@ Task 列表/详情、Data Manager、视频清单及轨迹转换的素材摘要�
 
 身份、成员与项目交接分别由 Identity、Workspace、Labeling 当前 owners 组合。`services/user_lifecycle.py` 仅保留 `UserLifecycleService.lock_accounts` 共享账号锁能力；旧 API lifecycle coordinator 已移除，offboarding 由独立 Identity owner 持有。`identity_commands.py` 只适配共享账号锁及运维 provisioning；本人资料、偏好、心跳与自助改密由既有 Identity Account owner 处理。运维 bootstrap/import 的 mutable User DML 由独立 provisioning owner 持有，API command 只适配调用方事务。分组目录／指派、完整 invitation lifecycle、四项用户目录读取、管理员临时密码重置、平台角色预览／变更、管理员暂停／恢复、管理员删除与管理员 offboarding 各由版本化 Identity owners 处理；核心会话状态也由独立 Identity 命令持有。前述 owner slices 均有各自限定的本地资格；offboarding 有 77 个 selected cases（76 DB/process、1 static artifact），UserBrief 有 64 个 distinct cases（59 DB/process、5 pure/static），均零跳过。其他用户水合、registration-status settings 与其余跨 owner lifecycle 仍在后续范围。
 
-Workspace membership 命令将新增、角色预览／变更和移除从 API ORM 流程交给 `apps/workspace` 的便携 owner；public routes 和 DTO 保持原样。`aap-workspace-membership/v1` manager 负责原 Python policy 与 preview digest，Native `aap_workspace_membership_v1` 以同一事务的 prepare/apply 控制当前账号、Project、membership 与 Labeling 权威，原子提交 member row、Labeling handoff／release、typed Audit 和不可变 receipt。专用 `workspace_membership_client` 仅有 `membership_policy()`、`prepare_membership_command(jsonb)` 与 `apply_membership_command(jsonb)`；跨 owner 访问通过 Identity、Labeling、Audit 的窄函数，不给 Workspace 原表权限。邀请接受继续由 Identity invitation owner 处理。成员命令与直接负责人转移分别已通过限定本地验收；配置命令的限定本地验收另见后文；模板读取的当前状态另见后文；项目读取、mention 与其他 Workspace consumers 仍需继续迁移。
+Workspace membership 命令将新增、角色预览／变更和移除从 API ORM 流程交给 `apps/workspace` 的便携 owner；public routes 和 DTO 保持原样。`aap-workspace-membership/v1` manager 负责原 Python policy 与 preview digest，Native `aap_workspace_membership_v1` 以同一事务的 prepare/apply 控制当前账号、Project、membership 与 Labeling 权威，原子提交 member row、Labeling handoff／release、typed Audit 和不可变 receipt。专用 `workspace_membership_client` 仅有 `membership_policy()`、`prepare_membership_command(jsonb)` 与 `apply_membership_command(jsonb)`；跨 owner 访问通过 Identity、Labeling、Audit 的窄函数，不给 Workspace 原表权限。邀请接受继续由 Identity invitation owner 处理。成员、直接负责人转移与配置命令分别已有限定本地资格；项目／模板读取和默认凭据边界见下文及唯一模块台账，完整模块资格仍单列。
 
 Project 列表、分页、详情、统计、就绪度、写后响应投影和项目搜索由 `apps/workspace` 的 `aap-workspace-project-query/v1` owner 编排。API 选择借用事务、专用只读函数账号或独立 HTTP 服务；跨域计数、资料和就绪度事实通过类型化能力提供，Task/member 搜索在原查询中消费固定 Workspace 关系。独立运行时显式配置 Identity Briefs 依赖，空列表及无需资料的读取不初始化它，显式失败不回退。源码、Native 数据库权限、50 个 HTTP 样本的三路径对照、独立安装包、受限镜像、进程故障恢复及备份恢复已验证，完整迁移验收到0261；有限容器并发样本不代表生产容量，完整 Workspace 与全模块独立部署目标仍未完成。见 [ADR-0139](/dev/adr/0139-workspace-project-query-owner)。
+
+默认 LAN／worktree 运行凭据共用 Workspace 存储 ACL，拒绝私表／列、回执、分区、
+相关序列与 schema CREATE，仅保留公开事实读取及测试库的模板夹具视图；既有固定
+seed／维护函数和测试库夹具函数保持。普通应用不因撤权改用迁移账号或新 owner 连接。
+本轮已查的 Project／成员／模板／回执消费者形状未发现未迁移的普通私表访问；
+这不是对任意未来 ORM refresh／懒加载的承诺，也不替代整模块审计、历史退役授权或
+独立运行资格。范围见[默认存储围栏](/dev/concepts/module-deployment#workspace-default-private-storage)。
 
 Operational bootstrap/import 不再由 API `IdentityCommandService` 自行查 User、hash password 或写 User ORM。`services/identity_provisioning_data.py` 将 `AccountProvisioningData` 绑定到原 caller transaction；Identity portable manager 的两种固定命令仅返回 UUID，0252 Native owner 创建账号并在 bootstrap 时经 Audit capability 原子记录固定事件。CLI 仍持有原 commit/rollback，import 回滚仍覆盖 Assets、Workspace、Labeling 的导入行。Provisioning 已通过限定本地资格，不属于邀请账号建立或一般 User CRUD；完整 Identity 仍待完成。
 

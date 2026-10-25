@@ -929,6 +929,156 @@ BEGIN
     END IF;
 END $$;
 
+-- Keep fixed operational capabilities; fence Workspace storage in embedded runtimes.
+DO $workspace_private_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_runtime_oid oid;
+    v_relations oid[];
+    v_owners oid[];
+    v_readable oid[] := ARRAY[
+        'aap_workspace_v1.project_facts'::regclass,
+        'aap_workspace_v1.project_member_facts'::regclass
+    ];
+    v_name text;
+    v_relation record;
+    v_schema record;
+    v_default record;
+    v_columns text;
+BEGIN
+    SELECT oid INTO v_runtime_oid FROM pg_catalog.pg_roles
+    WHERE rolname=v_runtime AND rolcanlogin
+      AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);
+    IF current_database() <> current_setting('aap.expected_database')
+       OR v_runtime_oid IS NULL OR v_runtime=current_user THEN
+        RAISE EXCEPTION 'Invalid embedded Workspace runtime ownership';
+    END IF;
+    FOREACH v_name IN ARRAY ARRAY[
+        'projects','project_members','project_templates',
+        'project_deletion_operations','dataset_unlink_operations'
+    ] LOOP
+        IF pg_catalog.to_regclass(pg_catalog.format('public.%I',v_name)) IS NULL THEN
+            RAISE EXCEPTION 'Missing private Workspace relation: %',v_name;
+        END IF;
+    END LOOP;
+    IF pg_catalog.right(pg_catalog.lower(current_database()),5)='_test'
+       OR pg_catalog.right(pg_catalog.lower(current_database()),4)='_e2e' THEN
+        v_readable := pg_catalog.array_append(v_readable,
+            'aap_workspace_fixture_v1.templates'::regclass);
+    END IF;
+    v_relations := ARRAY(
+        WITH RECURSIVE storage(oid) AS (
+            SELECT c.oid FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+            WHERE c.relkind IN ('r','p','v','m','f') AND (
+                n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+                OR (n.nspname='public' AND (
+                    c.relname IN ('projects','project_members','project_templates',
+                        'project_deletion_operations','dataset_unlink_operations')
+                    OR pg_catalog.left(c.relname,10)='workspace_'
+                ))
+            )
+            UNION
+            SELECT i.inhrelid FROM pg_catalog.pg_inherits i
+            JOIN storage s ON s.oid=i.inhparent
+        ) SELECT oid FROM storage
+    );
+    v_owners := ARRAY(
+        SELECT relowner FROM pg_catalog.pg_class WHERE oid=ANY(v_relations)
+        UNION SELECT p.proowner FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+        UNION SELECT nspowner FROM pg_catalog.pg_namespace
+        WHERE nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+        UNION SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user
+    );
+    IF EXISTS (SELECT FROM pg_catalog.unnest(v_owners) owner_oid
+               WHERE owner_oid=v_runtime_oid
+                  OR pg_catalog.pg_has_role(v_runtime_oid,owner_oid,'MEMBER')) THEN
+        RAISE EXCEPTION 'Runtime inherits private Workspace ownership';
+    END IF;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.oid=ANY(v_relations)
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM %I, PUBLIC',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname),',' ORDER BY attnum)
+        INTO v_columns FROM pg_catalog.pg_attribute
+        WHERE attrelid=v_relation.oid AND attnum>0 AND NOT attisdropped;
+        IF v_columns IS NOT NULL THEN
+            EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %I.%I FROM %I, PUBLIC',
+                v_columns,v_relation.nspname,v_relation.relname,v_runtime);
+        END IF;
+        IF v_relation.oid=ANY(v_readable) THEN
+            EXECUTE pg_catalog.format('GRANT SELECT ON TABLE %I.%I TO %I',
+                v_relation.nspname,v_relation.relname,v_runtime);
+        END IF;
+        IF pg_catalog.has_table_privilege(v_runtime,v_relation.oid,
+                'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime,v_relation.oid,
+                'INSERT,UPDATE,REFERENCES')
+           OR (NOT v_relation.oid=ANY(v_readable) AND (
+               pg_catalog.has_table_privilege(v_runtime,v_relation.oid,'SELECT')
+               OR pg_catalog.has_any_column_privilege(v_runtime,v_relation.oid,'SELECT')
+           )) THEN
+            RAISE EXCEPTION 'Runtime retains private Workspace access: %.%',
+                v_relation.nspname,v_relation.relname;
+        END IF;
+    END LOOP;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relkind='S' AND (
+            n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+            OR (n.nspname='public' AND c.relname IN (
+                'display_seq_projects','display_seq_project_templates'
+            ))
+            OR EXISTS (SELECT FROM pg_catalog.pg_depend d
+                       WHERE d.classid='pg_catalog.pg_class'::pg_catalog.regclass
+                         AND d.objid=c.oid AND d.refclassid=d.classid
+                         AND d.refobjid=ANY(v_relations) AND d.deptype IN ('a','i'))
+        )
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE %I.%I FROM %I, PUBLIC',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        IF pg_catalog.has_sequence_privilege(v_runtime,v_relation.oid,'USAGE,SELECT,UPDATE') THEN
+            RAISE EXCEPTION 'Runtime retains private Workspace sequence access: %.%',
+                v_relation.nspname,v_relation.relname;
+        END IF;
+    END LOOP;
+    FOR v_schema IN SELECT oid,nspname FROM pg_catalog.pg_namespace
+        WHERE nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE CREATE ON SCHEMA %I FROM %I, PUBLIC',
+            v_schema.nspname,v_runtime);
+        IF pg_catalog.has_schema_privilege(v_runtime,v_schema.oid,'CREATE') THEN
+            RAISE EXCEPTION 'Runtime retains private Workspace schema creation: %',
+                v_schema.nspname;
+        END IF;
+    END LOOP;
+    FOR v_default IN
+        SELECT d.defaclobjtype,r.rolname,n.nspname
+        FROM pg_catalog.pg_default_acl d
+        JOIN pg_catalog.pg_roles r ON r.oid=d.defaclrole
+        LEFT JOIN pg_catalog.pg_namespace n ON n.oid=d.defaclnamespace
+        WHERE d.defaclrole=ANY(v_owners) AND d.defaclobjtype IN ('r','S')
+          AND (d.defaclnamespace=0 OR n.nspname='public'
+               OR n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$')
+          AND EXISTS (SELECT FROM pg_catalog.aclexplode(d.defaclacl) a
+                      WHERE a.grantee IN (0,v_runtime_oid))
+    LOOP
+        EXECUTE pg_catalog.format(
+            'ALTER DEFAULT PRIVILEGES FOR ROLE %I%s REVOKE ALL ON %s FROM %I, PUBLIC',
+            v_default.rolname,
+            CASE WHEN v_default.nspname IS NULL THEN ''
+                 ELSE pg_catalog.format(' IN SCHEMA %I',v_default.nspname) END,
+            CASE v_default.defaclobjtype WHEN 'r' THEN 'TABLES' ELSE 'SEQUENCES' END,
+            v_runtime);
+    END LOOP;
+END;
+$workspace_private_acl$;
 DO $$
 DECLARE
     relation oid;

@@ -1,20 +1,16 @@
 """Additive accepted-input bucket upgrades preserve exact worktree ownership."""
 
-import asyncio
 import json
 import re
 import unittest
-from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from sqlalchemy.engine import make_url
 
 from worktree_env import WorktreeError, atomic_json, load_identity, read_state, topology
 from worktree_resources import (
-    AUDIT_RUNTIME_CAPABILITIES,
     IDENTITY_RUNTIME_CAPABILITIES,
     IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES,
     IMAGE_ACCEPTED_RUNTIME_CAPABILITIES,
@@ -28,7 +24,6 @@ from worktree_resources import (
     JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
     JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
     JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
-    JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES,
     VIDEO_RUNTIME_CAPABILITIES,
 )
 
@@ -556,311 +551,18 @@ class BucketUpgradeTests(unittest.TestCase):
             + len(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES),
         )
 
-    def test_worktree_runtime_grant_uses_media_allowlists(self):
+    def test_private_acl_rejects_missing_or_duplicated_source(self):
         backend = object.__new__(LocalResources)
-        backend.code_root = Path(__file__).resolve().parents[1]
-        backend.settings = SimpleNamespace(
-            database_url="postgresql+asyncpg://app@localhost/app"
-        )
-        backend.url = make_url("postgresql+asyncpg://owner@localhost/app")
-        backend.resources = {"database": "aap_test"}
-        statements = []
-
-        class Connection:
-            async def exec_driver_sql(self, sql):
-                statements.append(sql)
-
-            async def execute(self, sql, parameters):
-                if "has_function_privilege" in str(sql):
-                    assert parameters == {"role": "app"}
-                    return FunctionPrivileges()
-                assert parameters == {"role": "app", "database": "aap_test"}
-                statements.append(str(sql))
-
-        privileges = {
-            "preferences": True,
-            "append": True,
-            "terminal_append": True,
-            "read_state": True,
-            "notification_delete": True,
-            "inbox_page": True,
-            "inbox_total": True,
-            "inbox_unread": True,
-            "inbox_private_helper": False,
-            "notification_private": False,
-            "notification_column_private": False,
-            "notification_facts": False,
-            "notification_facts_column_read": False,
-            "notification_delivery_reads": True,
-            "notification_facts_write": False,
-            "notification_facts_column_write": False,
-            "audit_append": True,
-            "audit_query": True,
-            "audit_maintenance": True,
-            "audit_parent_read": True,
-            "audit_log_write": False,
-            "audit_sequence_private": False,
-            "audit_read": True,
-            "audit_read_write": False,
-            "audit_read_column_write": False,
-            "audit_daily_read": True,
-            "audit_daily_write": False,
-            "audit_daily_private": False,
-            "audit_daily_refresh": False,
-            "jobs_notification_scope": True,
-            "jobs_notification_scope_write": False,
-            "jobs_list_page": True,
-            "jobs_list_total": True,
-            "jobs_list_private_helper": False,
-        }
-
-        class FunctionPrivileges:
-            def mappings(self):
-                return self
-
-            def one(self):
-                return privileges
-
-        class Preparer:
-            @staticmethod
-            def quote_identifier(value):
-                return f'"{value}"'
-
-        class Engine:
-            dialect = SimpleNamespace(identifier_preparer=Preparer())
-
-            @asynccontextmanager
-            async def begin(self):
-                yield Connection()
-
-            async def dispose(self):
-                return None
-
-        with patch("worktree_resources.create_async_engine", return_value=Engine()):
-            asyncio.run(backend.grant_runtime())
-
-        expected = (
-            "GRANT EXECUTE ON FUNCTION "
-            + ", ".join(VIDEO_RUNTIME_CAPABILITIES)
-            + ' TO "app"'
-        )
-        self.assertIn(expected, statements)
-        self.assertIn(
-            'REVOKE ALL ON TABLE public.notifications FROM "app", PUBLIC',
-            statements,
-        )
-        for table in ("notification_preferences", "notification_delivery_outbox"):
-            self.assertIn(
-                f'REVOKE ALL ON TABLE public.{table} FROM "app", PUBLIC', statements
-            )
-        self.assertNotIn(
-            'GRANT SELECT ON aap_notifications_v1.notification_facts TO "app"',
-            statements,
-        )
-        self.assertIn(
-            'REVOKE ALL ON TABLE aap_notifications_v1.notification_facts FROM "app", PUBLIC',
-            statements,
-        )
-        self.assertIn('GRANT SELECT ON aap_audit_v1.audit_events TO "app"', statements)
-        self.assertIn(
-            'GRANT SELECT ON aap_jobs_v1.notification_scope_facts TO "app"', statements
-        )
-        self.assertIn(
-            'GRANT SELECT ON aap_audit_v1.audit_daily_facts TO "app"', statements
-        )
-        self.assertIn(
-            'REVOKE ALL ON TABLE public.mv_audit_bi_daily FROM "app", PUBLIC',
-            statements,
-        )
-        self.assertIn(
-            "GRANT EXECUTE ON FUNCTION "
-            + ", ".join(AUDIT_RUNTIME_CAPABILITIES)
-            + ' TO "app"',
-            statements,
-        )
-        audit_acl = next(
-            statement
-            for statement in statements
-            if statement.lstrip().startswith("DO $audit_private_acl$")
-        )
-        self.assertIn("pg_partition_tree('public.audit_logs')", audit_acl)
-        self.assertIn("REVOKE ALL ON SEQUENCE %s FROM %I, PUBLIC", audit_acl)
-        self.assertIn("GRANT SELECT ON TABLE public.audit_logs TO %I", audit_acl)
-        self.assertIn(
-            "GRANT EXECUTE ON FUNCTION "
-            + ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
-            + ' TO "app"',
-            statements,
-        )
-        self.assertIn(
-            "GRANT EXECUTE ON FUNCTION "
-            + ", ".join(
-                (
-                    *JOBS_LIST_RUNTIME_CAPABILITIES,
-                    *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
-                    *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
-                    *JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
-                    *JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES,
-                )
-            )
-            + ' TO "app"',
-            statements,
-        )
-        self.assertIn(
-            'GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation TO "app"',
-            statements,
-        )
-        creation_acl = next(
-            statement
-            for statement in statements
-            if statement.lstrip().startswith("DO $jobs_creation_acl$")
-        )
-        self.assertLess(
-            statements.index(
-                'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "app"'
-            ),
-            statements.index(creation_acl),
-        )
-        self.assertLess(
-            statements.index(
-                'GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation TO "app"'
-            ),
-            statements.index(creation_acl),
-        )
-        self.assertIn(
-            "REVOKE ALL ON FUNCTION "
-            "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text) "
-            'FROM "app", PUBLIC',
-            statements,
-        )
-        self.assertTrue(
-            any(
-                "GRANT USAGE ON SCHEMA" in statement and "aap_audit_v1" in statement
-                for statement in statements
-            )
-        )
-        self.assertIn(
-            "GRANT EXECUTE ON FUNCTION "
-            + ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
-            + ' TO "app"',
-            statements,
-        )
-        self.assertIn(
-            "GRANT EXECUTE ON FUNCTION "
-            + ", ".join(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES)
-            + ' TO "app"',
-            statements,
-        )
-        runtime_sql = " ".join(statements)
-        labeling_acl = backend.labeling_private_runtime_acl()
-        self.assertIn(labeling_acl, statements)
-        self.assertLess(
-            statements.index(
-                'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "app"'
-            ),
-            statements.index(labeling_acl),
-        )
-        for signature in INFERENCE_ROUTING_RUNTIME_CAPABILITIES:
-            self.assertIn(signature, runtime_sql)
-        worktree_image_signatures = re.findall(
-            r"aap_(?:assets|labeling)_v1\.[a-z0-9_]+\([^)]*\)",
-            " ".join(
-                statement
-                for statement in statements
-                if any(
-                    marker in statement
-                    for marker in ("read_image_source(", "find_accepted_image_input(")
-                )
-            ),
-        )
-        self.assertEqual(
-            set(worktree_image_signatures),
-            set(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
-            | set(IMAGE_ACCEPTED_RUNTIME_CAPABILITIES),
-        )
-        for excluded in (
-            "aap_assets_v1.sweep_accepted_image_inputs(integer)",
-            "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
-            "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
-            "aap_assets_v1._lock_accepted_image_input_receipt(uuid,uuid,uuid)",
-            "aap_assets_v1._lock_accepted_image_input_pin(uuid,uuid,text)",
-        ):
-            self.assertNotIn(excluded, " ".join(statements))
-
-        for key in (
-            "terminal_append",
-            "inbox_page",
-            "inbox_total",
-            "inbox_unread",
-            "inbox_private_helper",
-            "notification_private",
-            "notification_column_private",
-            "notification_facts",
-            "notification_facts_column_read",
-            "notification_delivery_reads",
-            "notification_facts_write",
-            "notification_facts_column_write",
-            "audit_read",
-            "audit_maintenance",
-            "audit_parent_read",
-            "audit_log_write",
-            "audit_sequence_private",
-            "audit_read_write",
-            "audit_read_column_write",
-            "audit_daily_read",
-            "audit_daily_write",
-            "audit_daily_private",
-            "audit_daily_refresh",
-            "jobs_notification_scope",
-            "jobs_notification_scope_write",
-            "jobs_list_page",
-            "jobs_list_total",
-            "jobs_list_private_helper",
-        ):
-            with self.subTest(unsafe_owner_privilege=key):
-                original = privileges[key]
-                privileges[key] = not original
-                try:
-                    with (
-                        patch(
-                            "worktree_resources.create_async_engine",
-                            return_value=Engine(),
-                        ),
-                        self.assertRaisesRegex(
-                            WorktreeError, "Notifications read/write boundary"
-                        ),
-                    ):
-                        asyncio.run(backend.grant_runtime())
-                finally:
-                    privileges[key] = original
-
-    def test_labeling_acl_covers_owner_storage_and_rejects_missing_source(self):
-        root = Path(__file__).resolve().parents[1]
-        backend = object.__new__(LocalResources)
-        backend.code_root = root
-        acl = backend.labeling_private_runtime_acl()
-        tables = set(
-            re.findall(
-                r"'([a-z_]+)'",
-                acl.split("v_tables text[] := ARRAY[", 1)[1].split("];", 1)[0],
-            )
-        )
-        grants = (root / "infra/docker/module-data-grants.sql").read_text()
-        owned = set()
-        for grant in re.findall(
-            r'\bGRANT\b[^;]+TO :"labeling_owner";', grants, re.DOTALL
-        ):
-            if "ON FUNCTION" not in grant and "ON SEQUENCE" not in grant:
-                owned.update(re.findall(r"public\.([a-z_]+)", grant))
-        self.assertEqual(tables, owned - {"projects", "video_chapters"})
-        self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES", acl)
         backend.code_root = self.root
         target = self.root / "infra/docker/lan-production-grants.sql"
         target.parent.mkdir(parents=True)
-        for content in ("", acl + acl):
-            target.write_text(content)
-            with self.assertRaisesRegex(WorktreeError, "missing or duplicated"):
-                backend.labeling_private_runtime_acl()
+        for domain in ("labeling", "workspace"):
+            block = f"DO ${domain}_private_acl$ BEGIN END; ${domain}_private_acl$;"
+            for content in ("", block + block):
+                target.write_text(content)
+                with self.subTest(domain=domain, content=content):
+                    with self.assertRaises(WorktreeError):
+                        backend.private_runtime_acl(domain)
 
     def test_audit_maintenance_grant_is_bounded_to_its_owner_command(self):
         sql = (

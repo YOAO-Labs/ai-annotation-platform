@@ -226,8 +226,8 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 这两项固定运维写入不提供用户授权、通用字段补丁或提交能力。maintenance LOGIN
 现有六项固定函数；其最初三项合同与快照保持不变。原开发兼容角色继续可运行脚本；
 已应用普通消费者围栏的**可信运维账号**可显式追加
-`infra/docker/workspace-seed-operator-grants.sql`。普通 API／worker 的配置仍只有原来的
-32 项函数和两张事实视图；不能把运维追加配置用于 HTTP／worker 账号。
+`infra/docker/workspace-seed-operator-grants.sql`。采用显式最小消费者配置的 API／worker
+仍只有32项函数和两张事实视图；不能把运维追加配置用于这些独立账号。
 这不代表开发种子的 Assets 私表操作或其他运维脚本已完成模块提取。
 匹配冷 API 工件的实际种子入口已通过受限凭据、真实 S3、后置失败／回滚、提交后清理
 及漂移重跑验收，范围见[开发点云种子](/dev/concepts/module-deployment#workspace-开发点云种子)。
@@ -239,7 +239,7 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 有变更才提交的行为；缺失更新目标或无效 owner 回复使本次 flush 回滚，调用方捕获异常
 后再次提交也不会落下部分结果。读取使用既有公开事实关系。
 
-可信运维追加配置现有六项 Workspace 写能力，普通 API／worker 仍是 32 项函数。
+可信运维追加配置现有六项 Workspace 写能力，显式最小 API／worker 配置仍是32项函数。
 账号创建由独立的 Identity 种子能力持有。此范围只包含主脚本自身的账号和成员操作；
 媒体子脚本及完整模块资格见[唯一台账](/dev/concepts/module-deployment#剩余工作台账)。
 
@@ -511,7 +511,7 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 
 ## 普通消费者的 SQL 凭据边界
 
-普通 API／worker 的 Workspace 本地调用使用既有32个固定函数及两张事实视图。
+显式最小 API／worker 消费者的 Workspace 本地调用使用既有32个固定函数及两张事实视图。
 `infra/docker/workspace-consumer-grants.sql` 可在 owner 与兼容应用授权后显式应用，
 撤销项目、成员、模板、删除／解绑回执和内部状态的表／列权限，以及项目序列、
 私有 schema 创建和内部 helper 权限。固定视图仍为38列项目事实与9列成员事实；
@@ -527,6 +527,17 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 Node、worker计数及回滚，另有8项既有角色回归通过。兼容授权保持清理 worker
 已有的八项函数，避免重新授权 API 时退回两项 outbox 能力。完整模块冷工件／装配／恢复仍待集中验收，见
 [ADR-0179](/dev/adr/0179-workspace-consumer-credential-closure)。
+
+默认内嵌运行采用不同的权限组合：LAN 和 worktree 共用 Workspace 私有存储 ACL，
+移除上述私表／列、回执、分区、相关序列及 schema CREATE，并清除宽默认授权；
+只有两张公开事实视图可读，测试库可额外读取既有模板夹具视图。有效继承／所有权
+旁路会使授权事务回滚。LAN 的围栏先于 cleanup 账号的有效权限检查执行。
+
+共享开发账号保留既有固定导入、seed、scale、维护函数和仅 `_test`／`_e2e` 库启用的
+夹具能力；不会为了采用存储围栏而收回受支持脚本的执行权，也不把它描述为32函数
+最小账号。显式最小配置、专用操作配置及其 NOLOGIN owner 校验保持不变。采用前仍须
+更新并排空旧直接访问消费者，按原部署流程应用匹配授权；日常环境未自动切换。
+限定本地证据见[默认存储围栏](/dev/concepts/module-deployment#workspace-default-private-storage)。
 
 镜像健康探针读取既有 `WORKSPACE_PORT`，默认8172，负责人转移8173和配置8174也使用
 各自的 `/ready`。该探针只检查已选择的 Native SQL policy；不能代替 Guide、后端探测
