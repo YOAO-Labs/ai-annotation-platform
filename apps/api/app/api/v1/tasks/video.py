@@ -1026,7 +1026,6 @@ async def save_video_mask_correction_keyframe(
         detail=audit_detail,
     )
     await db.commit()
-    await db.refresh(annotation)
     response.headers["ETag"] = f'W/"{annotation.version}"'
     return AnnotationOut.model_validate(annotation)
 
@@ -1095,7 +1094,6 @@ async def operate_video_mask_correction_keyframe(
         detail=audit_detail,
     )
     await db.commit()
-    await db.refresh(annotation)
     response.headers["ETag"] = f'W/"{annotation.version}"'
     if audit_detail["resolved_keyframe_frame"] is not None:
         response.headers["X-Resolved-Keyframe-Frame"] = str(

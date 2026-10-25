@@ -470,7 +470,9 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                         backend.release[0].set()
                         await _wait_for_gate(backend.entered[1], running)
                         async with media.sessions.begin() as cancel_db:
-                            await cancel_tracker_job(cancel_db, job_id)
+                            await cancel_tracker_job(
+                                cancel_db, job_id, actor_id=owner_name
+                            )
                         cancelling_scope = await _routing_scope(
                             media.sessions, owner_name
                         )

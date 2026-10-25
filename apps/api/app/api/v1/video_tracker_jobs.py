@@ -5,12 +5,13 @@ import json
 import time
 import uuid
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -48,6 +49,7 @@ from app.services.video_tracking.jobs import (
     get_tracker_job,
     tracker_job_out,
     tracker_job_preview,
+    list_tracker_timeline,
 )
 from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_operation
@@ -172,8 +174,8 @@ async def _load_visible_job_task(
 
 async def _load_visible_job_task_row(
     db: AsyncSession, job_id: uuid.UUID, user: User | IdentityActorFacts
-) -> tuple[Task, VideoTrackerJob]:
-    row = await get_tracker_job(db, job_id)
+) -> tuple[Task, SimpleNamespace]:
+    row = await get_tracker_job(db, job_id, user.id)
     task = await db.get(Task, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
@@ -187,7 +189,7 @@ async def _lock_visible_job_task_row(
     user: User | IdentityActorFacts,
     *,
     require_annotation_write: bool = True,
-) -> tuple[Task, VideoTrackerJob, ProjectAccess]:
+) -> tuple[Task, SimpleNamespace, ProjectAccess]:
     """Lock and refresh the job's task at the mutation boundary.
 
     Account-first, then the membership ``FOR SHARE``, then the refreshed task row
@@ -203,7 +205,7 @@ async def _lock_visible_job_task_row(
 
     from app.services.task_lock import assert_task_user_active
 
-    row = await get_tracker_job(db, job_id)
+    row = await get_tracker_job(db, job_id, user.id)
     if not await assert_task_user_active(db, user.id):
         raise HTTPException(
             status_code=401,
@@ -248,7 +250,7 @@ async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
 async def _assert_can_cancel(
     db: AsyncSession,
     task: Task,
-    body: VideoTrackerJob | VideoTrackerJobOut,
+    body: VideoTrackerJob | VideoTrackerJobOut | SimpleNamespace,
     user: User | IdentityActorFacts,
     access: ProjectAccess,
 ) -> None:
@@ -262,7 +264,7 @@ async def _assert_can_cancel(
 async def _assert_can_decide(
     db: AsyncSession,
     task: Task,
-    body: VideoTrackerJob,
+    body: VideoTrackerJob | SimpleNamespace,
     user: User | IdentityActorFacts,
     access: ProjectAccess,
 ) -> None:
@@ -308,107 +310,93 @@ async def list_video_tracker_jobs(
     counts 在当前 project_id/model_key 过滤下 (忽略 status/cursor) 分组统计。
     """
 
-    # 当前过滤条件 (project/model_key), 不含 status/cursor — counts 与列表共用.
-    base_conds = []
-    if model_key is not None:
-        base_conds.append(VideoTrackerJob.model_key == model_key)
-    needs_task_join = project_id is not None
-    if project_id is not None:
-        base_conds.append(Task.project_id == project_id)
+    allowed_project_ids = None
     if current_admin.role == UserRole.PROJECT_ADMIN:
-        # 项目管理员的全局列表与计数只能覆盖自己拥有的项目；显式传入他人项目 id
-        # 也只会得到空交集，不能借列表或 counts 枚举跨项目任务。
         owner_facts = project_facts()
-        base_conds.append(
-            Task.project_id.in_(
-                select(owner_facts.c.id).where(
-                    owner_facts.c.owner_id == current_admin.id
+        allowed_project_ids = tuple(
+            (
+                await db.execute(
+                    select(owner_facts.c.id).where(
+                        owner_facts.c.owner_id == current_admin.id
+                    )
                 )
-            )
+            ).scalars()
         )
-        needs_task_join = True
 
-    # 聚合计数: select status, count(*) group by status (带 project/model_key 过滤).
-    counts_stmt = select(VideoTrackerJob.status, func.count()).group_by(
-        VideoTrackerJob.status
-    )
-    if needs_task_join:
-        counts_stmt = counts_stmt.join(Task, VideoTrackerJob.task_id == Task.id)
-    if base_conds:
-        counts_stmt = counts_stmt.where(and_(*base_conds))
-    cres = await db.execute(counts_stmt)
-    counts = VideoTrackerJobCounts()
-    for st, cnt in cres.all():
-        if hasattr(counts, st):
-            setattr(counts, st, cnt)
-
-    # 列表查询: base 过滤 + status + cursor 复合分页.
-    list_conds = list(base_conds)
-    if status is not None:
-        list_conds.append(VideoTrackerJob.status == status.value)
     if cursor:
         cursor_created, cursor_id = _decode_cursor(cursor)
-        list_conds.append(
-            or_(
-                VideoTrackerJob.created_at < cursor_created,
-                and_(
-                    VideoTrackerJob.created_at == cursor_created,
-                    VideoTrackerJob.id < cursor_id,
-                ),
-            )
-        )
-
-    stmt = select(VideoTrackerJob, Task.project_id).join(
-        Task, VideoTrackerJob.task_id == Task.id
+    else:
+        cursor_created = cursor_id = None
+    data = await list_tracker_timeline(
+        db,
+        actor_id=current_admin.id,
+        model_key=model_key,
+        project_id=project_id,
+        allowed_project_ids=allowed_project_ids,
+        status=status.value if status is not None else None,
+        cursor_created_at=cursor_created,
+        cursor_id=cursor_id,
+        limit=limit,
     )
-    if list_conds:
-        stmt = stmt.where(and_(*list_conds))
-    stmt = stmt.order_by(
-        VideoTrackerJob.created_at.desc(), VideoTrackerJob.id.desc()
-    ).limit(limit + 1)
-
-    res = await db.execute(stmt)
-    rows = res.all()
-
-    has_more = len(rows) > limit
+    counts = VideoTrackerJobCounts()
+    for st, cnt in data["counts"].items():
+        if hasattr(counts, st):
+            setattr(counts, st, cnt)
+    rows = data["rows"]
+    has_more = bool(data["has_more"])
     rows = rows[:limit]
 
     if not rows:
         return VideoTrackerJobsResponse(items=[], next_cursor=None, counts=counts)
 
-    project_ids = list({pid for _, pid in rows})
+    project_ids = list({uuid.UUID(str(row["project_id"])) for row in rows})
     projects = aliased(Project, project_rows(), adapt_on_names=True)
     pres = await db.execute(select(projects).where(projects.id.in_(project_ids)))
     projects_by_id = {p.id: p for p in pres.scalars().all()}
 
     items: list[VideoTrackerJobListItem] = []
-    for job, pid in rows:
+    for row in rows:
+        job = row["job"]
+        pid = uuid.UUID(str(row["project_id"]))
         proj = projects_by_id.get(pid)
         items.append(
             VideoTrackerJobListItem(
-                id=job.id,
-                task_id=job.task_id,
+                id=job["id"],
+                task_id=job["task_id"],
                 project_id=pid,
                 project_name=proj.name if proj else None,
                 project_display_id=getattr(proj, "display_id", None) if proj else None,
-                dataset_item_id=job.dataset_item_id,
-                annotation_id=job.annotation_id,
-                segment_id=job.segment_id,
-                created_by=job.created_by,
-                status=job.status,
-                model_key=job.model_key,
-                direction=job.direction,
-                from_frame=job.from_frame,
-                to_frame=job.to_frame,
-                error_message=job.error_message,
-                started_at=job.started_at,
-                completed_at=job.completed_at,
-                created_at=job.created_at,
+                dataset_item_id=job["dataset_item_id"],
+                annotation_id=job["annotation_id"],
+                segment_id=job["segment_id"],
+                created_by=job["created_by"],
+                status=job["status"],
+                model_key=job["model_key"],
+                direction=job["direction"],
+                from_frame=job["from_frame"],
+                to_frame=job["to_frame"],
+                error_message=job["error_message"],
+                started_at=job["started_at"],
+                completed_at=job["completed_at"],
+                created_at=job["created_at"],
             )
         )
 
-    last_job = rows[-1][0]
-    next_cursor = _encode_cursor(last_job.created_at, last_job.id) if has_more else None
+    last_job = rows[-1]["job"]
+    next_cursor = (
+        _encode_cursor(
+            (
+                last_job["created_at"]
+                if isinstance(last_job["created_at"], datetime)
+                else datetime.fromisoformat(
+                    last_job["created_at"].replace("Z", "+00:00")
+                )
+            ),
+            uuid.UUID(str(last_job["id"])),
+        )
+        if has_more
+        else None
+    )
 
     return VideoTrackerJobsResponse(items=items, next_cursor=next_cursor, counts=counts)
 
@@ -452,7 +440,7 @@ async def cancel_video_tracker_job(
     status_before = row.status
     commit_started = time.monotonic()
     try:
-        body = await cancel_tracker_job(db, job_id)
+        body = await cancel_tracker_job(db, job_id, actor_id=current_user.id)
     except HTTPException as exc:
         if job_kind == "correction":
             outcome = "conflict" if exc.status_code == 409 else "error"
@@ -596,7 +584,7 @@ async def discard_video_tracker_job(
             status_code=409,
             detail={"reason": "correction_requires_local_decision"},
         )
-    body = await discard_tracker_job(db, job_id)
+    body = await discard_tracker_job(db, job_id, actor_id=current_user.id)
     await AuditService.log(
         db,
         actor=current_user,
@@ -731,12 +719,14 @@ async def get_video_tracker_job_preview(
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.21.28 · 候选预览: 返回 job 暂存的逐帧结果 (接受前渲染候选叠加用)。无 staged → 空。"""
-    row = await get_tracker_job(db, job_id)
+    row = await get_tracker_job(db, job_id, current_user.id)
     task = await db.get(Task, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
     await task_access.assert_task_visible(db, task, current_user.id)
-    return VideoTrackerJobPreview.model_validate(await tracker_job_preview(db, row))
+    return VideoTrackerJobPreview.model_validate(
+        await tracker_job_preview(db, row, actor_id=current_user.id)
+    )
 
 
 @router.get(
@@ -749,7 +739,7 @@ async def get_video_tracker_mask_content(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> JSONResponse:
-    row = await get_tracker_job(db, job_id)
+    row = await get_tracker_job(db, job_id, current_user.id)
     task = await db.get(Task, row.task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Video tracker job not found")
