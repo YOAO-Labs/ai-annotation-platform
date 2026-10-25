@@ -328,7 +328,7 @@ function ReclamationDetails({
         </p>
       </div>
       <div>
-        <h3 className="font-medium">保留与阻断原因</h3>
+        <h3 className="font-medium">只读保留预演中的原因</h3>
         <ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
           {item.blockers.map((code) => (
             <li key={code}>{reasons[code] ?? "存在待核实的保护要求"}</li>
@@ -347,7 +347,8 @@ function ReclamationDetails({
         onDenied={onDenied}
       />
       <p className="text-xs leading-relaxed text-muted-foreground">
-        观测于 {date(measuredAt)}。{scope} 当前预演不提供物理删除许可。
+        观测于 {date(measuredAt)}。{scope}
+        以上保留关系仅为数据库观测；准确版本回收须在“受控回收”内单独预览确认。
       </p>
     </div>
   );

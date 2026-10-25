@@ -151,6 +151,8 @@ it("uses a centered detail modal with honest identity/retention labels and resto
   expect(within(dialog).getAllByText("无限期保护")).toHaveLength(2);
   expect(within(dialog).getByText(/当前配置匹配，仅为配置证据/)).toBeInTheDocument();
   expect(within(dialog).getByText("未登记备份要求的覆盖仍未知")).toBeInTheDocument();
+  expect(within(dialog).getByRole("heading", { name: "只读保留预演中的原因" })).toBeInTheDocument();
+  expect(within(dialog).getByText(/准确版本回收须在“受控回收”内单独预览确认/)).toBeInTheDocument();
   expect(within(dialog).getByText(result().items[0].asset_id)).toBeInTheDocument();
   expect(within(dialog).getByText("原件完整核验", { selector: "summary" })).toBeInTheDocument();
   expect(api.get).toHaveBeenCalledTimes(1);
