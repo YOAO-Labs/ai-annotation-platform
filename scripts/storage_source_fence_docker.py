@@ -1119,9 +1119,16 @@ class DockerAdapter:
             raise FenceError("source_uploads_remaining")
 
     def _native_multipart_records(self):
-        value = self._docker(
-            "exec", self.config["source_container"], "/bin/sh", "-c", _MULTIPART_RECORDS
-        )
+        try:
+            value = self._docker(
+                "exec",
+                self.config["source_container"],
+                "/bin/sh",
+                "-c",
+                _MULTIPART_RECORDS,
+            )
+        except FenceError:
+            raise FenceError("native_multipart_unobservable") from None
         _require(
             re.fullmatch(rb"(?:0|[1-9][0-9]{0,5})\n", value) is not None,
             "native_multipart_unobservable",
@@ -1172,7 +1179,10 @@ class DockerAdapter:
         _require(counts["multipart_uploads"] == 0, "source_uploads_remaining")
         counts["known_uploads_verified"] = len(known_uploads)
         counts["native_multipart_records"] = self._native_multipart_records()
-        _require(counts["native_multipart_records"] == 0, "source_uploads_remaining")
+        _require(
+            counts["native_multipart_records"] == 0,
+            "source_multipart_metadata_remaining",
+        )
         after, after_gateway, after_content = self._observe()
         _require(
             after["State"]["StartedAt"] == last["started_at"]

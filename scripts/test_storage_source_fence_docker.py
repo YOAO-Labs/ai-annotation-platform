@@ -766,7 +766,8 @@ class NativeTests(unittest.TestCase):
         barriers = [self.adapter.barrier(), self.adapter.barrier()]
         self.world.native_records = b"1\n"
         self.code(
-            "source_uploads_remaining", lambda: self.adapter.verify(snapshot, barriers)
+            "source_multipart_metadata_remaining",
+            lambda: self.adapter.verify(snapshot, barriers),
         )
         self.assertFalse(any(call[0] == "abort" for call in self.client.calls))
 
@@ -778,6 +779,12 @@ class NativeTests(unittest.TestCase):
                     self.adapter._native_multipart_records()
         self.world.native_records = b"0\n"
         self.assertEqual(self.adapter._native_multipart_records(), 0)
+        with patch.object(
+            self.adapter, "_docker", side_effect=FenceError("native_command_failed")
+        ):
+            self.code(
+                "native_multipart_unobservable", self.adapter._native_multipart_records
+            )
 
     def test_fixed_native_script_counts_only_current_metadata_without_following_links(
         self,
