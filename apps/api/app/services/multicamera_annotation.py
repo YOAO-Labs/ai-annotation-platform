@@ -3,13 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import uuid
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm.util import identity_key
 
 from app.db.models.annotation import Annotation
-from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.schemas.multicamera_annotation import (
     CameraAnnotationMemberOut,
     CameraProjectionResidual,
@@ -31,6 +30,18 @@ from app.services.pointcloud_projection import (
     projection_residual,
 )
 from app.services.labeling_scene import resolve_task_scene_frames
+from aap_labeling.annotation_transfer_contract import (
+    ANNOTATION_TRANSFER_PROTOCOL,
+    CameraTrackSnapshot,
+    LockCameraMemberScope,
+    MutateCameraMember,
+    ReadCameraGraph,
+    ReadCameraLinks,
+)
+from app.services.labeling_annotation_transfer import (
+    AnnotationTransferRejected,
+    annotation_transfer_command,
+)
 
 
 class MulticameraAnnotationError(ValueError):
@@ -66,6 +77,81 @@ class CameraContext:
         )
 
 
+def _annotation(snapshot) -> Annotation:
+    return Annotation(**snapshot.model_dump(mode="python"))
+
+
+def _sync_member_cache(
+    db: AsyncSession, snapshot, changed: tuple[str, ...]
+) -> Annotation:
+    member = db.sync_session.identity_map.get(
+        identity_key(Annotation, ident=snapshot.id)
+    )
+    if isinstance(member, Annotation):
+        values = snapshot.model_dump(mode="python")
+        for field in changed:
+            set_committed_value(member, field, values[field])
+        return member
+    return _annotation(snapshot)
+
+
+async def _camera_graph(
+    db: AsyncSession,
+    *,
+    task: Task,
+    scene_track_id: uuid.UUID | None,
+    include_inactive: bool,
+):
+    try:
+        data = await annotation_transfer_command(
+            db,
+            ReadCameraGraph(
+                schema=ANNOTATION_TRANSFER_PROTOCOL,
+                operation="read_camera_graph",
+                task_id=task.id,
+                project_id=task.project_id,
+                scene_track_id=scene_track_id,
+                include_inactive=include_inactive,
+            ),
+        )
+    except AnnotationTransferRejected as exc:
+        raise MulticameraAnnotationError(exc.reason, str(exc)) from exc
+    assert data.camera_graph is not None
+    return data.camera_graph
+
+
+async def _camera_command(db: AsyncSession, request: MutateCameraMember):
+    try:
+        data = await annotation_transfer_command(db, request)
+    except AnnotationTransferRejected as exc:
+        raise MulticameraAnnotationError(exc.reason, str(exc)) from exc
+    assert data.camera_mutation is not None
+    return data.camera_mutation
+
+
+async def _lock_camera_scope(db: AsyncSession, request: LockCameraMemberScope):
+    try:
+        data = await annotation_transfer_command(db, request)
+    except AnnotationTransferRejected as exc:
+        raise MulticameraAnnotationError(exc.reason, str(exc)) from exc
+    assert data.camera_lock_scope is not None
+    return data.camera_lock_scope
+
+
+def _camera_track(snapshot: CameraTrackSnapshot):
+    @dataclass(frozen=True)
+    class _Track:
+        id: uuid.UUID
+        project_id: uuid.UUID
+        scene_id: uuid.UUID
+        track_id: str
+        class_name: str
+        revision: int
+        retired_at: object | None
+
+    return _Track(**snapshot.model_dump(mode="python"))
+
+
 def _normalized_bbox(geometry: dict) -> tuple[float, float, float, float]:
     return (
         float(geometry["x"]),
@@ -73,10 +159,6 @@ def _normalized_bbox(geometry: dict) -> tuple[float, float, float, float]:
         float(geometry["w"]),
         float(geometry["h"]),
     )
-
-
-def _bbox_geometry(bbox: NormalizedCameraBbox) -> dict:
-    return {"type": "bbox", **bbox.model_dump()}
 
 
 async def load_camera_context(
@@ -98,21 +180,27 @@ async def load_linked_camera_item(
         raise MulticameraAnnotationError(
             "camera_role_not_linked", "camera role is not linked to this task"
         )
-    link = (
-        await db.execute(
-            select(TaskDatasetItemLink)
-            .where(TaskDatasetItemLink.task_id == task.id)
-            .where(TaskDatasetItemLink.role == camera_role)
+    try:
+        data = await annotation_transfer_command(
+            db,
+            ReadCameraLinks(
+                schema=ANNOTATION_TRANSFER_PROTOCOL,
+                operation="read_camera_links",
+                task_id=task.id,
+                roles=[camera_role],
+            ),
         )
-    ).scalar_one_or_none()
-    if link is None:
+    except AnnotationTransferRejected as exc:
+        raise MulticameraAnnotationError(exc.reason, str(exc)) from exc
+    if not data.camera_links:
         raise MulticameraAnnotationError(
             "camera_role_not_linked", "camera role is not linked to this task"
         )
+    item_id = data.camera_links[0].dataset_item_id
     page = await AssetsSpatialGateway(db).read_items(
-        ReadItemsRequest(item_ids=[link.dataset_item_id])
+        ReadItemsRequest(item_ids=[item_id])
     )
-    item = next((item for item in page.items if item.id == link.dataset_item_id), None)
+    item = next((item for item in page.items if item.id == item_id), None)
     if item is None:
         raise MulticameraAnnotationError(
             "camera_role_not_linked", "camera role is not linked to this task"
@@ -125,16 +213,20 @@ async def load_camera_contexts(
 ) -> dict[str, CameraContext]:
     if not camera_roles or any(not role.startswith("camera_") for role in camera_roles):
         return {}
-    links = list(
-        (
-            await db.execute(
-                select(TaskDatasetItemLink).where(
-                    TaskDatasetItemLink.task_id == task.id
-                )
-            )
-        ).scalars()
-    )
-    links_by_role = {link.role: link for link in links}
+    roles = sorted(camera_roles | {"primary_lidar"})
+    try:
+        link_data = await annotation_transfer_command(
+            db,
+            ReadCameraLinks(
+                schema=ANNOTATION_TRANSFER_PROTOCOL,
+                operation="read_camera_links",
+                task_id=task.id,
+                roles=roles,
+            ),
+        )
+    except AnnotationTransferRejected as exc:
+        raise MulticameraAnnotationError(exc.reason, str(exc)) from exc
+    links_by_role = {link.role: link for link in link_data.camera_links}
     selected_links = [
         links_by_role[role] for role in camera_roles if role in links_by_role
     ]
@@ -224,54 +316,6 @@ async def _lock_camera_calibration(
     )
 
 
-async def _load_source_box(
-    db: AsyncSession,
-    *,
-    task: Task,
-    annotation_id: uuid.UUID,
-    for_update: bool,
-) -> Annotation:
-    query = select(Annotation).where(Annotation.id == annotation_id)
-    if for_update:
-        query = query.with_for_update().execution_options(populate_existing=True)
-    annotation = (await db.execute(query)).scalar_one_or_none()
-    if (
-        annotation is None
-        or annotation.task_id != task.id
-        or not annotation.is_active
-        or annotation.was_cancelled
-        or (annotation.geometry or {}).get("type") != "box_3d"
-        or annotation.scene_track_id is None
-        or annotation.track_id is None
-    ):
-        raise MulticameraAnnotationError(
-            "source_box_invalid", "an active SceneTrack 3D box is required"
-        )
-    return annotation
-
-
-async def _lock_track(
-    db: AsyncSession, scene_track_id: uuid.UUID, expected_revision: int
-) -> SceneTrack:
-    track = (
-        await db.execute(
-            select(SceneTrack)
-            .where(SceneTrack.id == scene_track_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if track is None or track.retired_at is not None:
-        raise MulticameraAnnotationError(
-            "scene_track_missing", "active SceneTrack was not found"
-        )
-    if track.revision != expected_revision:
-        raise MulticameraAnnotationError(
-            "track_revision_conflict", "SceneTrack changed"
-        )
-    return track
-
-
 def _assert_calibration(
     state: CalibrationState, expected_revision: int, expected_digest: str
 ) -> None:
@@ -294,15 +338,23 @@ async def create_camera_member(
     expected_calibration_revision: int,
     expected_calibration_digest: str,
 ) -> Annotation:
-    # A2 · lock the task before the source/SceneTrack rows are locked.
+    # A2 · acquire Task evidence before the Annotation and SceneTrack rows.
     await record_annotation_actor(db, task, actor_id)
-    source = await _load_source_box(
+    await _lock_camera_scope(
         db,
-        task=task,
-        annotation_id=source_annotation_id,
-        for_update=True,
+        LockCameraMemberScope(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="lock_camera_member_scope",
+            action="create",
+            task_id=task.id,
+            project_id=task.project_id,
+            actor_id=actor_id,
+            member_id=None,
+            source_annotation_id=source_annotation_id,
+            expected_version=None,
+            expected_track_revision=expected_track_revision,
+        ),
     )
-    track = await _lock_track(db, source.scene_track_id, expected_track_revision)
     context = await load_camera_context(db, task=task, camera_role=camera_role)
     context = await _lock_camera_calibration(
         db, task=task, actor_id=actor_id, context=context
@@ -312,45 +364,28 @@ async def create_camera_member(
         expected_calibration_revision,
         expected_calibration_digest,
     )
-    existing = await db.scalar(
-        select(Annotation.id)
-        .where(Annotation.task_id == task.id)
-        .where(Annotation.scene_track_id == track.id)
-        .where(Annotation.sensor_role == camera_role)
-        .where(Annotation.is_active.is_(True))
-        .where(Annotation.was_cancelled.is_(False))
-        .limit(1)
+    result = await _camera_command(
+        db,
+        MutateCameraMember(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="mutate_camera_member",
+            action="create",
+            task_id=task.id,
+            project_id=task.project_id,
+            actor_id=actor_id,
+            member_id=uuid.uuid4(),
+            source_annotation_id=source_annotation_id,
+            camera_role=camera_role,
+            camera_item_id=context.item.id,
+            bbox=bbox.model_dump(mode="json"),
+            visibility=visibility,
+            expected_version=None,
+            expected_track_revision=expected_track_revision,
+            expected_calibration_revision=context.calibration.revision,
+            expected_calibration_digest=context.calibration.digest,
+        ),
     )
-    if existing is not None:
-        raise MulticameraAnnotationError(
-            "camera_member_exists", "camera member already exists"
-        )
-    annotation = Annotation(
-        id=uuid.uuid4(),
-        task_id=task.id,
-        project_id=task.project_id,
-        user_id=actor_id,
-        source="manual",
-        annotation_type="bbox",
-        tool_unit_id=source.tool_unit_id,
-        class_name=source.class_name,
-        geometry=_bbox_geometry(bbox),
-        track_id=source.track_id,
-        scene_track_id=source.scene_track_id,
-        temporal_role="sample",
-        sensor_dataset_item_id=context.item.id,
-        sensor_role=camera_role,
-        sensor_visibility=visibility,
-        calibration_revision=context.calibration.revision,
-        calibration_digest=context.calibration.digest,
-        attributes={},
-        attributes_meta={},
-    )
-    db.add(annotation)
-    track.revision += 1
-    await db.flush()
-    await db.refresh(annotation)
-    return annotation
+    return _annotation(result.member)
 
 
 async def update_camera_member(
@@ -366,33 +401,31 @@ async def update_camera_member(
     expected_calibration_revision: int,
     expected_calibration_digest: str,
 ) -> Annotation:
-    # A2 · lock the task before the member/SceneTrack rows are locked.
+    if actor_id is None:
+        raise MulticameraAnnotationError(
+            "actor_required", "an active actor is required"
+        )
     await record_annotation_actor(db, task, actor_id)
-    member = (
-        await db.execute(
-            select(Annotation)
-            .where(Annotation.id == member_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if (
-        member is None
-        or member.task_id != task.id
-        or not member.is_active
-        or member.was_cancelled
-        or member.sensor_role is None
-        or member.scene_track_id is None
-    ):
-        raise MulticameraAnnotationError(
-            "camera_member_missing", "active camera member was not found"
-        )
-    if member.version != expected_version:
-        raise MulticameraAnnotationError(
-            "annotation_version_conflict", "camera member changed"
-        )
-    track = await _lock_track(db, member.scene_track_id, expected_track_revision)
-    context = await load_camera_context(db, task=task, camera_role=member.sensor_role)
+    scope = await _lock_camera_scope(
+        db,
+        LockCameraMemberScope(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="lock_camera_member_scope",
+            action="update",
+            task_id=task.id,
+            project_id=task.project_id,
+            actor_id=actor_id,
+            member_id=member_id,
+            source_annotation_id=None,
+            expected_version=expected_version,
+            expected_track_revision=expected_track_revision,
+        ),
+    )
+    member_snapshot = scope.member
+    assert member_snapshot is not None
+    context = await load_camera_context(
+        db, task=task, camera_role=member_snapshot.sensor_role
+    )
     context = await _lock_camera_calibration(
         db, task=task, actor_id=actor_id, context=context
     )
@@ -401,17 +434,39 @@ async def update_camera_member(
         expected_calibration_revision,
         expected_calibration_digest,
     )
-    if bbox is not None:
-        member.geometry = _bbox_geometry(bbox)
-    if visibility is not None:
-        member.sensor_visibility = visibility
-    member.calibration_revision = context.calibration.revision
-    member.calibration_digest = context.calibration.digest
-    member.version += 1
-    track.revision += 1
-    await db.flush()
-    await db.refresh(member)
-    return member
+    result = await _camera_command(
+        db,
+        MutateCameraMember(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="mutate_camera_member",
+            action="update",
+            task_id=task.id,
+            project_id=task.project_id,
+            actor_id=actor_id,
+            member_id=member_id,
+            source_annotation_id=None,
+            camera_role=member_snapshot.sensor_role,
+            camera_item_id=context.item.id,
+            bbox=bbox.model_dump(mode="json") if bbox is not None else None,
+            visibility=visibility,
+            expected_version=expected_version,
+            expected_track_revision=expected_track_revision,
+            expected_calibration_revision=context.calibration.revision,
+            expected_calibration_digest=context.calibration.digest,
+        ),
+    )
+    return _sync_member_cache(
+        db,
+        result.member,
+        (
+            "geometry",
+            "sensor_visibility",
+            "calibration_revision",
+            "calibration_digest",
+            "version",
+            "updated_at",
+        ),
+    )
 
 
 async def delete_camera_member(
@@ -423,37 +478,33 @@ async def delete_camera_member(
     expected_version: int,
     expected_track_revision: int,
 ) -> Annotation:
-    # A2 · lock the task before the member/SceneTrack rows are locked.
+    if actor_id is None:
+        raise MulticameraAnnotationError(
+            "actor_required", "an active actor is required"
+        )
     await record_annotation_actor(db, task, actor_id)
-    member = (
-        await db.execute(
-            select(Annotation)
-            .where(Annotation.id == member_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if (
-        member is None
-        or member.task_id != task.id
-        or not member.is_active
-        or member.sensor_role is None
-        or member.scene_track_id is None
-    ):
-        raise MulticameraAnnotationError(
-            "camera_member_missing", "active camera member was not found"
-        )
-    if member.version != expected_version:
-        raise MulticameraAnnotationError(
-            "annotation_version_conflict", "camera member changed"
-        )
-    track = await _lock_track(db, member.scene_track_id, expected_track_revision)
-    member.is_active = False
-    member.version += 1
-    track.revision += 1
-    await db.flush()
-    await db.refresh(member)
-    return member
+    result = await _camera_command(
+        db,
+        MutateCameraMember(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="mutate_camera_member",
+            action="delete",
+            task_id=task.id,
+            project_id=task.project_id,
+            actor_id=actor_id,
+            member_id=member_id,
+            source_annotation_id=None,
+            camera_role=None,
+            camera_item_id=None,
+            bbox=None,
+            visibility=None,
+            expected_version=expected_version,
+            expected_track_revision=expected_track_revision,
+            expected_calibration_revision=None,
+            expected_calibration_digest=None,
+        ),
+    )
+    return _sync_member_cache(db, result.member, ("is_active", "version", "updated_at"))
 
 
 async def restore_camera_member(
@@ -467,33 +518,31 @@ async def restore_camera_member(
     expected_calibration_revision: int,
     expected_calibration_digest: str,
 ) -> Annotation:
-    # A2 · lock the task before the member/SceneTrack rows are locked.
+    if actor_id is None:
+        raise MulticameraAnnotationError(
+            "actor_required", "an active actor is required"
+        )
     await record_annotation_actor(db, task, actor_id)
-    member = (
-        await db.execute(
-            select(Annotation)
-            .where(Annotation.id == member_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if (
-        member is None
-        or member.task_id != task.id
-        or member.is_active
-        or member.was_cancelled
-        or member.sensor_role is None
-        or member.scene_track_id is None
-    ):
-        raise MulticameraAnnotationError(
-            "camera_member_missing", "inactive camera member was not found"
-        )
-    if member.version != expected_version:
-        raise MulticameraAnnotationError(
-            "annotation_version_conflict", "camera member changed"
-        )
-    track = await _lock_track(db, member.scene_track_id, expected_track_revision)
-    context = await load_camera_context(db, task=task, camera_role=member.sensor_role)
+    scope = await _lock_camera_scope(
+        db,
+        LockCameraMemberScope(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="lock_camera_member_scope",
+            action="restore",
+            task_id=task.id,
+            project_id=task.project_id,
+            actor_id=actor_id,
+            member_id=member_id,
+            source_annotation_id=None,
+            expected_version=expected_version,
+            expected_track_revision=expected_track_revision,
+        ),
+    )
+    member_snapshot = scope.member
+    assert member_snapshot is not None
+    context = await load_camera_context(
+        db, task=task, camera_role=member_snapshot.sensor_role
+    )
     context = await _lock_camera_calibration(
         db, task=task, actor_id=actor_id, context=context
     )
@@ -502,27 +551,38 @@ async def restore_camera_member(
         expected_calibration_revision,
         expected_calibration_digest,
     )
-    duplicate = await db.scalar(
-        select(Annotation.id)
-        .where(Annotation.task_id == task.id)
-        .where(Annotation.scene_track_id == member.scene_track_id)
-        .where(Annotation.sensor_role == member.sensor_role)
-        .where(Annotation.is_active.is_(True))
-        .where(Annotation.was_cancelled.is_(False))
-        .limit(1)
+    result = await _camera_command(
+        db,
+        MutateCameraMember(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="mutate_camera_member",
+            action="restore",
+            task_id=task.id,
+            project_id=task.project_id,
+            actor_id=actor_id,
+            member_id=member_id,
+            source_annotation_id=None,
+            camera_role=member_snapshot.sensor_role,
+            camera_item_id=context.item.id,
+            bbox=None,
+            visibility=None,
+            expected_version=expected_version,
+            expected_track_revision=expected_track_revision,
+            expected_calibration_revision=context.calibration.revision,
+            expected_calibration_digest=context.calibration.digest,
+        ),
     )
-    if duplicate is not None:
-        raise MulticameraAnnotationError(
-            "camera_member_exists", "another active camera member already exists"
-        )
-    member.is_active = True
-    member.calibration_revision = context.calibration.revision
-    member.calibration_digest = context.calibration.digest
-    member.version += 1
-    track.revision += 1
-    await db.flush()
-    await db.refresh(member)
-    return member
+    return _sync_member_cache(
+        db,
+        result.member,
+        (
+            "is_active",
+            "calibration_revision",
+            "calibration_digest",
+            "version",
+            "updated_at",
+        ),
+    )
 
 
 async def camera_member_out(
@@ -530,7 +590,7 @@ async def camera_member_out(
     *,
     task: Task,
     member: Annotation,
-    track: SceneTrack | None = None,
+    track=None,
     context: CameraContext | None = None,
     source: Annotation | None = None,
 ) -> CameraAnnotationMemberOut:
@@ -538,29 +598,42 @@ async def camera_member_out(
     assert member.track_id is not None
     assert member.sensor_role is not None
     assert member.sensor_dataset_item_id is not None
-    if track is None:
-        track = await db.get(SceneTrack, member.scene_track_id)
+    if track is None or context is None or source is None:
+        graph = await _camera_graph(
+            db,
+            task=task,
+            scene_track_id=member.scene_track_id,
+            include_inactive=True,
+        )
+        if track is None:
+            track_row = next(
+                (row for row in graph.tracks if row.id == member.scene_track_id), None
+            )
+            track = _camera_track(track_row) if track_row is not None else None
+        if source is None:
+            source_row = next(
+                (
+                    row
+                    for row in graph.sources
+                    if row.scene_track_id == member.scene_track_id
+                ),
+                None,
+            )
+            source = _annotation(source_row) if source_row is not None else None
+        if context is None:
+            context = (
+                await load_camera_contexts(
+                    db, task=task, camera_roles={member.sensor_role}
+                )
+            ).get(member.sensor_role)
     if track is None:
         raise MulticameraAnnotationError(
             "scene_track_missing", "active SceneTrack was not found"
         )
     if context is None:
-        context = await load_camera_context(
-            db, task=task, camera_role=member.sensor_role
+        raise MulticameraAnnotationError(
+            "camera_role_not_linked", "camera role is not linked to this task"
         )
-    if source is None:
-        source = (
-            await db.execute(
-                select(Annotation)
-                .where(Annotation.task_id == task.id)
-                .where(Annotation.scene_track_id == member.scene_track_id)
-                .where(Annotation.sensor_role.is_(None))
-                .where(Annotation.annotation_type == "box_3d")
-                .where(Annotation.is_active.is_(True))
-                .where(Annotation.was_cancelled.is_(False))
-                .limit(1)
-            )
-        ).scalar_one_or_none()
     residual_out = None
     if source is not None:
         geometry = source.geometry or {}
@@ -635,32 +708,25 @@ async def list_camera_members(
     include_inactive: bool,
     projection_camera_role: str | None = None,
 ) -> tuple[list[CameraAnnotationMemberOut], int | None, NormalizedCameraBbox | None]:
-    query = (
-        select(Annotation)
-        .where(Annotation.task_id == task.id)
-        .where(Annotation.sensor_role.is_not(None))
-        .where(Annotation.was_cancelled.is_(False))
-        .order_by(Annotation.sensor_role, Annotation.created_at, Annotation.id)
+    graph = await _camera_graph(
+        db,
+        task=task,
+        scene_track_id=scene_track_id,
+        include_inactive=include_inactive,
     )
+    rows = [_annotation(row) for row in graph.members]
+    tracks_by_id = {row.id: _camera_track(row) for row in graph.tracks}
+    sources_by_track = {
+        row.scene_track_id: _annotation(row)
+        for row in graph.sources
+        if row.scene_track_id is not None
+    }
+    track = tracks_by_id.get(scene_track_id) if scene_track_id is not None else None
     if scene_track_id is not None:
-        query = query.where(Annotation.scene_track_id == scene_track_id)
-    if not include_inactive:
-        query = query.where(Annotation.is_active.is_(True))
-    rows = list((await db.execute(query)).scalars())
-    track_ids = {row.scene_track_id for row in rows if row.scene_track_id is not None}
-    if scene_track_id is not None:
-        track_ids.add(scene_track_id)
         task_scene = (await resolve_task_scene_frames(db, [task.id]))[task.id]
         task_scene_id = task_scene.scene_id
     else:
         task_scene_id = None
-    tracks = list(
-        (
-            await db.execute(select(SceneTrack).where(SceneTrack.id.in_(track_ids)))
-        ).scalars()
-    )
-    tracks_by_id = {track.id: track for track in tracks}
-    track = tracks_by_id.get(scene_track_id) if scene_track_id is not None else None
     if scene_track_id is not None and (
         track is None
         or track.project_id != task.project_id
@@ -670,20 +736,6 @@ async def list_camera_members(
         raise MulticameraAnnotationError(
             "scene_track_missing", "active SceneTrack was not found"
         )
-    sources = list(
-        (
-            await db.execute(
-                select(Annotation)
-                .where(Annotation.task_id == task.id)
-                .where(Annotation.scene_track_id.in_(track_ids))
-                .where(Annotation.sensor_role.is_(None))
-                .where(Annotation.annotation_type == "box_3d")
-                .where(Annotation.is_active.is_(True))
-                .where(Annotation.was_cancelled.is_(False))
-            )
-        ).scalars()
-    )
-    sources_by_track = {source.scene_track_id: source for source in sources}
     camera_roles = {row.sensor_role for row in rows if row.sensor_role is not None}
     if projection_camera_role is not None:
         camera_roles.add(projection_camera_role)

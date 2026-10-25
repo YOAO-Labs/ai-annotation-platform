@@ -28,14 +28,30 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import or_, select
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.task import Task
+from aap_labeling.annotation_transfer_contract import (
+    ANNOTATION_TRANSFER_PROTOCOL,
+    ResolveTask,
+    ResolveTaskByStem,
+    ResolveVideoSequence,
+)
+from app.services.labeling_annotation_transfer import (
+    AnnotationTransferRejected,
+    annotation_transfer_command,
+)
 
 
-def _escape_like(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+async def _transfer(db: AsyncSession, command):
+    try:
+        return await annotation_transfer_command(db, command)
+    except AnnotationTransferRejected as exc:
+        detail = {"reason": exc.reason}
+        if exc.detail is not None:
+            detail["detail"] = exc.detail
+        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
 
 
 def normalize_file_stem_path(file_path: str) -> str:
@@ -80,38 +96,20 @@ async def resolve_task_by_file_stem(
     if not rel:
         return None, "empty file stem"
 
-    escaped = _escape_like(rel)
-    leaf = rel.rsplit("/", 1)[-1]
-    escaped_leaf = _escape_like(leaf)
-
-    if "/" in rel:
-        criteria = or_(
-            Task.file_path.like(f"{escaped}.%", escape="\\"),
-            Task.file_path.like(f"%/{escaped}.%", escape="\\"),
-        )
-    else:
-        criteria = or_(
-            Task.file_name.like(f"{escaped_leaf}.%", escape="\\"),
-            Task.file_path.like(f"%/{escaped_leaf}.%", escape="\\"),
-        )
-
-    rows = (
-        (
-            await db.execute(
-                select(Task)
-                .where(Task.project_id == project_id, criteria)
-                .order_by(Task.file_path)
-                .limit(2)
-            )
-        )
-        .scalars()
-        .all()
+    data = await _transfer(
+        db,
+        ResolveTaskByStem(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="resolve_task_by_stem",
+            project_id=project_id,
+            normalized_path=rel,
+        ),
     )
-    if not rows:
-        return None, "task not found in project"
-    if len(rows) > 1:
-        return None, f"ambiguous task file stem: {rel}"
-    return rows[0], None
+    if not data.tasks:
+        return None, data.reason or "task not found in project"
+    if len(data.tasks) > 1:
+        return None, data.reason or f"ambiguous task file stem: {rel}"
+    return _task_from_match(data.tasks[0]), None
 
 
 async def resolve_task(
@@ -125,40 +123,35 @@ async def resolve_task(
         return None
 
     display_id = match.get("display_id")
-    if isinstance(display_id, str) and display_id:
-        task = await db.scalar(select(Task).where(Task.display_id == display_id))
-        if task is not None:
-            if task.project_id == project_id:
-                return task
-            # display_id 命中但跨项目: 不允许偷换项目, 显式不匹配, 让 file_path
-            # 兜底而不是直接返 None (防御性 fallback).
-        # 若 display_id 给了但 fallback 到 file_path, 继续走 file_path 分支.
-
     file_path = match.get("file_path")
-    if isinstance(file_path, str) and file_path:
-        rel = file_path.replace("\\", "/").lstrip("/")
-        if "/" in rel:
-            # 带子目录: 精确相对路径匹配 (整串等值 或 以 /{rel} 结尾, 吸收 dataset 前缀).
-            # `%` / `_` 在 rel 里罕见且即便存在也只会放宽匹配, 不引入误匹配跨目录风险.
-            task = await db.scalar(
-                select(Task)
-                .where(
-                    Task.project_id == project_id,
-                    or_(
-                        Task.file_path == rel,
-                        Task.file_path.like(f"%/{rel}"),
-                    ),
-                )
-                .order_by(Task.file_path)
-            )
-            if task is not None:
-                return task
-            # 相对路径匹配不到, 退回历史整串等值匹配 (兼容).
+    data = await _transfer(
+        db,
+        ResolveTask(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="resolve_task",
+            project_id=project_id,
+            display_id=display_id if isinstance(display_id, str) else None,
+            file_path=file_path if isinstance(file_path, str) else None,
+        ),
+    )
+    return _task_from_match(data.task) if data.task is not None else None
 
-        return await db.scalar(
-            select(Task).where(
-                Task.project_id == project_id, Task.file_path == file_path
-            )
-        )
 
-    return None
+async def resolve_task_by_video_sequence(
+    db: AsyncSession, project_id: uuid.UUID, sequence: str
+) -> Task | None:
+    data = await _transfer(
+        db,
+        ResolveVideoSequence(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="resolve_video_sequence",
+            project_id=project_id,
+            target=sequence.strip("/"),
+        ),
+    )
+    return _task_from_match(data.task) if data.task is not None else None
+
+
+def _task_from_match(snapshot) -> Task:
+    """Preserve the Task-shaped read contract without re-querying its table."""
+    return Task(**snapshot.model_dump(mode="python"))

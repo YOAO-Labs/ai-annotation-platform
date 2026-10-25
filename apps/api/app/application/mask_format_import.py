@@ -5,12 +5,10 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob
 from app.services.project_access import get_workspace_project
-from app.db.models.mask_format_import import MaskFormatImport
 from app.schemas.mask_format import MaskFormatPlan
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
@@ -20,8 +18,10 @@ from app.services.mask_formats.service import (
     cancel_import_execution,
     complete_import_batch,
     fail_import_batch,
+    lock_import,
     mark_import_running,
     materialize_staged_object,
+    read_import,
     record_import_item_result,
 )
 
@@ -35,14 +35,12 @@ async def run_mask_format_import(
     """Execute durable import items with one transaction and journal per item."""
     import_id = uuid.UUID(batch_id)
 
-    async def cancel_if_requested(
-        db: AsyncSession, *, batch: MaskFormatImport, job: AsyncJob
-    ) -> bool:
+    async def cancel_if_requested(db: AsyncSession, *, batch, job: AsyncJob) -> bool:
         if job.status != "cancelled" and not bool(
             (job.payload or {}).get("cancel_requested")
         ):
             return False
-        committed = cancel_import_execution(batch)
+        committed = await cancel_import_execution(db, batch)
         await async_job_svc.mark_cancelled(
             db,
             job.id,
@@ -54,13 +52,7 @@ async def run_mask_format_import(
 
     try:
         async with session_factory() as db:
-            batch = (
-                await db.execute(
-                    select(MaskFormatImport)
-                    .where(MaskFormatImport.id == import_id)
-                    .with_for_update()
-                )
-            ).scalar_one_or_none()
+            batch = await lock_import(db, import_id=import_id)
             if batch is None or batch.async_job_id is None:
                 raise RuntimeError("mask format import batch not found")
             job = await db.get(AsyncJob, batch.async_job_id)
@@ -76,7 +68,7 @@ async def run_mask_format_import(
                 return
             if await cancel_if_requested(db, batch=batch, job=job):
                 return
-            mark_import_running(batch)
+            batch = await mark_import_running(db, batch)
             await async_job_svc.mark_running(
                 db,
                 job.id,
@@ -105,7 +97,7 @@ async def run_mask_format_import(
             expected_sha256=staged_sha256,
         ) as staged:
             async with session_factory() as db:
-                batch = await db.get(MaskFormatImport, import_id)
+                batch = await read_import(db, import_id=import_id)
                 if batch is None:
                     raise RuntimeError("mask format import batch disappeared")
                 if batch.async_job_id != job_id:
@@ -138,13 +130,9 @@ async def run_mask_format_import(
             for item_index, _item in enumerate(typed_plan.items):
                 key = str(item_index)
                 async with session_factory() as db:
-                    batch = (
-                        await db.execute(
-                            select(MaskFormatImport)
-                            .where(MaskFormatImport.id == import_id)
-                            .with_for_update()
-                        )
-                    ).scalar_one()
+                    batch = await lock_import(db, import_id=import_id)
+                    if batch is None:
+                        raise RuntimeError("mask format import batch disappeared")
                     if batch.async_job_id != job_id:
                         return
                     job = await db.get(AsyncJob, job_id)
@@ -176,7 +164,7 @@ async def run_mask_format_import(
                             mapping=mapping,
                             options=options,
                         )
-                        record_import_item_result(batch, key, item_result)
+                        await record_import_item_result(db, batch, key, item_result)
                         await db.commit()
                         if item_result.get("status") == "committed":
                             completed += 1
@@ -184,16 +172,13 @@ async def run_mask_format_import(
                             skipped += 1
                     except Exception as exc:
                         await db.rollback()
-                        batch = (
-                            await db.execute(
-                                select(MaskFormatImport)
-                                .where(MaskFormatImport.id == import_id)
-                                .with_for_update()
-                            )
-                        ).scalar_one()
+                        batch = await lock_import(db, import_id=import_id)
+                        if batch is None:
+                            raise RuntimeError("mask format import batch disappeared")
                         if batch.async_job_id != job_id:
                             return
-                        record_import_item_result(
+                        await record_import_item_result(
+                            db,
                             batch,
                             key,
                             {
@@ -212,16 +197,13 @@ async def run_mask_format_import(
                     await db.commit()
 
         async with session_factory() as db:
-            batch = (
-                await db.execute(
-                    select(MaskFormatImport)
-                    .where(MaskFormatImport.id == import_id)
-                    .with_for_update()
-                )
-            ).scalar_one()
+            batch = await lock_import(db, import_id=import_id)
+            if batch is None:
+                raise RuntimeError("mask format import batch disappeared")
             if batch.async_job_id != job_id:
                 return
-            batch_status = complete_import_batch(
+            batch = await complete_import_batch(
+                db,
                 batch,
                 failed=failed,
                 completed=completed,
@@ -234,7 +216,7 @@ async def run_mask_format_import(
                 "skipped_count": skipped,
                 "result_digest": canonical_digest(batch.result_json or {}),
             }
-            if batch_status == "failed":
+            if batch.status == "failed":
                 await async_job_svc.mark_failed(
                     db,
                     job_id,
@@ -247,17 +229,11 @@ async def run_mask_format_import(
             await db.commit()
     except Exception as exc:
         async with session_factory() as db:
-            batch = (
-                await db.execute(
-                    select(MaskFormatImport)
-                    .where(MaskFormatImport.id == import_id)
-                    .with_for_update()
-                )
-            ).scalar_one_or_none()
+            batch = await lock_import(db, import_id=import_id)
             if batch is not None and (
                 "job_id" not in locals() or batch.async_job_id == job_id
             ):
-                fail_import_batch(batch)
+                await fail_import_batch(db, batch)
                 if batch.async_job_id is not None:
                     await async_job_svc.mark_failed(
                         db,
