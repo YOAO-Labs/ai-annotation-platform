@@ -171,9 +171,11 @@ the two prediction functions. SceneTrack and cross-frame callers use
 `infra/docker/labeling-scene-track-commands-grants.sql` and
 `infra/docker/labeling-cross-frame-grants.sql`, each with one function. The LOGIN
 roles receive no private tables, role membership, CREATE or TEMP. Test-only
-fixture cleanup and other Labeling writes/reads remain explicit migration work;
-these operation contracts do not establish complete module deployment or recovery
-qualification.
+fixture cleanup now uses `aap_labeling_v1.delete_fixture_project_rows(uuid[])`;
+the fixed owner command is available only in `_test` and `_e2e` databases, keeps
+the caller's transaction and Workspace retirement guard, and does not establish
+complete module deployment or recovery qualification. The remaining Labeling
+operation contracts and module-level deployment gates are tracked separately.
 
 ## Discussion, Mask editing and scene reads
 

@@ -1108,6 +1108,8 @@ class LocalResources:
             fixture_grants = (
                 "REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) "
                 f"FROM {role}, PUBLIC",
+                "REVOKE ALL ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[]) "
+                f"FROM {role}, PUBLIC",
                 "REVOKE ALL ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) "
                 f"FROM {role}, PUBLIC",
             )
@@ -1125,6 +1127,8 @@ class LocalResources:
                     "GRANT EXECUTE ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) "
                     f"TO {role}",
                     "GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) "
+                    f"TO {role}",
+                    "GRANT EXECUTE ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[]) "
                     f"TO {role}",
                     f"GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO {role}",
                     f"GRANT SELECT ON aap_identity_fixture_v1.account_profiles TO {role}",

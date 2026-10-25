@@ -58,6 +58,9 @@ async def _require_e2e_seed_database(db: AsyncSession = Depends(get_db)) -> None
 
 
 router = APIRouter(dependencies=[Depends(_require_e2e_seed_database)])
+_LABELING_FIXTURE_DELETE_SQL = (
+    "SELECT aap_labeling_v1.delete_fixture_project_rows(CAST(:pids AS uuid[]))"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -391,12 +394,14 @@ async def _try_fixture_delete(db, sql: str, params: dict | None = None) -> None:
     jobs_fixture_delete = (
         sql == "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))"
     )
+    labeling_fixture_delete = sql == _LABELING_FIXTURE_DELETE_SQL
+    owner_fixture_delete = jobs_fixture_delete or labeling_fixture_delete
     try:
         async with db.begin_nested():
             result = await db.execute(text(sql), params or {})
             if (
                 sql.startswith("SELECT aap_workspace_fixture_v1.")
-                or jobs_fixture_delete
+                or owner_fixture_delete
             ):
                 decode_fixture_count(result.scalar_one())
     except WorkspaceE2EFixtureUnavailable:
@@ -404,7 +409,7 @@ async def _try_fixture_delete(db, sql: str, params: dict | None = None) -> None:
             status_code=503, detail="项目测试清理服务暂不可用"
         ) from None
     except Exception as exc:
-        if sql.startswith("SELECT aap_workspace_fixture_v1.") or jobs_fixture_delete:
+        if sql.startswith("SELECT aap_workspace_fixture_v1.") or owner_fixture_delete:
             original = getattr(exc, "orig", exc)
             state = getattr(original, "sqlstate", None) or getattr(
                 original, "pgcode", None
@@ -424,7 +429,7 @@ async def _try_fixture_delete(db, sql: str, params: dict | None = None) -> None:
         if _is_transaction_abort(exc):
             log.warning("seed_cleanup abort · %s · %s", sql, exc)
             raise
-        if jobs_fixture_delete:
+        if owner_fixture_delete:
             raise HTTPException(
                 status_code=503, detail="项目测试清理服务暂不可用"
             ) from exc
@@ -508,7 +513,10 @@ async def _cleanup_e2e_fixtures(
                     r[0]
                     for r in (
                         await db.execute(
-                            text("SELECT id FROM tasks WHERE project_id = ANY(:pids)"),
+                            text(
+                                "SELECT id FROM aap_labeling_v1.task_rows "
+                                "WHERE project_id = ANY(:pids)"
+                            ),
                             {"pids": fixture_project_ids},
                         )
                     ).fetchall()
@@ -518,7 +526,8 @@ async def _cleanup_e2e_fixtures(
                     for r in (
                         await db.execute(
                             text(
-                                "SELECT id FROM annotations WHERE project_id = ANY(:pids)"
+                                "SELECT id FROM aap_labeling_v1.annotation_rows "
+                                "WHERE project_id = ANY(:pids)"
                             ),
                             {"pids": fixture_project_ids},
                         )
@@ -563,51 +572,10 @@ async def _cleanup_e2e_fixtures(
             {"pids": fixture_project_ids},
         )
 
-        # 2b) 删 annotation_feedbacks (FK → tasks/annotations/projects 均无 ondelete,
-        #     必须早于 annotations/tasks/project 删除; review-feedback-loop spec 会造此行,
-        #     漏删会让后续 seed/reset 删 task 撞 FK → 级联到 project/user 删不掉 → 重建
-        #     时 admin@e2e.test 撞唯一约束 → 500)。按 project_id 一刀清。
+        # One Labeling-owned command preserves the old feedback/comment/annotation,
+        # prediction and task lock/draft deletion order inside this caller transaction.
         await _try_delete(
-            "DELETE FROM annotation_feedbacks WHERE project_id = ANY(:pids)",
-            {"pids": fixture_project_ids},
-        )
-
-        # 删 annotation_comments → annotations → predictions / failed_predictions
-        if fixture_annotation_ids:
-            await _try_delete(
-                "DELETE FROM annotation_comments WHERE annotation_id = ANY(:aids)",
-                {"aids": fixture_annotation_ids},
-            )
-        await _try_delete(
-            "DELETE FROM annotations WHERE project_id = ANY(:pids)",
-            {"pids": fixture_project_ids},
-        )
-        await _try_delete(
-            "DELETE FROM prediction_metas WHERE prediction_id IN "
-            "(SELECT id FROM predictions WHERE project_id = ANY(:pids))",
-            {"pids": fixture_project_ids},
-        )
-        await _try_delete(
-            "DELETE FROM predictions WHERE project_id = ANY(:pids)",
-            {"pids": fixture_project_ids},
-        )
-        await _try_delete(
-            "DELETE FROM failed_predictions WHERE project_id = ANY(:pids)",
-            {"pids": fixture_project_ids},
-        )
-
-        # 2c) 删 task_locks / annotation_drafts → tasks
-        if fixture_task_ids:
-            await _try_delete(
-                "DELETE FROM task_locks WHERE task_id = ANY(:tids)",
-                {"tids": fixture_task_ids},
-            )
-            await _try_delete(
-                "DELETE FROM annotation_drafts WHERE task_id = ANY(:tids)",
-                {"tids": fixture_task_ids},
-            )
-        await _try_delete(
-            "DELETE FROM tasks WHERE project_id = ANY(:pids)",
+            _LABELING_FIXTURE_DELETE_SQL,
             {"pids": fixture_project_ids},
         )
 

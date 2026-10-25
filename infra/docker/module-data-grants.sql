@@ -3716,6 +3716,8 @@ ALTER FUNCTION aap_labeling_v1.guard_project_video_deletion(uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.guard_dataset_video_deletion(uuid,uuid)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[])
+    OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.guard_project_video_deletion(uuid),
@@ -3739,6 +3741,9 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid),
 GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_fixture_v1.guard_project_cleanup(uuid[])
     TO :"jobs_owner";
+GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_workspace_fixture_v1.guard_project_cleanup(uuid[])
+    TO :"labeling_owner";
 -- Jobs owns lifecycle writes; existing producers retain their current ACLs.
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.async_jobs TO :"jobs_owner";
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";

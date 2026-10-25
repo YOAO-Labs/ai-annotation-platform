@@ -136,6 +136,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
     "aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)": "0331_jobs_filter_fixtures.sql",
     "aap_jobs_v1.delete_fixture_project_jobs(uuid[])": "0330_jobs_fixture_cleanup.sql",
+    "aap_labeling_v1.delete_fixture_project_rows(uuid[])": "0358_labeling_fixture_cleanup.sql",
     **{
         signature: "0329_jobs_domain_queries.sql"
         for signature in JOBS_DOMAIN_QUERY_FUNCTIONS
@@ -925,8 +926,10 @@ SQL_ARTIFACTS = (
     "0355_labeling_task_maintenance.sql",
     "0356_inference_pool_reference.sql",
     "0357_labeling_prediction_partitions.sql",
+    "0358_labeling_fixture_cleanup.sql",
 )
 SCHEMA_ARTIFACTS = (
+    "0358_labeling_fixture_cleanup.schema.json",
     "0357_labeling_prediction_partitions.schema.json",
     "0356_inference_pool_reference.schema.json",
     "0350_labeling_video_control.schema.json",
@@ -1097,6 +1100,7 @@ SCHEMA_ARTIFACTS = (
     "0349_labeling_scene_read.schema.json",
 )
 TEST_FILES = (
+    "tests/test_jobs_fixture_cleanup_binding.py",
     "tests/test_inference_pool_reference_native.py",
     "tests/test_labeling_video_control_native.py",
     "tests/test_labeling_annotation_transfer_native.py",
