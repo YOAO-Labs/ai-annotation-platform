@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm.util import identity_key
 
-from aap_labeling.core_read_contract import CORE_READ_COLUMNS
+from aap_labeling.core_read_contract import CORE_READ_COLUMNS, CORE_READ_RELATIONS
 from app.db.models.annotation import Annotation
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.task import Task
@@ -32,6 +32,19 @@ def _row_relation(relation: str, model):
         schema="aap_labeling_v1",
     )
     return aliased(model, selectable, adapt_on_names=True)
+
+
+def alias_core_row(row, name: str | None = None):
+    """Alias a published core-row selectable while retaining its owner schema."""
+    row_info = inspect(row)
+    if (
+        row_info.selectable.schema != "aap_labeling_v1"
+        or row_info.selectable.name not in CORE_READ_RELATIONS
+    ):
+        raise ValueError("row must use a published Labeling core-read relation")
+    return aliased(
+        row_info.mapper.class_, row_info.selectable.alias(name), adapt_on_names=True
+    )
 
 
 task_row = _row_relation("task_rows", Task)
@@ -215,6 +228,7 @@ async def lock_video_segment_for_core_read(
 
 
 __all__ = [
+    "alias_core_row",
     "annotation_row",
     "batch_row",
     "execute_core_read",

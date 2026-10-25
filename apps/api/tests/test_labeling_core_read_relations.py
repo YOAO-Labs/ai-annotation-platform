@@ -17,6 +17,7 @@ from app.services.data_management.task_metrics import (
     pending_tracker_jobs_expr,
 )
 from app.services.labeling_core_read_relations import (
+    alias_core_row,
     annotation_row,
     batch_row,
     failed_prediction_row,
@@ -38,28 +39,39 @@ from app.services.labeling_core_read_relations import (
     lock_video_segment_for_core_read,
 )
 
+_CORE_READ_ROWS = {
+    "task_rows": task_row,
+    "batch_rows": batch_row,
+    "annotation_rows": annotation_row,
+    "prediction_rows": prediction_row,
+    "prediction_meta_rows": prediction_meta_row,
+    "failed_prediction_rows": failed_prediction_row,
+    "task_lock_rows": task_lock_row,
+    "task_dataset_item_link_rows": task_dataset_item_link_row,
+    "scene_track_rows": scene_track_row,
+    "scene_track_interval_rows": scene_track_interval_row,
+    "video_segment_rows": video_segment_row,
+    "video_tracker_job_rows": video_tracker_job_row,
+}
+
 
 def test_core_rows_bind_only_the_published_relation_columns():
-    rows = {
-        "task_rows": task_row,
-        "batch_rows": batch_row,
-        "annotation_rows": annotation_row,
-        "prediction_rows": prediction_row,
-        "prediction_meta_rows": prediction_meta_row,
-        "failed_prediction_rows": failed_prediction_row,
-        "task_lock_rows": task_lock_row,
-        "task_dataset_item_link_rows": task_dataset_item_link_row,
-        "scene_track_rows": scene_track_row,
-        "scene_track_interval_rows": scene_track_interval_row,
-        "video_segment_rows": video_segment_row,
-        "video_tracker_job_rows": video_tracker_job_row,
-    }
-
-    assert tuple(rows) == CORE_READ_RELATIONS
-    for relation, row in rows.items():
+    assert tuple(_CORE_READ_ROWS) == CORE_READ_RELATIONS
+    for relation, row in _CORE_READ_ROWS.items():
         selectable = inspect(row).selectable
         assert selectable.schema == "aap_labeling_v1"
         assert tuple(selectable.c.keys()) == CORE_READ_COLUMNS[relation]
+
+
+def test_named_and_anonymous_core_row_aliases_keep_public_source_and_identity():
+    for relation, row in _CORE_READ_ROWS.items():
+        for name in ("candidate", None):
+            alias = alias_core_row(row, name=name)
+            assert inspect(alias).mapper.class_ is inspect(row).mapper.class_
+            sql = str(select(alias).compile(dialect=postgresql.dialect()))
+            assert f"FROM aap_labeling_v1.{relation} AS " in sql
+    with pytest.raises(ValueError, match="published Labeling core-read relation"):
+        alias_core_row(Task, name="private_task")
 
 
 def test_composed_task_annotation_read_stays_on_labeling_relations():
