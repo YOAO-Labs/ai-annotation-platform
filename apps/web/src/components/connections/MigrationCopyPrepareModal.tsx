@@ -97,7 +97,7 @@ export function MigrationCopyPrepareModal({
         Number.isFinite(limits[key]) &&
         limits[key] > 0 &&
         limits[key] <= max &&
-        (key.endsWith("seconds") || Number.isSafeInteger(limits[key])),
+        Number.isSafeInteger(limits[key]),
     ) && MIGRATION_PURPOSES.every(([key]) => !!handling[key]);
   const submit = async () => {
     if (!selected || !valid || busy || denied) return;
@@ -273,7 +273,7 @@ export function MigrationCopyPrepareModal({
                 <input
                   id={`copy-limit-${key}`}
                   type="number"
-                  step={key.endsWith("seconds") ? "any" : 1}
+                  step={1}
                   value={values[key]}
                   disabled={busy}
                   aria-describedby={`copy-limit-${key}-hint`}
@@ -283,8 +283,7 @@ export function MigrationCopyPrepareModal({
                   }
                 />
                 <p id={`copy-limit-${key}-hint`} className="mt-1 text-xs text-muted-foreground">
-                  大于 0，最多 {max.toLocaleString()}
-                  {key.endsWith("seconds") ? "。" : "，填写整数。"}
+                  大于 0，最多 {max.toLocaleString()}，填写整数。
                 </p>
               </div>
             ))}

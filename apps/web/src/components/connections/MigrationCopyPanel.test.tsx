@@ -254,6 +254,17 @@ it("requires all nine decisions and valid budgets and retains a target selected 
   expect(within(dialog).getByLabelText("已登记 S3 目标")).toHaveValue(TARGET);
   for (const [, label] of MIGRATION_PURPOSES)
     fireEvent.change(within(dialog).getByLabelText(label), { target: { value: "retain" } });
+  const submit = within(dialog).getByRole("button", { name: "准备复制计划" });
+  expect(submit).toBeEnabled();
+  for (const label of ["每次执行时限（秒）", "连接超时（秒）", "读取超时（秒）"]) {
+    const input = within(dialog).getByLabelText(label);
+    expect(input).toHaveAttribute("step", "1");
+    expect(input).toHaveAccessibleDescription(/填写整数/);
+    fireEvent.change(input, { target: { value: "1.5" } });
+    expect(submit).toBeDisabled();
+    fireEvent.change(input, { target: { value: "1" } });
+    expect(submit).toBeEnabled();
+  }
   fireEvent.change(within(dialog).getByLabelText("单对象上限（bytes）"), {
     target: { value: "0" },
   });
