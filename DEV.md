@@ -490,6 +490,8 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 当前 API／元数据 worker 冷组合入口是 `tests/test_audit_consumers_cold.py`，使用 `scripts/verify_module_data_boundary.py --output <owned-receipt.json> --test-file tests/test_audit_consumers_cold.py`。显式设置 `AAP_AUDIT_COLD_CONSUMER_ACCEPTANCE=1`，并用既有 `AAP_LABELING_COLD_API_IMAGE_REF`、`AAP_LABELING_COLD_API_IMAGE_ID`、`AAP_LABELING_COLD_API_IMAGE_ARTIFACT` 三个工件选择器绑定已核对的当前 API 镜像；这些只用于验收，不是日常配置。该批已验证受限身份、真实 HTTP 查询／导出、原队列追加、子进程丢失后显式重放、API 重启及完整 PostgreSQL 恢复。Docker 随机发布端口可能在重启后改变，须重新 inspect 并核验绑定。详细证据与剩余维护调度、Learning 读取边界按[唯一台账](docs-site/dev/concepts/module-deployment.md#audit-cold-consumers)跟踪。
 
+维护调度消费者另由 `tests/test_audit_maintenance_consumers_cold.py` 集中验收：使用同一验收器的 `--test-file` 选择该文件，设置 `AAP_AUDIT_MAINTENANCE_CONSUMER_ACCEPTANCE=1` 并复用上述三个镜像选择器。验收器创建既有归档桶写者／读者身份；冷 worker 通过 `MINIO_ACCESS_KEY`／`MINIO_SECRET_KEY` 使用窄写者和普通组合数据库账号，调度进程不注入数据库／S3 配置。真实 Beat tick、三项任务、上传后 SIGKILL、Jobs 回滚、无用户通知、整库恢复与显式重投已通过。默认混合维护 worker 仍按原配置使用迁移账号，未随该资格自动切换。限定范围与收据见[维护消费者资格](docs-site/dev/concepts/module-deployment.md#audit-maintenance-consumers)。
+
 ### Audit 全局查询能力
 
 迁移 `0317` 安装 `aap_audit_v1.query_events(jsonb)`，`apps/audit` 发布 `aap-audit-query/v1`。super-admin 的全局列表及 CSV／JSON 导出使用原 Session 调用固定 owner；项目管理员范围和其他历史事实读取继续使用原入口。总数在游标／分页前计算，导出保留 50,000 行上限以及审计提交后才返回流的顺序。公开 HTTP 参数和响应不变。
