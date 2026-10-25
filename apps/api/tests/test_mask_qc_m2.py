@@ -226,9 +226,10 @@ async def test_mask_qc_execution_dedupes_findings_and_advances_last_seen(
     await execute_mask_qc(
         db_session, run_id=first.id, celery_task_id=first_job.celery_task_id
     )
-    await db_session.refresh(first)
-    assert first.status == "completed"
-    assert first.progress_pct == 100
+    persisted_first = await db_session.get(MaskQCRun, first.id, populate_existing=True)
+    assert persisted_first is not None
+    assert persisted_first.status == "completed"
+    assert persisted_first.progress_pct == 100
     first_count = int(
         (
             await db_session.execute(select(func.count()).select_from(MaskQCIssue))
@@ -666,9 +667,10 @@ async def test_mask_qc_cancel_updates_generic_and_domain_ledgers(
         headers=_bearer(token),
     )
     assert response.status_code == 200, response.text
-    await db_session.refresh(run)
+    persisted_run = await db_session.get(MaskQCRun, run.id, populate_existing=True)
+    assert persisted_run is not None
     await db_session.refresh(job)
-    assert run.status == "cancelled"
+    assert persisted_run.status == "cancelled"
     assert job.status == AsyncJobStatus.CANCELLED.value
     revoke.assert_called_once_with(job.celery_task_id, terminate=False)
 

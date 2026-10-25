@@ -1091,6 +1091,7 @@ async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> Non
             schema=QUALITY_DATA_PROTOCOL,
             operation="read_run_by_job",
             async_job_id=terminal.job_id,
+            lock=True,
         ),
     )
     run = model_from_quality_row(MaskQCRun, row) if isinstance(row, dict) else None

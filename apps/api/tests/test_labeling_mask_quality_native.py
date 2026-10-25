@@ -173,6 +173,7 @@ async def test_qc_decision_and_repair_result_share_the_caller_transaction(
         )
         assert batch_result["result_json"]["candidates"]["0"]["status"] == "completed"
         await transaction.rollback()
+        transaction = None
 
         async with maker() as db:
             issue = await db.get(MaskQCIssue, issue_id)
@@ -180,7 +181,7 @@ async def test_qc_decision_and_repair_result_share_the_caller_transaction(
             assert issue is not None and issue.status == "open"
             assert batch is not None and batch.result_json == {}
     finally:
-        if transaction is not None and not transaction.is_closed:
+        if transaction is not None:
             await transaction.rollback()
         if connection is not None:
             await connection.close()
