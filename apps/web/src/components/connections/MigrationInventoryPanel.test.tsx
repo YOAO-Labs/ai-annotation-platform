@@ -126,7 +126,7 @@ it("keeps source boundaries, retention and honest zero counts visible with budge
   mount();
   expect(await screen.findByText("清单完整 · 报告可下载")).toBeInTheDocument();
   expect(screen.getByText(/报告随任务保留 30 天/)).toBeInTheDocument();
-  expect(screen.getByText(/unreviewed/)).toBeInTheDocument();
+  expect(screen.getByText(/九用途处理声明均未审定/)).toBeInTheDocument();
   expect(screen.getByText(/未完成上传 0/)).toBeInTheDocument();
   const input = screen.getByLabelText("最多清单条目");
   expect(input.closest("details")).not.toHaveAttribute("open");

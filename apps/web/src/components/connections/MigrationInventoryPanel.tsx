@@ -36,7 +36,7 @@ const LIMIT_FIELDS = [
     2147483648,
     "所有对象摘要核验共用此预算。",
   ],
-  ["max_seconds", "执行时限（秒）", 1, 3600, 600, "达到预算后保留可封存的不完整清单。"],
+  ["max_seconds", "执行时限（秒）", 1, 3600, 600, "达到时限后停止读取；未封存报告不可下载。"],
   ["read_timeout_seconds", "单次读取超时（秒）", 1, 60, 30, "底层读取结束后才确认取消。"],
   ["page_size", "每页条目上限", 1, 1000, 1000, "源存储可以返回更少的条目。"],
 ] as const;
@@ -156,7 +156,7 @@ function InventoryOwner({ revision }: { revision: number }) {
     } catch (failure) {
       if (current()) {
         setError(verifiedContentError(failure));
-        setForbidden(accessDenied(failure));
+        if (accessDenied(failure)) setForbidden(true);
       }
     } finally {
       if (current()) setBusy(null);
@@ -226,7 +226,7 @@ function InventoryOwner({ revision }: { revision: number }) {
               盘点当前部署配置源的九项平台用途，核验对象内容，为后续迁移准备输入。
             </p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              范围固定为当前配置端点与桶映射，不能选择任意外部位置。已切往其他位置的用途不在本次覆盖内。九用途处理声明均未审定（unreviewed）。
+              范围固定为当前配置端点与桶映射，不能选择任意外部位置。已切往其他位置的用途不在本次覆盖内。九用途处理声明均未审定。
             </p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               此操作读取源存储，不执行复制、切换或物理退役。清单完整也不表示已具备迁移条件。报告随任务保留
