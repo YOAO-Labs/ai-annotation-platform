@@ -59,13 +59,14 @@ def test_sync_task_serializer_reuses_only_the_exact_verified_path(monkeypatch):
     sign.assert_not_called()
 
 
-def test_sync_task_serializer_preserves_regular_thumbnail_signing(monkeypatch):
+def test_sync_task_serializer_only_consumes_prepared_regular_thumbnail(monkeypatch):
     task = _task()
     monkeypatch.setattr(
         shared.TaskOut, "model_validate", lambda *_args, **_kw: SimpleNamespace()
     )
-    sign = MagicMock(return_value="regular-url")
+    sign = MagicMock(side_effect=AssertionError("sync serializer must not sign"))
     monkeypatch.setattr(storage_service, "generate_download_url", sign)
+    task._media_cache_thumbnail = ("thumbnails/normal.webp", "regular-url")
 
     assert (
         shared._task_with_url(
@@ -73,7 +74,7 @@ def test_sync_task_serializer_preserves_regular_thumbnail_signing(monkeypatch):
         ).thumbnail_url
         == "regular-url"
     )
-    sign.assert_called_once()
+    sign.assert_not_called()
 
 
 async def test_task_batch_rechecks_and_clears_previous_pyramid_thumbnail(monkeypatch):
@@ -95,6 +96,115 @@ async def test_task_batch_rechecks_and_clears_previous_pyramid_thumbnail(monkeyp
     dimensions[task.id] = (100, 200, None, None, None)
     assert await shared._attach_image_pyramids_batch(db, [task], dimensions) == {}
     assert task._image_pyramid_thumbnail is None
+
+
+@pytest.mark.parametrize("checked", [None, ("another/path", "stale-url")])
+def test_sync_rooted_thumbnail_cannot_fall_back_to_a(monkeypatch, checked):
+    task = _task()
+    task.thumbnail_output_id = uuid.uuid4()
+    task._media_cache_thumbnail = checked
+    monkeypatch.setattr(
+        shared.TaskOut, "model_validate", lambda *_a, **_k: SimpleNamespace()
+    )
+    monkeypatch.setattr(
+        storage_service,
+        "generate_download_url",
+        lambda *_a, **_k: pytest.fail("unverified rooted URL reached A"),
+    )
+    assert (
+        shared._task_with_url(
+            task,
+            thumbnail_path="company/_aap_managed/media-cache/thumbnails/objects/owned/thumbnail.webp",
+        ).thumbnail_url
+        is None
+    )
+
+
+async def test_rooted_pyramid_thumbnail_uses_active_owner_not_key_prefix(monkeypatch):
+    from app.services import image_pyramid as pyramids, image_pyramid_objects as objects
+    from app.services import thumbnail_outputs
+
+    task = _task()
+    path = "company/_aap_managed/media-cache/image-pyramids/objects/owned/overview.webp"
+    generation = SimpleNamespace(overview_key=path)
+    monkeypatch.setattr(
+        pyramids,
+        "task_pyramid_assets",
+        AsyncMock(return_value={task.id: (object(), generation)}),
+    )
+    monkeypatch.setattr(pyramids, "pyramid_summary", lambda *a, **k: None)
+    checked = AsyncMock(
+        side_effect=["/api/v1/media-cache/image-pyramid/owned/overview.webp", None]
+    )
+    monkeypatch.setattr(objects, "thumbnail_url", checked)
+    monkeypatch.setattr(
+        thumbnail_outputs,
+        "thumbnail_url",
+        AsyncMock(
+            side_effect=AssertionError("pyramid cannot use ordinary thumbnail signing")
+        ),
+    )
+    dimensions = {task.id: (100, 200, path, None, None)}
+    await shared._attach_image_pyramids_batch(object(), [task], dimensions)
+    assert task._image_pyramid_thumbnail == (
+        path,
+        "/api/v1/media-cache/image-pyramid/owned/overview.webp",
+    )
+    await shared._attach_image_pyramids_batch(object(), [task], dimensions)
+    assert task._image_pyramid_thumbnail == (path, None)
+    assert task._media_cache_thumbnail is None
+
+
+async def test_regular_thumbnail_sidecar_replaces_and_clears_checked_url(monkeypatch):
+    from app.services import image_pyramid as pyramids, thumbnail_outputs
+
+    task = _task()
+    path = "company/_aap_managed/media-cache/thumbnails/objects/owned/thumbnail.webp"
+    monkeypatch.setattr(pyramids, "task_pyramid_assets", AsyncMock(return_value={}))
+    checked = AsyncMock(side_effect=["verified-url", None])
+    monkeypatch.setattr(thumbnail_outputs, "thumbnail_url", checked)
+    dimensions = {task.id: (100, 200, path, None, None)}
+    await shared._attach_image_pyramids_batch(object(), [task], dimensions)
+    assert task._media_cache_thumbnail == (path, "verified-url")
+    await shared._attach_image_pyramids_batch(object(), [task], dimensions)
+    assert task._media_cache_thumbnail == (path, None)
+    dimensions[task.id] = (100, 200, None, None, None)
+    await shared._attach_image_pyramids_batch(object(), [task], dimensions)
+    assert task._media_cache_thumbnail is None
+
+
+@pytest.mark.parametrize("verified_url", ["verified-b-url", None])
+async def test_dataset_list_uses_async_saved_thumbnail_without_a_fallback(
+    monkeypatch, verified_url
+):
+    from app.services import dataset as datasets, directory_policy
+    from app.services import image_pyramid_objects, thumbnail_outputs
+
+    item = SimpleNamespace(
+        id=uuid.uuid4(),
+        file_type="image",
+        file_path="source.jpg",
+        thumbnail_path="company/_aap_managed/media-cache/thumbnails/objects/owned/thumbnail.webp",
+    )
+    rows = SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [item]))
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=[SimpleNamespace(scalar=lambda: 1), rows])
+    )
+    monkeypatch.setattr(datasets, "_item_dict", lambda row: {})
+    monkeypatch.setattr(directory_policy, "owns_media", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        image_pyramid_objects, "thumbnail_url", AsyncMock(return_value=None)
+    )
+    checked = AsyncMock(return_value=verified_url)
+    monkeypatch.setattr(thumbnail_outputs, "thumbnail_url", checked)
+    monkeypatch.setattr(
+        storage_service,
+        "generate_download_url",
+        lambda *_a, **_k: pytest.fail("A fallback"),
+    )
+    result, count = await DatasetService(db).list_items(uuid.uuid4())
+    assert count == 1 and result[0]["thumbnail_url"] == verified_url
+    checked.assert_awaited_once_with(db, "dataset_item", item.id, item.thumbnail_path)
 
 
 def test_dataset_delete_cleanup_does_not_guess_any_pyramid_bucket(monkeypatch):

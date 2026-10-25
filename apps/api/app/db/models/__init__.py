@@ -1,3 +1,4 @@
+from app.db.models.thumbnail_output import ThumbnailOutput
 from app.db.models.mask_format_upload import MaskFormatUpload
 from app.db.models.storage_fault import StorageFaultState
 from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
@@ -361,3 +362,6 @@ __all__ += ["GuideAssetUpload", "ProjectGuideAsset"]
 __all__ += ["StorageFaultState"]
 
 __all__ += ["MaskFormatUpload"]
+
+
+__all__ += ["ThumbnailOutput"]

@@ -21,7 +21,11 @@ from app.db.models.original_cache import (
 from app.deps import get_db
 from app.schemas.storage_location import FilesystemLocationCreate, StorageLocationUpdate
 from app.services import directory_policy, original_cache as cache
-from app.services.dataset_workbench import availability, observations
+from app.services.dataset_workbench import (
+    availability,
+    available_cache_ids,
+    observations,
+)
 from tests.test_reference_original_cache import (
     referenced_cache as referenced_cache,
     seed_cache,
@@ -283,7 +287,8 @@ async def test_cache_record_does_not_rewrite_source_missing_observation(
         rescanned = await rescan(db, world.content)
         await preflight(db, rescanned)
     async with world.factory() as db:
-        obs = observations(world.dataset_id, world.manager)
+        ids = await available_cache_ids(db, world.dataset_id, world.manager)
+        obs = observations(world.dataset_id, world.manager, cache_entry_ids=ids)
         row = (
             (await db.execute(select(obs).where(obs.c.item_id == world.item_id)))
             .mappings()
@@ -302,7 +307,8 @@ async def test_cache_record_does_not_rewrite_source_missing_observation(
         location.enabled = False
         await db.commit()
     async with world.factory() as db:
-        obs = observations(world.dataset_id, world.manager)
+        ids = await available_cache_ids(db, world.dataset_id, world.manager)
+        obs = observations(world.dataset_id, world.manager, cache_entry_ids=ids)
         row = (
             (await db.execute(select(obs).where(obs.c.item_id == world.item_id)))
             .mappings()

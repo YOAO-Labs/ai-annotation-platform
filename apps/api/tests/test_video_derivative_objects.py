@@ -6,7 +6,8 @@ after its fake physical client has actually closed.
 """
 
 import asyncio
-from dataclasses import FrozenInstanceError
+from contextlib import contextmanager
+from dataclasses import FrozenInstanceError, replace
 from datetime import timedelta
 import hashlib
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset import Dataset, DatasetItem, VideoChunk, VideoFrameCache
+from app.db.models.dataset_asset import StorageLocation
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.user import User
 from app.db.models.video_derivative import VideoDerivativeOutput as Output
@@ -64,6 +66,24 @@ async def owned(test_engine, monkeypatch):
         user_id, dataset_id, item_id = user.id, dataset.id, item.id
     provider = Provider()
     monkeypatch.setattr(physical, "StorageService", lambda: Storage(provider))
+    capture_target = physical.transport_target
+
+    class Access:
+        @contextmanager
+        def client(self, **options):
+            # Keep the existing late-constructor/close fault seam while new
+            # schema2 allocations retain their real saved metadata lookup.
+            storage = physical.StorageService()
+            try:
+                yield storage.client
+            finally:
+                storage_access.close_registered(storage.client)
+
+    async def transport(db, output, **options):
+        target = await capture_target(db, output, **options)
+        return replace(target, _access=Access()) if target is not None else None
+
+    monkeypatch.setattr(physical, "transport_target", transport)
     context = SimpleNamespace(
         factory=factory,
         engine=test_engine,
@@ -457,6 +477,27 @@ async def test_unknown_operations_are_filtered_before_ttl_and_orphan_limits(owne
         await db.refresh(second)
         assert cache.output_id == first.id and first.state == "ready"
         assert second.state == "deleted"
+
+
+async def test_retiring_saved_output_can_close_on_disabled_location(owned):
+    async with owned.factory() as db:
+        output = await _new(db, owned, old=True)
+        output.state = "retiring"
+        output.updated_at = objects.utcnow() - timedelta(days=59)
+        owner = physical.resolve(output)
+        owned.provider.objects[(owner.bucket, owner.key("poster.webp"))] = b"partial"
+        location = await db.get(StorageLocation, LEGACY_LOCATION_ID)
+        previous = location.enabled
+        location.enabled = False
+        await db.commit()
+        try:
+            assert await objects.reconcile(db) == 1
+            await db.refresh(output)
+            assert output.state == "deleted"
+            assert owned.provider.objects == {} and owned.provider.closed
+        finally:
+            location.enabled = previous
+            await db.commit()
 
 
 async def test_active_metadata_is_not_expired_with_frame_ttl(owned):

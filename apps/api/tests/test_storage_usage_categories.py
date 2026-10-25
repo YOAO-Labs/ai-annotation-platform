@@ -176,6 +176,29 @@ async def test_old_or_mismatched_pins_keep_listed_bytes_unclassified(bad):
     assert result["categories"]["unclassified"] == {"object_count": 1, "size_bytes": 9}
 
 
+@pytest.mark.parametrize("index", [1, 2])
+@pytest.mark.parametrize("other_endpoint", [False, True])
+async def test_media_cache_saved_root_requires_exact_listed_endpoint(
+    index, other_endpoint
+):
+    _, data, basename = family_case(index)
+    endpoint = "https://other.example.test" if other_endpoint else categories.endpoint()
+    root = "company/_aap_managed/media-cache/"
+    data["storage_ref"].update(
+        schema=2,
+        location_id=str(uuid.uuid4()),
+        endpoint_url=endpoint,
+        key_prefix=root,
+        prefix=root + data["storage_ref"]["prefix"],
+        storage_identity=managed_storage_identity(endpoint, "listed-bucket"),
+    )
+    key = root + basename
+    db = SimpleNamespace(execute=AsyncMock(return_value=[(f"ref:{index}", data)]))
+    result = await categories.classify(db, "listed-bucket", [{"key": key, "size": 13}])
+    expected = "unclassified" if other_endpoint else "preview_cache"
+    assert result["categories"][expected] == {"object_count": 1, "size_bytes": 13}
+
+
 @pytest.mark.parametrize("index", [2, 3])
 async def test_restricted_output_prefix_does_not_own_arbitrary_names(index):
     _, data, _ = family_case(index)

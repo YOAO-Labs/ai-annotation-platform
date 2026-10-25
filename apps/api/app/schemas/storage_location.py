@@ -275,6 +275,7 @@ class StorageBindingOut(BaseModel):
         "reviewed_export_switch",
         "reviewed_import_switch",
         "reviewed_dataset_switch",
+        "reviewed_media_cache_switch",
     ]
 
 
@@ -555,6 +556,55 @@ class DatasetBindingPreview(BaseModel):
     previous: StorageBindingOut
     target: DatasetBindingTarget
     history: DatasetBindingHistory
+    capabilities: dict[str, bool]
+    can_apply: bool
+    measured_at: datetime
+    expires_at: datetime
+    impact_token: str
+
+
+class MediaCacheBindingCandidate(BaseModel):
+    location_id: uuid.UUID
+    name: str
+    config_revision: int
+
+
+class MediaCacheBindingCandidates(BaseModel):
+    items: list[MediaCacheBindingCandidate]
+    total: int
+
+
+class MediaCacheBindingChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_generation: int = Field(ge=1)
+    target_location_id: uuid.UUID
+    target_config_revision: int = Field(ge=1)
+
+
+class MediaCacheBindingApply(MediaCacheBindingChange):
+    impact_token: str = Field(min_length=1, max_length=8192)
+
+
+class MediaCacheBindingTarget(MediaCacheBindingCandidate):
+    bucket: str
+    key_prefix: str
+    connection_revision: int | None = None
+
+
+class MediaCacheBindingHistory(BaseModel):
+    directory_previews: int
+    original_cache_entries: int
+    image_pyramid_outputs: int
+    video_derivative_outputs: int
+    thumbnail_outputs: int
+    legacy_thumbnails: int
+
+
+class MediaCacheBindingPreview(BaseModel):
+    purpose: Literal["media-cache"] = "media-cache"
+    previous: StorageBindingOut
+    target: MediaCacheBindingTarget
+    history: MediaCacheBindingHistory
     capabilities: dict[str, bool]
     can_apply: bool
     measured_at: datetime

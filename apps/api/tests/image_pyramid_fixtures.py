@@ -183,10 +183,19 @@ class PhysicalTransport:
     """Fake only remote bytes/signatures; retain real receipt/authority checks."""
 
     def __init__(self, monkeypatch):
+        from app.services import media_cache_urls
+
         self.manifests, self.missing, self.verified, self.signed = {}, set(), [], []
         monkeypatch.setattr(physical, "read_manifest", self.read_manifest)
         monkeypatch.setattr(physical, "verify_object", self.verify_object)
         monkeypatch.setattr(storage_service, "generate_download_url", self.download_url)
+        sign = media_cache_urls.sign
+
+        def capability(kind, output_id, key, storage_ref, receipt, expires):
+            self.signed.append((key, {"bucket": storage_ref["bucket"]}))
+            return sign(kind, output_id, key, storage_ref, receipt, expires)
+
+        monkeypatch.setattr(media_cache_urls, "sign", capability)
 
     def register(self, output, manifest):
         self.manifests[output.id] = deepcopy(manifest)
@@ -232,3 +241,9 @@ def same_session_reading(monkeypatch):
         await originals.check(db, authority, lock=True)
 
     monkeypatch.setattr(objects, "reading", reading)
+
+    @asynccontextmanager
+    async def transport(db, output):
+        yield storage_service
+
+    monkeypatch.setattr(objects, "transport", transport)

@@ -6,6 +6,7 @@ import type {
   ExportBindingPreview,
   ImportBindingPreview,
   DatasetBindingPreview,
+  MediaCacheBindingPreview,
   StorageBindingOut,
 } from "@/api/generated/types.gen";
 import { ApiError } from "@/api/client";
@@ -752,6 +753,124 @@ it.each([
   const dialog = await openDataset();
   expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
   if (code === "dataset_binding_target_missing")
+    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+});
+
+function mediaCacheReview(): MediaCacheBindingPreview {
+  return {
+    ...reviewed(),
+    purpose: "media-cache",
+    previous: {
+      ...binding,
+      purpose: "media-cache",
+      bucket: "cache-a",
+      change_policy: "reviewed_media_cache_switch",
+    },
+    target: {
+      ...target,
+      name: "媒体缓存目标",
+      connection_revision: 4,
+      bucket: "cache-b",
+      key_prefix: "company/_aap_managed/media-cache/",
+    },
+    history: {
+      directory_previews: 1,
+      original_cache_entries: 2,
+      image_pyramid_outputs: 3,
+      video_derivative_outputs: 4,
+      thumbnail_outputs: 5,
+      legacy_thumbnails: 6,
+    },
+    capabilities: { conditional_write: true, full_read: true, delete: true, list: true },
+    impact_token: "reviewed-media-cache-switch",
+  };
+}
+function mountMediaCache() {
+  const client = createTestQueryClient();
+  clients.push(client);
+  const onApplied = vi.fn().mockResolvedValue(undefined);
+  render(
+    <QueryClientProvider client={client}>
+      <StorageBindingChangeButton
+        purpose="media-cache"
+        binding={mediaCacheReview().previous}
+        onApplied={onApplied}
+      />
+    </QueryClientProvider>,
+  );
+  return onApplied;
+}
+async function openMediaCache() {
+  fireEvent.click(screen.getByRole("button", { name: "切换媒体缓存位置" }));
+  const dialog = screen.getByRole("dialog", { name: "切换媒体缓存存储位置" });
+  await within(dialog).findByRole("option", { name: target.name });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
+    target: { value: target.location_id },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
+  return dialog;
+}
+it("reviews six separate media-cache history counts and switches only new allocations", async () => {
+  api.previewBinding.mockResolvedValueOnce(mediaCacheReview());
+  const onApplied = mountMediaCache();
+  const dialog = await openMediaCache();
+  await within(dialog).findByRole("region", { name: "媒体缓存绑定变更预览" });
+  expect(api.bindingCandidates).toHaveBeenCalledWith("media-cache", 0, expect.any(AbortSignal), 20);
+  expect(api.previewBinding).toHaveBeenCalledWith("media-cache", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+  });
+  expect(within(dialog).getByText(/仅后续新分配的原图缓存/)).toHaveTextContent(
+    "已有及在途输出保留原位置，切换不会搬迁或清空缓存",
+  );
+  expect(within(dialog).getByText("目录预览 1 · 原图缓存 2")).toBeInTheDocument();
+  expect(within(dialog).getByText("图片金字塔 3 · 视频派生 4")).toBeInTheDocument();
+  expect(within(dialog).getByText("缩略图输出 5 · 旧缩略图 6")).toBeInTheDocument();
+  expect(within(dialog).getByText(/不同类型的责任记录，不相加作为对象总数/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/前缀列举通过/)).toBeInTheDocument();
+  expect(within(dialog).queryByText(/空文件通过|分段上传通过|版本列举/)).not.toBeInTheDocument();
+  const select = within(dialog).getByRole("combobox", { name: "目标存储位置" });
+  const hint = document.getElementById(select.getAttribute("aria-describedby")!);
+  expect(hint).toHaveClass("text-xs", "text-muted-foreground");
+  expect(hint).toHaveTextContent("条件写入、完整读回、准确删除和前缀列举");
+  expect(within(select).queryByText(/条件写入|前缀列举/)).not.toBeInTheDocument();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
+  await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+  expect(api.applyBinding).toHaveBeenCalledWith("media-cache", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+    impact_token: "reviewed-media-cache-switch",
+  });
+  expect(pushToast).toHaveBeenCalledWith({
+    msg: "媒体缓存绑定已更新，后续新分配使用新位置",
+    kind: "success",
+  });
+});
+it("rejects another purpose's preview for a media-cache switch", async () => {
+  api.previewBinding.mockResolvedValueOnce(datasetReview());
+  mountMediaCache();
+  const dialog = await openMediaCache();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+});
+it.each([
+  ["media_cache_binding_target_missing", "目标位置已不存在"],
+  ["media_cache_storage_conditions_unsupported", "目标不支持条件写入"],
+  ["media_cache_storage_unavailable", "条件写入、读取、删除和前缀列举权限"],
+  ["media_cache_storage_probe_cleanup_unproven", "验证操作尚未确认收尾"],
+  ["media_cache_storage_binding_unproven", "用途绑定或目标配置无法确认"],
+])("keeps media-cache confirmation disabled after %s", async (code, message) => {
+  api.previewBinding.mockRejectedValueOnce(new ApiError(409, "Unavailable", { code }));
+  mountMediaCache();
+  const dialog = await openMediaCache();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
+  if (code === "media_cache_binding_target_missing")
     expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
   expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
   expect(api.applyBinding).not.toHaveBeenCalled();

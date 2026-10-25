@@ -23,6 +23,10 @@ from app.schemas.storage_location import (
     ExportBindingCandidates,
     ExportBindingChange,
     ExportBindingPreview,
+    MediaCacheBindingApply,
+    MediaCacheBindingCandidates,
+    MediaCacheBindingChange,
+    MediaCacheBindingPreview,
     DatasetBindingApply,
     DatasetBindingCandidates,
     DatasetBindingChange,
@@ -437,6 +441,64 @@ async def apply_dataset_binding(
     actor: User = Depends(super_admin),
 ):
     from app.services import dataset_binding_change as change
+
+    try:
+        result = await change.apply(
+            db,
+            payload,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            request=request,
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
+
+
+@router.get(
+    "/bindings/media-cache/candidates", response_model=MediaCacheBindingCandidates
+)
+async def media_cache_binding_candidates(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(super_admin),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    from app.services import media_cache_binding_change as change
+
+    return await change.candidates(db, limit=limit, offset=offset)
+
+
+@router.post(
+    "/bindings/media-cache/change-preview", response_model=MediaCacheBindingPreview
+)
+async def preview_media_cache_binding(
+    payload: MediaCacheBindingChange,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import media_cache_binding_change as change
+
+    try:
+        result = await change.preview(
+            db, payload, actor, api_key_id=getattr(request.state, "api_key_id", None)
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
+
+
+@router.patch("/bindings/media-cache", response_model=StorageBindingOut)
+async def apply_media_cache_binding(
+    payload: MediaCacheBindingApply,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import media_cache_binding_change as change
 
     try:
         result = await change.apply(

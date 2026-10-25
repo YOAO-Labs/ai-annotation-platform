@@ -11,7 +11,6 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.dataset import DatasetItem
 from app.db.models.task_batch import TaskBatch
-from app.services.storage import storage_service
 from app.services.scheduler import batch_visibility_clause
 from app.services.project_access import platform_role_is_manager
 from app.services.project_aggregates import (
@@ -162,24 +161,16 @@ async def _reviewing_batches(
             if checked is not None and checked[0] == cover_path:
                 thumbnail_url = checked[1]
             cover_blurhash = None
-        elif cover_path and cover_path.startswith("image-pyramids/"):
-            from app.services.image_pyramid_objects import (
-                thumbnail_url as pyramid_thumbnail_url,
-            )
+        elif cover_path:
+            from app.services import image_pyramid_objects, thumbnail_outputs
 
-            thumbnail_url = await pyramid_thumbnail_url(
+            thumbnail_url = await image_pyramid_objects.thumbnail_url(
                 db, "task", cover_task_id, cover_path
             )
-        elif cover_path:
-            thumb_bucket = storage_service.bucket_for_cache_key(
-                cover_path, default=storage_service.bucket
-            )
-            try:
-                thumbnail_url = storage_service.generate_download_url(
-                    cover_path, bucket=thumb_bucket
+            if thumbnail_url is None:
+                thumbnail_url = await thumbnail_outputs.thumbnail_url(
+                    db, "task", cover_task_id, cover_path
                 )
-            except Exception:
-                thumbnail_url = None
         reviewing_batches.append(
             ReviewingBatchItem(
                 batch_id=str(b.id),

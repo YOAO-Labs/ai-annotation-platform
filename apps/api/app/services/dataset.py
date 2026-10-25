@@ -455,9 +455,8 @@ class DatasetService:
         await guard_source(self.db, dataset_id=dataset_id)
         from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
 
-        directory_objects = tuple(
-            (row.bucket, row.object_key)
-            for row in await self.db.scalars(
+        preview_rows = list(
+            await self.db.scalars(
                 select(DatasetSourcePreview)
                 .join(
                     DatasetSourceItem,
@@ -477,6 +476,15 @@ class DatasetService:
                 )
             )
         )
+        from app.services.directory_previews import retire_output
+
+        for row in preview_rows:
+            await retire_output(self.db, row.thumbnail_output_id)
+        directory_objects = tuple(
+            (row.bucket, row.object_key)
+            for row in preview_rows
+            if row.thumbnail_output_id is None
+        )
         from app.services.managed_original_retirement import (
             capture_managed_original_retirements,
         )
@@ -489,6 +497,10 @@ class DatasetService:
     @staticmethod
     def cleanup_deleted_storage(cleanup: DatasetDeleteCleanup) -> None:
         for bucket, key in cleanup.directory_objects:
+            if bucket != storage_service.media_cache_bucket or not key.startswith(
+                "directory-previews/"
+            ):
+                continue
             try:
                 storage_service.delete_object(key, bucket=bucket)
             except Exception:
@@ -550,24 +562,15 @@ class DatasetService:
                     if checked is not None and checked[0] == item.thumbnail_path:
                         d["thumbnail_url"] = checked[1]
             elif item.thumbnail_path and not directory_owned:
-                if item.thumbnail_path.startswith("image-pyramids/"):
-                    from app.services.image_pyramid_objects import thumbnail_url
+                from app.services import image_pyramid_objects, thumbnail_outputs
 
-                    d["thumbnail_url"] = await thumbnail_url(
+                d["thumbnail_url"] = await image_pyramid_objects.thumbnail_url(
+                    self.db, "dataset_item", item.id, item.thumbnail_path
+                )
+                if d["thumbnail_url"] is None:
+                    d["thumbnail_url"] = await thumbnail_outputs.thumbnail_url(
                         self.db, "dataset_item", item.id, item.thumbnail_path
                     )
-                else:
-                    try:
-                        thumbnail_bucket = storage_service.bucket_for_cache_key(
-                            item.thumbnail_path,
-                            default=storage_service.datasets_bucket,
-                        )
-                        d["thumbnail_url"] = storage_service.generate_download_url(
-                            item.thumbnail_path,
-                            bucket=thumbnail_bucket,
-                        )
-                    except Exception:
-                        d["thumbnail_url"] = None
             out.append(d)
         return out, total
 
@@ -675,8 +678,14 @@ class DatasetService:
                 )
             )
         )
+        from app.services.directory_previews import retire_output
+
+        for row in previews:
+            await retire_output(self.db, row.thumbnail_output_id)
         self._directory_delete_keys = getattr(self, "_directory_delete_keys", []) + [
-            (row.bucket, row.object_key) for row in previews
+            (row.bucket, row.object_key)
+            for row in previews
+            if row.thumbnail_output_id is None
         ]
 
         from app.services.managed_original_retirement import (

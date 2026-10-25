@@ -2,15 +2,19 @@
 
 import hashlib
 import asyncio
-import uuid
+from dataclasses import dataclass
+from types import SimpleNamespace
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
 from app.db.models.dataset_source import DatasetSourcePreview, DatasetSourceItem
-from app.db.models.dataset_asset import DatasetAsset, StorageBinding
+from app.db.models.dataset_asset import DatasetAsset, StorageLocation
+from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import directory_policy as policy
-from app.services import storage_fault_events, storage_location
+from app.services import storage_access, storage_fault_events, storage_location
+from app.services import thumbnail_outputs as outputs
+from app.services import original_sources
 from app.services.content_snapshot import ContentError, capture
 from app.services.dataset_content import key_authority, stored_content
 from app.services.storage import storage_service
@@ -63,6 +67,10 @@ def cached_bytes_match(row):
 
 async def delete_owned(objects):
     for bucket, key in objects:
+        if bucket != storage_service.media_cache_bucket or not key.startswith(
+            "directory-previews/"
+        ):
+            continue
         try:
             await finish_io(storage_service.delete_object, key, bucket=bucket)
         except Exception:
@@ -73,6 +81,171 @@ async def delete_owned(objects):
             logging.getLogger(__name__).warning(
                 "Directory object cleanup deferred: %s", key
             )
+
+
+def directory_facts(source_id, path_digest, sha256):
+    return {
+        "source_id": str(source_id),
+        "path_digest": path_digest,
+        "source_sha256": sha256,
+        "spec": SPEC,
+    }
+
+
+def preview_facts(row):
+    if row is None:
+        return None
+    return (
+        row.generation,
+        row.thumbnail_output_id,
+        row.state,
+        row.asset_id,
+        row.source_sha256,
+        row.spec,
+        row.location_id,
+        row.bucket,
+        row.object_key,
+        row.sha256,
+        row.size_bytes,
+    )
+
+
+@dataclass(frozen=True)
+class PreparedPreview:
+    directory: dict
+    revisions: tuple
+    baseline: tuple | None
+    reuse: bool = False
+    output_id: object = None
+
+
+async def prepare(db, source, entry, snapshot):
+    """Seal candidates before the caller takes source and business locks."""
+    location = await db.get(StorageLocation, source.location_id, populate_existing=True)
+    if location is None or not policy.permits_preview(
+        policy.effective_cache_policy(source, location)
+    ):
+        return None
+    row = await db.get(
+        DatasetSourcePreview, (source.id, entry.path_digest), populate_existing=True
+    )
+    prepared = PreparedPreview(
+        directory_facts(source.id, entry.path_digest, snapshot.sha256),
+        (source.config_revision, source.policy_revision, location.config_revision),
+        preview_facts(row),
+    )
+    if (
+        row
+        and row.state == "ready"
+        and row.source_sha256 == snapshot.sha256
+        and row.spec == SPEC
+    ):
+        try:
+            if row.thumbnail_output_id is not None:
+                await output_for_row(db, row)
+                await outputs.read_bytes(db, row.thumbnail_output_id)
+                return PreparedPreview(
+                    prepared.directory,
+                    prepared.revisions,
+                    prepared.baseline,
+                    reuse=True,
+                )
+            from app.services.dataset_assets import LEGACY_LOCATION_ID
+
+            if (
+                row.location_id == LEGACY_LOCATION_ID
+                and row.bucket == storage_service.media_cache_bucket
+            ):
+                from sqlalchemy.ext.asyncio import async_sessionmaker
+
+                factory = async_sessionmaker(
+                    storage_access.engine(db), expire_on_commit=False
+                )
+                async with factory() as current:
+                    matches = await storage_access.run(
+                        current,
+                        LEGACY_LOCATION_ID,
+                        "directory_preview_verify",
+                        cached_bytes_match,
+                        row,
+                    )
+                if matches:
+                    return PreparedPreview(
+                        prepared.directory,
+                        prepared.revisions,
+                        prepared.baseline,
+                        reuse=True,
+                    )
+        except Exception:
+            pass
+    try:
+        body = await encode(snapshot)
+        output = await outputs.create(
+            db,
+            owner_kind="directory_preview",
+            owner_id=source.id,
+            path_digest=entry.path_digest,
+            input_ref={"directory": prepared.directory},
+            body=body,
+        )
+        return PreparedPreview(
+            prepared.directory,
+            prepared.revisions,
+            prepared.baseline,
+            output_id=output.id,
+        )
+    except Exception:
+        # The verified original can still be registered. The durable output owns
+        # any uncertain physical write independently of this business transaction.
+        return prepared
+
+
+async def output_for_row(db, row):
+    output = await db.get(
+        ThumbnailOutput, row.thumbnail_output_id, populate_existing=True
+    )
+    if (
+        output is None
+        or output.state != "ready"
+        or output.uncertain_write
+        or output.owner_kind != "directory_preview"
+        or output.owner_id != row.source_id
+        or output.path_digest != row.path_digest
+        or output.input_ref.get("directory")
+        != directory_facts(row.source_id, row.path_digest, row.source_sha256)
+    ):
+        raise ContentError("preview_binding_changed")
+    saved = outputs.owner(output)
+    if (row.location_id, row.bucket, row.object_key, row.sha256, row.size_bytes) != (
+        saved.location_id,
+        saved.bucket,
+        saved.key(outputs.RELATIVE_KEY),
+        output.sha256,
+        output.size_bytes,
+    ):
+        raise ContentError("preview_binding_changed")
+    await outputs.media_cache_storage.target_for_ref(db, saved.ref)
+    await storage_access.check(db, saved.location_id)
+    return output
+
+
+async def retire_output(db, output_id):
+    if output_id is not None:
+        try:
+            async with original_sources._reads(db, True):
+                output = await db.get(
+                    ThumbnailOutput,
+                    output_id,
+                    with_for_update={"nowait": True},
+                    populate_existing=True,
+                )
+        except ContentError as exc:
+            if exc.code == "storage_original_busy":
+                return
+            raise
+        if output is not None and output.state == "ready":
+            output.state, output.retired_at = "retiring", outputs.now()
+            output.next_check_at = outputs.now()
 
 
 async def generate(
@@ -92,6 +265,7 @@ async def generate(
     fault_anchor=None,
     fault_maintenance_revision=1,
     fault_validate=None,
+    prepared=None,
 ):
     if not policy.permits_preview(policy.effective_cache_policy(source, location)):
         return None
@@ -131,24 +305,38 @@ async def generate(
             registration_id=registration_id,
         )
 
-    observation = None
+    observation = await observe()
     row = await db.get(DatasetSourcePreview, (source.id, mapping.path_digest))
+    valid = (
+        isinstance(prepared, PreparedPreview)
+        and prepared.directory
+        == directory_facts(source.id, mapping.path_digest, snapshot.sha256)
+        and prepared.revisions
+        == (source.config_revision, source.policy_revision, location.config_revision)
+    )
     if (
-        row
-        and row.state == "ready"
+        valid
+        and prepared.reuse
+        and preview_facts(row) == prepared.baseline
         and row.asset_id == mapping.asset_id
-        and row.source_sha256 == snapshot.sha256
-        and row.spec == SPEC
     ):
         try:
-            observation = await observe()
-            if await finish_io(cached_bytes_match, row):
-                row._fault_observation = observation
-                return row
+            if row.thumbnail_output_id is not None:
+                await output_for_row(db, row)
+            else:
+                from app.services.dataset_assets import LEGACY_LOCATION_ID
+
+                await storage_access.check(db, LEGACY_LOCATION_ID)
+            row._fault_observation = observation
+            return row
         except Exception:
             pass
     if row and row.object_key:
-        retired.append((row.bucket, row.object_key))
+        if row.thumbnail_output_id is not None:
+            await retire_output(db, row.thumbnail_output_id)
+        else:
+            retired.append((row.bucket, row.object_key))
+        row.thumbnail_output_id = None
         row.object_key = row.bucket = row.location_id = row.sha256 = row.size_bytes = (
             None
         )
@@ -163,36 +351,45 @@ async def generate(
     row.measured_at = datetime.now(timezone.utc)
     row.state, row.error_code = "failed", "preview_generation_failed"
     try:
-        binding = await db.get(StorageBinding, "media-cache", populate_existing=True)
-        observation = await observe(binding)
-        body = await encode(snapshot)
-        key = f"directory-previews/{source.id}/{uuid.uuid4()}.webp"
-        # Register ownership before I/O, including a partially successful PUT.
-        uploaded.append((binding.bucket, key))
-        await finish_io(
-            storage_service.client.put_object,
-            Bucket=binding.bucket,
-            Key=key,
-            Body=body,
-            ContentType="image/webp",
-        )
+        if not valid or prepared.output_id is None:
+            raise ContentError("preview_preparation_failed")
+        async with original_sources._reads(db, True):
+            output = await db.get(
+                ThumbnailOutput,
+                prepared.output_id,
+                populate_existing=True,
+                with_for_update={"read": True, "nowait": True},
+            )
         if (
-            not policy.permits_preview(policy.effective_cache_policy(source, location))
-            or not source.enabled
-            or source.unregistered_at
+            output is None
+            or output.state != "ready"
+            or output.uncertain_write
+            or output.owner_kind != "directory_preview"
+            or output.owner_id != source.id
+            or output.path_digest != mapping.path_digest
+            or output.input_ref.get("directory") != prepared.directory
         ):
-            raise ContentError("preview_policy_changed")
-        row.location_id, row.bucket, row.object_key = (
-            binding.location_id,
-            binding.bucket,
-            key,
+            raise ContentError("preview_preparation_changed")
+        saved = outputs.owner(output)
+        await outputs.media_cache_storage.target_for_ref(db, saved.ref)
+        await storage_access.check(db, saved.location_id)
+        observation = await observe(
+            SimpleNamespace(
+                location_id=saved.location_id,
+                generation=saved.ref["binding_generation"],
+                bucket=saved.bucket,
+            )
         )
-        row.sha256, row.size_bytes = hashlib.sha256(body).hexdigest(), len(body)
+        row.thumbnail_output_id = output.id
+        row.location_id, row.bucket, row.object_key = (
+            saved.location_id,
+            saved.bucket,
+            saved.key(outputs.RELATIVE_KEY),
+        )
+        row.sha256, row.size_bytes = output.sha256, output.size_bytes
         row.state, row.error_code = "ready", None
     except Exception:
         # A derivative failure does not roll back an already verified original.
-        if uploaded and uploaded[-1][1].startswith(f"directory-previews/{source.id}/"):
-            await delete_owned([uploaded.pop()])
         if fault_validate is not None:
             try:
                 await fault_validate()
@@ -221,7 +418,7 @@ async def generate(
 async def preview_identity(db, source_id, path_digest, actor):
     from app.services.dataset_source_access import require_source
     from app.db.models.dataset_asset import StorageLocation
-    from app.services.dataset_assets import LEGACY_LOCATION_ID, validate_legacy_bindings
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
 
     source = await require_source(db, source_id, actor)
     location = await db.get(StorageLocation, source.location_id, populate_existing=True)
@@ -255,12 +452,15 @@ async def preview_identity(db, source_id, path_digest, actor):
         or row.spec != SPEC
     ):
         raise ContentError("preview_unavailable")
-    if (
+    if row.thumbnail_output_id is not None:
+        await output_for_row(db, row)
+    elif (
         row.location_id != LEGACY_LOCATION_ID
         or row.bucket != storage_service.media_cache_bucket
-        or await validate_legacy_bindings(db)
     ):
         raise ContentError("preview_binding_changed")
+    else:
+        await storage_access.check(db, LEGACY_LOCATION_ID)
     # This deliberately does not touch the external source or its probe: the
     # derivative names an old SHA and is only a read-only management preview.
     return (
@@ -271,6 +471,7 @@ async def preview_identity(db, source_id, path_digest, actor):
         row.generation,
         source.config_revision,
         location.config_revision,
+        row.thumbnail_output_id,
     )
 
 
@@ -279,7 +480,25 @@ async def read_preview(db, source_id, path_digest, actor, api_key_id=None):
     proof = await key_authority(db, actor, api_key_id, "datasets:read")
     await db.commit()
     bucket, key, size, sha, *_ = identity
-    snapshot = await capture(lambda: stored_content(bucket, key, size), sha)
+    if identity[-1] is not None:
+        import io
+        from contextlib import contextmanager
+
+        body = await outputs.read_bytes(db, identity[-1])
+
+        @contextmanager
+        def content():
+            with io.BytesIO(body) as stream:
+                yield stream, {"size": len(body)}
+
+        snapshot = await capture(content, sha)
+    else:
+        from app.services.dataset_assets import LEGACY_LOCATION_ID
+
+        async with await storage_access.acquire(
+            db, LEGACY_LOCATION_ID, "directory_preview_read"
+        ):
+            snapshot = await capture(lambda: stored_content(bucket, key, size), sha)
     try:
         if identity != await preview_identity(db, source_id, path_digest, actor):
             raise ContentError("preview_binding_changed")

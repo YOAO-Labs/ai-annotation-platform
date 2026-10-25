@@ -6,7 +6,7 @@ No source bytes, managed originals or training copies are ever deleted here.
 """
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -22,7 +22,6 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import (
     DatasetAsset,
     DatasetAssetLocation,
-    StorageBinding,
     StorageLocation,
 )
 from app.db.models.dataset_source import DatasetSource
@@ -31,8 +30,9 @@ from app.db.models.original_cache import (
     OriginalCacheReadLease as ReadLease,
 )
 from app.services import content_snapshot as snapshots
+from app.services import media_cache_storage as saved_storage
 from app.services import storage_access
-from app.services.dataset_assets import validate_legacy_bindings
+from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.prediction_inputs import settled_io
 from app.services.storage import StorageService
 
@@ -48,7 +48,15 @@ def now():
     return datetime.now(timezone.utc)
 
 
+def logical_prefix(record):
+    return f"original-cache/v1/{record.asset_id}/{record.sha256}/{record.id}/"
+
+
 def object_key(record):
+    if getattr(record, "storage_ref", None) is not None:
+        return saved_storage.resolve_ref(
+            record.storage_ref, expected_prefix=logical_prefix(record)
+        ).key("payload")
     return f"original-cache/v1/{record.asset_id}/{record.sha256}/{record.id}"
 
 
@@ -250,13 +258,103 @@ async def charged_bytes(db, location_id):
     )
 
 
-async def destination(db, storage):
-    if await validate_legacy_bindings(db):
-        return None
-    binding = await db.get(StorageBinding, "media-cache", populate_existing=True)
-    if binding and binding.bucket == storage.media_cache_bucket:
-        return binding
-    return None
+async def prepare_target(db, record, *, require_enabled=True):
+    """Capture current credentials without changing saved source/quota facts."""
+    if record.storage_ref is not None:
+        owner = saved_storage.resolve_ref(
+            record.storage_ref, expected_prefix=logical_prefix(record)
+        )
+        if (
+            owner.location_id,
+            owner.bucket,
+            owner.ref["binding_generation"],
+            owner.ref["storage_identity"],
+        ) != (
+            record.location_id,
+            record.bucket,
+            record.binding_generation,
+            record.storage_identity,
+        ):
+            raise saved_storage.MediaCacheStorageError()
+        target = await saved_storage.target_for_ref(
+            db, record.storage_ref, require_enabled=require_enabled
+        )
+    else:
+        # NULL is the historical A address, independent of today's binding.
+        if record.location_id != LEGACY_LOCATION_ID or record.binding_generation != 1:
+            raise saved_storage.MediaCacheStorageError()
+        location = await db.get(
+            StorageLocation, LEGACY_LOCATION_ID, populate_existing=True
+        )
+        target = replace(
+            await saved_storage.target_for(
+                db, location, require_enabled=require_enabled
+            ),
+            bucket=record.bucket,
+        )
+        from app.services.managed_original_retirement import managed_storage_identity
+
+        if (
+            managed_storage_identity(target.endpoint_url, target.bucket)
+            != record.storage_identity
+        ):
+            raise saved_storage.MediaCacheStorageError()
+    record._target = target
+    record._target_maintenance_revision = await storage_access.check(
+        db, record.location_id
+    )
+    return target
+
+
+@contextmanager
+def physical_storage(record):
+    """Open only inside the caller's existing physical admission."""
+    target = record._target
+    if record.location_id == LEGACY_LOCATION_ID:
+        try:
+            storage = make_storage()
+        except BaseException as exc:
+            raise storage_access.mark_unsettled(exc)
+        failure = None
+        try:
+            if storage.client.meta.endpoint_url.rstrip("/") != target.endpoint_url:
+                raise saved_storage.MediaCacheStorageError()
+            from types import SimpleNamespace
+
+            yield SimpleNamespace(
+                client=storage.client, media_cache_bucket=record.bucket
+            )
+        except BaseException as exc:
+            failure = exc
+            raise
+        finally:
+            try:
+                storage_access.close_registered(storage.client)
+            except BaseException:
+                if failure is None:
+                    raise
+                storage_access.mark_unsettled(failure)
+    else:
+        from types import SimpleNamespace
+
+        context = target.client(read_timeout=15)
+        try:
+            client = context.__enter__()
+        except BaseException as exc:
+            raise storage_access.mark_unsettled(exc)
+        failure = None
+        try:
+            yield SimpleNamespace(client=client, media_cache_bucket=record.bucket)
+        except BaseException as exc:
+            failure = exc
+            raise
+        finally:
+            try:
+                context.__exit__(None, None, None)
+            except BaseException as exc:
+                if failure is None:
+                    raise storage_access.mark_unsettled(exc)
+                storage_access.mark_unsettled(failure)
 
 
 def matches(record, configured):
@@ -292,9 +390,6 @@ async def reserve(factory, source_id, asset_id, storage, *, expected_revision=No
         # Re-read after waiting for another reservation's transaction.
         if await scope(db, source_id, asset_id) != configured:
             return None, "configuration_changed"
-        binding = await destination(db, storage)
-        if binding is None:
-            return None, "storage_binding_changed"
         existing = await db.scalar(
             select(Entry).where(
                 Entry.asset_id == asset_id, Entry.state.in_(["uploading", "ready"])
@@ -321,10 +416,10 @@ async def reserve(factory, source_id, asset_id, storage, *, expected_revision=No
             source_revision=configured.source_revision,
             policy_revision=configured.policy_revision,
             location_revision=configured.location_revision,
-            location_id=binding.location_id,
-            bucket=binding.bucket,
-            binding_generation=binding.generation,
-            storage_identity=storage_identity(storage),
+            location_id=LEGACY_LOCATION_ID,
+            bucket="pending",
+            binding_generation=1,
+            storage_identity="0" * 64,
             state="uploading",
             uncertain_write=True,
             last_accessed_at=created,
@@ -333,7 +428,14 @@ async def reserve(factory, source_id, asset_id, storage, *, expected_revision=No
             retain_until=writer_until + timedelta(days=RECOVERY_DAYS),
             next_check_at=writer_until,
         )
+        record.storage_ref = await saved_storage.allocate(db, logical_prefix(record))
+        owner = saved_storage.resolve_ref(record.storage_ref)
+        record.location_id = owner.location_id
+        record.bucket = owner.bucket
+        record.binding_generation = owner.ref["binding_generation"]
+        record.storage_identity = owner.ref["storage_identity"]
         record._maintenance_revision = configured.maintenance_revision
+        await prepare_target(db, record)
         db.add(record)
         await db.commit()  # Independent durable ownership before the first PUT.
         return record, "reserved"
@@ -341,28 +443,28 @@ async def reserve(factory, source_id, asset_id, storage, *, expected_revision=No
 
 @contextmanager
 def stored_object(record, settled=None):
-    storage = make_storage()
-    body = None
+    body, failure = None, None
     try:
-        if storage_identity(storage) != record.storage_identity:
-            raise snapshots.ContentError("cache_storage_identity_changed")
-        response = storage.client.get_object(
-            Bucket=record.bucket, Key=object_key(record)
-        )
-        body = response["Body"]
-        if response.get("ContentLength") != record.size_bytes:
-            raise snapshots.ContentError("cache_content_mismatch")
-        yield body, {"size": record.size_bytes}
+        with physical_storage(record) as storage:
+            try:
+                response = storage.client.get_object(
+                    Bucket=record.bucket, Key=object_key(record)
+                )
+                body = response["Body"]
+                if response.get("ContentLength") != record.size_bytes:
+                    raise snapshots.ContentError("cache_content_mismatch")
+                yield body, {"size": record.size_bytes}
+            finally:
+                if body is not None:
+                    storage_access.close_registered(body)
+    except BaseException as exc:
+        failure = exc
+        raise
     finally:
-        closed = False
-        try:
-            if body is not None:
-                storage_access.close_registered(body)
-            closed = True
-        finally:
-            storage_access.close_registered(storage.client)
-            if closed and settled is not None:
-                settled.set()
+        if settled is not None and not getattr(
+            failure, "storage_operation_unsettled", False
+        ):
+            settled.set()
 
 
 def verify_stored(record):
@@ -386,17 +488,11 @@ def verify_stored(record):
 
 
 async def bound_destination(db, record):
-    storage = make_storage()
     try:
-        binding = await destination(db, storage)
-        return bool(
-            binding
-            and (binding.location_id, binding.bucket, binding.generation)
-            == (record.location_id, record.bucket, record.binding_generation)
-            and storage_identity(storage) == record.storage_identity
-        )
-    finally:
-        storage.client.close()
+        await prepare_target(db, record)
+        return True
+    except saved_storage.MediaCacheStorageError:
+        return False
 
 
 async def detach(db, record):
@@ -449,17 +545,15 @@ async def publish(factory, record, storage):
         current = await db.scalar(
             select(Entry).where(Entry.id == record.id).with_for_update()
         )
-        binding = await destination(db, storage)
+        target_valid = await bound_destination(db, current) if current else False
         if (
             not current
             or current.state != "uploading"
             or current.writer_until <= now()
             or current.expires_at <= now()
             or not matches(current, configured)
-            or not binding
-            or (binding.location_id, binding.bucket, binding.generation)
-            != (record.location_id, record.bucket, record.binding_generation)
-            or storage_identity(storage) != record.storage_identity
+            or not target_valid
+            or current.storage_ref != record.storage_ref
         ):
             return False
         if await charged_bytes(db, configured.location_id) > configured.quota:
@@ -494,6 +588,12 @@ async def publish(factory, record, storage):
             expected_revision=getattr(record, "_maintenance_revision", 1),
             lock=True,
         )
+        await storage_access.check(
+            db,
+            record.location_id,
+            expected_revision=record._target_maintenance_revision,
+            lock=True,
+        )
         await db.commit()
         return True
 
@@ -506,10 +606,10 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
         or snapshot.inspection_error
     ):
         raise snapshots.ContentError("cache_snapshot_invalid")
-    storage, record, confirmed_put = make_storage(), None, False
+    record, confirmed_put = None, False
     try:
         record, status = await reserve(
-            factory, source_id, asset_id, storage, expected_revision=expected_revision
+            factory, source_id, asset_id, None, expected_revision=expected_revision
         )
         if record is None:
             return status
@@ -519,26 +619,53 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
         if record.writer_until <= now():
             await retire(factory, record.id, uncertain=False)
             return "expired"
-        snapshot.file.seek(0)
-        await settled_io(
-            storage.client.put_object,
-            Bucket=record.bucket,
-            Key=object_key(record),
-            Body=snapshot.file,
-            ContentLength=snapshot.size,
-            ContentType=snapshot.media_type,
-        )
-        confirmed_put = True
-        # Verify actual stored bytes, not a successful PUT or its opaque ETag.
-        await settled_io(verify_stored, record)
-        if await publish(factory, record, storage):
+        async with factory() as db:
+            await prepare_target(db, record)
+            async with await storage_access.acquire(
+                db,
+                record.location_id,
+                "original_cache_write",
+                expected_revision=record._target_maintenance_revision,
+            ):
+                context = physical_storage(record)
+                storage = await settled_io(context.__enter__)
+                failure = None
+                try:
+                    snapshot.file.seek(0)
+                    await settled_io(
+                        storage.client.put_object,
+                        Bucket=record.bucket,
+                        Key=object_key(record),
+                        Body=snapshot.file,
+                        ContentLength=snapshot.size,
+                        ContentType=snapshot.media_type,
+                        IfNoneMatch="*",
+                    )
+                    confirmed_put = True
+                    await settled_io(verify_stored, record)
+                except BaseException as exc:
+                    failure = exc
+                    raise
+                finally:
+                    try:
+                        await settled_io(context.__exit__, None, None, None)
+                    except BaseException:
+                        if failure is None:
+                            raise
+                        storage_access.mark_unsettled(failure)
+        if await publish(factory, record, None):
             return "stored"
         await retire(factory, record.id, uncertain=False)
         return "configuration_changed"
     except BaseException as exc:
         if record:
             try:
-                await retire(factory, record.id, uncertain=not confirmed_put)
+                await retire(
+                    factory,
+                    record.id,
+                    uncertain=not confirmed_put
+                    or getattr(exc, "storage_operation_unsettled", False),
+                )
             except Exception:
                 log.warning("Original cache recovery deferred entry=%s", record.id)
         if not isinstance(exc, Exception) or (
@@ -551,7 +678,6 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
         return "fill_failed"
     finally:
         snapshot.file.seek(0)
-        storage.client.close()
 
 
 async def read(factory, source_id, asset_id, *, on_acquired=None):
@@ -560,6 +686,12 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
     settled = threading.Event()
     damaged = False
     admission_failed = False
+    physical_started = False
+
+    def open_stored():
+        nonlocal physical_started
+        physical_started = True
+        return stored_object(record, settled)
 
     async def admitted():
         nonlocal admission_failed
@@ -618,16 +750,24 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
             await db.commit()
         try:
             async with factory() as permit_db:
-                snapshot = await snapshots.capture_from_location(
+                async with await storage_access.acquire(
                     permit_db,
-                    configured.location_id,
-                    lambda: stored_object(record, settled),
-                    record.sha256,
-                    expected_revision=configured.maintenance_revision,
-                    purpose="original_cache_read",
-                    on_acquired=admitted,
-                )
+                    record.location_id,
+                    "original_cache_target_read",
+                    expected_revision=record._target_maintenance_revision,
+                ):
+                    snapshot = await snapshots.capture_from_location(
+                        permit_db,
+                        configured.location_id,
+                        open_stored,
+                        record.sha256,
+                        expected_revision=configured.maintenance_revision,
+                        purpose="original_cache_read",
+                        on_acquired=admitted,
+                    )
         except snapshots.ContentError as exc:
+            if not physical_started:
+                settled.set()
             if (
                 admission_failed
                 or exc.status in {429, 504}
@@ -638,6 +778,8 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
             damaged = True
             return None
         except Exception:
+            if not physical_started:
+                settled.set()
             if admission_failed:
                 raise
             damaged = True
@@ -658,6 +800,8 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
                 snapshot = None
         return snapshot
     except BaseException:
+        if not physical_started:
+            settled.set()
         if snapshot:
             snapshot.close()
         raise
@@ -703,81 +847,86 @@ async def evict_lru(factory, location_id):
 
 
 async def purge(factory, identity):
-    storage = make_storage()
-    try:
-        async with factory() as db:
-            record = await db.scalar(
-                select(Entry)
-                .where(Entry.id == identity)
-                .with_for_update(skip_locked=True)
+    async with factory() as db:
+        record = await db.scalar(
+            select(Entry).where(Entry.id == identity).with_for_update(skip_locked=True)
+        )
+        if not record or record.next_check_at > now() or await readers(db, identity):
+            return "skipped"
+        await db.execute(
+            delete(ReadLease).where(
+                ReadLease.entry_id == identity, ReadLease.expires_at <= now()
             )
+        )
+        if record.state == "uploading" and record.writer_until > now():
+            return "skipped"
+        if record.state == "ready":
+            configured = await scope(
+                db, record.source_id, record.asset_id, check_maintenance=False
+            )
+            total = await charged_bytes(db, record.scope_location_id)
             if (
-                not record
-                or record.next_check_at > now()
-                or await readers(db, identity)
+                record.expires_at > now()
+                and matches(record, configured)
+                and total <= configured.quota
             ):
-                return "skipped"
-            await db.execute(
-                delete(ReadLease).where(
-                    ReadLease.entry_id == identity, ReadLease.expires_at <= now()
+                record.next_check_at = min(
+                    record.expires_at, now() + timedelta(seconds=CHECK_SECONDS)
                 )
-            )
-            if record.state == "uploading" and record.writer_until > now():
-                return "skipped"
-            if record.state == "ready":
-                configured = await scope(
-                    db, record.source_id, record.asset_id, check_maintenance=False
-                )
-                total = await charged_bytes(db, record.scope_location_id)
-                if (
-                    record.expires_at > now()
-                    and matches(record, configured)
-                    and total <= configured.quota
-                ):
-                    record.next_check_at = min(
-                        record.expires_at, now() + timedelta(seconds=CHECK_SECONDS)
-                    )
-                    await db.commit()
-                    return "skipped"
-            record.state = "deleting"
-            await detach(db, record)
-            record.next_check_at = now() + timedelta(seconds=CHECK_SECONDS)
-            matched = (
-                record.storage_identity == storage_identity(storage)
-                and record.bucket == storage.media_cache_bucket
-            )
-            record.error_code = None if matched else "storage_identity_changed"
-            await db.commit()
-            if not matched:
-                return "deferred"
-        try:
-            await settled_io(
-                storage.client.delete_object,
-                Bucket=record.bucket,
-                Key=object_key(record),
-            )
-        except Exception:
-            async with factory() as db:
-                current = await db.get(Entry, identity)
-                if current:
-                    current.error_code = "storage_cleanup_failed"
-                    await db.commit()
-            log.warning("Original cache deletion deferred entry=%s", identity)
-            return "deferred"
-        async with factory() as db:
-            current = await db.scalar(
-                select(Entry).where(Entry.id == identity).with_for_update()
-            )
-            if current:
-                if current.uncertain_write and current.retain_until > now():
-                    current.error_code = None
-                    await db.commit()
-                    return "retained"
-                await db.delete(current)
                 await db.commit()
-        return "removed"
-    finally:
-        storage.client.close()
+                return "skipped"
+        record.state = "deleting"
+        await detach(db, record)
+        record.next_check_at = now() + timedelta(seconds=CHECK_SECONDS)
+        try:
+            await prepare_target(db, record, require_enabled=False)
+            matched = True
+        except saved_storage.MediaCacheStorageError:
+            matched = False
+        record.error_code = None if matched else "storage_identity_changed"
+        await db.commit()
+        if not matched:
+            return "deferred"
+    try:
+        async with factory() as permit_db:
+            async with await storage_access.acquire(
+                permit_db,
+                record.location_id,
+                "original_cache_cleanup",
+                expected_revision=record._target_maintenance_revision,
+            ):
+
+                def remove():
+                    with physical_storage(record) as storage:
+                        storage.client.delete_object(
+                            Bucket=record.bucket, Key=object_key(record)
+                        )
+
+                await settled_io(remove)
+    except Exception as exc:
+        async with factory() as db:
+            current = await db.get(Entry, identity)
+            if current:
+                current.error_code = (
+                    "storage_identity_changed"
+                    if isinstance(exc, saved_storage.MediaCacheStorageError)
+                    else "storage_cleanup_failed"
+                )
+                await db.commit()
+        log.warning("Original cache deletion deferred entry=%s", identity)
+        return "deferred"
+    async with factory() as db:
+        current = await db.scalar(
+            select(Entry).where(Entry.id == identity).with_for_update()
+        )
+        if current:
+            if current.uncertain_write and current.retain_until > now():
+                current.error_code = None
+                await db.commit()
+                return "retained"
+            await db.delete(current)
+            await db.commit()
+    return "removed"
 
 
 async def maintain(factory, *, limit=50):

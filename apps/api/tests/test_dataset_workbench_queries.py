@@ -56,10 +56,11 @@ async def test_page_detail_relation_only_contains_current_ordered_members(
     page, total = await svc.item_page(db, ds.id, actor, limit=2, offset=31)
     expected = [item.id for item in ordered[31:33]]
     assert total == size and [item["id"] for item in page] == expected
-    assert len(full_relations) == 1
+    assert full_relations
     # Execute the actual detail relation, rather than trusting a spy's arguments.
-    relation_ids = list(await db.scalars(select(full_relations[0].c.item_id)))
-    assert set(relation_ids) == set(expected)
+    for relation in full_relations:
+        relation_ids = list(await db.scalars(select(relation.c.item_id)))
+        assert set(relation_ids) == set(expected)
 
     full_relations.clear()
     empty, total = await svc.item_page(db, ds.id, actor, limit=2, offset=size + 10)

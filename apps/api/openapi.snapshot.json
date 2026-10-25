@@ -29718,6 +29718,251 @@
         "title": "Measurement",
         "type": "object"
       },
+      "MediaCacheBindingApply": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_generation": {
+            "minimum": 1.0,
+            "title": "Expected Generation",
+            "type": "integer"
+          },
+          "impact_token": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Impact Token",
+            "type": "string"
+          },
+          "target_config_revision": {
+            "minimum": 1.0,
+            "title": "Target Config Revision",
+            "type": "integer"
+          },
+          "target_location_id": {
+            "format": "uuid",
+            "title": "Target Location Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_generation",
+          "target_location_id",
+          "target_config_revision",
+          "impact_token"
+        ],
+        "title": "MediaCacheBindingApply",
+        "type": "object"
+      },
+      "MediaCacheBindingCandidate": {
+        "properties": {
+          "config_revision": {
+            "title": "Config Revision",
+            "type": "integer"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id",
+          "name",
+          "config_revision"
+        ],
+        "title": "MediaCacheBindingCandidate",
+        "type": "object"
+      },
+      "MediaCacheBindingCandidates": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MediaCacheBindingCandidate"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "MediaCacheBindingCandidates",
+        "type": "object"
+      },
+      "MediaCacheBindingChange": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_generation": {
+            "minimum": 1.0,
+            "title": "Expected Generation",
+            "type": "integer"
+          },
+          "target_config_revision": {
+            "minimum": 1.0,
+            "title": "Target Config Revision",
+            "type": "integer"
+          },
+          "target_location_id": {
+            "format": "uuid",
+            "title": "Target Location Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_generation",
+          "target_location_id",
+          "target_config_revision"
+        ],
+        "title": "MediaCacheBindingChange",
+        "type": "object"
+      },
+      "MediaCacheBindingHistory": {
+        "properties": {
+          "directory_previews": {
+            "title": "Directory Previews",
+            "type": "integer"
+          },
+          "image_pyramid_outputs": {
+            "title": "Image Pyramid Outputs",
+            "type": "integer"
+          },
+          "legacy_thumbnails": {
+            "title": "Legacy Thumbnails",
+            "type": "integer"
+          },
+          "original_cache_entries": {
+            "title": "Original Cache Entries",
+            "type": "integer"
+          },
+          "thumbnail_outputs": {
+            "title": "Thumbnail Outputs",
+            "type": "integer"
+          },
+          "video_derivative_outputs": {
+            "title": "Video Derivative Outputs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "directory_previews",
+          "original_cache_entries",
+          "image_pyramid_outputs",
+          "video_derivative_outputs",
+          "thumbnail_outputs",
+          "legacy_thumbnails"
+        ],
+        "title": "MediaCacheBindingHistory",
+        "type": "object"
+      },
+      "MediaCacheBindingPreview": {
+        "properties": {
+          "can_apply": {
+            "title": "Can Apply",
+            "type": "boolean"
+          },
+          "capabilities": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Capabilities",
+            "type": "object"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "history": {
+            "$ref": "#/components/schemas/MediaCacheBindingHistory"
+          },
+          "impact_token": {
+            "title": "Impact Token",
+            "type": "string"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/StorageBindingOut"
+          },
+          "purpose": {
+            "const": "media-cache",
+            "default": "media-cache",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/MediaCacheBindingTarget"
+          }
+        },
+        "required": [
+          "previous",
+          "target",
+          "history",
+          "capabilities",
+          "can_apply",
+          "measured_at",
+          "expires_at",
+          "impact_token"
+        ],
+        "title": "MediaCacheBindingPreview",
+        "type": "object"
+      },
+      "MediaCacheBindingTarget": {
+        "properties": {
+          "bucket": {
+            "title": "Bucket",
+            "type": "string"
+          },
+          "config_revision": {
+            "title": "Config Revision",
+            "type": "integer"
+          },
+          "connection_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Revision"
+          },
+          "key_prefix": {
+            "title": "Key Prefix",
+            "type": "string"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id",
+          "name",
+          "config_revision",
+          "bucket",
+          "key_prefix"
+        ],
+        "title": "MediaCacheBindingTarget",
+        "type": "object"
+      },
       "Mention": {
         "properties": {
           "displayName": {
@@ -45682,7 +45927,8 @@
               "reviewed_audit_archive_switch",
               "reviewed_export_switch",
               "reviewed_import_switch",
-              "reviewed_dataset_switch"
+              "reviewed_dataset_switch",
+              "reviewed_media_cache_switch"
             ],
             "title": "Change Policy",
             "type": "string"
@@ -77960,6 +78206,104 @@
         ]
       }
     },
+    "/api/v1/media-cache/{kind}/{output_id}/{relative}": {
+      "get": {
+        "description": "The token replaces presigning, not the issuer's business authorization.",
+        "operationId": "read_media_cache_api_v1_media_cache__kind___output_id___relative__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "output_id",
+            "required": true,
+            "schema": {
+              "title": "Output Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "relative",
+            "required": true,
+            "schema": {
+              "title": "Relative",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "能力 URL 对应的媒体字节；同时支持 HEAD。"
+          },
+          "206": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "单段字节范围。"
+          },
+          "400": {
+            "description": "字节范围语法无效。"
+          },
+          "404": {
+            "description": "能力已过期、无效或对象不可读。"
+          },
+          "416": {
+            "description": "字节范围超出对象长度。"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "目标存储暂不可读。"
+          },
+          "504": {
+            "description": "媒体传输超时。"
+          }
+        },
+        "summary": "Read Media Cache",
+        "tags": [
+          "media-cache"
+        ]
+      }
+    },
     "/api/v1/media/original-playback/{lease_id}": {
       "get": {
         "operationId": "read_original_video_api_v1_media_original_playback__lease_id__get",
@@ -97180,6 +97524,159 @@
           }
         ],
         "summary": "Preview Import Binding",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
+    "/api/v1/storage-locations/bindings/media-cache": {
+      "patch": {
+        "operationId": "apply_media_cache_binding_api_v1_storage_locations_bindings_media_cache_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaCacheBindingApply"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageBindingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Apply Media Cache Binding",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
+    "/api/v1/storage-locations/bindings/media-cache/candidates": {
+      "get": {
+        "operationId": "media_cache_binding_candidates_api_v1_storage_locations_bindings_media_cache_candidates_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaCacheBindingCandidates"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Media Cache Binding Candidates",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
+    "/api/v1/storage-locations/bindings/media-cache/change-preview": {
+      "post": {
+        "operationId": "preview_media_cache_binding_api_v1_storage_locations_bindings_media_cache_change_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaCacheBindingChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaCacheBindingPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Media Cache Binding",
         "tags": [
           "storage-locations"
         ]

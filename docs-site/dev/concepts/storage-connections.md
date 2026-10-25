@@ -199,7 +199,7 @@ import-from-connection (202)
 
 ## 内容身份与兼容回填
 
-外部连接器负责复制导入；平台对象按保存位置使用默认 StorageService 或受控 S3 连接的当前凭据执行 I/O。内部 storage_locations/storage_bindings 记录默认平台位置和九用途的桶，不复制连接器密码。目前头像、报告附件、审计归档、导出、导入暂存和数据集原件开放受控的新写入位置变更，其余三用途仍保持固定映射。配置与固定记录不符时登记会失败；用途新分配切换不搬迁历史对象；改变已有对象的物理地址须独立完成定位、迁移与对账。
+外部连接器负责复制导入；平台对象按保存位置使用默认 StorageService 或受控 S3 连接的当前凭据执行 I/O。内部 storage_locations/storage_bindings 记录默认平台位置和九用途的桶，不复制连接器密码。目前头像、报告附件、审计归档、导出、导入暂存、数据集原件和媒体缓存开放受控的新写入位置变更，annotations和training两用途仍保持固定映射。配置与固定记录不符时登记会失败；用途新分配切换不搬迁历史对象；改变已有对象的物理地址须独立完成定位、迁移与对账。
 
 每个 DatasetItem 可反向关联一份 DatasetAsset 内容修订及 DatasetAssetLocation。新上传、ZIP 与连接器复制使用独立上传 UUID 的稳定托管键，新 Item 在 metadata.storage_relative_path 保存逻辑相对路径，供 Scene、点云帧分组和导出复用；扫描保留真实键并单独分配重名后缀。托管根下 `_objects/<upload UUID>/` 为平台写入保留区，手工导入目录应放在该保留区以外，普通 UUID 场景目录完整保留。已核验内容以 SHA-256 和大小固定，数据库拒绝修改；派生图片继续由 ImagePyramidAsset/generation 管理。
 
@@ -253,7 +253,7 @@ API/worker 各自加载根映射；Celery `worker_direct` 加实际 hostname 校
 
 位置登记/修改仅超管；项目管理员按 global 或 use_user_ids 使用和探测，员工不得枚举目录。每页重新检查当前授权，游标绑定位置、修订、节点、路径摘要和目录快照。现有连接通过 connection_id 关联位置；凭据仍由 StorageConnection/Fernet 持有，未复制。连接编辑使用独立 revision（迁移0210，旧行初始为1），按 connection→location 顺序加锁。候选认证与有界列举在行锁外进行，不修改 ORM 原配置；验证匹配的 SFTP 位置时复用 SftpAccess 的固定公钥与地址约束，普通复制连接继续使用系统 known_hosts。验证成功后加锁、重读当前修订、活跃账号/管理权限、原 API Key、最新白名单和引用，再原子发布。有效名称编辑仅推进连接 revision，实际配置变化或显式凭据轮换才推进位置 config_revision；旧探测因此失效。有内容/用途引用时拒绝实际配置改向或删除。删除无引用连接级联清理关联与探测，既有项目级外键行为保持一致。
 
-九用途绑定查询只读，缺失不自动 bootstrap，共桶不合并用途。头像、报告附件、审计归档、导出、导入暂存和数据集原件提供经预览确认的用途切换入口，其余三用途保持锁定；DatasetSource 提供下文的只读观测扫描及显式登记。完整接口见[受控存储位置](/api/guides/storage-locations)，决策见[ADR 0092](/dev/adr/archive/0092-controlled-storage-registry)。
+九用途绑定查询只读，缺失不自动 bootstrap，共桶不合并用途。头像、报告附件、审计归档、导出、导入暂存、数据集原件和媒体缓存提供经预览确认的用途切换入口，annotations和training两用途保持锁定；DatasetSource 提供下文的只读观测扫描及显式登记。完整接口见[受控存储位置](/api/guides/storage-locations)，决策见[ADR 0092](/dev/adr/archive/0092-controlled-storage-registry)。
 
 ## 持久目录扫描基座
 
@@ -307,13 +307,13 @@ Dataset.created_by 是目录数据集的最小管理边界：活跃超管管理�
 
 缓存命中只替代来源物理可达性，不绕过任务分派、成员、账号、来源/位置启用和接受修订；最终事务仍锁住 Connection/Location/Source/Item/Asset，不再锁住与逻辑身份无关的 Probe。缓存缺失或损坏时重新按来源物理合同读取。首次严格读源成功后，独立连接提交可选保留；不提交调用方事务，外层持有业务锁时允许有界跳过保留。额度满时最多淘汰八代未被读取的完整缓存，再尝试保留；单图超过位置总额度时不淘汰。调用方显式管理外层 Connection 事务时跳过独立保留，继续严格来源读取。质量检查保持 `capture_for_quality` 的来源语义和坏图诊断，不借用缓存掩盖来源变化。
 
-`original_cache_entries` 独立保存来源位置、Asset/SHA、大小、策略修订、目的 binding/服务器指纹和 generation；没有指向业务对象的级联外键。上传前独立提交预约，位置级事务锁保证并发请求不超订；上传中、已就绪与待删除对象均占用原图额度。该额度与预览占用、整个对象桶和物理磁盘容量分别计量。同一 Asset 只允许一代正在填充或发布的缓存，旧代回收记录继续保留。
+`original_cache_entries` 独立保存来源位置、Asset/SHA、大小、策略修订、保存目标事实和 generation；没有指向业务对象的级联外键。上传前独立提交预约，位置级事务锁保证并发请求不超订；上传中、已就绪与待删除对象均占用原图额度。该额度与预览占用、整个对象桶和物理磁盘容量分别计量。同一 Asset 只允许一代正在填充或发布的缓存，旧代回收记录继续保留。
 
-成功 PUT 后按块重新核验实际完整对象的大小和 SHA，再在短事务内复验策略、额度、修订与 binding，发布独立 `original_cache` AssetLocation。它不会覆盖 `managed_original` 或未知 locator。验证复用输入严格快照的图片资格，以相同 SHA 证明完整字节，不额外占用请求快照名额。读取缓存仍需捕获完整严格快照，不能用预览替换。
+成功 PUT 后按块重新核验实际完整对象的大小和 SHA，再在短事务内复验策略、额度、来源修订及保存目标，发布独立 `original_cache` AssetLocation。它不会覆盖 `managed_original` 或未知 locator。验证复用输入严格快照的图片资格，以相同 SHA 证明完整字节，不额外占用请求快照名额。读取缓存仍需捕获完整严格快照，不能用预览替换。
 
 读租约固定六十秒，正常捕获结束即释放；请求取消但 SDK 线程未结束时保留租约至到期。淘汰在获得缓存行锁后复查租约。TTL 默认一天，从预约时固定，访问只更新最近使用时间；配额收缩、策略禁用、业务删除和过期均由 `cleanup` 队列每分钟分批核对。先移除精确旧代 locator，再删除自有 key，确认删除后才释放额度；删除失败继续计费并持久重试。已确认 PUT 的验证失败可立即回收；不确定 PUT 和失联写入保留七天重扫窗口。服务器指纹不符时保留记录并停止向新目标发送删除。窗口与有期限租约不承诺覆盖无限期停顿的远端 I/O。
 
-对象位于 media-cache 的 `original-cache/v1/<Asset>/<SHA>/<generation>`，不受 `videos/` 生命周期影响。清理只处理这些资源所有者生成的精确键，不触及来源文件、托管原件或冻结训练副本。迁移 `0213` 在有缓存记录、原图缓存 locator 或按需策略时拒绝降级；应用回退须保留账本及恢复任务。
+旧对象保留 media-cache 的 `original-cache/v1/<Asset>/<SHA>/<generation>`；新对象以保存引用中的物理前缀定位，逻辑后缀为 `original-cache/v1/<Asset>/<SHA>/<Entry UUID>/payload`，不受 `videos/` 生命周期影响。清理只处理这些资源所有者生成的精确键，不触及来源文件、托管原件或冻结训练副本。迁移 `0213` 在有缓存记录、原图缓存 locator 或按需策略时拒绝降级；应用回退须保留账本及恢复任务。
 
 ## 外部 S3 持续引用
 
@@ -539,7 +539,7 @@ GET分页历史只读；显式POST创建或复用活动任务，接口和通用�
 
 上传先提交pending事实，再在durable storage permit中写入并完整回读。真实线程结束后，重新锁定账号、复核Key原证明、原头像引用CAS及维护修订，才同事务发布ready新引用和旧对象retired意图。pending不按时间自动回收；进程崩溃、发布应答不确定或未确认物理收尾时保留待核对。历史token缺少独立记录时不从当前桶读删，也不以文件名或当前metadata自动接管，用户重新上传即可建立新归属。
 
-匿名读取只接受ready记录，按精确键有界读取，关闭句柄并验证完整SHA/大小后再返回图片或304。替换、内置选择和清除先提交引用变化及退休意图，再清理原对象；退休行无任何用户引用时由cleanup队列重试保存位置的精确删除。失败保留责任，pending不进入自动清理。旧默认映射的离线恢复只允许更换bucket/identity，状态、账号快照和内容回执均受保护；现有九桶恢复尚不覆盖新代次或外部目标。头像新写入绑定可由超级管理员经真实托管探针和五分钟预览确认切换，报告附件、审计归档、导出、导入暂存和数据集原件另有同等受控入口，其他三用途保持锁定。历史用户引用缺少owner时阻止切换，不能从当前桶补造。
+匿名读取只接受ready记录，按精确键有界读取，关闭句柄并验证完整SHA/大小后再返回图片或304。替换、内置选择和清除先提交引用变化及退休意图，再清理原对象；退休行无任何用户引用时由cleanup队列重试保存位置的精确删除。失败保留责任，pending不进入自动清理。旧默认映射的离线恢复只允许更换bucket/identity，状态、账号快照和内容回执均受保护；现有九桶恢复尚不覆盖新代次或外部目标。头像新写入绑定可由超级管理员经真实托管探针和五分钟预览确认切换，报告附件、审计归档、导出、导入暂存、数据集原件和媒体缓存另有同等受控入口，annotations和training两用途保持锁定。历史用户引用缺少owner时阻止切换，不能从当前桶补造。
 
 ## 评论附件的独立存储归属
 
@@ -611,7 +611,7 @@ schema4 单件原件／副本5GiB、最多1000Task、唯一原件20GiB；旧媒�
 
 ## 审计归档的受控新分配
 
-`audit_archive_storage` 沿既有 `AuditArchiveOutput` 在候选提交前分配固定目标，连接→位置→绑定的锁序与预览确认串行。旧 schema1 保持初始解释；schema2 保存实际 Location、用途代次、端点／桶／完整受控键及物理身份。命名空间为连接基前缀下 `_aap_managed/audit-archive/`，公开逻辑键不变。封闭的 `managed_s3_target` 只接受头像、报告附件、审计归档、导出、导入暂存和数据集原件六个用途，不承担通用存储注册职责。
+`audit_archive_storage` 沿既有 `AuditArchiveOutput` 在候选提交前分配固定目标，连接→位置→绑定的锁序与预览确认串行。旧 schema1 保持初始解释；schema2 保存实际 Location、用途代次、端点／桶／完整受控键及物理身份。命名空间为连接基前缀下 `_aap_managed/audit-archive/`，公开逻辑键不变。封闭的 `managed_s3_target` 只接受头像、报告附件、审计归档、导出、导入暂存、数据集原件和媒体缓存六个用途，不承担通用存储注册职责。
 
 已经提交的 pending 不随绑定更新改变目标，ready 永久保留；分配新归档才采用当前绑定。I/O 前从保存位置捕获当前连接凭据，允许正常密钥轮换，不比较历史配置修订；端点、桶或受控前缀变化仍拒绝。历史记录保护位置和连接。物理读取沿用 HEAD／IfMatch／完整 SHA 与 JSONL 语义核验，不新增供应商版本历史合同。
 
@@ -619,7 +619,7 @@ schema4 单件原件／副本5GiB、最多1000Task、唯一原件20GiB；旧媒�
 
 ## 报告附件的受控新分配
 
-报告附件与头像、审计归档、导出、导入暂存和数据集原件共用封闭六用途 S3 目标／探针实现，不增加配置注册中心。新 `BugAttachmentUpload` 在物理写入前持久化 pending，分配锁按连接、位置、用途绑定排序，与确认切换串行；已经分配的 owner 不因绑定更新改变。旧 schema1 保持 legacy、原键与代次解释；schema2 固定准确 Location／endpoint／bucket／完整受控键和物理身份，公开逻辑键继续与报告绑定。
+报告附件与头像、审计归档、导出、导入暂存、数据集原件和媒体缓存共用封闭七用途 S3 目标／探针实现，不增加配置注册中心。新 `BugAttachmentUpload` 在物理写入前持久化 pending，分配锁按连接、位置、用途绑定排序，与确认切换串行；已经分配的 owner 不因绑定更新改变。旧 schema1 保持 legacy、原键与代次解释；schema2 固定准确 Location／endpoint／bucket／完整受控键和物理身份，公开逻辑键继续与报告绑定。
 
 物理访问从保存位置取得当前连接凭据，只比较准确物理身份，不要求历史配置修订等于密钥轮换后的修订。实际 PUT 返回的 VersionId 单独保存一次，后续 HEAD／GET／DELETE 固定该版本；显式 null version 可缺少响应版本头，非 null 回执须准确匹配。原权限、完整内容核验、期限、读许可和退休责任继续有效，未知写入保留 pending。
 
@@ -652,3 +652,20 @@ DatasetAssetLocation和DatasetAuxiliaryOriginal的nullable storage_ref保存当�
 OriginalSource、ReplicaFacts、LocationFacts及辅助原件FACTS的字段集合保持，旧收据与冻结摘要无需改写。新引用的location_revision使用分配时修订；独立传输准备捕获当前连接凭据、白名单及实时修订，物理I/O只在既有维护许可内进行。原认证原件、预标、派生、导出和训练等消费者只透传该客户端上下文，业务算法和权限规则保持。当前物理endpoint／桶／受控根必须与保存地址相符，正常凭据轮换不改变内容身份。
 
 Retirement复用现有位置／桶／key／storage_identity及保存修订；只读核验以当前登记端点作为候选，并用保存的物理身份严格核对后准备target，将引用保存到既有Verification配置。位置保护包含所有状态的Creation、当前副本、辅助原件和Retirement；这不开放物理回收。九桶恢复遇到新地址事实在修改映射前拒绝，禁止把未知新目标改解释为默认桶。
+
+## 媒体缓存的保存位置与同源交付
+
+`media_cache_storage`统一解释media-cache新分配的schema2地址，`managed_s3_target`只在物理阶段使用当前连接凭据。引用包含位置、分配时配置修订、用途代次、endpoint、bucket、完整物理prefix、storage identity和受控`key_prefix`；地址无密钥且不可变。实时目标须仍对应相同endpoint／bucket／受控根，普通密钥轮换不重写地址或内容事实。旧NULL和schema1明确沿原A解释，不从当前binding推断历史。
+
+| 所有者                  | 保存责任                                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `OriginalCacheEntry`    | 新增nullable `storage_ref`；来源位置修订、scope、配额、TTL和读租约保持原语义，缓存读取及清理核对保存目标。                           |
+| `ThumbnailOutput`       | 独立保存目录预览、Dataset和Task普通缩略图的输入／目标、首次写期限、完整SHA／长度及提供方回执；业务行仅关联可空指针，不级联删除责任。 |
+| `ImagePyramidOutput`    | 既有inventory、写入租约和状态合同保持，新增schema2目标；算法及瓦片规格不变。                                                         |
+| `VideoDerivativeOutput` | 既有内容清单、尝试和清理责任保持，新增schema2目标；转码和采样合同不变。                                                              |
+
+分配按Connection→Location→Binding短事务固定目标并保存owner，提交后才进行条件PUT和完整读回，不跨远端I/O持有管理／业务行锁。目录预览在最终来源锁前预分配并封存候选，最终只在原授权、内容和世代复核通过后关联；普通缩略图使用canonical原件reader取得实际保存位置，维持既有编码、尺寸和blurhash。失败或未知关闭留下独立责任，已有清理任务按保存位置收尾，不新建服务、调度或公开Worker签名。
+
+`thumbnail_outputs`及金字塔／视频适配器在原有业务授权和完整输出核验后签发`media_cache_urls`短期能力。`media_cache_response`只交付准确输出／relative，支持GET、HEAD、单Range及If-Range；HMAC audience与登录分离，token包含保存引用摘要、SHA、大小和到期，不含endpoint或凭据。读取重核当前目标及Gate，远端Body／client与实际线程收尾继续由StorageOperation管理。新URL同源，不依赖B端点的浏览器可达性或CORS，也不交给A的`/minio`代理；旧schema1签名合同保持。
+
+历史统计分别列六类owner记录，不相加冒充对象数；平台占用按实际endpoint、bucket和完整key分类，外部B不计入默认A总量。building、failed、retiring和deleted等保存状态均继续保护位置，不能通过删除业务行消除责任。迁移0252只增列、表和约束，不补写旧定位；有新事实时拒绝破坏性降级，现有九桶恢复在修改映射前拒绝未覆盖的新地址。此功能不提供历史对象搬迁、跨目标完整恢复或物理退役许可，annotations和training用途保持锁定。

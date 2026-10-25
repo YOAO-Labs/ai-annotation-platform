@@ -118,7 +118,7 @@ async def claim(db, output, ttl_seconds=900):
 
 
 @asynccontextmanager
-async def access(db, receipt, guard):
+async def access(db, receipt, guard, *, require_enabled=True):
     """Own client construction through actual close under an independent permit."""
     owner = physical.resolve(receipt)
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
@@ -126,12 +126,20 @@ async def access(db, receipt, guard):
     try:
         location_id = uuid.UUID(owner.ref["location_id"])
         revision = await storage_access.check(session, location_id)
+        target = await physical.transport_target(
+            session, receipt, require_enabled=require_enabled
+        )
         await session.commit()
         async with await storage_access.acquire(
             session, location_id, purpose(receipt.id), expected_revision=revision
         ) as permit:
             await guard(permit.revision)
-            context, entered = physical.open_storage(), []
+            context = (
+                physical.open_storage()
+                if target is None
+                else physical.open_storage(target=target)
+            )
+            entered = []
 
             def open_owned():
                 value = context.__enter__()
@@ -483,7 +491,7 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                 )
                 await db.commit()
 
-            async with access(db, receipt, guarded) as client:
+            async with access(db, receipt, guarded, require_enabled=False) as client:
                 count = await originals.physical(
                     physical.delete_output,
                     client,

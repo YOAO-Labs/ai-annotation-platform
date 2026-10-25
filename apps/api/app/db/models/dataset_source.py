@@ -365,6 +365,11 @@ class DatasetSourcePreview(Base):
     """One source-owned derivative; never an original or a presigned thumbnail."""
 
     __tablename__ = "dataset_source_previews"
+    thumbnail_output_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("thumbnail_outputs.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     source_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     path_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
     asset_id: Mapped[uuid.UUID] = mapped_column(
