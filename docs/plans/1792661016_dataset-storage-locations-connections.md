@@ -1,12 +1,14 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A、B1–B12 与 B13 各切片至 B3-M1 completed locally；Tracker M2 未启动。B14 已完成头像新写入位置受控切换及历史定位验收；B15报告附件、B16审计归档、B17导出均已完成本片验收与主树集成；B18导入存储接线已完成本地验收、主树集成与人工0250刷新，原有Mask计划摘要拒绝单列，另外四用途仍锁定。完整 E02 继续执行，不分配发布版本。
+> 状态：E02-A、B1–B12 与 B13 各切片至 B3-M1 completed locally；Tracker M2 未启动。B14 已完成头像新写入位置受控切换及历史定位验收；B15报告附件、B16审计归档、B17导出均已完成本片验收与主树集成；B18导入存储接线已完成本地验收、主树集成与人工0250刷新，Mask计划摘要问题已窄修并验证实际标注发布，另外四用途仍锁定。完整 E02 继续执行，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 > 优先级：P0（M1 基础）；负责人角色：后端、运维，前端协作。
 > 依赖：EPIC-01 的标识与适配契约；EPIC-11 的最小权限规则必须随 M1 一起交付。
 > 下游：EPIC-03 原地注册、EPIC-05 读取、EPIC-07 迁移、EPIC-09 存储控制台。
+
+2026-10-25，按用户明确授权修复直接阻断本轮Mask导入发布的旧摘要错误，来源`74e2947e7`、主树合入`9e78c7882`。只统一计划生成时的规范化与摘要顺序，保留Worker防篡改校验；47项回归及真实A／B发布、切回A后按保存B续做、篡改拒绝通过，见[E09-B11补充修复](1792661016_dataset-storage-console-boundaries.md#e09-b11-补充修复mask-计划摘要与标注发布)。不恢复万条训练测量或扩张其他业务专项。
 
 ## 本轮定稿：E02-B16／E09-B9 审计归档用途切换
 
