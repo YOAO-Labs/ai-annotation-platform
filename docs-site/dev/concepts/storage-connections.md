@@ -668,4 +668,6 @@ Retirement复用现有位置／桶／key／storage_identity及保存修订；只
 
 `thumbnail_outputs`及金字塔／视频适配器在原有业务授权和完整输出核验后签发`media_cache_urls`短期能力。`media_cache_response`只交付准确输出／relative，支持GET、HEAD、单Range及If-Range；HMAC audience与登录分离，token包含保存引用摘要、SHA、大小和到期，不含endpoint或凭据。读取重核当前目标及Gate，远端Body／client与实际线程收尾继续由StorageOperation管理。新URL同源，不依赖B端点的浏览器可达性或CORS，也不交给A的`/minio`代理；旧schema1签名合同保持。
 
+同源交付每进程最多4路物理传输，另允许最多64个请求异步等候、最长30秒；等待阶段不打开数据库许可或provider。取消／超时释放等待名额，实际传输名额仍在物理关闭与许可结算后释放，正常网格请求不会仅因瞬时超过4张而立即缺图。
+
 历史统计分别列六类owner记录，不相加冒充对象数；平台占用按实际endpoint、bucket和完整key分类，外部B不计入默认A总量。building、failed、retiring和deleted等保存状态均继续保护位置，不能通过删除业务行消除责任。迁移0252只增列、表和约束，不补写旧定位；有新事实时拒绝破坏性降级，现有九桶恢复在修改映射前拒绝未覆盖的新地址。此功能不提供历史对象搬迁、跨目标完整恢复或物理退役许可，annotations和training用途保持锁定。

@@ -27,6 +27,13 @@ SHA = hashlib.sha256(RAW).hexdigest()
 ETAG = '"provider-version-one"'
 
 
+@pytest.fixture(autouse=True)
+def isolated_admission(monkeypatch):
+    # Each pytest function owns its event loop; production keeps one API loop.
+    monkeypatch.setattr(service, "_slots", asyncio.BoundedSemaphore(4))
+    monkeypatch.setattr(service, "_waiting", threading.BoundedSemaphore(64))
+
+
 def reference(identifier, *, registered=True, family="thumbnails"):
     endpoint = (
         "http://registered.invalid"
@@ -538,20 +545,81 @@ async def test_cancelled_read_with_failed_close_preserves_uncertainty(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_fixed_transfer_admission_is_released(monkeypatch):
+async def test_grid_requests_wait_for_physical_close_without_extra_io(monkeypatch):
     harness = Harness(monkeypatch)
-    first = await service.response(harness.capability())
-    second = await service.response(harness.capability())
-    third = await service.response(harness.capability())
-    fourth = await service.response(harness.capability())
-    with pytest.raises(HTTPException) as caught:
-        await service.response(harness.capability())
-    assert caught.value.detail == {"code": "media_cache_busy"}
-    for response in (first, second, third, fourth):
+    opened = [await service.response(harness.capability()) for _ in range(4)]
+    reads = harness.db_reads
+    waiting = asyncio.create_task(service.response(harness.capability()))
+    await asyncio.sleep(0)
+    try:
+        assert not waiting.done(), (
+            "A normal grid burst must wait instead of losing its fifth image"
+        )
+        assert harness.db_reads == reads and len(harness.gets) == 4
+        await collect(opened.pop(0))
+        response = await asyncio.wait_for(waiting, 1)
+        assert len(harness.gets) == 5
         await collect(response)
-    # An additional response can be admitted after all physical closes settle.
-    response = await service.response(harness.capability())
-    await collect(response)
+    finally:
+        if not waiting.done():
+            waiting.cancel()
+        await asyncio.gather(waiting, return_exceptions=True)
+        for response in opened:
+            await collect(response)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_waiting_timeout_or_cancellation_does_not_take_a_slot(
+    monkeypatch, cancel
+):
+    harness = Harness(monkeypatch)
+    opened = [await service.response(harness.capability()) for _ in range(4)]
+    reads = harness.db_reads
+    monkeypatch.setattr(service, "ADMISSION_SECONDS", 0.01 if not cancel else 30)
+    waiting = asyncio.create_task(service.response(harness.capability()))
+    try:
+        if cancel:
+            await asyncio.sleep(0)
+            assert not waiting.done()
+            waiting.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiting
+        else:
+            with pytest.raises(HTTPException) as caught:
+                await waiting
+            assert caught.value.detail == {"code": "media_cache_busy"}
+        assert harness.db_reads == reads and len(harness.gets) == 4
+        await collect(opened.pop(0))
+        admitted = await service.response(harness.capability())
+        await collect(admitted)
+    finally:
+        if not waiting.done():
+            waiting.cancel()
+        await asyncio.gather(waiting, return_exceptions=True)
+        for response in opened:
+            await collect(response)
+
+
+@pytest.mark.asyncio
+async def test_waiting_capacity_is_bounded_before_metadata_or_provider_io(monkeypatch):
+    harness = Harness(monkeypatch)
+    monkeypatch.setattr(service, "_waiting", threading.BoundedSemaphore(1))
+    opened = [await service.response(harness.capability()) for _ in range(4)]
+    waiting = asyncio.create_task(service.response(harness.capability()))
+    await asyncio.sleep(0)
+    try:
+        assert not waiting.done()
+        reads = harness.db_reads
+        with pytest.raises(HTTPException) as caught:
+            await service.response(harness.capability())
+        assert caught.value.detail == {"code": "media_cache_busy"}
+        assert harness.db_reads == reads and len(harness.gets) == 4
+    finally:
+        waiting.cancel()
+        await asyncio.gather(waiting, return_exceptions=True)
+        for response in opened:
+            await collect(response)
 
 
 @pytest.mark.asyncio

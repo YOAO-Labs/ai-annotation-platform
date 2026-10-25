@@ -26,8 +26,10 @@ from app.services.original_playback_response import select_range
 CHUNK_BYTES = 256 * 1024
 RESPONSE_SECONDS = 120
 READ_SECONDS = 30
+ADMISSION_SECONDS = READ_SECONDS
 THUMBNAIL_MAX_BYTES = 2 * 1024**2
-_slots = threading.BoundedSemaphore(4)
+_slots = asyncio.BoundedSemaphore(4)
+_waiting = threading.BoundedSemaphore(64)
 _FAMILIES = {
     "thumbnail": (ThumbnailOutput, "thumbnails"),
     "image-pyramid": (ImagePyramidOutput, "image-pyramids"),
@@ -395,11 +397,23 @@ class MediaCacheResponse(StreamingResponse):
             raise failure from None
 
 
+async def _admit():
+    """Queue normal image-grid bursts without opening metadata or provider I/O."""
+    if not _waiting.acquire(blocking=False):
+        raise _error("media_cache_busy")
+    try:
+        async with asyncio.timeout(ADMISSION_SECONDS):
+            await _slots.acquire()
+    except TimeoutError:
+        raise _error("media_cache_busy") from None
+    finally:
+        _waiting.release()
+
+
 async def response(capability, *, method="GET", range_header=None, if_range=None):
     """Transfer ownership to the response only after a pinned transport opens."""
     method = method.upper()
-    if not _slots.acquire(blocking=False):
-        raise _error("media_cache_busy")
+    await _admit()
     transfer = None
     pending = asyncio.create_task(_metadata(capability))
     try:
