@@ -153,6 +153,12 @@ broker 已确认且没有自动重投；新 worker 的正常写入作为对照�
 结果不明的故障注入不等于 TCP 响应丢失实测；本轮仍限宿主进程与最小 ASGI 路由，冷消费者
 工件组合、业务 request ID 遗留边界和暂缓 Learning 读取继续按唯一台账跟踪。
 
+当前冷消费者批次入口为 `tests/test_audit_consumers_cold.py`：复用生产 API 镜像，分别以普通
+API 与只允许追加的 worker LOGIN 启动，覆盖真实 HTTP 查询／项目隔离／游标、CSV／JSON
+导出提交顺序、原队列消费、prefork 子进程丢失与显式重放、API 重启及完整 PostgreSQL 恢复。
+资源全部由既有边界验收器创建；仅在该隔离库撤销 API 的私表 SELECT，保留暂缓 Learning
+兼容权限。冷工件与运行收据通过后才更新台账，不重复维护工具及宿主元数据的已通过批次。
+
 ## Audit 全局查询 owner {#audit-global-query-owner}
 
 源码 `d1da388c9` 将 super-admin 全局列表和 CSV／JSON 导出接入固定 `aap_audit_v1.query_events(jsonb)`；同事务查询遵守原 autoflush，不提交事务。总数在游标／分页前计算，排序及过滤保持。导出仍先检查 50,000 行上限，成功后记录 `audit.export` 并提交，再返回流。内部 ID 使用完整有符号 int64 字符串，公开 API 保持整数；日期、游标、actor UUID 及 INET 序列化按实际旧 PostgreSQL／asyncpg 行为对照。project-admin 项目范围与跨域事实仍由原 API 持有。

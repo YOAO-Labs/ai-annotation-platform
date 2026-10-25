@@ -1176,6 +1176,7 @@ TEST_FILES = (
     "tests/test_audit_fixture_cleanup_native.py",
     "tests/test_audit_maintenance_module_live.py",
     "tests/test_audit_metadata_delivery_live.py",
+    "tests/test_audit_consumers_cold.py",
     "tests/test_labeling_scale_seed_operations.py",
     "tests/test_scale_seed_workspace_native.py",
     "tests/test_workspace_e2e_native.py",
@@ -8774,6 +8775,7 @@ SELECT pg_catalog.jsonb_build_object(
             "tests/test_identity_embedded_acl_live.py",
             "tests/test_worktree_identity_runtime_role_live.py",
             "tests/test_labeling_module_api_cold.py",
+            "tests/test_audit_consumers_cold.py",
         }:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
             api_bootstrap_storage["buckets"] = resources["buckets"]
