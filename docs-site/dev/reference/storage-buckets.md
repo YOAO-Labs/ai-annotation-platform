@@ -36,7 +36,9 @@ last_reviewed: 2026-10-25
 
 ## 读写路由规则
 
-多阶段预标的临时 ROI 使用 import 桶 `prediction-inputs/<attempt UUID>/`。上传前持久登记，处理结束主动回收，失败或过期由 `cleanup` 队列恢复；不确定 PUT 的记录保留重扫窗口，桶的七天生命周期兜底。此策略只处理有归属的新 attempt，旧 `roi-crops/` 与其他导入产物继续采用各自原有合同。完整预算及恢复合同见[预测流水线](../concepts/prediction-pipeline.md#crop-投递通用化)。
+预标临时输入及帧／ROI供图由独立PredictionInputLease保存import位置和`prediction-inputs/<attempt UUID>/`前缀，注册S3目标在连接基前缀下使用`_aap_managed/import/`命名空间。上传前持久登记，处理结束主动回收，失败或过期由`cleanup`队列按保存位置与准确版本恢复；未知写入／关闭保留责任。平台整桶七天过期规则已移除，不能用lifecycle兜底替代归属清理；旧无归属帧／crop不自动认领。完整预算见[预测流水线](../concepts/prediction-pipeline.md#crop-投递通用化)。
+
+Dataset／Task直传的Creation单独保存暂存引用，最终原件位置保持独立；MaskFormatUpload在签发前保存位置，MaskFormatImport继承准确引用并保持逻辑键／解析计划。两类远端暂存当前不自动删除，不借本次切换新增GC。平台盘点按准确endpoint、bucket和完整物理键分类，外部B不算入默认A的对象字节；增量账目仍为已接入生产者的partial覆盖。
 
 完整原图缓存的内部资源层使用 media-cache 桶 `original-cache/v1/<Asset>/<SHA>/<generation>`，由独立配额/TTL 账本与 `cleanup` 队列回收，不挂桶级过期规则，也不依赖旧的缓存前缀自动路由。完整副本以 `original_cache` AssetLocation 登记，和预览、源原件、托管原件、训练副本分开。公开按需策略与离线读取仍待接入；现有来源读取不会自动创建该缓存。详见[完整原图缓存的资源归属](../concepts/storage-connections.md#完整原图缓存的资源归属)。
 
@@ -69,13 +71,13 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 
 ## 容量监控与日常巡检
 
-- **前端入口**：存储管理展示真实位置、分节点探测和九用途映射，不再重复数据集目录。用途映射来自 `GET /api/v1/storage-locations/bindings`；共享桶不合并用途行。`read_policy=consumer_owned_compatibility`保留各业务固定定位及旧读取路径，`write_policy=deployment_mapping`描述新写入的兼容部署目标，其余五用途的`change_policy=legacy_mapping_locked`保持锁定；头像、报告附件、审计归档和导出使用`write_policy=current_binding`，分别通过`reviewed_avatar_switch`、`reviewed_bug_attachment_switch`、`reviewed_audit_archive_switch`和`reviewed_export_switch`支持经预览确认切换。位置配置修订与用途绑定代次独立返回；配置匹配不代表健康或迁移资格。
+- **前端入口**：存储管理展示真实位置、分节点探测和九用途映射，不再重复数据集目录。用途映射来自 `GET /api/v1/storage-locations/bindings`；共享桶不合并用途行。`read_policy=consumer_owned_compatibility`保留各业务固定定位及旧读取路径，`write_policy=deployment_mapping`描述新写入的兼容部署目标，其余四用途的`change_policy=legacy_mapping_locked`保持锁定；头像、报告附件、审计归档、导出和导入暂存使用`write_policy=current_binding`，分别通过`reviewed_avatar_switch`、`reviewed_bug_attachment_switch`、`reviewed_audit_archive_switch`、`reviewed_export_switch`和`reviewed_import_switch`支持经预览确认切换。位置配置修订与用途绑定代次独立返回；配置匹配不代表健康或迁移资格。
 - **统计边界**：平台对象字节读取持久盘点快照，已采纳源索引规模按准确来源地址去重，二者分列。物理容量、提供方配额及其他缺少可靠测量的指标保持未提供；刷新只查询已有记录，不同步列举全部桶。快照和分项口径见下文。
 - **巡检要点**：
   - `media-cache` 体积主要受 `videos/` 前缀的 30 天 Lifecycle 约束；若出现异常增长，通常意味着大量长视频被高频随机寻帧，可结合 `video_frame_service` 缓存命中率排查。
   - `avatars` 单对象不超过约 40 KB（`256×256` WebP），总体积随注册用户数线性增长；若对象数显著多于用户数，可排查是否存在 `users.avatar_ref` 未引用的孤儿对象。
 
-数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本。五用途保持兼容部署映射，头像、报告附件、审计归档和导出可经真实托管探针及预览确认切换新写入位置；已固定对象按各自owner记录读取，历史头像定位缺失时阻止该用途切换，不声称全部历史定位已覆盖。用途策略不复用外部引用适配器的只读能力声明。
+数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本。四用途保持兼容部署映射，头像、报告附件、审计归档、导出和导入暂存可经真实托管探针及预览确认切换新写入位置；已固定对象按各自owner记录读取，历史头像定位缺失时阻止该用途切换，不声称全部历史定位已覆盖。用途策略不复用外部引用适配器的只读能力声明。
 
 独立Task新上传的最终原件位于annotations用途的 `__aap_task_originals__/<Task UUID>/<Creation UUID>/payload`。浏览器只写import暂存区，完整核验封存后保存独立TaskOriginal；删除业务Task或测试fixture不会按前缀删除该原件。历史未知Task不补造归属，全部原件读取者的固定位置接入仍须独立完成。
 

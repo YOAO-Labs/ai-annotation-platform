@@ -255,13 +255,15 @@ function ConsoleOwner() {
                               {(purpose === "avatars" ||
                                 purpose === "bug-reports" ||
                                 purpose === "audit-archive" ||
-                                purpose === "export") &&
+                                purpose === "export" ||
+                                purpose === "import") &&
                                 binding?.state === "configured" &&
                                 [
                                   "reviewed_avatar_switch",
                                   "reviewed_bug_attachment_switch",
                                   "reviewed_audit_archive_switch",
                                   "reviewed_export_switch",
+                                  "reviewed_import_switch",
                                 ].includes(binding.change_policy) && (
                                   <StorageBindingChangeButton
                                     purpose={purpose}
@@ -276,6 +278,7 @@ function ConsoleOwner() {
                                           ["bug-attachment-binding-candidates"],
                                           ["audit-archive-binding-candidates"],
                                           ["export-binding-candidates"],
+                                          ["import-binding-candidates"],
                                           ["storage-buckets"],
                                         ].map((queryKey) => client.invalidateQueries({ queryKey })),
                                       );

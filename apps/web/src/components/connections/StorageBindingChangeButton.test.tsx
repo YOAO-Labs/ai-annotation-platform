@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type {
   BugAttachmentBindingPreview,
   ExportBindingPreview,
+  ImportBindingPreview,
   StorageBindingOut,
 } from "@/api/generated/types.gen";
 import { ApiError } from "@/api/client";
@@ -516,6 +517,120 @@ it("resets an export target that disappears during verification", async () => {
   );
   mountExport();
   const dialog = await openExport();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("目标位置已不存在");
+  expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+});
+
+function importReview(): ImportBindingPreview {
+  return {
+    ...reviewed(),
+    purpose: "import",
+    previous: {
+      ...binding,
+      purpose: "import",
+      bucket: "imports-a",
+      change_policy: "reviewed_import_switch",
+    },
+    history: {
+      lease_active: 1,
+      lease_cleanup_pending: 2,
+      lease_deleted: 3,
+      creation_staging: 4,
+      mask_uploads: 5,
+      mask_batches: 6,
+    },
+    capabilities: {
+      conditional_write: true,
+      full_read: true,
+      delete: true,
+      list: true,
+      list_versions: true,
+    },
+    impact_token: "reviewed-import-switch",
+  };
+}
+function mountImport() {
+  const client = createTestQueryClient();
+  clients.push(client);
+  const onApplied = vi.fn().mockResolvedValue(undefined);
+  render(
+    <QueryClientProvider client={client}>
+      <StorageBindingChangeButton
+        purpose="import"
+        binding={importReview().previous}
+        onApplied={onApplied}
+      />
+    </QueryClientProvider>,
+  );
+  return onApplied;
+}
+async function openImport() {
+  fireEvent.click(screen.getByRole("button", { name: "切换导入暂存位置" }));
+  const dialog = screen.getByRole("dialog", { name: "切换导入暂存位置" });
+  await within(dialog).findByRole("option", { name: target.name });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
+    target: { value: target.location_id },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
+  return dialog;
+}
+it("reviews all import owners without promising staging deletion and applies the import route", async () => {
+  api.previewBinding.mockResolvedValueOnce(importReview());
+  const onApplied = mountImport();
+  const dialog = await openImport();
+  await within(dialog).findByRole("region", { name: "导入暂存绑定变更预览" });
+  expect(api.bindingCandidates).toHaveBeenCalledWith("import", 0, expect.any(AbortSignal), 20);
+  expect(api.previewBinding).toHaveBeenCalledWith("import", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+  });
+  expect(
+    within(dialog).getByText(/预标临时输入：活动 1 · 待清理 2 · 已清理 3/),
+  ).toBeInTheDocument();
+  expect(within(dialog).getByText("直传暂存：已分配 4")).toBeInTheDocument();
+  expect(within(dialog).getByText(/格式导入：已分配上传 5 · 批次 6/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/直传和格式导入暂存不自动删除/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/最终原件位置不变/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/外部端点须供浏览器与模型服务访问/)).toHaveClass(
+    "text-xs",
+    "text-muted-foreground",
+  );
+  expect(api.applyBinding).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
+  await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+  expect(api.applyBinding).toHaveBeenCalledWith("import", {
+    expected_generation: 2,
+    target_location_id: target.location_id,
+    target_config_revision: 7,
+    impact_token: "reviewed-import-switch",
+  });
+});
+it("rejects a preview belonging to another purpose for import", async () => {
+  api.previewBinding.mockResolvedValueOnce(exportReview());
+  mountImport();
+  const dialog = await openImport();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+});
+it("explains the input version requirement when an import probe rejects it", async () => {
+  api.previewBinding.mockRejectedValueOnce(
+    new ApiError(409, "Unavailable", { code: "import_storage_versioning_required" }),
+  );
+  mountImport();
+  const dialog = await openImport();
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("启用目标桶版本控制");
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+});
+it("clears an import target that disappeared before its probe completed", async () => {
+  api.previewBinding.mockRejectedValueOnce(
+    new ApiError(404, "Missing", { code: "import_binding_target_missing" }),
+  );
+  mountImport();
+  const dialog = await openImport();
   expect(await within(dialog).findByRole("alert")).toHaveTextContent("目标位置已不存在");
   expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
   expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
