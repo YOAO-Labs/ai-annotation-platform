@@ -44,9 +44,19 @@ class Attempt:
 
 
 class Recorder:
-    def __init__(self, factory, producer, owner_id, endpoint_url, bucket):
+    def __init__(
+        self,
+        factory,
+        producer,
+        owner_id,
+        endpoint_url,
+        bucket,
+        *,
+        purpose="media_cache",
+    ):
         self.factory, self.producer, self.owner_id = factory, producer, owner_id
         self.endpoint_url, self.bucket = endpoint_url, bucket
+        self.purpose = purpose
         self.loop = asyncio.get_running_loop()
         self.attempts = []
 
@@ -59,7 +69,7 @@ class Recorder:
                 object_key=key,
                 producer=self.producer,
                 owner_id=self.owner_id,
-                purpose="media_cache",
+                purpose=self.purpose,
                 kind="create",
                 new_request=True,
                 evidence={

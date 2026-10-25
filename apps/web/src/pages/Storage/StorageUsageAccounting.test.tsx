@@ -316,6 +316,7 @@ it("explains only the producers returned by the summary and never treats retirem
   expect(screen.getByText(/已接入临时输入写入／清理/)).toBeVisible();
   expect(screen.queryByText(/已接入托管原件受控新增/)).not.toBeInTheDocument();
   expect(screen.queryByText(/已接入媒体缓存受控新增/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/已接入独立导出媒体受控新增/)).not.toBeInTheDocument();
   view.rerender(
     <StorageUsageAccounting
       accounting={{ ...accounting, producers: ["managed_original_creation"] }}
@@ -339,6 +340,7 @@ it("explains all covered media producers while retaining partial accounting and 
           "original_cache",
           "image_pyramid_outputs",
           "video_derivative_outputs",
+          "export_media_outputs",
         ],
       }}
       onAccessDenied={mocks.denied}
@@ -351,6 +353,7 @@ it("explains all covered media producers while retaining partial accounting and 
     ),
   ).toBeVisible();
   expect(screen.getByText("部分覆盖")).toBeVisible();
+  expect(screen.getByText(/已接入独立导出媒体受控新增；ZIP 和导出清理尚未计入/)).toBeVisible();
   expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
   expect(screen.getByText("+2 KiB")).toBeVisible();
 });
@@ -368,4 +371,21 @@ it("limits media coverage to producers explicitly present in the response", () =
   expect(screen.queryByText(/图像金字塔/)).not.toBeInTheDocument();
   expect(screen.queryByText(/视频派生物/)).not.toBeInTheDocument();
   expect(screen.queryByText(/已接入临时输入写入/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/已接入独立导出媒体受控新增/)).not.toBeInTheDocument();
+});
+
+it("explains an export-only producer response without claiming ZIP, deletion or cache coverage", () => {
+  render(
+    <StorageUsageAccounting
+      accounting={{ ...accounting, producers: ["export_media_outputs"] }}
+      onAccessDenied={mocks.denied}
+    />,
+  );
+  open();
+  expect(screen.getByText(/已接入独立导出媒体受控新增；ZIP 和导出清理尚未计入/)).toBeVisible();
+  expect(screen.queryByText(/已接入媒体缓存受控新增/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/已接入临时输入写入/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/已接入托管原件受控新增/)).not.toBeInTheDocument();
+  expect(screen.getByText("部分覆盖")).toBeVisible();
+  expect(screen.getByText(/不能据此推算平台总占用/)).toBeVisible();
 });

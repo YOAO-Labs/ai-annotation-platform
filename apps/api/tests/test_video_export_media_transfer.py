@@ -11,6 +11,7 @@ from app.services import export_media_transfer as transfer
 from app.services import managed_original_reader as reader
 from tests.test_export_media_storage import RAW
 from tests.test_export_media_transfer import runtime as runtime, until
+from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
 
 
 def video(runtime, monkeypatch):

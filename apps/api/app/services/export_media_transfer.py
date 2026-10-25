@@ -17,11 +17,12 @@ import time
 from types import SimpleNamespace
 import uuid
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as physical
 from app.services import managed_original_reader as reader, original_sources
+from app.services import media_cache_accounting
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
 
@@ -313,6 +314,7 @@ async def copy_source(
     if expected != {"sha256": source.sha256, "size_bytes": source.size_bytes}:
         reject()
     permits, admission, stage, failure, result = [], None, None, None, None
+    recorder = None
     try:
         permits.append(
             await _acquire(
@@ -358,12 +360,28 @@ async def copy_source(
         )
 
         target = await _async(_io_target(db, record))
+        recorder = media_cache_accounting.Recorder(
+            async_sessionmaker(storage_access.engine(db), expire_on_commit=False),
+            "export_media_outputs",
+            record.id,
+            owner.ref["endpoint_url"],
+            owner.bucket,
+            purpose="temporary",
+        )
 
         def write():
             with physical.open_storage(
-                record, **({"target": target} if target is not None else {})
+                record,
+                **({"target": target} if target is not None else {}),
+                single_attempt=True,
             ) as client:
-                physical.write_object(client, record, relative, stage.file.fileno())
+                physical.write_object(
+                    client,
+                    record,
+                    relative,
+                    stage.file.fileno(),
+                    accounting=recorder,
+                )
                 return physical.signed_url(client, record, relative)
 
         url = await physical_work(write)
@@ -423,6 +441,16 @@ async def copy_source(
                         break
         if admission is not None:
             admission.finish(getattr(failure, "storage_operation_unsettled", False))
+        if recorder is not None:
+            try:
+                await recorder.finish(
+                    settled=not getattr(failure, "storage_operation_unsettled", False)
+                )
+            except BaseException as publishing:
+                if failure is None:
+                    failure = publishing
+                else:
+                    _uncertainty(failure, publishing)
     if failure is not None:
         raise failure
     return result
