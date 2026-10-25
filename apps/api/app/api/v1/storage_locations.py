@@ -23,6 +23,10 @@ from app.schemas.storage_location import (
     ExportBindingCandidates,
     ExportBindingChange,
     ExportBindingPreview,
+    ImportBindingApply,
+    ImportBindingCandidates,
+    ImportBindingChange,
+    ImportBindingPreview,
     AuditArchiveBindingApply,
     AuditArchiveBindingCandidates,
     AuditArchiveBindingChange,
@@ -321,6 +325,60 @@ async def apply_export_binding(
     actor: User = Depends(super_admin),
 ):
     from app.services import export_binding_change as change
+
+    try:
+        result = await change.apply(
+            db,
+            payload,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            request=request,
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
+
+
+@router.get("/bindings/import/candidates", response_model=ImportBindingCandidates)
+async def import_binding_candidates(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(super_admin),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    from app.services import import_binding_change as change
+
+    return await change.candidates(db, limit=limit, offset=offset)
+
+
+@router.post("/bindings/import/change-preview", response_model=ImportBindingPreview)
+async def preview_import_binding(
+    payload: ImportBindingChange,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import import_binding_change as change
+
+    try:
+        result = await change.preview(
+            db, payload, actor, api_key_id=getattr(request.state, "api_key_id", None)
+        )
+    except change.PUBLIC_ERRORS as exc:
+        raise change.http_error(exc) from None
+    await db.commit()
+    return result
+
+
+@router.patch("/bindings/import", response_model=StorageBindingOut)
+async def apply_import_binding(
+    payload: ImportBindingApply,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import import_binding_change as change
 
     try:
         result = await change.apply(
