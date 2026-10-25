@@ -4,7 +4,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
@@ -45,7 +46,10 @@ _SUBMIT_REVIEW_CHUNK_SIZE = 200
 async def _refresh_core_row(db: AsyncSession, row_model, row) -> None:
     """Reload a just-committed core row through its public relation."""
     db.expire(row)
-    await get_core_row(db, row_model, row.id)
+    row_id = inspect(row).identity[0]
+    refreshed = await get_core_row(db, row_model, row_id, populate_existing=True)
+    if refreshed is None:
+        raise InvalidRequestError("Could not refresh instance")
 
 
 def _assert_batch_submit_authority(

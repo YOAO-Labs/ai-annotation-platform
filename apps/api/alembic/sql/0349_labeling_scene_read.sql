@@ -559,7 +559,7 @@ BEGIN
               FROM summaries;
             v_data := v_data || pg_catalog.jsonb_build_object('annotation_summaries', v_data_frames);
 
-        WHEN 'load_command_track' OR 'load_track_detail' OR 'load_timeline_track' THEN
+        WHEN 'load_command_track', 'load_track_detail', 'load_timeline_track' THEN
             v_project_id := (p_request ->> 'project_id')::uuid;
             v_scene_id := (p_request ->> 'scene_id')::uuid;
             v_track_id := p_request ->> 'track_id';
@@ -868,7 +868,7 @@ BEGIN
                 'camera_members', v_data_frames
             );
 
-        WHEN 'read_track_members' OR 'lock_track_members' THEN
+        WHEN 'read_track_members', 'lock_track_members' THEN
             v_project_id := (p_request ->> 'project_id')::uuid;
             IF v_action = 'lock_track_members' THEN
                 WITH selected AS MATERIALIZED (

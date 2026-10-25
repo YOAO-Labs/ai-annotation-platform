@@ -5,6 +5,8 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import HTTPException
+from sqlalchemy import inspect
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
@@ -51,7 +53,12 @@ async def _load_task_or_404(db: AsyncSession, task_id: UUID) -> Task:
 async def _refresh_annotation(db: AsyncSession, annotation: Annotation) -> None:
     """Refresh a committed annotation through Labeling's public row relation."""
     db.expire(annotation)
-    await get_core_row(db, annotation_row, annotation.id)
+    annotation_id = inspect(annotation).identity[0]
+    refreshed = await get_core_row(
+        db, annotation_row, annotation_id, populate_existing=True
+    )
+    if refreshed is None:
+        raise InvalidRequestError("Could not refresh instance")
 
 
 class _AnnotationCrossFrameSqlAdapter(AnnotationCrossFramePort):

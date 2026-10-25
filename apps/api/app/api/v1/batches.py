@@ -1017,7 +1017,7 @@ async def bulk_reject_batches(
     # 通知各批次的标注员
     pending_notifications = []
     if summary["succeeded"]:
-        loaded = await svc._load_batches_for_bulk(project_id, summary["succeeded"])
+        loaded = await svc._list_batches_in_project(project_id, summary["succeeded"])
         notif_svc = NotificationService(db)
         for batch in loaded.values():
             if batch.annotator_id and batch.annotator_id != current_user.id:

@@ -10,7 +10,10 @@ from app.application.quality_execution import execute_point_cloud_quality
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
-from app.db.models.point_cloud_quality import PointCloudQualityIssue
+from app.db.models.point_cloud_quality import (
+    PointCloudQualityIssue,
+    PointCloudQualityRun,
+)
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from aap_assets_catalog.spatial_values import SensorCalibration, calibration_digest
@@ -338,7 +341,11 @@ async def test_quality_run_singleflight_and_worker_track_findings(
     await execute_point_cloud_quality(
         db_session, run_id=first.id, celery_task_id=job.celery_task_id
     )
-    summary = first.summary
+    persisted_first = await db_session.get(
+        PointCloudQualityRun, first.id, populate_existing=True
+    )
+    assert persisted_first.status == "completed", persisted_first.error_message
+    summary = persisted_first.summary
     codes = set(
         (
             await db_session.execute(
@@ -700,7 +707,11 @@ async def test_task_scope_skips_incomplete_track_rules_without_staling_scene_iss
     await execute_point_cloud_quality(
         db_session, run_id=task_run.id, celery_task_id=None
     )
-    summary = task_run.summary
+    persisted_task_run = await db_session.get(
+        PointCloudQualityRun, task_run.id, populate_existing=True
+    )
+    assert persisted_task_run.status == "completed", persisted_task_run.error_message
+    summary = persisted_task_run.summary
     await db_session.refresh(gap)
     assert summary["skips"]["track_rules:scope_incomplete"] == 1
     assert gap.last_seen_run_id == scene_run.id

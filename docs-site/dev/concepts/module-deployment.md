@@ -2492,11 +2492,14 @@ DB bookkeeping 保留 permit → 原任务 advisory lock → 原 autoflush → c
 竞争、有序集合锁、Segment 阻塞后释放，以及只读视图写入拒绝已通过。任务匹配预检字段、
 反馈公开投影别名、批次回复 data schema、JSON 对象计数和质量作业锁语义的修正已集成。
 
-当前 22 项失败仍涉及批次异步刷新／批量读取、审计事件序列化、Scene read 请求、谱系行
-主键、部分 Native 夹具权限／清理和质量运行快照；状态筛选与分页的同路径复核继续单列。
-完整批次与失败复验的数据库、Redis、桶、限定存储身份和临时 PostgreSQL 已完成自有清理。
-当前案例结果和各次原始成功／失败回执由 `.worktree/labeling-native-cohort-checkpoint.json`
-绑定；已通过且未受后续修改影响的证据保持复用。
+继续修正过期 ORM 身份读取、批量通知调用、审计 tuple 序列化、Scene read 的 CASE 分支
+和谱系生成顺序后，最新定向 33 项通过 28 项、失败 5 项，未重跑无关通过案例。该批包含
+新增的状态分页与转换谱系案例，不能直接与旧批次相加。当前五项断点为 SceneTrack 请求
+构造、AI Mask 决策主键、QC upsert 别名、Mask 修复状态读取及转换 Native 用例清理。
+0354 的状态候选刷新与精确分页已分开，阶段标记可省略以保持原调用兼容；相机标注投影
+也补齐原版本事实。最新批次的数据库、Redis、桶、限定存储身份和临时 PostgreSQL
+均完成自有清理。当前案例结果和各次原始成功／失败回执由
+`.worktree/labeling-native-cohort-checkpoint.json` 绑定；未受修改影响的通过证据保持复用。
 
 此前独立非 editable 安装核对 Labeling 的 114 份包文件并通过 116 项包测试；本批 SQL／
 回复协议修正后，需要在后续连贯检查点更新该工件资格。Inference 的 41 份包文件、279 项

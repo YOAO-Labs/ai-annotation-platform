@@ -457,7 +457,9 @@ async def import_predictions(
                 "error_count": len(result.errors),
                 "model_version_fallback": model_version,
                 "overwrite_existing": overwrite_existing,
-                "image_size_hint": image_size_hint,
+                "image_size_hint": list(image_size_hint)
+                if image_size_hint is not None
+                else None,
                 "yolo_variant": yolo_variant if format == "yolo" else None,
             },
         )
